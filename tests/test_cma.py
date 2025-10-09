@@ -68,6 +68,27 @@ def test_merge_and_evict() -> None:
     assert len(memory) <= 1
 
 
+def test_evict_to_capacity_prefers_stale_items() -> None:
+    times = [0.0]
+
+    def time_provider() -> float:
+        return times[-1]
+
+    memory = make_memory(capacity=2, gamma=1.0, kappa=0.0, time_provider=time_provider)
+    stale_id = memory.add("Stale entry")
+    times.append(5.0)
+    fresh_id = memory.add("Fresher entry")
+    times.append(6.0)
+    newest_id = memory.add("Newest entry")
+    times.append(50.0)
+    removed = memory.evict_to_capacity()
+    remaining = set(memory._items.keys())
+    assert removed == 1
+    assert stale_id not in remaining
+    assert newest_id in remaining
+    assert fresh_id in remaining
+
+
 def test_reinforcement_updates_values() -> None:
     memory = make_memory()
     memory.add("Memory snippet for reinforcement.")

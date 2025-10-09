@@ -69,3 +69,16 @@ def test_merging_stabilises_memory_count():
     assert len(store.items()) == 1
     item = store.items()[0]
     assert item.meta.get("merges", 0) >= 1
+
+
+def test_capacity_eviction_prefers_stale_items() -> None:
+    store = make_store(capacity=2, theta_merge=2.0)
+    vec = np.ones(8, dtype=np.float32)
+    old = store.ingest("Old observation", vec, salience=0.5, fidelity=1.0)
+    old.timestamp -= 3600 * 24
+    mid = store.ingest("Mid observation", vec, salience=0.5, fidelity=1.0)
+    new = store.ingest("New observation", vec, salience=0.9, fidelity=1.0)
+    remaining = {item.id for item in store.items()}
+    assert old.id not in remaining
+    assert mid.id in remaining
+    assert new.id in remaining

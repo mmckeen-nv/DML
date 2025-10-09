@@ -187,7 +187,11 @@ class MemoryStore:
             return
         now = time.time()
         self._items.sort(
-            key=lambda item: (item.fidelity + 0.1 * item.salience + 0.01 * utils.age_in_hours(item.timestamp, now))
+            key=lambda item: (
+                item.fidelity
+                + 0.1 * item.salience
+                - 0.01 * utils.age_in_hours(item.timestamp, now)
+            )
         )
         while len(self._items) > self.capacity:
             self._items.pop(0)
