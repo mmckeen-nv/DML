@@ -1,0 +1,71 @@
+from __future__ import annotations
+
+import time
+
+import numpy as np
+
+from daystrom_dml.dml_adapter import DMLAdapter
+from daystrom_dml.memory_store import MemoryStore
+from daystrom_dml.summarizer import DummySummarizer
+
+
+def make_store(**kwargs) -> MemoryStore:
+    defaults = dict(
+        summarizer=DummySummarizer(),
+        beta_a=0.08,
+        beta_r=0.2,
+        eta=0.15,
+        gamma=0.02,
+        kappa=0.5,
+        tau_s=0.3,
+        theta_merge=0.92,
+        K=4,
+        capacity=20,
+        start_aging_loop=False,
+    )
+    defaults.update(kwargs)
+    return MemoryStore(**defaults)
+
+
+def test_ingest_retrieve_reinforce(tmp_path):
+    adapter = DMLAdapter(
+        config_overrides={
+            "model_name": "dummy",
+            "embedding_model": None,
+            "capacity": 50,
+            "token_budget": 120,
+        },
+        start_aging_loop=False,
+    )
+    adapter.ingest("The cat likes playing with yarn.")
+    adapter.ingest("We observed the dog napping in the sun.")
+    context = adapter.build_preamble("What animals are playful?")
+    assert "Daystrom Memory Lattice" in context
+    assert "=== User Prompt ===" in context
+
+    before = adapter.stats()["count"]
+    adapter.reinforce("What animals are playful?", "Cats enjoy play time.")
+    after = adapter.stats()["count"]
+    assert after >= before
+
+
+def test_decay_adjusts_abstraction_level():
+    store = make_store(tau_s=0.8)
+    embedding = np.ones(8, dtype=np.float32)
+    item = store.ingest("Test memory", embedding, salience=1.0, fidelity=1.0)
+    target_time = item.timestamp + 3600 * 24
+    store.decay_step(now=target_time)
+    items = store.items()
+    levels = [it.level for it in items]
+    assert any(level >= 1 for level in levels)
+    assert any(it.fidelity <= 1.0 for it in items)
+
+
+def test_merging_stabilises_memory_count():
+    store = make_store()
+    vec = np.ones(16, dtype=np.float32)
+    store.ingest("Alpha observation", vec, salience=0.5)
+    store.ingest("Alpha observation repeated", vec, salience=0.5)
+    assert len(store.items()) == 1
+    item = store.items()[0]
+    assert item.meta.get("merges", 0) >= 1
