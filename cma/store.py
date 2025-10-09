@@ -227,7 +227,8 @@ class ConceptMemory:
             scored.append((score, item.id))
         scored.sort(reverse=True)
         removed = 0
-        for _, item_id in scored[max_items:]:
+        to_remove = scored[: max(0, len(scored) - max_items)]
+        for _, item_id in to_remove:
             del self._items[item_id]
             removed += 1
         return removed
