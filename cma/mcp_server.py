@@ -57,11 +57,13 @@ def create_mcp_server(
         prompt: str,
         *,
         top_k: Optional[int] = None,
-        budget: Optional[int] = None,
+        token_budget: Optional[int] = None,
     ) -> dict[str, str]:
         """Return a context preamble for the supplied prompt."""
 
-        preamble = adapter.augment_prompt(prompt, top_k=top_k, budget=budget)
+        preamble = adapter.augment_prompt(
+            prompt, top_k=top_k, token_budget=token_budget
+        )
         return {"preamble": preamble}
 
     @server.tool()
