@@ -26,6 +26,7 @@ Optional extras:
 
 ```bash
 pip install -e .[server,tokenizer,embeddings,faiss]
+pip install -e .[mcp]
 ```
 
 ## Quickstart
@@ -39,6 +40,13 @@ cma query --prompt "What did we learn about the cat's behavior?"
 
 The query command prints a memory preamble followed by your prompt. Feed this to
 your LLM to provide contextual grounding.
+
+## MCP Server
+
+Install the optional ``mcp`` extra to expose the Concept Memory Adapter via the
+[Model Context Protocol](https://github.com/modelcontextprotocol). Run the
+server with ``python -m cma.mcp_server`` or embed it in your application using
+``from cma import create_mcp_server``.
 
 ## Testing
 
