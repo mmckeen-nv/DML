@@ -3,8 +3,9 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional
+from typing import Dict, List, Optional
 
 import numpy as np
 import yaml
@@ -13,6 +14,7 @@ from .embeddings import Embedder, create_embedder
 from .gpt_runner import GPTRunner
 from .memory_store import MemoryStore
 from .summarizer import DummySummarizer, LLMSummarizer, Summarizer
+from .retrievers import LiteralRetriever, LiteralResult
 from . import utils
 
 LOGGER = logging.getLogger(__name__)
@@ -50,6 +52,11 @@ class DMLAdapter:
             self.summarizer = DummySummarizer()
         else:
             self.summarizer = LLMSummarizer(self.runner)
+        self.literal_retriever = LiteralRetriever(
+            self.embedder,
+            self.summarizer,
+            context_window=int(self.config.get("literal_context", 1)),
+        )
         self.store = MemoryStore(
             self.summarizer,
             beta_a=float(self.config["beta_a"]),
@@ -115,6 +122,50 @@ class DMLAdapter:
         self.reinforce(prompt, response)
         return response
 
+    def query_database(self, prompt: str, mode: str = "auto") -> Dict:
+        """Retrieve context-aware snippets from the external corpus."""
+
+        if mode not in {"semantic", "literal", "hybrid", "auto"}:
+            raise ValueError(f"Unsupported mode: {mode}")
+        selected_mode = mode if mode != "auto" else self._classify_mode(prompt)
+        top_k = int(self.config.get("top_k", 6))
+        start = time.perf_counter()
+        query_embedding = self.embedder.embed(prompt)
+        items = self.store.items()
+        literal_results = []
+        semantic_results = []
+        if selected_mode in {"literal", "hybrid"}:
+            literal_results = self.literal_retriever.retrieve(
+                prompt, items, query_embedding, top_k=top_k
+            )
+        if selected_mode in {"semantic", "hybrid"}:
+            semantic_results = self._semantic_retrieve(query_embedding, top_k=top_k)
+        if selected_mode == "literal" and not literal_results:
+            # fall back to semantic snippets if no literal hits
+            semantic_results = self._semantic_retrieve(query_embedding, top_k=top_k)
+        alpha = self._alpha_for_mode(selected_mode)
+        combined = self._blend_results(literal_results, semantic_results, alpha, top_k=top_k)
+        context_blocks = []
+        sources: List[str] = []
+        for entry in combined:
+            source = entry.get("source") or "unknown"
+            if source not in sources and entry.get("source"):
+                sources.append(source)
+            block_lines = [f"Source: {source}"]
+            for segment in entry.get("context", []):
+                block_lines.append(segment)
+            context_blocks.append("\n".join(block_lines))
+        context = "\n\n".join(context_blocks).strip()
+        latency_ms = (time.perf_counter() - start) * 1000.0
+        token_count = utils.estimate_tokens(context)
+        return {
+            "mode": selected_mode,
+            "context": context,
+            "source_docs": sources,
+            "tokens": token_count,
+            "latency_ms": int(latency_ms),
+        }
+
     def stats(self) -> Dict:
         items = self.store.items()
         return {
@@ -136,6 +187,108 @@ class DMLAdapter:
     def _estimate_salience(self, text: str) -> float:
         tokens = utils.estimate_tokens(text)
         return float(max(0.1, min(1.0, tokens / 200.0)))
+
+    def _classify_mode(self, prompt: str) -> str:
+        prompt_lower = prompt.lower()
+        literal_signals = {
+            "show",
+            "exact",
+            "line",
+            "code",
+            "api",
+            "function",
+            "table",
+            "timestamp",
+            "error",
+            "log",
+            "fetch",
+        }
+        semantic_signals = {
+            "summary",
+            "summarize",
+            "average",
+            "overview",
+            "trend",
+            "explain",
+            "insight",
+            "compare",
+            "why",
+        }
+        literal_hits = sum(token in prompt_lower for token in literal_signals)
+        semantic_hits = sum(token in prompt_lower for token in semantic_signals)
+        if literal_hits > semantic_hits + 1:
+            return "literal"
+        if semantic_hits > literal_hits + 1:
+            return "semantic"
+        if literal_hits and semantic_hits:
+            return "hybrid"
+        # fall back to heuristic using question type
+        if any(prompt_lower.startswith(prefix) for prefix in {"how", "why", "what"}):
+            return "semantic"
+        return "literal"
+
+    def _alpha_for_mode(self, mode: str) -> float:
+        if mode == "semantic":
+            return 0.8
+        if mode == "literal":
+            return 0.2
+        if mode == "hybrid":
+            return 0.5
+        return 0.5
+
+    def _semantic_retrieve(self, query_embedding: np.ndarray, *, top_k: int) -> List[Dict]:
+        items = self.store.retrieve(query_embedding, top_k=top_k)
+        results: List[Dict] = []
+        for item in items:
+            summary = self.summarizer.summarize(item.text, max_len=220)
+            source = item.meta.get("doc_path") if item.meta else None
+            similarity = utils.cosine_similarity(item.embedding, query_embedding)
+            results.append(
+                {
+                    "text": summary,
+                    "context": [summary],
+                    "semantic_score": similarity,
+                    "literal_score": 0.0,
+                    "source": source,
+                }
+            )
+        return results
+
+    def _blend_results(
+        self,
+        literal_results: List[LiteralResult],
+        semantic_results: List[Dict],
+        alpha: float,
+        *,
+        top_k: int,
+    ) -> List[Dict]:
+        blended: List[Dict] = []
+        for res in literal_results:
+            blended.append(
+                {
+                    "context": res.context,
+                    "semantic_score": res.semantic_score,
+                    "literal_score": res.literal_score,
+                    "source": res.source,
+                }
+            )
+        blended.extend(semantic_results)
+        for entry in blended:
+            semantic_score = entry.get("semantic_score", 0.0)
+            literal_score = entry.get("literal_score", 0.0)
+            entry["final_score"] = alpha * semantic_score + (1 - alpha) * literal_score
+        blended.sort(key=lambda x: x.get("final_score", 0.0), reverse=True)
+        seen: set[str] = set()
+        deduped: List[Dict] = []
+        for entry in blended:
+            key = "|".join(entry.get("context", []))
+            if key in seen:
+                continue
+            seen.add(key)
+            deduped.append(entry)
+            if len(deduped) >= top_k:
+                break
+        return deduped
 
     def __del__(self) -> None:  # pragma: no cover - destructor best effort
         try:
