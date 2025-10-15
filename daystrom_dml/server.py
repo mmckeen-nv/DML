@@ -7,6 +7,7 @@ import shlex
 import shutil
 import subprocess
 import time
+from urllib.parse import urlparse, urlunparse
 from pathlib import Path
 from threading import Lock
 from typing import Optional
@@ -273,6 +274,7 @@ def nim_start(payload: NimStartPayload | None = None) -> dict:
             "message": message,
             "runtime": runtime,
         }
+    api_base = _configure_runtime_api_base(port)
     run_cmd = [
         docker_bin,
         "run",
@@ -320,7 +322,7 @@ def nim_start(payload: NimStartPayload | None = None) -> dict:
     if payload and payload.wait_timeout:
         wait_timeout = int(payload.wait_timeout)
     healthy, health_logs = _wait_for_nim_health(
-        CURRENT_NIM["api_base"],
+        api_base,
         api_key,
         timeout=wait_timeout,
     )
@@ -586,3 +588,43 @@ def _wait_for_nim_health(
         attempts.append(f"Health check failed: {reason or 'unknown error'}")
         time.sleep(NIM_HEALTH_INTERVAL)
     return False, attempts
+
+
+def _configure_runtime_api_base(port: int) -> str:
+    """Derive and apply the runtime API base for the configured NIM port."""
+
+    if CURRENT_NIM is None:
+        return f"http://localhost:{port}"
+    existing_base = CURRENT_NIM.get("api_base") or f"http://localhost:{port}"
+    updated_base = _nim_api_base_with_port(existing_base, port)
+    CURRENT_NIM["api_base"] = updated_base
+    os.environ["NIM_API_BASE"] = updated_base
+    os.environ["OPENAI_API_BASE"] = updated_base
+    os.environ["NIM_PORT"] = str(port)
+    runner_backend = getattr(getattr(adapter, "runner", None), "_backend", None)
+    if hasattr(runner_backend, "base_url"):
+        runner_backend.base_url = updated_base.rstrip("/")
+    return updated_base
+
+
+def _nim_api_base_with_port(api_base: str, port: int) -> str:
+    """Return the API base with the provided port applied to the netloc."""
+
+    if not api_base:
+        return f"http://localhost:{port}"
+    parsed = urlparse(api_base)
+    scheme = parsed.scheme or "http"
+    if not parsed.netloc:
+        return f"{scheme}://localhost:{port}"
+    host = parsed.hostname or "localhost"
+    if ":" in host and not host.startswith("["):
+        host = f"[{host}]"
+    userinfo = ""
+    if parsed.username:
+        userinfo = parsed.username
+        if parsed.password:
+            userinfo += f":{parsed.password}"
+        userinfo += "@"
+    netloc = f"{userinfo}{host}:{port}"
+    rebuilt = parsed._replace(netloc=netloc)
+    return urlunparse(rebuilt)
