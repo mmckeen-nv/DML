@@ -99,21 +99,9 @@ class DMLAdapter:
             LOGGER.warning("Invalid top_k value %r, falling back to 0", config_top_k)
             top_k_int = 0
         top_k = max(0, top_k_int)
-        prompt_embedding = self.embedder.embed(prompt)
-        items = self.store.retrieve(prompt_embedding, top_k=top_k)
-        budget = int(self.config.get("token_budget", 600))
-        consumed = 0
-        lines: List[str] = [STARFLEET_BANNER, "=== Daystrom Memory Lattice ==="]
-        for item in items:
-            summary = self.summarizer.summarize(item.text, max_len=180)
-            tokens = utils.estimate_tokens(summary)
-            if consumed + tokens > budget:
-                break
-            consumed += tokens
-            lines.append(f"- L{item.level} (f={item.fidelity:.2f}): {summary}")
-        lines.append("=== User Prompt ===")
-        lines.append(prompt)
-        return "\n".join(lines)
+        items = self._retrieve_items(prompt, top_k)
+        _, preamble, _ = self._prepare_context(prompt, items)
+        return preamble
 
     def reinforce(self, prompt: str, response: str, meta: Optional[Dict] = None) -> None:
         if not response:
@@ -130,6 +118,47 @@ class DMLAdapter:
         response = self.runner.generate(augmented_prompt, max_new_tokens=max_new_tokens)
         self.reinforce(prompt, response)
         return response
+
+    def retrieval_report(self, prompt: str, *, top_k: Optional[int] = None) -> Dict:
+        items = self._retrieve_items(prompt, top_k)
+        entries, preamble, tokens_used = self._prepare_context(prompt, items)
+        fidelities = [entry["fidelity"] for entry in entries]
+        avg_fidelity = float(np.mean(fidelities) if fidelities else 0.0)
+        return {
+            "entries": entries,
+            "preamble": preamble,
+            "tokens": tokens_used,
+            "avg_fidelity": avg_fidelity,
+        }
+
+    def compare_responses(
+        self,
+        prompt: str,
+        *,
+        top_k: Optional[int] = None,
+        max_new_tokens: int = 512,
+    ) -> Dict:
+        base_response = self.runner.generate(prompt, max_new_tokens=max_new_tokens)
+        base_usage = self.runner.last_usage
+        report = self.retrieval_report(prompt, top_k=top_k)
+        augmented_prompt = f"{report['preamble']}\n\n{prompt}"
+        rag_response = self.runner.generate(augmented_prompt, max_new_tokens=max_new_tokens)
+        rag_usage = self.runner.last_usage
+        self.reinforce(prompt, rag_response)
+        return {
+            "prompt": prompt,
+            "base": {
+                "response": base_response,
+                "usage": base_usage,
+            },
+            "rag": {
+                "response": rag_response,
+                "usage": rag_usage,
+                "context_tokens": report["tokens"],
+                "avg_fidelity": report["avg_fidelity"],
+                "entries": report["entries"],
+            },
+        }
 
     def query_database(self, prompt: str, mode: str = "auto") -> Dict:
         """Retrieve context-aware snippets from the external corpus."""
@@ -196,6 +225,50 @@ class DMLAdapter:
     def _estimate_salience(self, text: str) -> float:
         tokens = utils.estimate_tokens(text)
         return float(max(0.1, min(1.0, tokens / 200.0)))
+
+    def _retrieve_items(self, prompt: str, top_k: Optional[int]) -> List[MemoryStore.MemoryItem]:
+        if top_k is None:
+            config_top_k = self.config.get("top_k", 6)
+        else:
+            config_top_k = top_k
+        try:
+            top_k_int = int(config_top_k)
+        except (TypeError, ValueError):
+            LOGGER.warning("Invalid top_k value %r, falling back to 0", config_top_k)
+            top_k_int = 0
+        top_k_int = max(0, top_k_int)
+        prompt_embedding = self.embedder.embed(prompt)
+        return self.store.retrieve(prompt_embedding, top_k=top_k_int)
+
+    def _prepare_context(
+        self, prompt: str, items: List[MemoryStore.MemoryItem]
+    ) -> tuple[List[Dict], str, int]:
+        budget = int(self.config.get("token_budget", 600))
+        consumed = 0
+        lines: List[str] = [STARFLEET_BANNER, "=== Daystrom Memory Lattice ==="]
+        entries: List[Dict] = []
+        for item in items:
+            summary = self.summarizer.summarize(item.text, max_len=180)
+            tokens = utils.estimate_tokens(summary)
+            if consumed + tokens > budget:
+                break
+            consumed += tokens
+            lines.append(f"- L{item.level} (f={item.fidelity:.2f}): {summary}")
+            entries.append(
+                {
+                    "id": item.id,
+                    "summary": summary,
+                    "level": item.level,
+                    "fidelity": float(item.fidelity),
+                    "salience": float(item.salience),
+                    "meta": item.meta or {},
+                    "tokens": tokens,
+                }
+            )
+        lines.append("=== User Prompt ===")
+        lines.append(prompt)
+        preamble = "\n".join(lines)
+        return entries, preamble, consumed
 
     def _classify_mode(self, prompt: str) -> str:
         prompt_lower = prompt.lower()
