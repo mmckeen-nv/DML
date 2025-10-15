@@ -13,6 +13,34 @@
     </header>
 
     <main>
+      <section class="panel" id="nim-config">
+        <h2>NVIDIA NIM Setup</h2>
+        <p class="hint">
+          Select a NVIDIA Inference Microservice, provide your NGC API key, and let the playground
+          pull the container and configure the endpoints automatically.
+        </p>
+        <label for="nim-image">Input NIM for test</label>
+        <input
+          id="nim-image"
+          type="text"
+          placeholder="Input NIM for test. Example: nvcr.io/nim/openai/gpt-oss-20b:latest"
+          autocomplete="off"
+        />
+        <label for="ngc-api-key">NGC API key</label>
+        <input
+          id="ngc-api-key"
+          type="password"
+          placeholder="Paste your NGC API key"
+          autocomplete="off"
+        />
+        <button id="configure-nim">Pull &amp; Configure</button>
+        <div id="nim-status" class="status"></div>
+        <details id="nim-details" class="hidden">
+          <summary>Current configuration</summary>
+          <pre id="nim-config-summary"></pre>
+        </details>
+      </section>
+
       <section class="panel">
         <h2>Document Upload</h2>
         <form id="upload-form">
@@ -78,7 +106,7 @@
     </main>
 
     <footer>
-      <p>Configure your NVIDIA NIM endpoint via environment variables before starting the server.</p>
+      <p>Use the controls above to select and configure a NVIDIA NIM endpoint for the playground.</p>
     </footer>
 
     <script src="/static/app.js" type="module"></script>
