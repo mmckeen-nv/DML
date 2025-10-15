@@ -71,41 +71,88 @@
       </section>
 
       <section id="results" class="panel hidden">
-        <h2>Results</h2>
-        <div class="metrics">
-          <div>
-            <h3>Prompt Stats</h3>
-            <pre id="prompt-stats"></pre>
-          </div>
-          <div>
-            <h3>Retrieval Summary</h3>
-            <pre id="retrieval-stats"></pre>
-          </div>
+        <h2>Generation Results</h2>
+        <div class="metrics-grid">
+          <article class="metric-card">
+            <h3>Token Overview</h3>
+            <dl class="metric-list">
+              <div><dt>Prompt</dt><dd id="metric-prompt-tokens">–</dd></div>
+              <div><dt>RAG Context</dt><dd id="metric-rag-tokens">–</dd></div>
+              <div><dt>DMT Context</dt><dd id="metric-dmt-tokens">–</dd></div>
+              <div><dt>Combined Context</dt><dd id="metric-combined-tokens">–</dd></div>
+              <div><dt>Token Delta (DMT vs RAG)</dt><dd id="metric-token-delta">–</dd></div>
+            </dl>
+          </article>
+          <article class="metric-card">
+            <h3>Quality Signals</h3>
+            <dl class="metric-list">
+              <div><dt>DMT Avg. Fidelity</dt><dd id="metric-dmt-fidelity">–</dd></div>
+              <div><dt>RAG Documents</dt><dd id="metric-rag-docs">–</dd></div>
+              <div><dt>DMT Entries</dt><dd id="metric-dmt-entries">–</dd></div>
+            </dl>
+            <p class="hint">Review the context panels below to see exactly what each system passes to the LLM.</p>
+          </article>
         </div>
-        <div class="outputs">
-          <article>
-            <h3>Base Model</h3>
+        <div class="response-grid">
+          <article class="response-card">
+            <header>Base Model</header>
             <pre id="base-output"></pre>
+            <footer id="base-usage" class="usage"></footer>
           </article>
-          <article>
-            <h3>RAG Output</h3>
+          <article class="response-card">
+            <header>RAG Response</header>
             <pre id="rag-output"></pre>
+            <footer id="rag-usage" class="usage"></footer>
+          </article>
+          <article class="response-card">
+            <header>DMT Response</header>
+            <pre id="dmt-output"></pre>
+            <footer id="dmt-usage" class="usage"></footer>
+          </article>
+          <article class="response-card">
+            <header>Combined Response</header>
+            <pre id="combined-output"></pre>
+            <footer id="combined-usage" class="usage"></footer>
           </article>
         </div>
-        <div>
-          <h3>Retrieved Entries</h3>
-          <table id="entries-table">
-            <thead>
-              <tr>
-                <th>ID</th>
-                <th>Level</th>
-                <th>Fidelity</th>
-                <th>Tokens</th>
-                <th>Summary</th>
-              </tr>
-            </thead>
-            <tbody></tbody>
-          </table>
+        <div class="context-grid">
+          <article class="context-card">
+            <header>RAG Context</header>
+            <pre id="rag-context"></pre>
+            <table id="rag-documents" class="data-table">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Score</th>
+                  <th>Tokens</th>
+                  <th>Source</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </article>
+          <article class="context-card">
+            <header>DMT Context</header>
+            <pre id="dmt-context"></pre>
+            <table id="dmt-entries" class="data-table">
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Level</th>
+                  <th>Fidelity</th>
+                  <th>Tokens</th>
+                  <th>Summary</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </article>
+          <article class="context-card">
+            <header>Insights</header>
+            <div class="insight-copy">
+              <p id="insight-copy"></p>
+            </div>
+          </article>
         </div>
       </section>
     </main>

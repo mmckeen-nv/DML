@@ -15,6 +15,7 @@ from .gpt_runner import GPTRunner
 from .memory_store import MemoryStore
 from .summarizer import DummySummarizer, LLMSummarizer, Summarizer
 from .retrievers import LiteralRetriever, LiteralResult
+from .rag_store import SimpleRAGStore
 from . import utils
 
 LOGGER = logging.getLogger(__name__)
@@ -57,6 +58,7 @@ class DMLAdapter:
             self.summarizer,
             context_window=int(self.config.get("literal_context", 1)),
         )
+        self.rag_store = SimpleRAGStore(self.embedder)
         self.store = MemoryStore(
             self.summarizer,
             beta_a=float(self.config["beta_a"]),
@@ -87,6 +89,7 @@ class DMLAdapter:
         embedding = self.embedder.embed(text)
         salience = self._estimate_salience(text)
         self.store.ingest(text, embedding, salience=salience, meta=meta)
+        self.rag_store.add_document(text, meta=meta)
 
     def build_preamble(self, prompt: str, top_k: Optional[int] = None) -> str:
         if top_k is None:
@@ -140,11 +143,30 @@ class DMLAdapter:
     ) -> Dict:
         base_response = self.runner.generate(prompt, max_new_tokens=max_new_tokens)
         base_usage = self.runner.last_usage
-        report = self.retrieval_report(prompt, top_k=top_k)
-        augmented_prompt = f"{report['preamble']}\n\n{prompt}"
-        rag_response = self.runner.generate(augmented_prompt, max_new_tokens=max_new_tokens)
+
+        rag_top_k = self.config.get("top_k", 6) if top_k is None else top_k
+        rag_report = self.rag_store.report(prompt, top_k=rag_top_k)
+        rag_context = self._format_rag_context(rag_report["context"])
+        rag_prompt = self._compose_prompt(prompt, rag_context)
+        rag_response = self.runner.generate(rag_prompt, max_new_tokens=max_new_tokens)
         rag_usage = self.runner.last_usage
-        self.reinforce(prompt, rag_response)
+
+        dmt_report = self.retrieval_report(prompt, top_k=top_k)
+        dmt_context = self._format_dmt_context(dmt_report["entries"])
+        dmt_prompt = self._compose_prompt(prompt, dmt_context)
+        dmt_response = self.runner.generate(dmt_prompt, max_new_tokens=max_new_tokens)
+        dmt_usage = self.runner.last_usage
+        self.reinforce(prompt, dmt_response)
+
+        combined_context_parts = []
+        if rag_context:
+            combined_context_parts.append(rag_context)
+        if dmt_context:
+            combined_context_parts.append(dmt_context)
+        combined_context = "\n\n".join(part for part in combined_context_parts if part).strip()
+        combined_prompt = self._compose_prompt(prompt, combined_context)
+        combined_response = self.runner.generate(combined_prompt, max_new_tokens=max_new_tokens)
+        combined_usage = self.runner.last_usage
         return {
             "prompt": prompt,
             "base": {
@@ -154,9 +176,23 @@ class DMLAdapter:
             "rag": {
                 "response": rag_response,
                 "usage": rag_usage,
-                "context_tokens": report["tokens"],
-                "avg_fidelity": report["avg_fidelity"],
-                "entries": report["entries"],
+                "context": rag_context,
+                "context_tokens": rag_report["tokens"],
+                "documents": rag_report["documents"],
+            },
+            "dmt": {
+                "response": dmt_response,
+                "usage": dmt_usage,
+                "context": dmt_context,
+                "context_tokens": utils.estimate_tokens(dmt_context),
+                "avg_fidelity": dmt_report["avg_fidelity"],
+                "entries": dmt_report["entries"],
+            },
+            "combined": {
+                "response": combined_response,
+                "usage": combined_usage,
+                "context": combined_context,
+                "context_tokens": utils.estimate_tokens(combined_context),
             },
         }
 
@@ -215,6 +251,29 @@ class DMLAdapter:
     # ------------------------------------------------------------------
     # helpers
     # ------------------------------------------------------------------
+    def _format_rag_context(self, context: str) -> str:
+        if not context:
+            return ""
+        return "=== RAG Retrieval ===\n" + context.strip()
+
+    def _format_dmt_context(self, entries: List[Dict]) -> str:
+        if not entries:
+            return ""
+        lines = [STARFLEET_BANNER, "=== Daystrom Memory Lattice ==="]
+        for entry in entries:
+            lines.append(
+                f"- L{entry['level']} (f={entry['fidelity']:.2f}): {entry['summary']}"
+            )
+        return "\n".join(lines)
+
+    def _compose_prompt(self, prompt: str, context: str) -> str:
+        blocks: List[str] = []
+        if context:
+            blocks.append(context.strip())
+        blocks.append("=== User Prompt ===")
+        blocks.append(prompt.strip())
+        return "\n\n".join(blocks)
+
     def _load_config(self, path: str | os.PathLike | None) -> Dict:
         default_path = Path(__file__).with_name("config.yaml")
         config_file = Path(path) if path else default_path

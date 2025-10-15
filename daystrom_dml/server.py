@@ -155,8 +155,14 @@ def query(payload: QueryPayload) -> dict:
 
 @app.post("/rag/retrieve")
 def rag_retrieve(payload: QueryPayload) -> dict:
-    report = adapter.retrieval_report(payload.prompt)
-    return report
+    rag_top_k = adapter.config.get("top_k", 6)
+    rag_report = adapter.rag_store.report(payload.prompt, top_k=rag_top_k)
+    dmt_report = adapter.retrieval_report(payload.prompt)
+    return {
+        "prompt": payload.prompt,
+        "rag": rag_report,
+        "dmt": dmt_report,
+    }
 
 
 @app.post("/rag/compare")
@@ -280,6 +286,7 @@ def nim_start(payload: NimStartPayload | None = None) -> dict:
         "run",
         "-d",
         "--rm",
+        "--gpus=all",
         "--name",
         NIM_CONTAINER_NAME,
         "-p",

@@ -26,27 +26,27 @@ header h1 {
 }
 
 main {
-  max-width: 1100px;
+  max-width: 1200px;
   margin: 0 auto;
-  padding: 2rem 1.5rem 4rem;
+  padding: 2.5rem 1.5rem 4rem;
   display: grid;
-  gap: 1.5rem;
+  gap: 1.75rem;
 }
 
 .panel {
-  background: rgba(13, 33, 50, 0.8);
+  background: rgba(13, 33, 50, 0.85);
   border: 1px solid rgba(92, 160, 255, 0.35);
-  border-radius: 14px;
-  padding: 1.5rem;
-  box-shadow: 0 24px 40px rgba(3, 15, 30, 0.5);
+  border-radius: 16px;
+  padding: 1.75rem;
+  box-shadow: 0 28px 48px rgba(3, 15, 30, 0.55);
 }
 
 .panel h2 {
   margin-top: 0;
   border-bottom: 1px solid rgba(92, 160, 255, 0.25);
-  padding-bottom: 0.5rem;
+  padding-bottom: 0.65rem;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.1em;
 }
 
 label {
@@ -109,6 +109,7 @@ button:hover {
   margin-bottom: 1rem;
 }
 
+
 .status {
   margin-top: 0.75rem;
   min-height: 1.5rem;
@@ -118,7 +119,7 @@ button:hover {
 }
 
 .hint {
-  margin-top: 0;
+  margin-top: 0.25rem;
   color: rgba(229, 244, 255, 0.78);
 }
 
@@ -134,46 +135,162 @@ details pre {
   display: none;
 }
 
-.metrics {
+.metrics-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: 1.5rem;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 1.25rem;
 }
 
-.metrics pre,
-.outputs pre {
-  background: rgba(7, 15, 25, 0.8);
-  border-radius: 12px;
-  padding: 1rem;
+.metric-card {
+  background: rgba(7, 18, 30, 0.85);
+  border: 1px solid rgba(92, 160, 255, 0.2);
+  border-radius: 14px;
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.metric-card h3 {
+  margin: 0;
+  font-size: 0.95rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(173, 210, 255, 0.95);
+}
+
+.metric-list {
+  margin: 0;
+  display: grid;
+  gap: 0.6rem;
+}
+
+.metric-list div {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-feature-settings: "tnum";
+}
+
+.metric-list dt {
+  font-weight: 600;
+  color: rgba(173, 210, 255, 0.9);
+}
+
+.metric-list dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+  color: #f5fbff;
+}
+
+.response-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 1.25rem;
+}
+
+.response-card {
+  background: rgba(7, 18, 30, 0.85);
+  border: 1px solid rgba(92, 160, 255, 0.2);
+  border-radius: 14px;
+  display: flex;
+  flex-direction: column;
+}
+
+.response-card header {
+  padding: 0.9rem 1.1rem;
+  border-bottom: 1px solid rgba(92, 160, 255, 0.2);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.response-card pre {
+  flex: 1;
+  margin: 0;
+  padding: 1rem 1.1rem;
+  background: rgba(5, 12, 20, 0.9);
+  border: none;
+  border-top: 1px solid rgba(92, 160, 255, 0.12);
+  border-bottom: 1px solid rgba(92, 160, 255, 0.12);
+  border-radius: 0;
   white-space: pre-wrap;
   word-break: break-word;
   overflow-wrap: anywhere;
-  border: 1px solid rgba(92, 160, 255, 0.2);
   max-height: 320px;
   overflow-y: auto;
 }
 
-.outputs {
+.usage {
+  padding: 0.75rem 1.1rem;
+  font-size: 0.85rem;
+  color: rgba(213, 232, 255, 0.78);
+  min-height: 1.25rem;
+}
+
+.context-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 1.5rem;
+  gap: 1.25rem;
 }
 
-#entries-table {
+.context-card {
+  background: rgba(7, 18, 30, 0.85);
+  border: 1px solid rgba(92, 160, 255, 0.2);
+  border-radius: 14px;
+  padding: 1.2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.context-card header {
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  border-bottom: 1px solid rgba(92, 160, 255, 0.18);
+  padding-bottom: 0.5rem;
+}
+
+.context-card pre {
+  margin: 0;
+  background: rgba(5, 12, 20, 0.9);
+  border: 1px solid rgba(92, 160, 255, 0.12);
+  border-radius: 10px;
+  padding: 0.9rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.data-table {
   width: 100%;
   border-collapse: collapse;
-  margin-top: 1rem;
+  border-radius: 10px;
+  overflow: hidden;
+  font-size: 0.85rem;
 }
 
-#entries-table th,
-#entries-table td {
-  border: 1px solid rgba(76, 154, 255, 0.2);
-  padding: 0.5rem;
+.data-table th,
+.data-table td {
+  border: 1px solid rgba(76, 154, 255, 0.18);
+  padding: 0.45rem 0.6rem;
   text-align: left;
 }
 
-#entries-table tbody tr:nth-child(odd) {
-  background: rgba(9, 20, 32, 0.8);
+.data-table tbody tr:nth-child(odd) {
+  background: rgba(9, 20, 32, 0.82);
+}
+
+.insight-copy {
+  flex: 1;
+  background: rgba(5, 12, 20, 0.85);
+  border: 1px solid rgba(92, 160, 255, 0.12);
+  border-radius: 10px;
+  padding: 1rem;
+  color: rgba(229, 244, 255, 0.88);
+  line-height: 1.5;
 }
 
 .nim-actions {
