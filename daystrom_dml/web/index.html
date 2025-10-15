@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>DML Playground</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <header>
+      <h1>Daystrom Memory Lattice Playground</h1>
+      <p>Upload documents, run retrieval augmented generation, and compare model responses.</p>
+    </header>
+
+    <main>
+      <section class="panel">
+        <h2>Document Upload</h2>
+        <form id="upload-form">
+          <label for="file-input" class="file-label">Choose PDF or text file</label>
+          <input id="file-input" type="file" accept=".txt,.pdf" />
+          <button type="submit">Upload &amp; Ingest</button>
+        </form>
+        <div id="upload-status" class="status"></div>
+      </section>
+
+      <section class="panel">
+        <h2>RAG Comparison</h2>
+        <label for="prompt">Prompt</label>
+        <textarea id="prompt" rows="6" placeholder="Ask a question..."></textarea>
+        <div class="controls">
+          <label for="top-k">Top K</label>
+          <input id="top-k" type="number" min="0" value="6" />
+          <label for="max-tokens">Max new tokens</label>
+          <input id="max-tokens" type="number" min="32" value="512" />
+          <button id="run-compare">Run Comparison</button>
+        </div>
+        <div id="compare-status" class="status"></div>
+      </section>
+
+      <section id="results" class="panel hidden">
+        <h2>Results</h2>
+        <div class="metrics">
+          <div>
+            <h3>Prompt Stats</h3>
+            <pre id="prompt-stats"></pre>
+          </div>
+          <div>
+            <h3>Retrieval Summary</h3>
+            <pre id="retrieval-stats"></pre>
+          </div>
+        </div>
+        <div class="outputs">
+          <article>
+            <h3>Base Model</h3>
+            <pre id="base-output"></pre>
+          </article>
+          <article>
+            <h3>RAG Output</h3>
+            <pre id="rag-output"></pre>
+          </article>
+        </div>
+        <div>
+          <h3>Retrieved Entries</h3>
+          <table id="entries-table">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Level</th>
+                <th>Fidelity</th>
+                <th>Tokens</th>
+                <th>Summary</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <p>Configure your NVIDIA NIM endpoint via environment variables before starting the server.</p>
+    </footer>
+
+    <script src="/static/app.js" type="module"></script>
+  </body>
+</html>
