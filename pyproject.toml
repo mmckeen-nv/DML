@@ -36,6 +36,9 @@ tokenizer = ["tiktoken>=0.4"]
 embeddings = ["sentence-transformers>=2.2"]
 faiss = ["faiss-cpu>=1.7"]
 mcp = ["mcp>=0.1.0"]
+dev = [
+    "pytest>=7.4",
+]
 
 [project.scripts]
 cma = "cma.cli:app"

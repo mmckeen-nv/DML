@@ -29,6 +29,25 @@ pip install -e .[server,tokenizer,embeddings,faiss]
 pip install -e .[mcp]
 ```
 
+## One-click deployment & testing
+
+The repository ships with a helper script that provisions an isolated virtual
+environment, installs all optional dependencies, and executes the full pytest
+suite. Run it from the project root:
+
+```bash
+./scripts/one_click_deploy.sh
+```
+
+Use the ``--skip-tests`` flag if you only need the environment set up:
+
+```bash
+./scripts/one_click_deploy.sh --skip-tests
+```
+
+After the script finishes you can activate the environment with
+``source .venv/bin/activate``.
+
 ## Web playground & API service
 
 Install the ``server`` extra and launch the FastAPI application:
