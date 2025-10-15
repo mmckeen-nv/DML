@@ -82,7 +82,16 @@ class DMLAdapter:
         self.store.ingest(text, embedding, salience=salience, meta=meta)
 
     def build_preamble(self, prompt: str, top_k: Optional[int] = None) -> str:
-        top_k = top_k or int(self.config.get("top_k", 6))
+        if top_k is None:
+            config_top_k = self.config.get("top_k", 6)
+        else:
+            config_top_k = top_k
+        try:
+            top_k_int = int(config_top_k)
+        except (TypeError, ValueError):
+            LOGGER.warning("Invalid top_k value %r, falling back to 0", config_top_k)
+            top_k_int = 0
+        top_k = max(0, top_k_int)
         prompt_embedding = self.embedder.embed(prompt)
         items = self.store.retrieve(prompt_embedding, top_k=top_k)
         budget = int(self.config.get("token_budget", 600))
