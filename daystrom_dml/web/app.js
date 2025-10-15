@@ -18,17 +18,31 @@ const configureNimButton = document.querySelector('#configure-nim');
 const nimStatus = document.querySelector('#nim-status');
 const nimDetails = document.querySelector('#nim-details');
 const nimConfigSummary = document.querySelector('#nim-config-summary');
+const startNimButton = document.querySelector('#start-nim');
+const stopNimButton = document.querySelector('#stop-nim');
+const nimRuntimeStatus = document.querySelector('#nim-runtime-status');
 
 const API = {
   upload: '/upload',
   compare: '/rag/compare',
   nimOptions: '/nim/options',
   nimConfigure: '/nim/configure',
+  nimStart: '/nim/start',
+  nimStop: '/nim/stop',
 };
+
+let nimConfigured = false;
 
 if (nimImageInput && configureNimButton && nimStatus) {
   loadNimStatus();
   configureNimButton.addEventListener('click', configureNimEndpoint);
+}
+
+if (startNimButton && stopNimButton) {
+  startNimButton.disabled = true;
+  stopNimButton.disabled = true;
+  startNimButton.addEventListener('click', startNimContainer);
+  stopNimButton.addEventListener('click', stopNimContainer);
 }
 
 uploadForm.addEventListener('submit', async (event) => {
@@ -138,8 +152,10 @@ async function loadNimStatus() {
       throw new Error('Failed to load NIM status');
     }
     const payload = await response.json();
+    nimConfigured = Boolean(payload.current);
+    updateRuntimeStatus(payload.runtime, nimConfigured);
     if (payload.current) {
-      renderNimSummary(payload.current, 'Using previously configured NIM.');
+      renderNimSummary(payload.current, 'Using previously configured NIM.', payload);
     } else {
       nimStatus.textContent = 'Input the NVIDIA NIM image and provide your NGC API key to begin.';
     }
@@ -175,6 +191,7 @@ async function configureNimEndpoint() {
     const payload = await response.json();
     ngcApiKeyInput.value = '';
     const message = buildStatusMessage(payload);
+    nimConfigured = true;
     renderNimSummary(payload.nim, message, payload);
   } catch (err) {
     console.error(err);
@@ -202,6 +219,7 @@ function renderNimSummary(nim, message, payload) {
   if (!nim) {
     nimDetails.classList.add('hidden');
     nimConfigSummary.textContent = '';
+    updateRuntimeStatus(payload?.runtime, nimConfigured, message || payload?.message, payload?.logs);
     return;
   }
   const summary = {
@@ -217,4 +235,108 @@ function renderNimSummary(nim, message, payload) {
   }
   nimConfigSummary.textContent = JSON.stringify(summary, null, 2);
   nimDetails.classList.remove('hidden');
+  updateRuntimeStatus(payload?.runtime, nimConfigured, message || payload?.message, payload?.logs);
+}
+
+function updateRuntimeStatus(runtime, isConfigured, message, logs) {
+  if (!nimRuntimeStatus) {
+    return;
+  }
+  const lines = [];
+  if (message) {
+    lines.push(message);
+  }
+  if (!isConfigured) {
+    lines.push('Configure a NIM to enable runtime controls.');
+    if (startNimButton) startNimButton.disabled = true;
+    if (stopNimButton) stopNimButton.disabled = true;
+    if (Array.isArray(logs) && logs.length) {
+      lines.push(...logs);
+    }
+    nimRuntimeStatus.textContent = lines.join('\n');
+    return;
+  }
+  if (!runtime) {
+    lines.push('Runtime status unavailable.');
+    if (startNimButton) startNimButton.disabled = false;
+    if (stopNimButton) stopNimButton.disabled = true;
+    if (Array.isArray(logs) && logs.length) {
+      lines.push(...logs);
+    }
+    nimRuntimeStatus.textContent = lines.join('\n');
+    return;
+  }
+  if (runtime.docker_available === false) {
+    lines.push('Docker is not available on this server.');
+  }
+  if (runtime.running) {
+    lines.push(runtime.healthy ? 'NIM container is running.' : 'NIM container is starting…');
+  } else {
+    lines.push('NIM container is stopped.');
+  }
+  if (runtime.container_id) {
+    const containerIdStr = String(runtime.container_id);
+    const shortId = containerIdStr.slice(0, 12);
+    const truncated = containerIdStr.length > shortId.length ? '…' : '';
+    lines.push(`Container ID: ${shortId}${truncated}`);
+  }
+  if (Array.isArray(logs) && logs.length) {
+    lines.push(...logs);
+  }
+  const dockerMissing = runtime.docker_available === false;
+  if (startNimButton) {
+    startNimButton.disabled = !isConfigured || runtime.running || dockerMissing;
+  }
+  if (stopNimButton) {
+    stopNimButton.disabled = !isConfigured || !runtime.running;
+  }
+  nimRuntimeStatus.textContent = lines.join('\n');
+}
+
+async function startNimContainer() {
+  if (!nimConfigured) {
+    updateRuntimeStatus(null, false, 'Configure a NIM before starting it.');
+    return;
+  }
+  updateRuntimeStatus({ running: false }, true, 'Starting NIM…');
+  if (startNimButton) startNimButton.disabled = true;
+  if (stopNimButton) stopNimButton.disabled = true;
+  try {
+    const response = await fetch(API.nimStart, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.detail || 'Failed to start NIM');
+    }
+    const payload = await response.json();
+    updateRuntimeStatus(payload.runtime, nimConfigured, payload.message, payload.logs);
+  } catch (err) {
+    console.error(err);
+    updateRuntimeStatus(null, nimConfigured, `Error: ${err.message}`);
+  }
+}
+
+async function stopNimContainer() {
+  updateRuntimeStatus({ running: true }, nimConfigured, 'Stopping NIM…');
+  if (startNimButton) startNimButton.disabled = true;
+  if (stopNimButton) stopNimButton.disabled = true;
+  try {
+    const response = await fetch(API.nimStop, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.detail || 'Failed to stop NIM');
+    }
+    const payload = await response.json();
+    updateRuntimeStatus(payload.runtime, nimConfigured, payload.message, payload.logs);
+  } catch (err) {
+    console.error(err);
+    updateRuntimeStatus(null, nimConfigured, `Error: ${err.message}`);
+  }
 }

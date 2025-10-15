@@ -112,6 +112,9 @@ button:hover {
 .status {
   margin-top: 0.75rem;
   min-height: 1.5rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 .hint {
@@ -143,6 +146,8 @@ details pre {
   border-radius: 12px;
   padding: 1rem;
   white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
   border: 1px solid rgba(92, 160, 255, 0.2);
   max-height: 320px;
   overflow-y: auto;
@@ -169,6 +174,35 @@ details pre {
 
 #entries-table tbody tr:nth-child(odd) {
   background: rgba(9, 20, 32, 0.8);
+}
+
+.nim-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+  margin-top: 1rem;
+}
+
+.nim-actions button {
+  margin-top: 0;
+}
+
+button.secondary {
+  background: transparent;
+  color: inherit;
+  border: 1px solid rgba(126, 195, 255, 0.6);
+}
+
+button.secondary:hover {
+  box-shadow: none;
+  transform: none;
+}
+
+textarea {
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 footer {
