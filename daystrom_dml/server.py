@@ -3,8 +3,10 @@ from __future__ import annotations
 
 import io
 import os
+import shlex
 import shutil
 import subprocess
+import time
 from pathlib import Path
 from threading import Lock
 from typing import Optional
@@ -17,6 +19,11 @@ from pypdf import PdfReader
 
 from . import utils
 from .dml_adapter import DMLAdapter
+
+try:  # requests is an optional dependency during some test scenarios
+    import requests
+except Exception:  # pragma: no cover - defensive fallback for minimal envs
+    requests = None
 
 WEB_DIR = Path(__file__).with_name("web")
 
@@ -52,6 +59,12 @@ NIM_OPTIONS = [
 ]
 
 CURRENT_NIM: Optional[dict] = None
+CURRENT_NIM_RUNTIME: dict = {"container_id": None, "running": False, "healthy": False}
+
+NIM_CONTAINER_NAME = os.environ.get("NIM_CONTAINER_NAME", "daystrom-dml-nim")
+NIM_DEFAULT_PORT = int(os.environ.get("NIM_PORT", "8000"))
+NIM_HEALTH_TIMEOUT = int(os.environ.get("NIM_HEALTH_TIMEOUT", "60"))
+NIM_HEALTH_INTERVAL = float(os.environ.get("NIM_HEALTH_INTERVAL", "5"))
 
 
 class TextPayload(BaseModel):
@@ -73,6 +86,16 @@ class NimConfigurePayload(BaseModel):
     nim_id: Optional[str] = None
     nim_image: Optional[str] = None
     api_key: str
+
+
+class NimStartPayload(BaseModel):
+    port: Optional[int] = None
+    cache_dir: Optional[str] = None
+    wait_timeout: Optional[int] = None
+
+
+class NimStopPayload(BaseModel):
+    timeout: Optional[int] = None
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -137,11 +160,16 @@ def rag_retrieve(payload: QueryPayload) -> dict:
 
 @app.post("/rag/compare")
 def rag_compare(payload: ComparePayload) -> dict:
-    result = adapter.compare_responses(
-        payload.prompt,
-        top_k=payload.top_k,
-        max_new_tokens=payload.max_new_tokens or 512,
-    )
+    try:
+        result = adapter.compare_responses(
+            payload.prompt,
+            top_k=payload.top_k,
+            max_new_tokens=payload.max_new_tokens or 512,
+        )
+    except Exception as exc:
+        if requests and isinstance(exc, requests.RequestException):
+            raise HTTPException(status_code=503, detail="NIM backend is unreachable. Start the container and try again.")
+        raise
     prompt_tokens = utils.estimate_tokens(payload.prompt)
     return {
         **result,
@@ -161,6 +189,7 @@ def nim_options() -> dict:
     return {
         "options": NIM_OPTIONS,
         "current": CURRENT_NIM,
+        "runtime": _runtime_status(),
     }
 
 
@@ -192,11 +221,171 @@ def nim_configure(payload: NimConfigurePayload) -> dict:
     }
     global CURRENT_NIM
     CURRENT_NIM = summary
+    CURRENT_NIM_RUNTIME.update({"running": False, "healthy": False, "container_id": None})
     return {
         "status": "ok",
         "nim": summary,
         "pull_status": pull_status,
         "logs": pull_logs,
+        "runtime": _runtime_status(),
+    }
+
+
+@app.post("/nim/start")
+def nim_start(payload: NimStartPayload | None = None) -> dict:
+    """Start the configured NIM container and wait for it to become healthy."""
+
+    if CURRENT_NIM is None:
+        raise HTTPException(status_code=400, detail="Configure a NIM before attempting to start it.")
+    docker_bin = shutil.which("docker")
+    runtime = _runtime_status()
+    if not docker_bin:
+        return {
+            "status": "skipped",
+            "message": "Docker binary not available on server; cannot start NIM.",
+            "runtime": runtime,
+        }
+    api_key = os.environ.get("NIM_API_KEY") or os.environ.get("OPENAI_API_KEY") or os.environ.get("NGC_API_KEY")
+    port = NIM_DEFAULT_PORT
+    if payload and payload.port:
+        port = int(payload.port)
+    cache_dir = None
+    if payload and payload.cache_dir:
+        cache_dir = Path(payload.cache_dir).expanduser()
+    else:
+        cache_env = os.environ.get("LOCAL_NIM_CACHE")
+        if cache_env:
+            cache_dir = Path(cache_env).expanduser()
+    if cache_dir:
+        try:
+            cache_dir.mkdir(parents=True, exist_ok=True)
+        except Exception:  # pragma: no cover - best effort for unusual permissions
+            cache_dir = None
+    if runtime.get("running"):
+        healthy, reason = _nim_healthcheck(CURRENT_NIM["api_base"], api_key)
+        CURRENT_NIM_RUNTIME.update({"healthy": healthy})
+        runtime = _runtime_status()
+        message = "NIM container already running and healthy." if healthy else (
+            "NIM container is running but not responding yet." + (f" Reason: {reason}" if reason else "")
+        )
+        return {
+            "status": "running" if healthy else "starting",
+            "message": message,
+            "runtime": runtime,
+        }
+    run_cmd = [
+        docker_bin,
+        "run",
+        "-d",
+        "--rm",
+        "--name",
+        NIM_CONTAINER_NAME,
+        "-p",
+        f"{port}:8000",
+    ]
+    extra_opts = os.environ.get("NIM_DOCKER_RUN_OPTS")
+    if extra_opts:
+        run_cmd.extend(shlex.split(extra_opts))
+    if cache_dir:
+        run_cmd.extend(["-v", f"{cache_dir}:/opt/nim/.cache"])
+    if api_key:
+        run_cmd.extend(["-e", f"NGC_API_KEY={api_key}"])
+    run_cmd.append(CURRENT_NIM["image"])
+    logs: list[str] = []
+    try:
+        run_proc = subprocess.run(
+            run_cmd,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=120,
+        )
+    except Exception as exc:  # pragma: no cover - subprocess errors are environment dependent
+        raise HTTPException(status_code=500, detail=f"Failed to launch NIM container: {exc}") from exc
+    if run_proc.stdout:
+        logs.append(run_proc.stdout.strip())
+    if run_proc.stderr:
+        logs.append(run_proc.stderr.strip())
+    if run_proc.returncode != 0:
+        runtime = _runtime_status()
+        return {
+            "status": "error",
+            "message": "Docker failed to start the NIM container.",
+            "logs": logs,
+            "runtime": runtime,
+        }
+    container_id = run_proc.stdout.strip()
+    CURRENT_NIM_RUNTIME.update({"container_id": container_id or None, "running": True, "healthy": False})
+    wait_timeout = NIM_HEALTH_TIMEOUT
+    if payload and payload.wait_timeout:
+        wait_timeout = int(payload.wait_timeout)
+    healthy, health_logs = _wait_for_nim_health(
+        CURRENT_NIM["api_base"],
+        api_key,
+        timeout=wait_timeout,
+    )
+    CURRENT_NIM_RUNTIME.update({"healthy": healthy})
+    runtime = _runtime_status()
+    logs.extend(health_logs)
+    status = "running" if healthy else "starting"
+    message = "NIM container is ready." if healthy else "NIM container launched but health check timed out."
+    return {
+        "status": status,
+        "message": message,
+        "logs": logs,
+        "runtime": runtime,
+    }
+
+
+@app.post("/nim/stop")
+def nim_stop(payload: NimStopPayload | None = None) -> dict:
+    """Stop the managed NIM container."""
+
+    docker_bin = shutil.which("docker")
+    runtime = _runtime_status()
+    if not docker_bin:
+        return {
+            "status": "skipped",
+            "message": "Docker binary not available on server; cannot stop NIM.",
+            "runtime": runtime,
+        }
+    if not runtime.get("running"):
+        return {
+            "status": "not-running",
+            "message": "No running NIM container detected.",
+            "runtime": runtime,
+        }
+    timeout = 60
+    if payload and payload.timeout:
+        timeout = int(payload.timeout)
+    stop_cmd = [docker_bin, "stop", NIM_CONTAINER_NAME]
+    logs: list[str] = []
+    stop_proc = subprocess.run(
+        stop_cmd,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=timeout,
+    )
+    if stop_proc.stdout:
+        logs.append(stop_proc.stdout.strip())
+    if stop_proc.stderr:
+        logs.append(stop_proc.stderr.strip())
+    if stop_proc.returncode != 0:
+        runtime = _runtime_status()
+        return {
+            "status": "error",
+            "message": "Docker failed to stop the NIM container.",
+            "logs": logs,
+            "runtime": runtime,
+        }
+    CURRENT_NIM_RUNTIME.update({"running": False, "healthy": False, "container_id": None})
+    runtime = _runtime_status()
+    return {
+        "status": "stopped",
+        "message": "NIM container stopped.",
+        "logs": logs,
+        "runtime": runtime,
     }
 
 
@@ -308,3 +497,92 @@ def _reload_adapter(*, config_overrides: Optional[dict] = None) -> None:
             previous.close()
         except Exception:
             pass
+
+
+def _runtime_status() -> dict:
+    """Return the current runtime view of the managed NIM container."""
+
+    docker_bin = shutil.which("docker")
+    running = CURRENT_NIM_RUNTIME.get("running", False)
+    healthy = CURRENT_NIM_RUNTIME.get("healthy", False)
+    container_id = CURRENT_NIM_RUNTIME.get("container_id")
+    if docker_bin:
+        ps_proc = subprocess.run(
+            [docker_bin, "ps", "-q", "--filter", f"name={NIM_CONTAINER_NAME}"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        listed = ps_proc.stdout.strip().splitlines()
+        if listed:
+            container_id = listed[0]
+            running = True
+        else:
+            running = False
+            healthy = False
+            container_id = None
+    else:
+        healthy = healthy if running else False
+    CURRENT_NIM_RUNTIME.update(
+        {
+            "running": running,
+            "healthy": healthy if running else False,
+            "container_id": container_id,
+        }
+    )
+    return {
+        "running": CURRENT_NIM_RUNTIME["running"],
+        "healthy": CURRENT_NIM_RUNTIME["healthy"],
+        "container_id": CURRENT_NIM_RUNTIME["container_id"],
+        "container_name": NIM_CONTAINER_NAME,
+        "docker_available": docker_bin is not None,
+    }
+
+
+def _nim_healthcheck(api_base: str, api_key: Optional[str]) -> tuple[bool, Optional[str]]:
+    """Perform a lightweight request to verify the NIM endpoint is responsive."""
+
+    if not requests:
+        return False, "Requests library unavailable; cannot perform health check."
+    if not api_base:
+        return False, "NIM API base URL is not configured."
+    url = f"{api_base.rstrip('/')}/v1/chat/completions"
+    headers = {"Content-Type": "application/json"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    payload = {
+        "model": CURRENT_NIM["model_name"] if CURRENT_NIM else "model",
+        "messages": [{"role": "user", "content": "Are you alive?"}],
+        "max_tokens": 8,
+        "temperature": 0.0,
+    }
+    try:
+        response = requests.post(url, json=payload, headers=headers, timeout=10)
+    except requests.RequestException as exc:  # pragma: no cover - network dependent
+        return False, str(exc)
+    if response.status_code in {200, 401, 403}:
+        return True, None
+    text = response.text[:200] if response.text else f"status {response.status_code}"
+    return False, text
+
+
+def _wait_for_nim_health(
+    api_base: str,
+    api_key: Optional[str],
+    *,
+    timeout: int,
+) -> tuple[bool, list[str]]:
+    """Poll the NIM endpoint until it responds or the timeout elapses."""
+
+    deadline = time.time() + max(timeout, 1)
+    attempts: list[str] = []
+    if not requests:
+        attempts.append("Requests library unavailable; skipping health polling.")
+        return False, attempts
+    while time.time() < deadline:
+        healthy, reason = _nim_healthcheck(api_base, api_key)
+        if healthy:
+            return True, attempts
+        attempts.append(f"Health check failed: {reason or 'unknown error'}")
+        time.sleep(NIM_HEALTH_INTERVAL)
+    return False, attempts

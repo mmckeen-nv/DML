@@ -33,8 +33,13 @@
           placeholder="Paste your NGC API key"
           autocomplete="off"
         />
-        <button id="configure-nim">Pull &amp; Configure</button>
+        <div class="nim-actions">
+          <button id="configure-nim">Pull &amp; Configure</button>
+          <button id="start-nim">Start NIM</button>
+          <button id="stop-nim" class="secondary">Stop NIM</button>
+        </div>
         <div id="nim-status" class="status"></div>
+        <div id="nim-runtime-status" class="status"></div>
         <details id="nim-details" class="hidden">
           <summary>Current configuration</summary>
           <pre id="nim-config-summary"></pre>
