@@ -7,11 +7,27 @@ const maxTokensInput = document.querySelector('#max-tokens');
 const runCompareButton = document.querySelector('#run-compare');
 const compareStatus = document.querySelector('#compare-status');
 const resultsPanel = document.querySelector('#results');
-const promptStats = document.querySelector('#prompt-stats');
-const retrievalStats = document.querySelector('#retrieval-stats');
+const tokenPromptMetric = document.querySelector('#metric-prompt-tokens');
+const tokenRagMetric = document.querySelector('#metric-rag-tokens');
+const tokenDmtMetric = document.querySelector('#metric-dmt-tokens');
+const tokenCombinedMetric = document.querySelector('#metric-combined-tokens');
+const tokenDeltaMetric = document.querySelector('#metric-token-delta');
+const dmtFidelityMetric = document.querySelector('#metric-dmt-fidelity');
+const ragDocsMetric = document.querySelector('#metric-rag-docs');
+const dmtEntriesMetric = document.querySelector('#metric-dmt-entries');
 const baseOutput = document.querySelector('#base-output');
 const ragOutput = document.querySelector('#rag-output');
-const entriesTable = document.querySelector('#entries-table tbody');
+const dmtOutput = document.querySelector('#dmt-output');
+const combinedOutput = document.querySelector('#combined-output');
+const baseUsage = document.querySelector('#base-usage');
+const ragUsage = document.querySelector('#rag-usage');
+const dmtUsage = document.querySelector('#dmt-usage');
+const combinedUsage = document.querySelector('#combined-usage');
+const ragContext = document.querySelector('#rag-context');
+const dmtContext = document.querySelector('#dmt-context');
+const insightCopy = document.querySelector('#insight-copy');
+const ragDocumentsTable = document.querySelector('#rag-documents tbody');
+const dmtEntriesTable = document.querySelector('#dmt-entries tbody');
 const nimImageInput = document.querySelector('#nim-image');
 const ngcApiKeyInput = document.querySelector('#ngc-api-key');
 const configureNimButton = document.querySelector('#configure-nim');
@@ -61,7 +77,7 @@ uploadForm.addEventListener('submit', async (event) => {
       throw new Error(err.detail || 'Upload failed');
     }
     const payload = await response.json();
-    uploadStatus.textContent = `Ingested ${payload.chunks} chunk(s) (~${payload.tokens} tokens).`;
+    uploadStatus.textContent = `Ingested ${payload.chunks} chunk(s) (~${payload.tokens} tokens) into RAG and the DMT.`;
     fileInput.value = '';
   } catch (err) {
     console.error(err);
@@ -75,7 +91,7 @@ runCompareButton.addEventListener('click', async () => {
     compareStatus.textContent = 'Enter a prompt to compare.';
     return;
   }
-  compareStatus.textContent = 'Generating…';
+  compareStatus.textContent = 'Fetching context and generating responses…';
   resultsPanel.classList.add('hidden');
   try {
     const body = {
@@ -103,38 +119,39 @@ runCompareButton.addEventListener('click', async () => {
 
 function renderResults(payload) {
   resultsPanel.classList.remove('hidden');
-  promptStats.textContent = JSON.stringify(
-    {
-      prompt_tokens_est: payload.prompt_tokens_est,
-      base_usage: payload.base.usage,
-      rag_usage: payload.rag.usage,
-    },
-    null,
-    2,
-  );
-  retrievalStats.textContent = JSON.stringify(
-    {
-      avg_fidelity: payload.rag.avg_fidelity,
-      context_tokens: payload.rag.context_tokens,
-      entry_count: payload.rag.entries.length,
-    },
-    null,
-    2,
-  );
-  baseOutput.textContent = payload.base.response || '';
-  ragOutput.textContent = payload.rag.response || '';
-  entriesTable.innerHTML = '';
-  payload.rag.entries.forEach((entry) => {
-    const row = document.createElement('tr');
-    row.innerHTML = `
-      <td>${entry.id}</td>
-      <td>L${entry.level}</td>
-      <td>${entry.fidelity.toFixed(2)}</td>
-      <td>${entry.tokens}</td>
-      <td>${escapeHtml(entry.summary)}</td>
-    `;
-    entriesTable.appendChild(row);
-  });
+  const nf = new Intl.NumberFormat('en-US');
+  const promptTokens = payload.prompt_tokens_est ?? 0;
+  const ragTokens = payload.rag?.context_tokens ?? 0;
+  const dmtTokens = payload.dmt?.context_tokens ?? 0;
+  const combinedTokens = payload.combined?.context_tokens ?? ragTokens + dmtTokens;
+  setMetricValue(tokenPromptMetric, promptTokens);
+  setMetricValue(tokenRagMetric, ragTokens);
+  setMetricValue(tokenDmtMetric, dmtTokens);
+  setMetricValue(tokenCombinedMetric, combinedTokens);
+  const tokenDelta = dmtTokens && ragTokens ? ragTokens - dmtTokens : 0;
+  tokenDeltaMetric.textContent = tokenDelta
+    ? `${tokenDelta > 0 ? '−' : '+'}${nf.format(Math.abs(tokenDelta))} tokens`
+    : '0';
+  dmtFidelityMetric.textContent = formatFloat(payload.dmt?.avg_fidelity);
+  ragDocsMetric.textContent = nf.format(payload.rag?.documents?.length ?? 0);
+  dmtEntriesMetric.textContent = nf.format(payload.dmt?.entries?.length ?? 0);
+
+  baseOutput.textContent = payload.base?.response || '';
+  ragOutput.textContent = payload.rag?.response || '';
+  dmtOutput.textContent = payload.dmt?.response || '';
+  combinedOutput.textContent = payload.combined?.response || '';
+
+  baseUsage.textContent = formatUsage(payload.base?.usage);
+  ragUsage.textContent = formatUsage(payload.rag?.usage);
+  dmtUsage.textContent = formatUsage(payload.dmt?.usage);
+  combinedUsage.textContent = formatUsage(payload.combined?.usage);
+
+  ragContext.textContent = payload.rag?.context || 'No RAG context retrieved for this prompt.';
+  dmtContext.textContent = payload.dmt?.context || 'No DMT memories matched this prompt yet.';
+  renderRagDocuments(payload.rag?.documents || []);
+  renderDmtEntries(payload.dmt?.entries || []);
+
+  insightCopy.textContent = buildInsightCopy({ promptTokens, ragTokens, dmtTokens, tokenDelta, avgFidelity: payload.dmt?.avg_fidelity, ragCount: payload.rag?.documents?.length || 0, dmtCount: payload.dmt?.entries?.length || 0 });
 }
 
 function escapeHtml(value) {
@@ -142,6 +159,98 @@ function escapeHtml(value) {
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');
+}
+
+function setMetricValue(target, value) {
+  if (!target) return;
+  const nf = new Intl.NumberFormat('en-US');
+  const num = Number(value || 0);
+  target.textContent = nf.format(num);
+}
+
+function formatFloat(value) {
+  if (value === undefined || value === null || Number.isNaN(value)) {
+    return '–';
+  }
+  return Number(value).toFixed(2);
+}
+
+function formatUsage(usage) {
+  if (!usage) {
+    return 'Usage data unavailable from backend.';
+  }
+  const nf = new Intl.NumberFormat('en-US');
+  const prompt = usage.prompt_tokens ?? usage.promptTokens;
+  const completion = usage.completion_tokens ?? usage.completionTokens;
+  const total = usage.total_tokens ?? usage.totalTokens;
+  const pieces = [];
+  if (prompt !== undefined) pieces.push(`Prompt: ${nf.format(prompt)}`);
+  if (completion !== undefined) pieces.push(`Completion: ${nf.format(completion)}`);
+  if (total !== undefined) pieces.push(`Total: ${nf.format(total)}`);
+  return pieces.length ? pieces.join(' | ') : 'Usage data unavailable from backend.';
+}
+
+function renderRagDocuments(documents) {
+  ragDocumentsTable.innerHTML = '';
+  if (!documents.length) {
+    const emptyRow = document.createElement('tr');
+    emptyRow.innerHTML = '<td colspan="4">No matching RAG documents ingested yet.</td>';
+    ragDocumentsTable.appendChild(emptyRow);
+    return;
+  }
+  documents.forEach((doc, idx) => {
+    const row = document.createElement('tr');
+    const source = doc.meta?.doc_path || doc.meta?.source || 'uploaded document';
+    row.innerHTML = `
+      <td>${idx + 1}</td>
+      <td>${Number(doc.score ?? 0).toFixed(3)}</td>
+      <td>${doc.tokens ?? 0}</td>
+      <td>${escapeHtml(source)}</td>
+    `;
+    ragDocumentsTable.appendChild(row);
+  });
+}
+
+function renderDmtEntries(entries) {
+  dmtEntriesTable.innerHTML = '';
+  if (!entries.length) {
+    const emptyRow = document.createElement('tr');
+    emptyRow.innerHTML = '<td colspan="5">No DMT memories retrieved.</td>';
+    dmtEntriesTable.appendChild(emptyRow);
+    return;
+  }
+  entries.forEach((entry) => {
+    const row = document.createElement('tr');
+    row.innerHTML = `
+      <td>${entry.id}</td>
+      <td>L${entry.level}</td>
+      <td>${Number(entry.fidelity ?? 0).toFixed(2)}</td>
+      <td>${entry.tokens ?? 0}</td>
+      <td>${escapeHtml(entry.summary ?? '')}</td>
+    `;
+    dmtEntriesTable.appendChild(row);
+  });
+}
+
+function buildInsightCopy({ promptTokens, ragTokens, dmtTokens, tokenDelta, avgFidelity, ragCount, dmtCount }) {
+  if (!ragTokens && !dmtTokens) {
+    return 'No retrieval context has been generated yet. Upload documents to populate RAG and the DMT.';
+  }
+  const nf = new Intl.NumberFormat('en-US');
+  const parts = [];
+  if (ragCount) {
+    parts.push(`RAG contributed ${nf.format(ragCount)} document chunk${ragCount === 1 ? '' : 's'} totalling ${nf.format(ragTokens)} tokens.`);
+  }
+  if (dmtCount) {
+    const fidelityText = avgFidelity !== undefined && avgFidelity !== null ? ` with an average fidelity of ${Number(avgFidelity).toFixed(2)}` : '';
+    parts.push(`The Daystrom Memory Lattice surfaced ${nf.format(dmtCount)} memory node${dmtCount === 1 ? '' : 's'}${fidelityText} and ${nf.format(dmtTokens)} contextual tokens.`);
+  }
+  if (tokenDelta) {
+    const direction = tokenDelta > 0 ? 'fewer' : 'more';
+    parts.push(`Compared to RAG alone, the DMT context uses ${nf.format(Math.abs(tokenDelta))} ${direction} tokens, highlighting the compression gains of the lattice.`);
+  }
+  parts.push(`The user prompt spans approximately ${nf.format(promptTokens)} tokens.`);
+  return parts.join(' ');
 }
 
 async function loadNimStatus() {
