@@ -5,6 +5,12 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.packages.find]
 exclude = ["nim*", "tests*", "daystrom_dml.tests*"]
 
+[tool.setuptools.package-data]
+"daystrom_dml" = [
+    "web/*",
+    "web/**/*",
+]
+
 [project]
 name = "cma"
 version = "0.1.0"
