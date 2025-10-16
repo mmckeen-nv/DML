@@ -201,7 +201,7 @@ def nim_health(payload: NimHealthPayload | None = None) -> dict:
     attempts: list[str] = []
     deadline = time.time() + max(wait_timeout, 1)
     while time.time() < deadline:
-        healthy, reason = _nim_healthcheck(
+        healthy, reason, status = _nim_healthcheck(
             CURRENT_NIM["api_base"],
             api_key,
             CURRENT_NIM["model_name"],
@@ -213,6 +213,13 @@ def nim_health(payload: NimHealthPayload | None = None) -> dict:
                 "attempts": attempts,
                 "message": "NIM is healthy.",
             }
+        if status in {401, 403}:
+            attempts.append(reason or "Unknown error")
+            detail = {
+                "message": reason or "Authorization failed. Verify the NIM API key is valid.",
+                "attempts": attempts,
+            }
+            raise HTTPException(status_code=status, detail=detail)
         attempts.append(reason or "Unknown error")
         time.sleep(NIM_HEALTH_INTERVAL)
     raise HTTPException(
@@ -259,13 +266,13 @@ def _nim_healthcheck(
     api_base: str,
     api_key: Optional[str],
     model_name: Optional[str],
-) -> tuple[bool, Optional[str]]:
+) -> tuple[bool, Optional[str], Optional[int]]:
     """Perform a lightweight request to verify the NIM endpoint is responsive."""
 
     if not requests:
-        return False, "Requests library unavailable; cannot perform health check."
+        return False, "Requests library unavailable; cannot perform health check.", None
     if not api_base:
-        return False, "NIM API base URL is not configured."
+        return False, "NIM API base URL is not configured.", None
     url = f"{api_base.rstrip('/')}/v1/chat/completions"
     headers = {"Content-Type": "application/json"}
     if api_key:
@@ -279,9 +286,9 @@ def _nim_healthcheck(
     try:
         response = requests.post(url, json=payload, headers=headers, timeout=10)
     except requests.RequestException as exc:  # pragma: no cover - network dependent
-        return False, str(exc)
+        return False, str(exc), None
     if response.status_code == 200:
-        return True, None
+        return True, None, 200
     if response.status_code in {401, 403}:
         reason = "Authorization failed. Verify the NIM API key is valid."
         try:
@@ -292,9 +299,9 @@ def _nim_healthcheck(
             message = details.get("error") or details.get("message")
             if isinstance(message, str) and message.strip():
                 reason = message.strip()
-        return False, reason
+        return False, reason, response.status_code
     text = response.text[:200] if response.text else f"status {response.status_code}"
-    return False, text
+    return False, text, response.status_code
 
 
 def _extract_text(filename: str, contents: bytes, content_type: str | None) -> str:
