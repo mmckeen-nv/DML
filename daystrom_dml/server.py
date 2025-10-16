@@ -280,8 +280,19 @@ def _nim_healthcheck(
         response = requests.post(url, json=payload, headers=headers, timeout=10)
     except requests.RequestException as exc:  # pragma: no cover - network dependent
         return False, str(exc)
-    if response.status_code in {200, 401, 403}:
+    if response.status_code == 200:
         return True, None
+    if response.status_code in {401, 403}:
+        reason = "Authorization failed. Verify the NIM API key is valid."
+        try:
+            details = response.json()
+        except ValueError:
+            details = None
+        if isinstance(details, dict):
+            message = details.get("error") or details.get("message")
+            if isinstance(message, str) and message.strip():
+                reason = message.strip()
+        return False, reason
     text = response.text[:200] if response.text else f"status {response.status_code}"
     return False, text
 
