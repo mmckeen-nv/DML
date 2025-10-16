@@ -31,37 +31,32 @@ const combinedContextLlmOutput = document.querySelector('#combined-context-llm-o
 const insightCopy = document.querySelector('#insight-copy');
 const ragDocumentsTable = document.querySelector('#rag-documents tbody');
 const dmlEntriesTable = document.querySelector('#dml-entries tbody');
-const nimImageInput = document.querySelector('#nim-image');
+const nimModelInput = document.querySelector('#nim-model');
 const ngcApiKeyInput = document.querySelector('#ngc-api-key');
 const configureNimButton = document.querySelector('#configure-nim');
+const testNimHealthButton = document.querySelector('#test-nim-health');
 const nimStatus = document.querySelector('#nim-status');
+const nimHealthStatus = document.querySelector('#nim-health-status');
 const nimDetails = document.querySelector('#nim-details');
 const nimConfigSummary = document.querySelector('#nim-config-summary');
-const startNimButton = document.querySelector('#start-nim');
-const stopNimButton = document.querySelector('#stop-nim');
-const nimRuntimeStatus = document.querySelector('#nim-runtime-status');
 
 const API = {
   upload: '/upload',
   compare: '/rag/compare',
   nimOptions: '/nim/options',
   nimConfigure: '/nim/configure',
-  nimStart: '/nim/start',
-  nimStop: '/nim/stop',
+  nimHealth: '/nim/health',
 };
 
 let nimConfigured = false;
 
-if (nimImageInput && configureNimButton && nimStatus) {
+if (nimModelInput && configureNimButton && nimStatus) {
   loadNimStatus();
   configureNimButton.addEventListener('click', configureNimEndpoint);
 }
 
-if (startNimButton && stopNimButton) {
-  startNimButton.disabled = true;
-  stopNimButton.disabled = true;
-  startNimButton.addEventListener('click', startNimContainer);
-  stopNimButton.addEventListener('click', stopNimContainer);
+if (testNimHealthButton) {
+  testNimHealthButton.addEventListener('click', testNimHealth);
 }
 
 uploadForm.addEventListener('submit', async (event) => {
@@ -116,7 +111,10 @@ runCompareButton.addEventListener('click', async () => {
     compareStatus.textContent = 'Done.';
   } catch (err) {
     console.error(err);
-    compareStatus.textContent = `Error: ${err.message}`;
+    const message = err.message === 'NIM not Running, Start a NIM.'
+      ? err.message
+      : `Error: ${err.message}`;
+    compareStatus.textContent = message;
   }
 });
 
@@ -298,8 +296,15 @@ function buildInsightCopy({ promptTokens, ragTokens, dmlTokens, tokenDelta, avgF
   return parts.join(' ');
 }
 
+
 async function loadNimStatus() {
   nimStatus.textContent = 'Checking NVIDIA NIM configuration…';
+  if (nimHealthStatus) {
+    nimHealthStatus.textContent = '';
+  }
+  if (testNimHealthButton) {
+    testNimHealthButton.disabled = true;
+  }
   try {
     const response = await fetch(API.nimOptions);
     if (!response.ok) {
@@ -307,23 +312,33 @@ async function loadNimStatus() {
     }
     const payload = await response.json();
     nimConfigured = Boolean(payload.current);
-    updateRuntimeStatus(payload.runtime, nimConfigured);
+    if (testNimHealthButton) {
+      testNimHealthButton.disabled = !nimConfigured;
+    }
     if (payload.current) {
-      renderNimSummary(payload.current, 'Using previously configured NIM.', payload);
+      if (nimModelInput) {
+        nimModelInput.value = payload.current.model_name || '';
+      }
+      renderNimSummary(payload.current, 'Using configured NIM connection.');
     } else {
-      nimStatus.textContent = 'Input the NVIDIA NIM image and provide your NGC API key to begin.';
+      nimConfigured = false;
+      clearNimSummary('Enter your NIM model name and NGC API key to begin.');
     }
   } catch (err) {
     console.error(err);
+    nimConfigured = false;
+    if (testNimHealthButton) {
+      testNimHealthButton.disabled = true;
+    }
     nimStatus.textContent = `Error: ${err.message}`;
   }
 }
 
 async function configureNimEndpoint() {
-  const nimImage = (nimImageInput.value || '').trim();
-  const apiKey = (ngcApiKeyInput.value || '').trim();
-  if (!nimImage) {
-    nimStatus.textContent = 'Input a NVIDIA NIM image first.';
+  const modelName = nimModelInput ? nimModelInput.value.trim() : '';
+  const apiKey = ngcApiKeyInput ? ngcApiKeyInput.value.trim() : '';
+  if (!modelName) {
+    nimStatus.textContent = 'Enter the NIM model name you are running.';
     return;
   }
   if (!apiKey) {
@@ -331,166 +346,129 @@ async function configureNimEndpoint() {
     return;
   }
   configureNimButton.disabled = true;
-  nimStatus.textContent = 'Pulling NIM container and configuring service…';
+  if (testNimHealthButton) {
+    testNimHealthButton.disabled = true;
+  }
+  nimStatus.textContent = 'Configuring connection…';
   try {
     const response = await fetch(API.nimConfigure, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ nim_image: nimImage, api_key: apiKey }),
+      body: JSON.stringify({ model_name: modelName, api_key: apiKey }),
     });
     if (!response.ok) {
       const err = await response.json().catch(() => ({}));
       throw new Error(err.detail || 'Failed to configure NIM');
     }
     const payload = await response.json();
-    ngcApiKeyInput.value = '';
-    const message = buildStatusMessage(payload);
     nimConfigured = true;
-    renderNimSummary(payload.nim, message, payload);
+    if (testNimHealthButton) {
+      testNimHealthButton.disabled = false;
+    }
+    if (nimModelInput) {
+      nimModelInput.value = payload.nim?.model_name || modelName;
+    }
+    if (nimHealthStatus) {
+      nimHealthStatus.textContent = '';
+    }
+    if (ngcApiKeyInput) {
+      ngcApiKeyInput.value = '';
+    }
+    renderNimSummary(payload.nim, payload.message || 'Configured connection to user-managed NIM.');
   } catch (err) {
     console.error(err);
+    nimConfigured = false;
+    if (testNimHealthButton) {
+      testNimHealthButton.disabled = true;
+    }
     nimStatus.textContent = `Error: ${err.message}`;
   } finally {
     configureNimButton.disabled = false;
   }
 }
 
-function buildStatusMessage(payload) {
-  if (!payload) {
-    return 'Configured.';
+function renderNimSummary(nim, message) {
+  if (message) {
+    nimStatus.textContent = message;
   }
-  if (payload.pull_status === 'ok') {
-    return `Configured ${payload.nim.label}. Docker image pulled successfully.`;
-  }
-  if (payload.pull_status === 'skipped') {
-    return `Configured ${payload.nim.label}. Docker image pull skipped: ${payload.logs?.[0] || 'Docker unavailable.'}`;
-  }
-  return `Configured ${payload.nim.label} with warnings.`;
-}
-
-function renderNimSummary(nim, message, payload) {
-  nimStatus.textContent = message;
   if (!nim) {
-    nimDetails.classList.add('hidden');
-    nimConfigSummary.textContent = '';
-    updateRuntimeStatus(payload?.runtime, nimConfigured, message || payload?.message, payload?.logs);
+    clearNimSummary(message || 'No NIM configured.');
     return;
+  }
+  if (nimDetails) {
+    nimDetails.classList.remove('hidden');
   }
   const summary = {
-    id: nim.id,
-    label: nim.label,
     model_name: nim.model_name,
     api_base: nim.api_base,
-    image: nim.image,
-    pull_status: payload?.pull_status,
   };
-  if (Array.isArray(payload?.logs) && payload.logs.length) {
-    summary.logs = payload.logs;
+  if (nimConfigSummary) {
+    nimConfigSummary.textContent = JSON.stringify(summary, null, 2);
   }
-  nimConfigSummary.textContent = JSON.stringify(summary, null, 2);
-  nimDetails.classList.remove('hidden');
-  updateRuntimeStatus(payload?.runtime, nimConfigured, message || payload?.message, payload?.logs);
 }
 
-function updateRuntimeStatus(runtime, isConfigured, message, logs) {
-  if (!nimRuntimeStatus) {
-    return;
+function clearNimSummary(message) {
+  if (nimDetails) {
+    nimDetails.classList.add('hidden');
   }
-  const lines = [];
+  if (nimConfigSummary) {
+    nimConfigSummary.textContent = '';
+  }
   if (message) {
-    lines.push(message);
+    nimStatus.textContent = message;
   }
-  if (!isConfigured) {
-    lines.push('Configure a NIM to enable runtime controls.');
-    if (startNimButton) startNimButton.disabled = true;
-    if (stopNimButton) stopNimButton.disabled = true;
-    if (Array.isArray(logs) && logs.length) {
-      lines.push(...logs);
-    }
-    nimRuntimeStatus.textContent = lines.join('\n');
-    return;
-  }
-  if (!runtime) {
-    lines.push('Runtime status unavailable.');
-    if (startNimButton) startNimButton.disabled = false;
-    if (stopNimButton) stopNimButton.disabled = true;
-    if (Array.isArray(logs) && logs.length) {
-      lines.push(...logs);
-    }
-    nimRuntimeStatus.textContent = lines.join('\n');
-    return;
-  }
-  if (runtime.docker_available === false) {
-    lines.push('Docker is not available on this server.');
-  }
-  if (runtime.running) {
-    lines.push(runtime.healthy ? 'NIM container is running.' : 'NIM container is starting…');
-  } else {
-    lines.push('NIM container is stopped.');
-  }
-  if (runtime.container_id) {
-    const containerIdStr = String(runtime.container_id);
-    const shortId = containerIdStr.slice(0, 12);
-    const truncated = containerIdStr.length > shortId.length ? '…' : '';
-    lines.push(`Container ID: ${shortId}${truncated}`);
-  }
-  if (Array.isArray(logs) && logs.length) {
-    lines.push(...logs);
-  }
-  const dockerMissing = runtime.docker_available === false;
-  if (startNimButton) {
-    startNimButton.disabled = !isConfigured || runtime.running || dockerMissing;
-  }
-  if (stopNimButton) {
-    stopNimButton.disabled = !isConfigured || !runtime.running;
-  }
-  nimRuntimeStatus.textContent = lines.join('\n');
 }
 
-async function startNimContainer() {
+async function testNimHealth() {
   if (!nimConfigured) {
-    updateRuntimeStatus(null, false, 'Configure a NIM before starting it.');
+    if (nimHealthStatus) {
+      nimHealthStatus.textContent = 'Configure a NIM connection before testing health.';
+    }
     return;
   }
-  updateRuntimeStatus({ running: false }, true, 'Starting NIM…');
-  if (startNimButton) startNimButton.disabled = true;
-  if (stopNimButton) stopNimButton.disabled = true;
-  try {
-    const response = await fetch(API.nimStart, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({}),
-    });
-    if (!response.ok) {
-      const err = await response.json().catch(() => ({}));
-      throw new Error(err.detail || 'Failed to start NIM');
-    }
-    const payload = await response.json();
-    updateRuntimeStatus(payload.runtime, nimConfigured, payload.message, payload.logs);
-  } catch (err) {
-    console.error(err);
-    updateRuntimeStatus(null, nimConfigured, `Error: ${err.message}`);
+  if (nimHealthStatus) {
+    nimHealthStatus.textContent = 'Testing NIM health…';
   }
-}
-
-async function stopNimContainer() {
-  updateRuntimeStatus({ running: true }, nimConfigured, 'Stopping NIM…');
-  if (startNimButton) startNimButton.disabled = true;
-  if (stopNimButton) stopNimButton.disabled = true;
+  if (testNimHealthButton) {
+    testNimHealthButton.disabled = true;
+  }
   try {
-    const response = await fetch(API.nimStop, {
+    const response = await fetch(API.nimHealth, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({}),
     });
     if (!response.ok) {
       const err = await response.json().catch(() => ({}));
-      throw new Error(err.detail || 'Failed to stop NIM');
+      const detail = err.detail;
+      let message = 'Health check failed. Please check the NIM.';
+      if (typeof detail === 'string') {
+        message = detail;
+      } else if (detail && typeof detail === 'object') {
+        if (detail.message) {
+          message = detail.message;
+        }
+        if (Array.isArray(detail.attempts) && detail.attempts.length) {
+          const lastAttempt = detail.attempts[detail.attempts.length - 1];
+          if (lastAttempt) {
+            message += ` (Last error: ${lastAttempt})`;
+          }
+        }
+      }
+      throw new Error(message);
     }
     const payload = await response.json();
-    updateRuntimeStatus(payload.runtime, nimConfigured, payload.message, payload.logs);
+    if (nimHealthStatus) {
+      nimHealthStatus.textContent = payload.message || 'NIM is healthy.';
+    }
   } catch (err) {
     console.error(err);
-    updateRuntimeStatus(null, nimConfigured, `Error: ${err.message}`);
+    if (nimHealthStatus) {
+      nimHealthStatus.textContent = `Error: ${err.message}`;
+    }
+  } finally {
+    if (testNimHealthButton) {
+      testNimHealthButton.disabled = !nimConfigured;
+    }
   }
 }
