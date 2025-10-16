@@ -2,8 +2,11 @@
 from __future__ import annotations
 
 import logging
+import os
 from dataclasses import dataclass
 from typing import Optional
+
+import requests
 
 LOGGER = logging.getLogger(__name__)
 
@@ -23,6 +26,19 @@ class GPTRunner:
 
     def __post_init__(self) -> None:
         self._backend = None
+        self._last_usage: Optional[dict] = None
+        remote_base = os.getenv("DML_API_BASE") or os.getenv("OPENAI_API_BASE")
+        remote_base = remote_base or os.getenv("NIM_API_BASE")
+        remote_key = os.getenv("DML_API_KEY") or os.getenv("OPENAI_API_KEY")
+        remote_key = remote_key or os.getenv("NIM_API_KEY")
+        if remote_base:
+            self._backend = _OpenAICompatibleBackend(
+                base_url=remote_base,
+                api_key=remote_key,
+                model_name=self.model_name,
+            )
+            LOGGER.info("Configured remote backend at %s", remote_base)
+            return
         try:
             from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline
 
@@ -40,8 +56,13 @@ class GPTRunner:
             self._backend = _DummyBackend()
 
     def generate(self, prompt: str, max_new_tokens: int = 256) -> str:
+        self._last_usage = None
         if isinstance(self._backend, _DummyBackend):
             return self._backend.generate(prompt, max_new_tokens=max_new_tokens)
+        if isinstance(self._backend, _OpenAICompatibleBackend):
+            text, usage = self._backend.generate(prompt, max_new_tokens=max_new_tokens)
+            self._last_usage = usage
+            return text
         outputs = self._backend(prompt, max_new_tokens=max_new_tokens)
         if isinstance(outputs, list):
             return outputs[0]["generated_text"]
@@ -50,6 +71,17 @@ class GPTRunner:
     def summarize(self, text: str, max_len: int = 128) -> str:
         if isinstance(self._backend, _DummyBackend):
             return self._backend.summarize(text, max_len=max_len)
+        if isinstance(self._backend, _OpenAICompatibleBackend):
+            text, usage = self._backend.generate(
+                (
+                    "Summarise the following content in at most "
+                    f"{max_len} characters.\n{text}"
+                ),
+                max_new_tokens=max_len,
+                system_prompt="You are a precise summariser that responds with plain text.",
+            )
+            self._last_usage = usage
+            return text.strip()
         prompt = (
             "Summarise the following content in at most"
             f" {max_len} characters:\n{text}\nSummary:"
@@ -62,6 +94,12 @@ class GPTRunner:
         """Expose whether the runner is using the dummy backend."""
 
         return isinstance(self._backend, _DummyBackend)
+
+    @property
+    def last_usage(self) -> Optional[dict]:
+        """Return the token usage payload from the most recent call."""
+
+        return self._last_usage
 
 
 class _DummyBackend:
@@ -79,3 +117,42 @@ class _DummyBackend:
         if len(text) <= max_len:
             return text
         return text[: max_len - 3] + "..."
+
+
+class _OpenAICompatibleBackend:
+    """Thin wrapper around OpenAI-compatible REST endpoints (incl. NVIDIA NIM)."""
+
+    def __init__(self, *, base_url: str, api_key: Optional[str], model_name: str) -> None:
+        self.base_url = base_url.rstrip("/")
+        self.api_key = api_key
+        self.model_name = model_name
+
+    def generate(
+        self,
+        prompt: str,
+        *,
+        max_new_tokens: int = 256,
+        system_prompt: Optional[str] = None,
+    ) -> tuple[str, Optional[dict]]:
+        url = f"{self.base_url}/v1/chat/completions"
+        headers = {"Content-Type": "application/json"}
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
+        messages = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        messages.append({"role": "user", "content": prompt})
+        payload = {
+            "model": self.model_name,
+            "messages": messages,
+            "max_tokens": max_new_tokens,
+            "temperature": 0.2,
+        }
+        response = requests.post(url, json=payload, headers=headers, timeout=120)
+        response.raise_for_status()
+        data = response.json()
+        choices = data.get("choices") or []
+        if not choices:
+            return "", data.get("usage")
+        content = choices[0].get("message", {}).get("content", "")
+        return content.strip(), data.get("usage")

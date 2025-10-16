@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>DML Playground</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <header>
+      <h1>Daystrom Memory Lattice Playground</h1>
+      <p>Upload documents, run retrieval augmented generation, and compare model responses.</p>
+    </header>
+
+    <main>
+      <section class="panel" id="nim-config">
+        <h2>NVIDIA NIM Setup</h2>
+        <p class="hint">
+          Select a NVIDIA Inference Microservice, provide your NGC API key, and let the playground
+          pull the container and configure the endpoints automatically.
+        </p>
+        <label for="nim-image">Input NIM for test</label>
+        <input
+          id="nim-image"
+          type="text"
+          placeholder="Input NIM for test. Example: nvcr.io/nim/openai/gpt-oss-20b:latest"
+          autocomplete="off"
+        />
+        <label for="ngc-api-key">NGC API key</label>
+        <input
+          id="ngc-api-key"
+          type="password"
+          placeholder="Paste your NGC API key"
+          autocomplete="off"
+        />
+        <div class="nim-actions">
+          <button id="configure-nim">Pull &amp; Configure</button>
+          <button id="start-nim">Start NIM</button>
+          <button id="stop-nim" class="secondary">Stop NIM</button>
+        </div>
+        <div id="nim-status" class="status"></div>
+        <div id="nim-runtime-status" class="status"></div>
+        <details id="nim-details" class="hidden">
+          <summary>Current configuration</summary>
+          <pre id="nim-config-summary"></pre>
+        </details>
+      </section>
+
+      <section class="panel">
+        <h2>Document Upload</h2>
+        <form id="upload-form">
+          <label for="file-input" class="file-label">Choose PDF or text file</label>
+          <input id="file-input" type="file" accept=".txt,.pdf" />
+          <button type="submit">Upload &amp; Ingest</button>
+        </form>
+        <div id="upload-status" class="status"></div>
+      </section>
+
+      <section class="panel">
+        <h2>RAG Comparison</h2>
+        <label for="prompt">Prompt</label>
+        <textarea id="prompt" rows="6" placeholder="Ask a question..."></textarea>
+        <div class="controls">
+          <label for="top-k">Top K</label>
+          <input id="top-k" type="number" min="0" value="6" />
+          <label for="max-tokens">Max new tokens</label>
+          <input id="max-tokens" type="number" min="32" value="512" />
+          <button id="run-compare">Run Comparison</button>
+        </div>
+        <div id="compare-status" class="status"></div>
+      </section>
+
+      <section id="results" class="panel hidden">
+        <h2>Generation Results</h2>
+        <div class="metrics-grid">
+          <article class="metric-card">
+            <h3>Token Overview</h3>
+            <dl class="metric-list">
+              <div><dt>Prompt</dt><dd id="metric-prompt-tokens">–</dd></div>
+              <div><dt>RAG Context</dt><dd id="metric-rag-tokens">–</dd></div>
+              <div><dt>DML Context</dt><dd id="metric-dml-tokens">–</dd></div>
+              <div><dt>Combined Context</dt><dd id="metric-combined-tokens">–</dd></div>
+              <div><dt>Token Delta (DML vs RAG)</dt><dd id="metric-token-delta">–</dd></div>
+            </dl>
+          </article>
+          <article class="metric-card">
+            <h3>Quality Signals</h3>
+            <dl class="metric-list">
+              <div><dt>DML Avg. Fidelity</dt><dd id="metric-dml-fidelity">–</dd></div>
+              <div><dt>RAG Documents</dt><dd id="metric-rag-docs">–</dd></div>
+              <div><dt>DML Entries</dt><dd id="metric-dml-entries">–</dd></div>
+            </dl>
+            <p class="hint">Review the context panels below to see exactly what each system passes to the LLM.</p>
+          </article>
+        </div>
+        <div class="response-grid">
+          <article class="response-card">
+            <header>Base Model</header>
+            <pre id="base-output"></pre>
+            <footer id="base-usage" class="usage"></footer>
+          </article>
+          <article class="response-card">
+            <header>RAG Response</header>
+            <pre id="rag-output"></pre>
+            <footer id="rag-usage" class="usage"></footer>
+          </article>
+          <article class="response-card">
+            <header>DML Response</header>
+            <pre id="dml-output"></pre>
+            <footer id="dml-usage" class="usage"></footer>
+          </article>
+          <article class="response-card">
+            <header>Combined Response</header>
+            <pre id="combined-output"></pre>
+            <footer id="combined-usage" class="usage"></footer>
+          </article>
+        </div>
+        <div class="context-grid">
+          <article class="context-card">
+            <header>RAG Context</header>
+            <pre id="rag-context"></pre>
+            <table id="rag-documents" class="data-table">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Score</th>
+                  <th>Tokens</th>
+                  <th>Source</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </article>
+          <article class="context-card">
+            <header>DML Context</header>
+            <div class="context-summary">
+              <h4>Summaries</h4>
+              <ol id="dml-summary-list" class="summary-list"></ol>
+            </div>
+            <pre id="dml-context"></pre>
+            <table id="dml-entries" class="data-table">
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Level</th>
+                  <th>Fidelity</th>
+                  <th>Tokens</th>
+                  <th>Summary</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+            <div class="context-llm-output">
+              <h4>LLM Outputs</h4>
+              <div class="llm-output-block">
+                <h5>DML Only</h5>
+                <pre id="dml-context-llm-output" class="llm-output"></pre>
+              </div>
+              <div class="llm-output-block">
+                <h5>RAG + DML Combined</h5>
+                <pre id="combined-context-llm-output" class="llm-output"></pre>
+              </div>
+            </div>
+          </article>
+          <article class="context-card">
+            <header>Insights</header>
+            <div class="insight-copy">
+              <p id="insight-copy"></p>
+            </div>
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <p>Use the controls above to select and configure a NVIDIA NIM endpoint for the playground.</p>
+    </footer>
+
+    <script src="/static/app.js" type="module"></script>
+  </body>
+</html>
