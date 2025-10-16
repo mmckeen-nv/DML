@@ -157,11 +157,11 @@ def query(payload: QueryPayload) -> dict:
 def rag_retrieve(payload: QueryPayload) -> dict:
     rag_top_k = adapter.config.get("top_k", 6)
     rag_report = adapter.rag_store.report(payload.prompt, top_k=rag_top_k)
-    dmt_report = adapter.retrieval_report(payload.prompt)
+    dml_report = adapter.retrieval_report(payload.prompt)
     return {
         "prompt": payload.prompt,
         "rag": rag_report,
-        "dmt": dmt_report,
+        "dml": dml_report,
     }
 
 

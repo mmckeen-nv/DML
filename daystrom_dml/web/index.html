@@ -78,17 +78,17 @@
             <dl class="metric-list">
               <div><dt>Prompt</dt><dd id="metric-prompt-tokens">–</dd></div>
               <div><dt>RAG Context</dt><dd id="metric-rag-tokens">–</dd></div>
-              <div><dt>DMT Context</dt><dd id="metric-dmt-tokens">–</dd></div>
+              <div><dt>DML Context</dt><dd id="metric-dml-tokens">–</dd></div>
               <div><dt>Combined Context</dt><dd id="metric-combined-tokens">–</dd></div>
-              <div><dt>Token Delta (DMT vs RAG)</dt><dd id="metric-token-delta">–</dd></div>
+              <div><dt>Token Delta (DML vs RAG)</dt><dd id="metric-token-delta">–</dd></div>
             </dl>
           </article>
           <article class="metric-card">
             <h3>Quality Signals</h3>
             <dl class="metric-list">
-              <div><dt>DMT Avg. Fidelity</dt><dd id="metric-dmt-fidelity">–</dd></div>
+              <div><dt>DML Avg. Fidelity</dt><dd id="metric-dml-fidelity">–</dd></div>
               <div><dt>RAG Documents</dt><dd id="metric-rag-docs">–</dd></div>
-              <div><dt>DMT Entries</dt><dd id="metric-dmt-entries">–</dd></div>
+              <div><dt>DML Entries</dt><dd id="metric-dml-entries">–</dd></div>
             </dl>
             <p class="hint">Review the context panels below to see exactly what each system passes to the LLM.</p>
           </article>
@@ -105,9 +105,9 @@
             <footer id="rag-usage" class="usage"></footer>
           </article>
           <article class="response-card">
-            <header>DMT Response</header>
-            <pre id="dmt-output"></pre>
-            <footer id="dmt-usage" class="usage"></footer>
+            <header>DML Response</header>
+            <pre id="dml-output"></pre>
+            <footer id="dml-usage" class="usage"></footer>
           </article>
           <article class="response-card">
             <header>Combined Response</header>
@@ -132,9 +132,13 @@
             </table>
           </article>
           <article class="context-card">
-            <header>DMT Context</header>
-            <pre id="dmt-context"></pre>
-            <table id="dmt-entries" class="data-table">
+            <header>DML Context</header>
+            <div class="context-summary">
+              <h4>Summaries</h4>
+              <ol id="dml-summary-list" class="summary-list"></ol>
+            </div>
+            <pre id="dml-context"></pre>
+            <table id="dml-entries" class="data-table">
               <thead>
                 <tr>
                   <th>ID</th>
@@ -146,6 +150,17 @@
               </thead>
               <tbody></tbody>
             </table>
+            <div class="context-llm-output">
+              <h4>LLM Outputs</h4>
+              <div class="llm-output-block">
+                <h5>DML Only</h5>
+                <pre id="dml-context-llm-output" class="llm-output"></pre>
+              </div>
+              <div class="llm-output-block">
+                <h5>RAG + DML Combined</h5>
+                <pre id="combined-context-llm-output" class="llm-output"></pre>
+              </div>
+            </div>
           </article>
           <article class="context-card">
             <header>Insights</header>
