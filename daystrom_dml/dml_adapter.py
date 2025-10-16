@@ -151,18 +151,18 @@ class DMLAdapter:
         rag_response = self.runner.generate(rag_prompt, max_new_tokens=max_new_tokens)
         rag_usage = self.runner.last_usage
 
-        dmt_report = self.retrieval_report(prompt, top_k=top_k)
-        dmt_context = self._format_dmt_context(dmt_report["entries"])
-        dmt_prompt = self._compose_prompt(prompt, dmt_context)
-        dmt_response = self.runner.generate(dmt_prompt, max_new_tokens=max_new_tokens)
-        dmt_usage = self.runner.last_usage
-        self.reinforce(prompt, dmt_response)
+        dml_report = self.retrieval_report(prompt, top_k=top_k)
+        dml_context = self._format_dml_context(dml_report["entries"])
+        dml_prompt = self._compose_prompt(prompt, dml_context)
+        dml_response = self.runner.generate(dml_prompt, max_new_tokens=max_new_tokens)
+        dml_usage = self.runner.last_usage
+        self.reinforce(prompt, dml_response)
 
         combined_context_parts = []
         if rag_context:
             combined_context_parts.append(rag_context)
-        if dmt_context:
-            combined_context_parts.append(dmt_context)
+        if dml_context:
+            combined_context_parts.append(dml_context)
         combined_context = "\n\n".join(part for part in combined_context_parts if part).strip()
         combined_prompt = self._compose_prompt(prompt, combined_context)
         combined_response = self.runner.generate(combined_prompt, max_new_tokens=max_new_tokens)
@@ -180,13 +180,13 @@ class DMLAdapter:
                 "context_tokens": rag_report["tokens"],
                 "documents": rag_report["documents"],
             },
-            "dmt": {
-                "response": dmt_response,
-                "usage": dmt_usage,
-                "context": dmt_context,
-                "context_tokens": utils.estimate_tokens(dmt_context),
-                "avg_fidelity": dmt_report["avg_fidelity"],
-                "entries": dmt_report["entries"],
+            "dml": {
+                "response": dml_response,
+                "usage": dml_usage,
+                "context": dml_context,
+                "context_tokens": utils.estimate_tokens(dml_context),
+                "avg_fidelity": dml_report["avg_fidelity"],
+                "entries": dml_report["entries"],
             },
             "combined": {
                 "response": combined_response,
@@ -256,7 +256,7 @@ class DMLAdapter:
             return ""
         return "=== RAG Retrieval ===\n" + context.strip()
 
-    def _format_dmt_context(self, entries: List[Dict]) -> str:
+    def _format_dml_context(self, entries: List[Dict]) -> str:
         if not entries:
             return ""
         lines = [STARFLEET_BANNER, "=== Daystrom Memory Lattice ==="]
