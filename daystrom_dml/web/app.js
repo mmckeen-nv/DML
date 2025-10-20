@@ -10,7 +10,6 @@ const resultsPanel = document.querySelector('#results');
 const tokenPromptMetric = document.querySelector('#metric-prompt-tokens');
 const tokenRagMetric = document.querySelector('#metric-rag-tokens');
 const tokenDmlMetric = document.querySelector('#metric-dml-tokens');
-const tokenCombinedMetric = document.querySelector('#metric-combined-tokens');
 const tokenDeltaMetric = document.querySelector('#metric-token-delta');
 const dmlFidelityMetric = document.querySelector('#metric-dml-fidelity');
 const ragDocsMetric = document.querySelector('#metric-rag-docs');
@@ -18,19 +17,24 @@ const dmlEntriesMetric = document.querySelector('#metric-dml-entries');
 const baseOutput = document.querySelector('#base-output');
 const ragOutput = document.querySelector('#rag-output');
 const dmlOutput = document.querySelector('#dml-output');
-const combinedOutput = document.querySelector('#combined-output');
 const baseUsage = document.querySelector('#base-usage');
 const ragUsage = document.querySelector('#rag-usage');
 const dmlUsage = document.querySelector('#dml-usage');
-const combinedUsage = document.querySelector('#combined-usage');
 const ragContext = document.querySelector('#rag-context');
 const dmlContext = document.querySelector('#dml-context');
 const dmlSummaryList = document.querySelector('#dml-summary-list');
+const ragContextLlmOutput = document.querySelector('#rag-context-llm-output');
 const dmlContextLlmOutput = document.querySelector('#dml-context-llm-output');
-const combinedContextLlmOutput = document.querySelector('#combined-context-llm-output');
 const insightCopy = document.querySelector('#insight-copy');
 const ragDocumentsTable = document.querySelector('#rag-documents tbody');
 const dmlEntriesTable = document.querySelector('#dml-entries tbody');
+const knowledgeStatus = document.querySelector('#knowledge-status');
+const ragKnowledgeTable = document.querySelector('#rag-knowledge tbody');
+const dmlKnowledgeTable = document.querySelector('#dml-knowledge tbody');
+const ragKnowledgeCount = document.querySelector('#knowledge-rag-count');
+const ragKnowledgeTokens = document.querySelector('#knowledge-rag-tokens');
+const dmlKnowledgeCount = document.querySelector('#knowledge-dml-count');
+const dmlKnowledgeTokens = document.querySelector('#knowledge-dml-tokens');
 const nimImageInput = document.querySelector('#nim-image');
 const ngcApiKeyInput = document.querySelector('#ngc-api-key');
 const configureNimButton = document.querySelector('#configure-nim');
@@ -48,6 +52,7 @@ const API = {
   nimConfigure: '/nim/configure',
   nimStart: '/nim/start',
   nimStop: '/nim/stop',
+  knowledge: '/knowledge',
 };
 
 let nimConfigured = false;
@@ -82,6 +87,7 @@ uploadForm.addEventListener('submit', async (event) => {
     const payload = await response.json();
     uploadStatus.textContent = `Ingested ${payload.chunks} chunk(s) (~${payload.tokens} tokens) into RAG and the DML.`;
     fileInput.value = '';
+    refreshKnowledge();
   } catch (err) {
     console.error(err);
     uploadStatus.textContent = `Error: ${err.message}`;
@@ -126,11 +132,9 @@ function renderResults(payload) {
   const promptTokens = payload.prompt_tokens_est ?? 0;
   const ragTokens = payload.rag?.context_tokens ?? 0;
   const dmlTokens = payload.dml?.context_tokens ?? 0;
-  const combinedTokens = payload.combined?.context_tokens ?? ragTokens + dmlTokens;
   setMetricValue(tokenPromptMetric, promptTokens);
   setMetricValue(tokenRagMetric, ragTokens);
   setMetricValue(tokenDmlMetric, dmlTokens);
-  setMetricValue(tokenCombinedMetric, combinedTokens);
   const tokenDelta = dmlTokens && ragTokens ? ragTokens - dmlTokens : 0;
   tokenDeltaMetric.textContent = tokenDelta
     ? `${tokenDelta > 0 ? '−' : '+'}${nf.format(Math.abs(tokenDelta))} tokens`
@@ -142,12 +146,10 @@ function renderResults(payload) {
   baseOutput.textContent = payload.base?.response || '';
   ragOutput.textContent = payload.rag?.response || '';
   dmlOutput.textContent = payload.dml?.response || '';
-  combinedOutput.textContent = payload.combined?.response || '';
 
   baseUsage.textContent = formatUsage(payload.base?.usage);
   ragUsage.textContent = formatUsage(payload.rag?.usage);
   dmlUsage.textContent = formatUsage(payload.dml?.usage);
-  combinedUsage.textContent = formatUsage(payload.combined?.usage);
 
   ragContext.textContent = payload.rag?.context || 'No RAG context retrieved for this prompt.';
   dmlContext.textContent = payload.dml?.context || 'No DML memories matched this prompt yet.';
@@ -155,15 +157,24 @@ function renderResults(payload) {
   renderDmlEntries(payload.dml?.entries || []);
   renderDmlSummaries(payload.dml?.entries || []);
 
+  if (ragContextLlmOutput) {
+    ragContextLlmOutput.textContent = payload.rag?.response || 'No RAG response generated yet.';
+  }
   if (dmlContextLlmOutput) {
     dmlContextLlmOutput.textContent = payload.dml?.response || 'No DML response generated yet.';
   }
-  if (combinedContextLlmOutput) {
-    combinedContextLlmOutput.textContent =
-      payload.combined?.response || 'No combined response generated yet.';
-  }
 
-  insightCopy.textContent = buildInsightCopy({ promptTokens, ragTokens, dmlTokens, tokenDelta, avgFidelity: payload.dml?.avg_fidelity, ragCount: payload.rag?.documents?.length || 0, dmlCount: payload.dml?.entries?.length || 0 });
+  insightCopy.textContent = buildInsightCopy({
+    promptTokens,
+    ragTokens,
+    dmlTokens,
+    tokenDelta,
+    avgFidelity: payload.dml?.avg_fidelity,
+    ragCount: payload.rag?.documents?.length || 0,
+    dmlCount: payload.dml?.entries?.length || 0,
+  });
+
+  refreshKnowledge();
 }
 
 function escapeHtml(value) {
@@ -277,6 +288,101 @@ function renderDmlSummaries(entries) {
   });
 }
 
+async function refreshKnowledge() {
+  if (!knowledgeStatus) {
+    return;
+  }
+  knowledgeStatus.textContent = 'Refreshing knowledge summaries…';
+  try {
+    const response = await fetch(API.knowledge);
+    if (!response.ok) {
+      throw new Error('Failed to load knowledge summaries');
+    }
+    const payload = await response.json();
+    renderKnowledge(payload);
+    const hasKnowledge = (payload.rag?.count || 0) + (payload.dml?.count || 0) > 0;
+    knowledgeStatus.textContent = hasKnowledge
+      ? ''
+      : 'No documents have been ingested into the knowledge bases yet.';
+  } catch (err) {
+    console.error(err);
+    knowledgeStatus.textContent = `Error: ${err.message}`;
+  }
+}
+
+function renderKnowledge(payload) {
+  if (!payload) {
+    return;
+  }
+  setMetricValue(ragKnowledgeCount, payload.rag?.count ?? 0);
+  setMetricValue(ragKnowledgeTokens, payload.rag?.total_tokens ?? 0);
+  setMetricValue(dmlKnowledgeCount, payload.dml?.count ?? 0);
+  setMetricValue(dmlKnowledgeTokens, payload.dml?.total_tokens ?? 0);
+  renderRagKnowledge(payload.rag?.documents || []);
+  renderDmlKnowledge(payload.dml?.entries || []);
+}
+
+function renderRagKnowledge(documents) {
+  if (!ragKnowledgeTable) {
+    return;
+  }
+  ragKnowledgeTable.innerHTML = '';
+  if (!documents.length) {
+    const row = document.createElement('tr');
+    row.innerHTML = '<td colspan="3">No documents ingested yet.</td>';
+    ragKnowledgeTable.appendChild(row);
+    return;
+  }
+  documents.forEach((doc) => {
+    const row = document.createElement('tr');
+    row.innerHTML = `
+      <td>${doc.index}</td>
+      <td>${doc.tokens ?? 0}</td>
+      <td>${escapeHtml(doc.source || 'uploaded document')}</td>
+    `;
+    ragKnowledgeTable.appendChild(row);
+  });
+}
+
+function renderDmlKnowledge(entries) {
+  if (!dmlKnowledgeTable) {
+    return;
+  }
+  dmlKnowledgeTable.innerHTML = '';
+  if (!entries.length) {
+    const row = document.createElement('tr');
+    row.innerHTML = '<td colspan="5">No DML memories stored yet.</td>';
+    dmlKnowledgeTable.appendChild(row);
+    return;
+  }
+  entries.forEach((entry) => {
+    const summary = truncateText(entry.summary || '');
+    const fidelity = entry.fidelity !== undefined && entry.fidelity !== null
+      ? Number(entry.fidelity).toFixed(2)
+      : '–';
+    const row = document.createElement('tr');
+    row.innerHTML = `
+      <td>${entry.id}</td>
+      <td>L${entry.level}</td>
+      <td>${fidelity}</td>
+      <td>${entry.tokens ?? 0}</td>
+      <td>${escapeHtml(summary || 'No summary available.')}</td>
+    `;
+    dmlKnowledgeTable.appendChild(row);
+  });
+}
+
+function truncateText(value, limit = 160) {
+  if (!value) {
+    return '';
+  }
+  const normalized = value.replace(/\s+/g, ' ').trim();
+  if (normalized.length <= limit) {
+    return normalized;
+  }
+  return `${normalized.slice(0, limit - 1)}…`;
+}
+
 function buildInsightCopy({ promptTokens, ragTokens, dmlTokens, tokenDelta, avgFidelity, ragCount, dmlCount }) {
   if (!ragTokens && !dmlTokens) {
     return 'No retrieval context has been generated yet. Upload documents to populate RAG and the DML.';
@@ -292,7 +398,7 @@ function buildInsightCopy({ promptTokens, ragTokens, dmlTokens, tokenDelta, avgF
   }
   if (tokenDelta) {
     const direction = tokenDelta > 0 ? 'fewer' : 'more';
-    parts.push(`Compared to RAG alone, the DML context uses ${nf.format(Math.abs(tokenDelta))} ${direction} tokens, highlighting the compression gains of the lattice.`);
+    parts.push(`Compared to RAG alone, the DML context uses ${nf.format(Math.abs(tokenDelta))} ${direction} tokens, highlighting the distinct retrieval category.`);
   }
   parts.push(`The user prompt spans approximately ${nf.format(promptTokens)} tokens.`);
   return parts.join(' ');
@@ -494,3 +600,5 @@ async function stopNimContainer() {
     updateRuntimeStatus(null, nimConfigured, `Error: ${err.message}`);
   }
 }
+
+refreshKnowledge();
