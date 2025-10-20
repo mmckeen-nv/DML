@@ -151,9 +151,20 @@ def _resolve_visualizer_url(request: Request) -> str:
             port = int(forwarded_port)
         except ValueError:
             port = None
+
+    api_port: Optional[int] = request_port
+    if api_port is None:
+        server = request.scope.get("server") if hasattr(request, "scope") else None
+        if isinstance(server, tuple) and len(server) == 2:
+            api_port = server[1]
+        elif scheme == "https":
+            api_port = 443
+        elif scheme == "http":
+            api_port = 80
+
     if port is None:
         port = VISUALIZER_PORT
-    elif request_port is not None and port == request_port:
+    elif api_port is not None and port == api_port:
         port = VISUALIZER_PORT
     if port in {80, 443}:
         netloc = host
