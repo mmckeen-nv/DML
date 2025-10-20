@@ -233,6 +233,19 @@ details pre {
   gap: 1.25rem;
 }
 
+.knowledge-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 1.25rem;
+  margin-bottom: 1rem;
+}
+
+.knowledge-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 1.25rem;
+}
+
 .context-card {
   background: rgba(7, 18, 30, 0.85);
   border: 1px solid rgba(92, 160, 255, 0.2);
@@ -368,10 +381,21 @@ details pre {
   border: 1px solid rgba(76, 154, 255, 0.18);
   padding: 0.45rem 0.6rem;
   text-align: left;
+  white-space: normal;
+  word-break: break-word;
 }
 
 .data-table tbody tr:nth-child(odd) {
   background: rgba(9, 20, 32, 0.82);
+}
+
+.table-scroll {
+  background: rgba(5, 12, 20, 0.85);
+  border: 1px solid rgba(92, 160, 255, 0.12);
+  border-radius: 10px;
+  padding: 0.4rem;
+  max-height: 260px;
+  overflow-y: auto;
 }
 
 .insight-copy {

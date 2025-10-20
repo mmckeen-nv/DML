@@ -158,15 +158,6 @@ class DMLAdapter:
         dml_usage = self.runner.last_usage
         self.reinforce(prompt, dml_response)
 
-        combined_context_parts = []
-        if rag_context:
-            combined_context_parts.append(rag_context)
-        if dml_context:
-            combined_context_parts.append(dml_context)
-        combined_context = "\n\n".join(part for part in combined_context_parts if part).strip()
-        combined_prompt = self._compose_prompt(prompt, combined_context)
-        combined_response = self.runner.generate(combined_prompt, max_new_tokens=max_new_tokens)
-        combined_usage = self.runner.last_usage
         return {
             "prompt": prompt,
             "base": {
@@ -188,11 +179,40 @@ class DMLAdapter:
                 "avg_fidelity": dml_report["avg_fidelity"],
                 "entries": dml_report["entries"],
             },
-            "combined": {
-                "response": combined_response,
-                "usage": combined_usage,
-                "context": combined_context,
-                "context_tokens": utils.estimate_tokens(combined_context),
+        }
+
+    def knowledge_report(self) -> Dict:
+        """Expose summaries of the RAG corpus and DML memory lattice."""
+
+        rag_catalog = self.rag_store.catalog()
+
+        dml_items = []
+        dml_total_tokens = 0
+        for item in self.store.items():
+            text = (item.text or "").strip()
+            tokens = utils.estimate_tokens(text)
+            dml_total_tokens += tokens
+            dml_items.append(
+                {
+                    "id": item.id,
+                    "level": item.level,
+                    "fidelity": item.fidelity,
+                    "tokens": tokens,
+                    "summary": text,
+                    "meta": item.meta or {},
+                }
+            )
+
+        return {
+            "rag": {
+                "documents": rag_catalog["documents"],
+                "total_tokens": rag_catalog["total_tokens"],
+                "count": rag_catalog["count"],
+            },
+            "dml": {
+                "entries": dml_items,
+                "total_tokens": dml_total_tokens,
+                "count": len(dml_items),
             },
         }
 

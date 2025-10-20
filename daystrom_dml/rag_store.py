@@ -91,3 +91,26 @@ class SimpleRAGStore:
         """Expose the number of stored documents for diagnostics."""
 
         return len(self._documents)
+
+    def catalog(self) -> Dict[str, Any]:
+        """Return a summary of all stored documents and their token usage."""
+
+        documents: List[Dict[str, Any]] = []
+        total_tokens = 0
+        for idx, doc in enumerate(self._documents, start=1):
+            meta = doc.get("meta") or {}
+            source = meta.get("doc_path") or meta.get("source") or f"Document {idx}"
+            tokens = int(doc.get("tokens") or 0)
+            total_tokens += tokens
+            documents.append(
+                {
+                    "index": idx,
+                    "source": source,
+                    "tokens": tokens,
+                }
+            )
+        return {
+            "documents": documents,
+            "total_tokens": total_tokens,
+            "count": len(documents),
+        }

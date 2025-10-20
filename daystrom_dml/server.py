@@ -189,6 +189,13 @@ def stats() -> dict:
     return adapter.stats()
 
 
+@app.get("/knowledge")
+def knowledge() -> dict:
+    """Expose summaries of the documents stored in RAG and the DML lattice."""
+
+    return adapter.knowledge_report()
+
+
 @app.get("/nim/options")
 def nim_options() -> dict:
     """Expose the curated list of NVIDIA NIM container options."""

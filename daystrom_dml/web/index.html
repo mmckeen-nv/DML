@@ -79,7 +79,6 @@
               <div><dt>Prompt</dt><dd id="metric-prompt-tokens">–</dd></div>
               <div><dt>RAG Context</dt><dd id="metric-rag-tokens">–</dd></div>
               <div><dt>DML Context</dt><dd id="metric-dml-tokens">–</dd></div>
-              <div><dt>Combined Context</dt><dd id="metric-combined-tokens">–</dd></div>
               <div><dt>Token Delta (DML vs RAG)</dt><dd id="metric-token-delta">–</dd></div>
             </dl>
           </article>
@@ -108,11 +107,6 @@
             <header>DML Response</header>
             <pre id="dml-output"></pre>
             <footer id="dml-usage" class="usage"></footer>
-          </article>
-          <article class="response-card">
-            <header>Combined Response</header>
-            <pre id="combined-output"></pre>
-            <footer id="combined-usage" class="usage"></footer>
           </article>
         </div>
         <div class="context-grid">
@@ -153,12 +147,12 @@
             <div class="context-llm-output">
               <h4>LLM Outputs</h4>
               <div class="llm-output-block">
-                <h5>DML Only</h5>
-                <pre id="dml-context-llm-output" class="llm-output"></pre>
+                <h5>RAG Context</h5>
+                <pre id="rag-context-llm-output" class="llm-output"></pre>
               </div>
               <div class="llm-output-block">
-                <h5>RAG + DML Combined</h5>
-                <pre id="combined-context-llm-output" class="llm-output"></pre>
+                <h5>DML Context</h5>
+                <pre id="dml-context-llm-output" class="llm-output"></pre>
               </div>
             </div>
           </article>
@@ -166,6 +160,62 @@
             <header>Insights</header>
             <div class="insight-copy">
               <p id="insight-copy"></p>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section class="panel" id="knowledge-panel">
+        <h2>Knowledge Bases</h2>
+        <p class="hint">Review everything currently ingested into the playground.</p>
+        <div class="knowledge-metrics">
+          <article class="metric-card">
+            <h3>RAG Knowledge</h3>
+            <dl class="metric-list">
+              <div><dt>Documents</dt><dd id="knowledge-rag-count">0</dd></div>
+              <div><dt>Total Tokens</dt><dd id="knowledge-rag-tokens">0</dd></div>
+            </dl>
+          </article>
+          <article class="metric-card">
+            <h3>DML Knowledge</h3>
+            <dl class="metric-list">
+              <div><dt>Entries</dt><dd id="knowledge-dml-count">0</dd></div>
+              <div><dt>Total Tokens</dt><dd id="knowledge-dml-tokens">0</dd></div>
+            </dl>
+          </article>
+        </div>
+        <div id="knowledge-status" class="status"></div>
+        <div class="knowledge-grid">
+          <article class="context-card">
+            <header>RAG Documents</header>
+            <div class="table-scroll">
+              <table id="rag-knowledge" class="data-table">
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>Tokens</th>
+                    <th>Source</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </article>
+          <article class="context-card">
+            <header>DML Memories</header>
+            <div class="table-scroll">
+              <table id="dml-knowledge" class="data-table">
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>Level</th>
+                    <th>Fidelity</th>
+                    <th>Tokens</th>
+                    <th>Summary</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
             </div>
           </article>
         </div>
