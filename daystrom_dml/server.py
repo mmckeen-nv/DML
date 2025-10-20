@@ -13,7 +13,7 @@ from pathlib import Path
 from threading import Lock
 from typing import Optional
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, HTTPException, UploadFile, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -62,7 +62,9 @@ NIM_OPTIONS = [
 ]
 
 DEFAULT_NIM_ID = "gpt-oss-20b"
-VISUALIZER_URL = os.environ.get("DML_VISUALIZER_URL", "http://localhost:8501")
+VISUALIZER_URL = os.environ.get("DML_VISUALIZER_URL")
+VISUALIZER_PORT = int(os.environ.get("DML_VISUALIZER_PORT", "8501"))
+VISUALIZER_PATH = os.environ.get("DML_VISUALIZER_PATH", "/")
 NGC_KEY_FILE = Path(
     os.environ.get(
         "NGC_KEY_FILE",
@@ -118,18 +120,62 @@ def home() -> HTMLResponse:
     return HTMLResponse(index.read_text(encoding="utf-8"))
 
 
+def _resolve_visualizer_url(request: Request) -> str:
+    """Resolve the visualiser target, adapting to remote deployments."""
+
+    if VISUALIZER_URL:
+        return VISUALIZER_URL
+
+    headers = request.headers
+    scheme = headers.get("x-forwarded-proto", request.url.scheme)
+    host_header = headers.get("x-forwarded-host") or headers.get("host")
+    hostname = request.url.hostname or "localhost"
+    host = host_header or hostname
+
+    forwarded_port = headers.get("x-forwarded-port")
+    port = None
+    request_port = request.url.port
+    if request_port is None:
+        if scheme == "https":
+            request_port = 443
+        elif scheme == "http":
+            request_port = 80
+    if host and ":" in host:
+        host, host_port = host.rsplit(":", 1)
+        try:
+            port = int(host_port)
+        except ValueError:
+            port = None
+    if forwarded_port:
+        try:
+            port = int(forwarded_port)
+        except ValueError:
+            port = None
+    if port is None:
+        port = VISUALIZER_PORT
+    elif request_port is not None and port == request_port:
+        port = VISUALIZER_PORT
+    if port in {80, 443}:
+        netloc = host
+    else:
+        netloc = f"{host}:{port}"
+
+    path = VISUALIZER_PATH if VISUALIZER_PATH.startswith("/") else f"/{VISUALIZER_PATH}"
+    return f"{scheme}://{netloc}{path}"
+
+
 @app.get("/visualizer")
-def visualizer_redirect() -> RedirectResponse:
+def visualizer_redirect(request: Request) -> RedirectResponse:
     """Open the external visualiser in a new tab."""
 
-    return RedirectResponse(url=VISUALIZER_URL)
+    return RedirectResponse(url=_resolve_visualizer_url(request))
 
 
 @app.get("/visualizer/url")
-def visualizer_url() -> dict:
+def visualizer_url(request: Request) -> dict:
     """Expose the configured visualiser target for the frontend."""
 
-    return {"url": VISUALIZER_URL}
+    return {"url": _resolve_visualizer_url(request)}
 
 
 @app.post("/ingest")
