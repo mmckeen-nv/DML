@@ -48,6 +48,9 @@ const startNimButton = document.querySelector('#start-nim');
 const stopNimButton = document.querySelector('#stop-nim');
 const nimRuntimeStatus = document.querySelector('#nim-runtime-status');
 const visualizeButton = document.querySelector('#visualize-button');
+const visualizerFrame = document.querySelector('#visualizer-frame');
+const visualizerStatus = document.querySelector('#visualizer-status');
+const visualizerInlineLink = document.querySelector('#visualizer-inline-link');
 
 const API = {
   upload: '/upload',
@@ -57,7 +60,6 @@ const API = {
   nimStart: '/nim/start',
   nimStop: '/nim/stop',
   knowledge: '/knowledge',
-  visualizerUrl: '/visualizer/url',
   visualizerLaunch: '/visualizer/launch',
 };
 
@@ -69,8 +71,11 @@ if (nimImageInput && configureNimButton && nimStatus) {
 }
 
 if (visualizeButton) {
-  initialiseVisualizerLink();
-  setupVisualizerLaunch();
+  configureVisualizerButton();
+}
+
+if (visualizerFrame && visualizerStatus) {
+  prepareEmbeddedVisualizer();
 }
 
 if (startNimButton && stopNimButton) {
@@ -626,62 +631,52 @@ async function stopNimContainer() {
   }
 }
 
-async function initialiseVisualizerLink() {
-  try {
-    const response = await fetch(API.visualizerUrl);
-    if (!response.ok) {
-      throw new Error('Failed to resolve visualiser location');
-    }
-    const payload = await response.json();
-    if (payload.url && typeof payload.url === 'string') {
-      visualizeButton.href = payload.url;
-    }
-  } catch (err) {
-    console.warn('Visualizer lookup failed:', err);
-    visualizeButton.href = visualizeButton.href || '/visualizer';
+function configureVisualizerButton() {
+  if (visualizeButton) {
+    visualizeButton.href = '/visualizer';
+  }
+  if (visualizerInlineLink) {
+    visualizerInlineLink.href = '/visualizer';
   }
 }
 
-function setupVisualizerLaunch() {
-  const originalLabel = visualizeButton.textContent.trim();
-  visualizeButton.addEventListener('click', async (event) => {
-    if (visualizeButton.dataset.launching === 'true') {
-      event.preventDefault();
-      return;
-    }
-
-    event.preventDefault();
-    visualizeButton.dataset.launching = 'true';
-    visualizeButton.classList.add('busy');
-    visualizeButton.textContent = 'Starting…';
-
+async function prepareEmbeddedVisualizer() {
+  if (visualizerStatus) {
+    visualizerStatus.textContent = 'Preparing visualizer…';
+  }
+  try {
+    const response = await fetch(API.visualizerLaunch, { method: 'POST' });
+    let payload = {};
     try {
-      const response = await fetch(API.visualizerLaunch, { method: 'POST' });
-      let payload = null;
-      try {
-        payload = await response.json();
-      } catch (err) {
-        payload = null;
-      }
-      if (!response.ok) {
-        const message = payload && payload.detail ? payload.detail : 'Failed to start visualiser';
-        throw new Error(message);
-      }
-
-      const targetUrl = payload && typeof payload.url === 'string' && payload.url
-        ? payload.url
-        : visualizeButton.href || '/visualizer';
-      window.open(targetUrl, '_blank', 'noopener');
+      payload = await response.json();
     } catch (err) {
-      console.error('Visualizer launch failed:', err);
-      window.alert(`Visualizer failed to start: ${err.message}`);
-    } finally {
-      visualizeButton.dataset.launching = 'false';
-      visualizeButton.classList.remove('busy');
-      visualizeButton.textContent = originalLabel;
-      visualizeButton.blur();
+      payload = {};
     }
-  });
+    if (!response.ok) {
+      const message = payload && payload.detail ? payload.detail : 'Failed to start visualiser';
+      throw new Error(message);
+    }
+    if (payload && typeof payload.url === 'string' && payload.url) {
+      if (visualizerFrame) {
+        visualizerFrame.src = payload.url;
+        visualizerFrame.classList.remove('hidden');
+      }
+      if (visualizerStatus) {
+        visualizerStatus.textContent = 'Visualizer ready.';
+      }
+    } else if (visualizerStatus) {
+      visualizerStatus.textContent = 'Visualizer ready. URL unavailable.';
+    }
+  } catch (err) {
+    console.error('Visualizer launch failed:', err);
+    if (visualizerStatus) {
+      visualizerStatus.textContent = `Visualizer unavailable: ${err.message}`;
+    }
+    if (visualizerFrame) {
+      visualizerFrame.classList.add('hidden');
+      visualizerFrame.removeAttribute('src');
+    }
+  }
 }
 
 refreshKnowledge();

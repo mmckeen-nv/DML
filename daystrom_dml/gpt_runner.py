@@ -148,6 +148,11 @@ class _OpenAICompatibleBackend:
             "max_tokens": max_new_tokens,
             "temperature": 0.2,
         }
+        LOGGER.info(
+            "Dispatching completion request to NIM endpoint %s using model %s",
+            url,
+            self.model_name,
+        )
         response = requests.post(url, json=payload, headers=headers, timeout=120)
         response.raise_for_status()
         data = response.json()
@@ -164,4 +169,5 @@ class _OpenAICompatibleBackend:
             content = choice.get("text") or ""
         if not isinstance(content, str):
             content = str(content)
+        LOGGER.info("Received response from NIM endpoint %s", url)
         return content.strip(), data.get("usage")

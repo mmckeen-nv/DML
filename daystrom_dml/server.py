@@ -90,6 +90,23 @@ VISUALIZER_STATE = {"process": None, "log": None}
 VISUALIZER_LOCK = Lock()
 
 
+@app.on_event("startup")
+def _auto_launch_visualizer() -> None:
+    """Ensure the visualiser is running when the service starts."""
+
+    if VISUALIZER_URL:
+        LOGGER.info("Visualizer configured for external deployment at %s", VISUALIZER_URL)
+        return
+
+    try:
+        _launch_visualizer_server()
+        LOGGER.info("Visualizer startup complete on port %s", VISUALIZER_PORT)
+    except HTTPException as exc:
+        LOGGER.error("Visualizer failed to start during service startup: %s", exc.detail)
+    except Exception:  # pragma: no cover - defensive logging
+        LOGGER.exception("Unexpected error while starting visualizer on startup")
+
+
 class TextPayload(BaseModel):
     text: str
     meta: Optional[dict] = None
@@ -348,7 +365,17 @@ def _launch_visualizer_server() -> None:
             raise
 
 
-@app.get("/visualizer")
+@app.get("/visualizer", response_class=HTMLResponse)
+def visualizer_page() -> HTMLResponse:
+    """Serve the embedded visualiser page."""
+
+    page = WEB_DIR / "visualizer.html"
+    if not page.exists():
+        raise HTTPException(status_code=404, detail="Visualizer page missing from bundle")
+    return HTMLResponse(page.read_text(encoding="utf-8"))
+
+
+@app.get("/visualizer/redirect")
 def visualizer_redirect(request: Request) -> RedirectResponse:
     """Open the external visualiser in a new tab."""
 

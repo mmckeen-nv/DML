@@ -18,7 +18,7 @@
           target="_blank"
           rel="noopener noreferrer"
         >
-          Visualize
+          Open Visualizer Page
         </a>
       </div>
     </header>
@@ -79,6 +79,25 @@
           <button id="run-compare">Run Comparison</button>
         </div>
         <div id="compare-status" class="status"></div>
+      </section>
+
+      <section class="panel" id="visualizer-panel">
+        <h2>DML Visualizer</h2>
+        <p class="hint">
+          Monitor the Daystrom Memory Lattice in real time without leaving the playground.
+        </p>
+        <div class="visualizer-embed">
+          <div id="visualizer-status" class="status">Starting visualizer…</div>
+          <iframe
+            id="visualizer-frame"
+            title="Daystrom Memory Lattice Visualizer"
+            loading="lazy"
+            allowfullscreen
+          ></iframe>
+        </div>
+        <p class="hint">
+          Need more space? <a href="/visualizer" id="visualizer-inline-link" target="_blank" rel="noopener noreferrer">Open the dedicated visualizer page</a>.
+        </p>
       </section>
 
       <section id="results" class="panel hidden">
