@@ -17,14 +17,17 @@ const dmlEntriesMetric = document.querySelector('#metric-dml-entries');
 const baseOutput = document.querySelector('#base-output');
 const ragOutput = document.querySelector('#rag-output');
 const dmlOutput = document.querySelector('#dml-output');
+const integratedOutput = document.querySelector('#integrated-output');
 const baseUsage = document.querySelector('#base-usage');
 const ragUsage = document.querySelector('#rag-usage');
 const dmlUsage = document.querySelector('#dml-usage');
+const integratedUsage = document.querySelector('#integrated-usage');
 const ragContext = document.querySelector('#rag-context');
 const dmlContext = document.querySelector('#dml-context');
 const dmlSummaryList = document.querySelector('#dml-summary-list');
 const ragContextLlmOutput = document.querySelector('#rag-context-llm-output');
 const dmlContextLlmOutput = document.querySelector('#dml-context-llm-output');
+const integratedContextLlmOutput = document.querySelector('#integrated-context-llm-output');
 const insightCopy = document.querySelector('#insight-copy');
 const ragDocumentsTable = document.querySelector('#rag-documents tbody');
 const dmlEntriesTable = document.querySelector('#dml-entries tbody');
@@ -44,6 +47,7 @@ const nimConfigSummary = document.querySelector('#nim-config-summary');
 const startNimButton = document.querySelector('#start-nim');
 const stopNimButton = document.querySelector('#stop-nim');
 const nimRuntimeStatus = document.querySelector('#nim-runtime-status');
+const visualizeButton = document.querySelector('#visualize-button');
 
 const API = {
   upload: '/upload',
@@ -53,6 +57,7 @@ const API = {
   nimStart: '/nim/start',
   nimStop: '/nim/stop',
   knowledge: '/knowledge',
+  visualizerUrl: '/visualizer/url',
 };
 
 let nimConfigured = false;
@@ -60,6 +65,10 @@ let nimConfigured = false;
 if (nimImageInput && configureNimButton && nimStatus) {
   loadNimStatus();
   configureNimButton.addEventListener('click', configureNimEndpoint);
+}
+
+if (visualizeButton) {
+  initialiseVisualizerLink();
 }
 
 if (startNimButton && stopNimButton) {
@@ -146,10 +155,12 @@ function renderResults(payload) {
   baseOutput.textContent = payload.base?.response || '';
   ragOutput.textContent = payload.rag?.response || '';
   dmlOutput.textContent = payload.dml?.response || '';
+  integratedOutput.textContent = payload.integrated?.response || '';
 
   baseUsage.textContent = formatUsage(payload.base?.usage);
   ragUsage.textContent = formatUsage(payload.rag?.usage);
   dmlUsage.textContent = formatUsage(payload.dml?.usage);
+  integratedUsage.textContent = formatUsage(payload.integrated?.usage);
 
   ragContext.textContent = payload.rag?.context || 'No RAG context retrieved for this prompt.';
   dmlContext.textContent = payload.dml?.context || 'No DML memories matched this prompt yet.';
@@ -162,6 +173,9 @@ function renderResults(payload) {
   }
   if (dmlContextLlmOutput) {
     dmlContextLlmOutput.textContent = payload.dml?.response || 'No DML response generated yet.';
+  }
+  if (integratedContextLlmOutput) {
+    integratedContextLlmOutput.textContent = payload.integrated?.response || 'No integrated response generated yet.';
   }
 
   insightCopy.textContent = buildInsightCopy({
@@ -413,6 +427,9 @@ async function loadNimStatus() {
     }
     const payload = await response.json();
     nimConfigured = Boolean(payload.current);
+    if (nimImageInput && !nimImageInput.value && payload.default?.image) {
+      nimImageInput.value = payload.default.image;
+    }
     updateRuntimeStatus(payload.runtime, nimConfigured);
     if (payload.current) {
       renderNimSummary(payload.current, 'Using previously configured NIM.', payload);
@@ -428,10 +445,6 @@ async function loadNimStatus() {
 async function configureNimEndpoint() {
   const nimImage = (nimImageInput.value || '').trim();
   const apiKey = (ngcApiKeyInput.value || '').trim();
-  if (!nimImage) {
-    nimStatus.textContent = 'Input a NVIDIA NIM image first.';
-    return;
-  }
   if (!apiKey) {
     nimStatus.textContent = 'Enter your NGC API key to continue.';
     return;
@@ -598,6 +611,22 @@ async function stopNimContainer() {
   } catch (err) {
     console.error(err);
     updateRuntimeStatus(null, nimConfigured, `Error: ${err.message}`);
+  }
+}
+
+async function initialiseVisualizerLink() {
+  try {
+    const response = await fetch(API.visualizerUrl);
+    if (!response.ok) {
+      throw new Error('Failed to resolve visualiser location');
+    }
+    const payload = await response.json();
+    if (payload.url && typeof payload.url === 'string') {
+      visualizeButton.href = payload.url;
+    }
+  } catch (err) {
+    console.warn('Visualizer lookup failed:', err);
+    visualizeButton.href = visualizeButton.href || '/visualizer';
   }
 }
 

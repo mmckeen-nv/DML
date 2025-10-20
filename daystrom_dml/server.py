@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import io
+import logging
 import os
 import shlex
 import shutil
@@ -13,7 +14,7 @@ from threading import Lock
 from typing import Optional
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from pypdf import PdfReader
@@ -27,6 +28,7 @@ except Exception:  # pragma: no cover - defensive fallback for minimal envs
     requests = None
 
 WEB_DIR = Path(__file__).with_name("web")
+LOGGER = logging.getLogger(__name__)
 
 app = FastAPI(title="Daystrom Memory Lattice")
 if WEB_DIR.exists():
@@ -58,6 +60,15 @@ NIM_OPTIONS = [
         "default_api_base": "http://localhost:8000",
     },
 ]
+
+DEFAULT_NIM_ID = "gpt-oss-20b"
+VISUALIZER_URL = os.environ.get("DML_VISUALIZER_URL", "http://localhost:8501")
+NGC_KEY_FILE = Path(
+    os.environ.get(
+        "NGC_KEY_FILE",
+        Path(__file__).resolve().parent.parent / "ngc_api_key.txt",
+    )
+)
 
 CURRENT_NIM: Optional[dict] = None
 CURRENT_NIM_RUNTIME: dict = {"container_id": None, "running": False, "healthy": False}
@@ -105,6 +116,20 @@ def home() -> HTMLResponse:
     if not index.exists():
         raise HTTPException(status_code=404, detail="Frontend bundle missing")
     return HTMLResponse(index.read_text(encoding="utf-8"))
+
+
+@app.get("/visualizer")
+def visualizer_redirect() -> RedirectResponse:
+    """Open the external visualiser in a new tab."""
+
+    return RedirectResponse(url=VISUALIZER_URL)
+
+
+@app.get("/visualizer/url")
+def visualizer_url() -> dict:
+    """Expose the configured visualiser target for the frontend."""
+
+    return {"url": VISUALIZER_URL}
 
 
 @app.post("/ingest")
@@ -203,6 +228,7 @@ def nim_options() -> dict:
     return {
         "options": NIM_OPTIONS,
         "current": CURRENT_NIM,
+        "default": _nim_summary(_nim_option(DEFAULT_NIM_ID)),
         "runtime": _runtime_status(),
     }
 
@@ -213,26 +239,24 @@ def nim_configure(payload: NimConfigurePayload) -> dict:
 
     if not payload.api_key.strip():
         raise HTTPException(status_code=400, detail="NGC API key is required")
+    nim_id = (payload.nim_id or "").strip()
+    nim_image = (payload.nim_image or "").strip()
+    if not nim_id and not nim_image:
+        nim_id = DEFAULT_NIM_ID
     option = None
-    if payload.nim_id:
-        option = _nim_option(payload.nim_id)
-    elif payload.nim_image:
-        option = _nim_option_by_image(payload.nim_image.strip())
+    if nim_id:
+        option = _nim_option(nim_id)
+    elif nim_image:
+        option = _nim_option_by_image(nim_image)
     if not option:
-        identifier = payload.nim_id or payload.nim_image or ""
+        identifier = nim_id or nim_image or ""
         raise HTTPException(status_code=404, detail=f"Unknown NIM selection provided: {identifier}")
     try:
         pull_status, pull_logs = _pull_nim_image(option["image"], payload.api_key.strip())
     except RuntimeError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     _apply_nim_configuration(option, payload.api_key.strip())
-    summary = {
-        "id": option["id"],
-        "label": option["label"],
-        "model_name": option["model_name"],
-        "api_base": option["default_api_base"],
-        "image": option["image"],
-    }
+    summary = _nim_summary(option)
     global CURRENT_NIM
     CURRENT_NIM = summary
     CURRENT_NIM_RUNTIME.update({"running": False, "healthy": False, "container_id": None})
@@ -440,6 +464,16 @@ def _nim_option_by_image(image: str) -> Optional[dict]:
     return None
 
 
+def _nim_summary(option: dict) -> dict:
+    return {
+        "id": option["id"],
+        "label": option["label"],
+        "model_name": option["model_name"],
+        "api_base": option["default_api_base"],
+        "image": option["image"],
+    }
+
+
 def _pull_nim_image(image: str, api_key: str) -> tuple[str, list[str]]:
     """Attempt to pull the requested NIM image via Docker."""
 
@@ -492,7 +526,18 @@ def _apply_nim_configuration(option: dict, api_key: str) -> None:
     os.environ["OPENAI_API_KEY"] = api_key
     os.environ["NIM_API_BASE"] = option["default_api_base"]
     os.environ["OPENAI_API_BASE"] = option["default_api_base"]
+    _save_ngc_key(api_key)
     _reload_adapter(config_overrides={"model_name": option["model_name"]})
+
+
+def _save_ngc_key(api_key: str) -> None:
+    """Persist the provided NGC API key for convenience."""
+
+    try:
+        NGC_KEY_FILE.parent.mkdir(parents=True, exist_ok=True)
+        NGC_KEY_FILE.write_text(api_key.strip() + "\n", encoding="utf-8")
+    except Exception as exc:  # pragma: no cover - filesystem permissions vary
+        LOGGER.warning("Failed to persist NGC API key: %s", exc)
 
 
 def _reload_adapter(*, config_overrides: Optional[dict] = None) -> None:

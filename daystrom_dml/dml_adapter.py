@@ -158,6 +158,12 @@ class DMLAdapter:
         dml_usage = self.runner.last_usage
         self.reinforce(prompt, dml_response)
 
+        combined_blocks = [block for block in (rag_context, dml_context) if block]
+        combined_context = "\n\n".join(combined_blocks)
+        combined_prompt = self._compose_prompt(prompt, combined_context)
+        integrated_response = self.runner.generate(combined_prompt, max_new_tokens=max_new_tokens)
+        integrated_usage = self.runner.last_usage
+
         return {
             "prompt": prompt,
             "base": {
@@ -178,6 +184,12 @@ class DMLAdapter:
                 "context_tokens": utils.estimate_tokens(dml_context),
                 "avg_fidelity": dml_report["avg_fidelity"],
                 "entries": dml_report["entries"],
+            },
+            "integrated": {
+                "response": integrated_response,
+                "usage": integrated_usage,
+                "context": combined_context,
+                "context_tokens": utils.estimate_tokens(combined_context),
             },
         }
 
