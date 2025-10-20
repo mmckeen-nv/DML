@@ -656,16 +656,31 @@ async function prepareEmbeddedVisualizer() {
       const message = payload && payload.detail ? payload.detail : 'Failed to start visualiser';
       throw new Error(message);
     }
-    if (payload && typeof payload.url === 'string' && payload.url) {
-      if (visualizerFrame) {
-        visualizerFrame.src = payload.url;
-        visualizerFrame.classList.remove('hidden');
-      }
+    const embedUrl = payload && typeof payload.embed_url === 'string' && payload.embed_url ? payload.embed_url : null;
+    const targetUrl = payload && typeof payload.url === 'string' && payload.url ? payload.url : null;
+
+    if (visualizerInlineLink && targetUrl) {
+      visualizerInlineLink.href = targetUrl;
+    }
+
+    if (embedUrl && visualizerFrame) {
+      visualizerFrame.src = embedUrl;
+      visualizerFrame.classList.remove('hidden');
       if (visualizerStatus) {
         visualizerStatus.textContent = 'Visualizer ready.';
       }
-    } else if (visualizerStatus) {
-      visualizerStatus.textContent = 'Visualizer ready. URL unavailable.';
+    } else {
+      if (visualizerFrame) {
+        visualizerFrame.classList.add('hidden');
+        visualizerFrame.removeAttribute('src');
+      }
+      if (visualizerStatus) {
+        if (targetUrl) {
+          visualizerStatus.textContent = 'Visualizer ready. Open the dedicated visualizer page to view it.';
+        } else {
+          visualizerStatus.textContent = 'Visualizer ready. URL unavailable.';
+        }
+      }
     }
   } catch (err) {
     console.error('Visualizer launch failed:', err);

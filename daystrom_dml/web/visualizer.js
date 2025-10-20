@@ -19,13 +19,21 @@ async function initialiseStandaloneVisualizer() {
       const message = payload && payload.detail ? payload.detail : 'Failed to start visualiser';
       throw new Error(message);
     }
-    if (payload && typeof payload.url === 'string' && payload.url) {
-      frameEl.src = payload.url;
+    const embedUrl = payload && typeof payload.embed_url === 'string' && payload.embed_url ? payload.embed_url : null;
+    const targetUrl = payload && typeof payload.url === 'string' && payload.url ? payload.url : null;
+
+    if (openLinkEl && targetUrl) {
+      openLinkEl.href = targetUrl;
+    }
+
+    if (embedUrl) {
+      frameEl.src = embedUrl;
       statusEl.textContent = 'Visualizer ready.';
-      if (openLinkEl) {
-        openLinkEl.href = payload.url;
-      }
+    } else if (targetUrl) {
+      frameEl.removeAttribute('src');
+      statusEl.textContent = 'Visualizer ready. Open the Streamlit visualizer in a new tab.';
     } else {
+      frameEl.removeAttribute('src');
       statusEl.textContent = 'Visualizer ready (no URL available).';
     }
   } catch (err) {
