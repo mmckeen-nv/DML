@@ -25,6 +25,30 @@ header h1 {
   margin-bottom: 0.25rem;
 }
 
+.header-actions {
+  margin-top: 1rem;
+  display: flex;
+  justify-content: center;
+}
+
+.link-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.6rem 1.5rem;
+  border-radius: 999px;
+  font-weight: 700;
+  text-decoration: none;
+  color: #031120;
+  background: linear-gradient(120deg, #4c9aff 0%, #7ec3ff 100%);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.link-button:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 24px rgba(76, 154, 255, 0.4);
+}
+
 main {
   max-width: 1200px;
   margin: 0 auto;

@@ -10,6 +10,17 @@
     <header>
       <h1>Daystrom Memory Lattice Playground</h1>
       <p>Upload documents, run retrieval augmented generation, and compare model responses.</p>
+      <div class="header-actions">
+        <a
+          id="visualize-button"
+          class="link-button"
+          href="/visualizer"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          Visualize
+        </a>
+      </div>
     </header>
 
     <main>
@@ -108,6 +119,11 @@
             <pre id="dml-output"></pre>
             <footer id="dml-usage" class="usage"></footer>
           </article>
+          <article class="response-card">
+            <header>Integrated Response</header>
+            <pre id="integrated-output"></pre>
+            <footer id="integrated-usage" class="usage"></footer>
+          </article>
         </div>
         <div class="context-grid">
           <article class="context-card">
@@ -153,6 +169,10 @@
               <div class="llm-output-block">
                 <h5>DML Context</h5>
                 <pre id="dml-context-llm-output" class="llm-output"></pre>
+              </div>
+              <div class="llm-output-block">
+                <h5>Integrated Context</h5>
+                <pre id="integrated-context-llm-output" class="llm-output"></pre>
               </div>
             </div>
           </article>
