@@ -134,6 +134,12 @@ def _resolve_visualizer_url(request: Request) -> str:
 
     forwarded_port = headers.get("x-forwarded-port")
     port = None
+    request_port = request.url.port
+    if request_port is None:
+        if scheme == "https":
+            request_port = 443
+        elif scheme == "http":
+            request_port = 80
     if host and ":" in host:
         host, host_port = host.rsplit(":", 1)
         try:
@@ -146,6 +152,8 @@ def _resolve_visualizer_url(request: Request) -> str:
         except ValueError:
             port = None
     if port is None:
+        port = VISUALIZER_PORT
+    elif request_port is not None and port == request_port:
         port = VISUALIZER_PORT
     if port in {80, 443}:
         netloc = host
