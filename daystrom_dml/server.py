@@ -1,6 +1,8 @@
 """FastAPI service exposing the Daystrom Memory Lattice."""
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import io
 import logging
 import os
@@ -11,17 +13,31 @@ import sys
 import time
 from pathlib import Path
 from threading import Lock
-from typing import Optional
+from typing import Optional, AsyncIterator
 from urllib.parse import urlparse, urlunparse
 
-from fastapi import FastAPI, File, HTTPException, UploadFile, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi import FastAPI, File, HTTPException, UploadFile, Request, WebSocket
+from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from pypdf import PdfReader
 
+from starlette.websockets import WebSocketState
+
 from . import utils
 from .dml_adapter import DMLAdapter
+
+try:  # httpx is required for proxying the visualizer through the API origin
+    import httpx
+except Exception:  # pragma: no cover - optional dependency in minimal environments
+    httpx = None
+
+try:  # websockets are needed for full Streamlit interactivity inside the iframe
+    from websockets.asyncio.client import connect as websocket_connect
+    from websockets.exceptions import ConnectionClosed as WebsocketConnectionClosed
+except Exception:  # pragma: no cover - optional dependency in minimal environments
+    websocket_connect = None
+    WebsocketConnectionClosed = Exception
 
 try:  # requests is an optional dependency during some test scenarios
     import requests
@@ -88,6 +104,24 @@ NIM_HEALTH_INTERVAL = float(os.environ.get("NIM_HEALTH_INTERVAL", "5"))
 
 VISUALIZER_STATE = {"process": None, "log": None}
 VISUALIZER_LOCK = Lock()
+VISUALIZER_PROXY_METHODS = ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
+
+
+@app.on_event("startup")
+def _auto_launch_visualizer() -> None:
+    """Ensure the visualiser is running when the service starts."""
+
+    if VISUALIZER_URL:
+        LOGGER.info("Visualizer configured for external deployment at %s", VISUALIZER_URL)
+        return
+
+    try:
+        _launch_visualizer_server()
+        LOGGER.info("Visualizer startup complete on port %s", VISUALIZER_PORT)
+    except HTTPException as exc:
+        LOGGER.error("Visualizer failed to start during service startup: %s", exc.detail)
+    except Exception:  # pragma: no cover - defensive logging
+        LOGGER.exception("Unexpected error while starting visualizer on startup")
 
 
 class TextPayload(BaseModel):
@@ -171,6 +205,66 @@ def _resolve_visualizer_url(request: Request) -> str:
 
     path = VISUALIZER_PATH if VISUALIZER_PATH.startswith("/") else f"/{VISUALIZER_PATH}"
     return f"{scheme}://{netloc}{path}"
+
+
+def _normalise_visualizer_path(path: str) -> str:
+    if not path:
+        return "/"
+    segments = [segment for segment in path.split("/") if segment]
+    if not segments:
+        return "/"
+    return "/" + "/".join(segments)
+
+
+def _visualizer_upstream_components() -> tuple[str, str, str]:
+    if VISUALIZER_URL:
+        parsed = urlparse(VISUALIZER_URL)
+        scheme = parsed.scheme or "http"
+        hostname = parsed.hostname or "localhost"
+        port = parsed.port
+        if port is None:
+            port = 443 if scheme == "https" else 80
+        if (scheme == "https" and port == 443) or (scheme == "http" and port == 80):
+            netloc = hostname
+        else:
+            netloc = f"{hostname}:{port}"
+        base_path = parsed.path
+    else:
+        scheme = "http"
+        netloc = f"127.0.0.1:{VISUALIZER_PORT}"
+        base_path = VISUALIZER_PATH
+    return scheme, netloc, _normalise_visualizer_path(base_path)
+
+
+def _join_visualizer_path(base_path: str, extra: str) -> str:
+    base_segments = [segment for segment in base_path.split("/") if segment]
+    extra_segments = [segment for segment in extra.split("/") if segment]
+    segments = base_segments + extra_segments
+    if not segments:
+        return "/"
+    return "/" + "/".join(segments)
+
+
+def _resolve_visualizer_embed_path() -> Optional[str]:
+    if httpx is None or websocket_connect is None:
+        return None
+    _, _, base_path = _visualizer_upstream_components()
+    suffix = "/" if base_path == "/" else base_path
+    return f"/visualizer/embed{suffix}"
+
+
+def _strip_frame_ancestors(csp: str) -> Optional[str]:
+    directives = []
+    for directive in csp.split(";"):
+        cleaned = directive.strip()
+        if not cleaned:
+            continue
+        if cleaned.lower().startswith("frame-ancestors"):
+            continue
+        directives.append(cleaned)
+    if not directives:
+        return None
+    return "; ".join(directives)
 
 
 def _format_command(parts: list[str]) -> str:
@@ -348,7 +442,172 @@ def _launch_visualizer_server() -> None:
             raise
 
 
-@app.get("/visualizer")
+@app.api_route("/visualizer/embed/{path:path}", methods=VISUALIZER_PROXY_METHODS)
+async def visualizer_embed_http(path: str, request: Request) -> StreamingResponse:
+    if httpx is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Visualizer proxy is unavailable because the httpx dependency is missing.",
+        )
+
+    scheme, netloc, base_path = _visualizer_upstream_components()
+    upstream_path = _join_visualizer_path(base_path, path)
+
+    forward_headers = {}
+    for key, value in request.headers.items():
+        header = key.lower()
+        if header in {"host", "content-length", "connection", "keep-alive"}:
+            continue
+        if header == "origin":
+            continue
+        forward_headers[key] = value
+    forward_headers["host"] = netloc
+    forward_headers.setdefault("origin", f"{scheme}://{netloc}")
+
+    body = await request.body()
+    client = httpx.AsyncClient(
+        base_url=f"{scheme}://{netloc}",
+        follow_redirects=False,
+        timeout=httpx.Timeout(None),
+    )
+    try:
+        upstream_request = client.build_request(
+            request.method,
+            upstream_path or "/",
+            headers=forward_headers,
+            content=body if body else None,
+            params=list(request.query_params.multi_items()),
+        )
+        upstream_response = await client.send(upstream_request, stream=True)
+    except Exception as exc:
+        await client.aclose()
+        LOGGER.exception("Visualizer proxy request failed")
+        raise HTTPException(status_code=502, detail=f"Visualizer proxy request failed: {exc}") from exc
+
+    async def stream_response() -> AsyncIterator[bytes]:
+        try:
+            async for chunk in upstream_response.aiter_raw():
+                yield chunk
+        finally:
+            await upstream_response.aclose()
+            await client.aclose()
+
+    headers: list[tuple[str, str]] = []
+    for name, value in upstream_response.headers.items():
+        lower = name.lower()
+        if lower in {"content-encoding", "transfer-encoding", "connection", "keep-alive", "x-frame-options"}:
+            continue
+        if lower == "content-security-policy":
+            sanitised = _strip_frame_ancestors(value)
+            if sanitised:
+                headers.append((name, sanitised))
+            continue
+        headers.append((name, value))
+    headers.append(("x-frame-options", "ALLOWALL"))
+
+    return StreamingResponse(
+        stream_response(),
+        status_code=upstream_response.status_code,
+        headers=headers,
+    )
+
+
+@app.websocket("/visualizer/embed/{path:path}")
+async def visualizer_embed_websocket(path: str, websocket: WebSocket) -> None:
+    if websocket_connect is None:
+        await websocket.close(code=1011, reason="Visualizer proxy unavailable (websockets dependency missing)")
+        return
+
+    scheme, netloc, base_path = _visualizer_upstream_components()
+    upstream_path = _join_visualizer_path(base_path, path)
+    ws_scheme = "wss" if scheme == "https" else "ws"
+    query = websocket.scope.get("query_string", b"").decode("latin-1")
+    target = f"{ws_scheme}://{netloc}{upstream_path}"
+    if query:
+        target = f"{target}?{query}"
+
+    extra_headers: list[tuple[str, str]] = []
+    for name, value in websocket.scope.get("headers", []):
+        header_name = name.decode("latin-1")
+        lower = header_name.lower()
+        if lower in {"host", "origin"}:
+            continue
+        if lower.startswith("sec-websocket"):
+            continue
+        extra_headers.append((header_name, value.decode("latin-1")))
+    extra_headers.append(("origin", f"{scheme}://{netloc}"))
+
+    subprotocols = websocket.scope.get("subprotocols") or None
+
+    try:
+        upstream = await websocket_connect(
+            target,
+            extra_headers=extra_headers,
+            subprotocols=subprotocols,
+            open_timeout=None,
+            close_timeout=None,
+        )
+    except Exception as exc:  # pragma: no cover - network exceptions
+        LOGGER.exception("Visualizer websocket proxy connection failed")
+        await websocket.close(code=1011, reason="Visualizer proxy connection failed")
+        return
+
+    await websocket.accept(subprotocol=getattr(upstream, "subprotocol", None))
+
+    async def client_to_server() -> None:
+        try:
+            while True:
+                message = await websocket.receive()
+                message_type = message.get("type")
+                if message_type == "websocket.receive":
+                    text = message.get("text")
+                    data = message.get("bytes")
+                    if text is not None:
+                        await upstream.send(text)
+                    elif data is not None:
+                        await upstream.send(data)
+                elif message_type == "websocket.disconnect":
+                    await upstream.close()
+                    break
+        except Exception:  # pragma: no cover - defensive cleanup
+            with contextlib.suppress(Exception):
+                await upstream.close()
+
+    async def server_to_client() -> None:
+        try:
+            while True:
+                try:
+                    payload = await upstream.recv()
+                except WebsocketConnectionClosed:
+                    break
+                if isinstance(payload, str):
+                    await websocket.send_text(payload)
+                else:
+                    await websocket.send_bytes(payload)
+        finally:
+            if websocket.application_state == WebSocketState.CONNECTED:
+                await websocket.close()
+
+    try:
+        await asyncio.gather(client_to_server(), server_to_client())
+    finally:
+        with contextlib.suppress(Exception):
+            await upstream.close()
+        if websocket.application_state == WebSocketState.CONNECTED:
+            with contextlib.suppress(Exception):
+                await websocket.close()
+
+@app.get("/visualizer", response_class=HTMLResponse)
+def visualizer_page() -> HTMLResponse:
+    """Serve the embedded visualiser page."""
+
+    page = WEB_DIR / "visualizer.html"
+    if not page.exists():
+        raise HTTPException(status_code=404, detail="Visualizer page missing from bundle")
+    return HTMLResponse(page.read_text(encoding="utf-8"))
+
+
+@app.get("/visualizer/redirect")
 def visualizer_redirect(request: Request) -> RedirectResponse:
     """Open the external visualiser in a new tab."""
 
@@ -359,7 +618,11 @@ def visualizer_redirect(request: Request) -> RedirectResponse:
 def visualizer_url(request: Request) -> dict:
     """Expose the configured visualiser target for the frontend."""
 
-    return {"url": _resolve_visualizer_url(request)}
+    payload = {"url": _resolve_visualizer_url(request)}
+    embed_path = _resolve_visualizer_embed_path()
+    if embed_path:
+        payload["embed_url"] = embed_path
+    return payload
 
 
 @app.post("/visualizer/launch")
@@ -367,10 +630,14 @@ def launch_visualizer(request: Request) -> dict:
     """Ensure the Streamlit visualiser is ready and return its URL."""
 
     target_url = _resolve_visualizer_url(request)
+    embed_path = _resolve_visualizer_embed_path()
     if VISUALIZER_URL:
         # External deployments are assumed to be managed separately.
         LOGGER.info("External visualiser configured, skipping local launch")
-        return {"status": "external", "url": target_url}
+        payload = {"status": "external", "url": target_url}
+        if embed_path:
+            payload["embed_url"] = embed_path
+        return payload
 
     try:
         _launch_visualizer_server()
@@ -380,7 +647,10 @@ def launch_visualizer(request: Request) -> dict:
         LOGGER.exception("Unexpected error while launching visualiser")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
-    return {"status": "ready", "url": target_url}
+    payload = {"status": "ready", "url": target_url}
+    if embed_path:
+        payload["embed_url"] = embed_path
+    return payload
 
 
 @app.post("/ingest")
