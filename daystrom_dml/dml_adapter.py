@@ -1,10 +1,13 @@
 """High level adapter orchestrating the Daystrom Memory Lattice."""
 from __future__ import annotations
 
+import contextlib
+import json
 import logging
 import os
 import time
 from pathlib import Path
+from threading import RLock
 from typing import Dict, List, Optional
 
 import numpy as np
@@ -15,7 +18,7 @@ from .gpt_runner import GPTRunner
 from .memory_store import MemoryStore
 from .summarizer import DummySummarizer, LLMSummarizer, Summarizer
 from .retrievers import LiteralRetriever, LiteralResult
-from .rag_store import SimpleRAGStore
+from .multi_rag import MultiRAGStore
 from . import utils
 
 LOGGER = logging.getLogger(__name__)
@@ -53,12 +56,20 @@ class DMLAdapter:
             self.summarizer = DummySummarizer()
         else:
             self.summarizer = LLMSummarizer(self.runner)
+        storage_dir = self.config.get("storage_dir") or "data"
+        self.storage_dir = Path(storage_dir)
+        if not self.storage_dir.is_absolute():
+            self.storage_dir = Path(__file__).resolve().parent.parent / self.storage_dir
+        self.storage_dir.mkdir(parents=True, exist_ok=True)
+        self.dml_state_path = self.storage_dir / "dml_store.json"
+        self.rag_state_path = self.storage_dir / "rag_store.json"
+        self._persist_lock = RLock()
         self.literal_retriever = LiteralRetriever(
             self.embedder,
             self.summarizer,
             context_window=int(self.config.get("literal_context", 1)),
         )
-        self.rag_store = SimpleRAGStore(self.embedder)
+        self.rag_store = MultiRAGStore(self.embedder)
         self.store = MemoryStore(
             self.summarizer,
             beta_a=float(self.config["beta_a"]),
@@ -72,12 +83,14 @@ class DMLAdapter:
             capacity=int(self.config["capacity"]),
             start_aging_loop=start_aging_loop,
         )
+        self._load_persisted_state()
         LOGGER.info("Daystrom Memory Lattice initialised with %d capacity", self.store.capacity)
 
     # ------------------------------------------------------------------
     # Lifecycle helpers
     # ------------------------------------------------------------------
     def close(self) -> None:
+        self._persist_all()
         self.store.close()
 
     # ------------------------------------------------------------------
@@ -90,6 +103,7 @@ class DMLAdapter:
         salience = self._estimate_salience(text)
         self.store.ingest(text, embedding, salience=salience, meta=meta)
         self.rag_store.add_document(text, meta=meta)
+        self._persist_all()
 
     def build_preamble(self, prompt: str, top_k: Optional[int] = None) -> str:
         if top_k is None:
@@ -114,6 +128,7 @@ class DMLAdapter:
         embedding = self.embedder.embed(summary)
         salience = self._estimate_salience(summary) + 0.1
         self.store.ingest(summary, embedding, salience=salience, meta=meta)
+        self._persist_dml_state()
 
     def run_generation(self, prompt: str, *, max_new_tokens: int = 256) -> str:
         context = self.build_preamble(prompt, top_k=self.config.get("top_k", 6))
@@ -145,11 +160,25 @@ class DMLAdapter:
         base_usage = self.runner.last_usage
 
         rag_top_k = self.config.get("top_k", 6) if top_k is None else top_k
-        rag_report = self.rag_store.report(prompt, top_k=rag_top_k)
-        rag_context = self._format_rag_context(rag_report["context"])
-        rag_prompt = self._compose_prompt(prompt, rag_context)
-        rag_response = self.runner.generate(rag_prompt, max_new_tokens=max_new_tokens)
-        rag_usage = self.runner.last_usage
+        rag_reports = self.rag_store.report_all(prompt, top_k=rag_top_k)
+        rag_results: List[Dict] = []
+        for report in rag_reports:
+            rag_context = self._format_rag_context(report.get("context") or "")
+            rag_prompt = self._compose_prompt(prompt, rag_context)
+            rag_response = self.runner.generate(rag_prompt, max_new_tokens=max_new_tokens)
+            rag_usage = self.runner.last_usage
+            rag_results.append(
+                {
+                    "id": report.get("id"),
+                    "label": report.get("label"),
+                    "response": rag_response,
+                    "usage": rag_usage,
+                    "context": rag_context,
+                    "context_tokens": report.get("tokens"),
+                    "documents": report.get("documents"),
+                }
+            )
+        primary_rag = rag_results[0] if rag_results else None
 
         dml_report = self.retrieval_report(prompt, top_k=top_k)
         dml_context = self._format_dml_context(dml_report["entries"])
@@ -158,7 +187,9 @@ class DMLAdapter:
         dml_usage = self.runner.last_usage
         self.reinforce(prompt, dml_response)
 
-        combined_blocks = [block for block in (rag_context, dml_context) if block]
+        combined_blocks = [entry["context"] for entry in rag_results if entry.get("context")]
+        combined_blocks.append(dml_context)
+        combined_blocks = [block for block in combined_blocks if block]
         combined_context = "\n\n".join(combined_blocks)
         combined_prompt = self._compose_prompt(prompt, combined_context)
         integrated_response = self.runner.generate(combined_prompt, max_new_tokens=max_new_tokens)
@@ -170,13 +201,8 @@ class DMLAdapter:
                 "response": base_response,
                 "usage": base_usage,
             },
-            "rag": {
-                "response": rag_response,
-                "usage": rag_usage,
-                "context": rag_context,
-                "context_tokens": rag_report["tokens"],
-                "documents": rag_report["documents"],
-            },
+            "rag": primary_rag,
+            "rag_backends": rag_results,
             "dml": {
                 "response": dml_response,
                 "usage": dml_usage,
@@ -191,12 +217,20 @@ class DMLAdapter:
                 "context": combined_context,
                 "context_tokens": utils.estimate_tokens(combined_context),
             },
+            "rag_token_breakdown": [
+                {
+                    "id": entry.get("id"),
+                    "label": entry.get("label"),
+                    "tokens": entry.get("context_tokens", 0),
+                }
+                for entry in rag_results
+            ],
         }
 
     def knowledge_report(self) -> Dict:
         """Expose summaries of the RAG corpus and DML memory lattice."""
 
-        rag_catalog = self.rag_store.catalog()
+        rag_summary = self.rag_store.catalog_summary()
 
         dml_items = []
         dml_total_tokens = 0
@@ -216,17 +250,84 @@ class DMLAdapter:
             )
 
         return {
-            "rag": {
-                "documents": rag_catalog["documents"],
-                "total_tokens": rag_catalog["total_tokens"],
-                "count": rag_catalog["count"],
-            },
+            "rag": rag_summary,
             "dml": {
                 "entries": dml_items,
                 "total_tokens": dml_total_tokens,
                 "count": len(dml_items),
             },
         }
+
+    # ------------------------------------------------------------------
+    # Persistence helpers
+    # ------------------------------------------------------------------
+    def _load_persisted_state(self) -> None:
+        with contextlib.suppress(Exception):
+            if self.dml_state_path.exists():
+                data = json.loads(self.dml_state_path.read_text(encoding="utf-8"))
+                self._ensure_embedding_compatibility(data)
+                self.store.import_state(data)
+        with contextlib.suppress(Exception):
+            if self.rag_state_path.exists():
+                data = json.loads(self.rag_state_path.read_text(encoding="utf-8"))
+                self.rag_store.import_state(data)
+
+    def _persist_all(self) -> None:
+        self._persist_dml_state()
+        self._persist_rag_state()
+
+    def _persist_dml_state(self) -> None:
+        with self._persist_lock:
+            data = self.store.export_state()
+            tmp = self.dml_state_path.with_suffix(".tmp")
+            try:
+                tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
+                tmp.replace(self.dml_state_path)
+            except Exception:
+                LOGGER.exception("Failed to persist DML state to %s", self.dml_state_path)
+
+    def _persist_rag_state(self) -> None:
+        with self._persist_lock:
+            data = self.rag_store.export_state()
+            tmp = self.rag_state_path.with_suffix(".tmp")
+            try:
+                tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
+                tmp.replace(self.rag_state_path)
+            except Exception:
+                LOGGER.exception("Failed to persist RAG state to %s", self.rag_state_path)
+
+    def _ensure_embedding_compatibility(self, payload: Dict) -> None:
+        items = payload.get("items") if isinstance(payload, dict) else None
+        if not items:
+            return
+        first = items[0] or {}
+        stored_embedding = first.get("embedding")
+        if stored_embedding is None:
+            return
+        try:
+            stored_dim = int(np.asarray(stored_embedding, dtype=np.float32).size)
+        except Exception:
+            return
+        try:
+            probe = self.embedder.embed("Daystrom persistence probe")
+            current_dim = int(np.asarray(probe, dtype=np.float32).size)
+        except Exception:
+            LOGGER.debug("Unable to determine embedder dimensions for persistence compatibility check.")
+            return
+        if stored_dim == current_dim or current_dim == 0:
+            return
+        LOGGER.warning(
+            "Embedding dimension changed from %s to %s; re-embedding persisted memories.",
+            stored_dim,
+            current_dim,
+        )
+        for entry in items:
+            text = entry.get("text") or ""
+            try:
+                new_embedding = self.embedder.embed(text)
+                entry["embedding"] = utils.ensure_serializable(new_embedding)
+            except Exception:
+                entry["embedding"] = []
 
     def query_database(self, prompt: str, mode: str = "auto") -> Dict:
         """Retrieve context-aware snippets from the external corpus."""

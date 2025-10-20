@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 import numpy as np
 
@@ -22,6 +22,7 @@ class SimpleRAGStore:
     """
 
     embedder: Embedder
+    score_transform: Optional[Callable[[float, Dict[str, Any]], float]] = None
     _documents: List[Dict[str, Any]] = field(default_factory=list)
 
     def add_document(self, text: str, meta: Optional[Dict[str, Any]] = None) -> None:
@@ -49,6 +50,11 @@ class SimpleRAGStore:
             return results
         for doc in self._documents:
             score = utils.cosine_similarity(doc["embedding"], query_embedding)
+            if self.score_transform:
+                try:
+                    score = float(self.score_transform(score, doc))
+                except Exception:
+                    pass
             results.append(
                 {
                     "text": doc["text"],
@@ -114,3 +120,29 @@ class SimpleRAGStore:
             "total_tokens": total_tokens,
             "count": len(documents),
         }
+
+    def export_state(self) -> Dict[str, Any]:
+        """Return a serialisable snapshot of the store."""
+
+        return {
+            "documents": [
+                {
+                    "text": doc["text"],
+                    "meta": doc.get("meta") or {},
+                }
+                for doc in self._documents
+            ]
+        }
+
+    def import_state(self, payload: Optional[Dict[str, Any]]) -> None:
+        """Restore documents from ``payload`` if provided."""
+
+        if not payload:
+            return
+        self.clear()
+        for entry in payload.get("documents", []):
+            text = entry.get("text")
+            if not text:
+                continue
+            meta = entry.get("meta") or {}
+            self.add_document(str(text), meta=meta)

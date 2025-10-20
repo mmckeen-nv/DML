@@ -4,7 +4,7 @@ from __future__ import annotations
 import threading
 import time
 from dataclasses import dataclass, field
-from typing import Dict, Iterable, List, Optional, Sequence
+from typing import Any, Dict, Iterable, List, Optional, Sequence
 
 import numpy as np
 
@@ -129,6 +129,48 @@ class MemoryStore:
     def items(self) -> Sequence[MemoryItem]:
         with self._lock:
             return list(self._items)
+
+    def export_state(self) -> Dict[str, Any]:
+        """Return a JSON serialisable snapshot of the memory lattice."""
+
+        with self._lock:
+            return {
+                "items": [item.to_dict() for item in self._items],
+                "next_id": self._id,
+            }
+
+    def import_state(self, payload: Optional[Dict[str, Any]]) -> None:
+        """Restore the lattice from ``payload`` if provided."""
+
+        if not payload:
+            return
+
+        items_data = payload.get("items") or []
+        reconstructed: List[MemoryItem] = []
+        for entry in items_data:
+            try:
+                embedding = np.asarray(entry.get("embedding") or [], dtype=np.float32)
+                item = MemoryItem(
+                    id=int(entry.get("id", 0)),
+                    text=str(entry.get("text") or ""),
+                    embedding=embedding,
+                    timestamp=float(entry.get("timestamp") or 0.0),
+                    salience=float(entry.get("salience") or 0.0),
+                    fidelity=float(entry.get("fidelity") or 0.0),
+                    level=int(entry.get("level") or 0),
+                    meta=entry.get("meta") or {},
+                    summary_of=list(entry.get("summary_of") or []),
+                )
+            except Exception:
+                continue
+            reconstructed.append(item)
+
+        with self._lock:
+            self._items = reconstructed
+            if self._items:
+                self._id = max(item.id for item in self._items) + 1
+            else:
+                self._id = int(payload.get("next_id") or 0)
 
     def decay_step(self, now: Optional[float] = None) -> None:
         """Public hook used in tests to simulate ageing."""

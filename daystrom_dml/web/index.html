@@ -14,7 +14,7 @@
         <a
           id="visualize-button"
           class="link-button"
-          href="/visualizer"
+          href="/visualizer/redirect"
           target="_blank"
           rel="noopener noreferrer"
         >
@@ -96,7 +96,7 @@
           ></iframe>
         </div>
         <p class="hint">
-          Need more space? <a href="/visualizer" id="visualizer-inline-link" target="_blank" rel="noopener noreferrer">Open the dedicated visualizer page</a>.
+          Need more space? <a href="/visualizer/redirect" id="visualizer-inline-link" target="_blank" rel="noopener noreferrer">Open the dedicated visualizer page</a>.
         </p>
       </section>
 
@@ -121,6 +121,11 @@
             </dl>
             <p class="hint">Review the context panels below to see exactly what each system passes to the LLM.</p>
           </article>
+          <article class="metric-card metric-card--graph">
+            <h3>RAG Retrieval Tokens</h3>
+            <div id="rag-token-graph" class="token-graph" aria-live="polite"></div>
+            <p class="hint">Each bar represents the context token budget used by a RAG backend.</p>
+          </article>
         </div>
         <div class="response-grid">
           <article class="response-card">
@@ -128,10 +133,12 @@
             <pre id="base-output"></pre>
             <footer id="base-usage" class="usage"></footer>
           </article>
-          <article class="response-card">
-            <header>RAG Response</header>
-            <pre id="rag-output"></pre>
-            <footer id="rag-usage" class="usage"></footer>
+          <article class="response-card rag-response-card">
+            <header>RAG Responses</header>
+            <div id="rag-response-tabs" class="tabbed-group" aria-live="polite">
+              <div class="tab-list" id="rag-response-tablist" role="tablist" aria-label="RAG backends"></div>
+              <div class="tab-panels" id="rag-response-panels"></div>
+            </div>
           </article>
           <article class="response-card">
             <header>DML Response</header>
@@ -144,63 +151,78 @@
             <footer id="integrated-usage" class="usage"></footer>
           </article>
         </div>
-        <div class="context-grid">
-          <article class="context-card">
-            <header>RAG Context</header>
-            <pre id="rag-context"></pre>
-            <table id="rag-documents" class="data-table">
-              <thead>
-                <tr>
-                  <th>#</th>
-                  <th>Score</th>
-                  <th>Tokens</th>
-                  <th>Source</th>
-                </tr>
-              </thead>
-              <tbody></tbody>
-            </table>
-          </article>
-          <article class="context-card">
-            <header>DML Context</header>
-            <div class="context-summary">
-              <h4>Summaries</h4>
-              <ol id="dml-summary-list" class="summary-list"></ol>
-            </div>
-            <pre id="dml-context"></pre>
-            <table id="dml-entries" class="data-table">
-              <thead>
-                <tr>
-                  <th>ID</th>
-                  <th>Level</th>
-                  <th>Fidelity</th>
-                  <th>Tokens</th>
-                  <th>Summary</th>
-                </tr>
-              </thead>
-              <tbody></tbody>
-            </table>
-            <div class="context-llm-output">
-              <h4>LLM Outputs</h4>
-              <div class="llm-output-block">
-                <h5>RAG Context</h5>
-                <pre id="rag-context-llm-output" class="llm-output"></pre>
+        <div id="context-tabs" class="tabbed-context">
+          <div class="tab-header" role="tablist" aria-label="Context views">
+            <button class="tab-button active" data-context-tab="rag" aria-selected="true">RAG Context</button>
+            <button class="tab-button" data-context-tab="dml" aria-selected="false">DML Context</button>
+            <button class="tab-button" data-context-tab="insights" aria-selected="false">Insights</button>
+          </div>
+          <div class="tab-panels">
+            <section class="tab-panel active" data-context-panel="rag" aria-labelledby="rag-context-label">
+              <div class="tab-scroll">
+                <p class="tab-subtitle" id="rag-context-label">No RAG backend selected.</p>
+                <pre id="rag-context"></pre>
+                <div class="table-scroll">
+                  <table id="rag-documents" class="data-table">
+                    <thead>
+                      <tr>
+                        <th>#</th>
+                        <th>Score</th>
+                        <th>Tokens</th>
+                        <th>Source</th>
+                      </tr>
+                    </thead>
+                    <tbody></tbody>
+                  </table>
+                </div>
               </div>
-              <div class="llm-output-block">
-                <h5>DML Context</h5>
-                <pre id="dml-context-llm-output" class="llm-output"></pre>
+            </section>
+            <section class="tab-panel" data-context-panel="dml">
+              <div class="tab-scroll">
+                <div class="context-summary">
+                  <h4>Summaries</h4>
+                  <ol id="dml-summary-list" class="summary-list"></ol>
+                </div>
+                <pre id="dml-context"></pre>
+                <div class="table-scroll">
+                  <table id="dml-entries" class="data-table">
+                    <thead>
+                      <tr>
+                        <th>ID</th>
+                        <th>Level</th>
+                        <th>Fidelity</th>
+                        <th>Tokens</th>
+                        <th>Summary</th>
+                      </tr>
+                    </thead>
+                    <tbody></tbody>
+                  </table>
+                </div>
+                <div class="context-llm-output">
+                  <h4>LLM Outputs</h4>
+                  <div class="llm-output-block">
+                    <h5>RAG Context</h5>
+                    <pre id="rag-context-llm-output" class="llm-output"></pre>
+                  </div>
+                  <div class="llm-output-block">
+                    <h5>DML Context</h5>
+                    <pre id="dml-context-llm-output" class="llm-output"></pre>
+                  </div>
+                  <div class="llm-output-block">
+                    <h5>Integrated Context</h5>
+                    <pre id="integrated-context-llm-output" class="llm-output"></pre>
+                  </div>
+                </div>
               </div>
-              <div class="llm-output-block">
-                <h5>Integrated Context</h5>
-                <pre id="integrated-context-llm-output" class="llm-output"></pre>
+            </section>
+            <section class="tab-panel" data-context-panel="insights">
+              <div class="tab-scroll">
+                <div class="insight-copy">
+                  <p id="insight-copy"></p>
+                </div>
               </div>
-            </div>
-          </article>
-          <article class="context-card">
-            <header>Insights</header>
-            <div class="insight-copy">
-              <p id="insight-copy"></p>
-            </div>
-          </article>
+            </section>
+          </div>
         </div>
       </section>
 

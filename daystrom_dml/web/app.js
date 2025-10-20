@@ -15,14 +15,13 @@ const dmlFidelityMetric = document.querySelector('#metric-dml-fidelity');
 const ragDocsMetric = document.querySelector('#metric-rag-docs');
 const dmlEntriesMetric = document.querySelector('#metric-dml-entries');
 const baseOutput = document.querySelector('#base-output');
-const ragOutput = document.querySelector('#rag-output');
 const dmlOutput = document.querySelector('#dml-output');
 const integratedOutput = document.querySelector('#integrated-output');
 const baseUsage = document.querySelector('#base-usage');
-const ragUsage = document.querySelector('#rag-usage');
 const dmlUsage = document.querySelector('#dml-usage');
 const integratedUsage = document.querySelector('#integrated-usage');
 const ragContext = document.querySelector('#rag-context');
+const ragContextLabel = document.querySelector('#rag-context-label');
 const dmlContext = document.querySelector('#dml-context');
 const dmlSummaryList = document.querySelector('#dml-summary-list');
 const ragContextLlmOutput = document.querySelector('#rag-context-llm-output');
@@ -30,6 +29,11 @@ const dmlContextLlmOutput = document.querySelector('#dml-context-llm-output');
 const integratedContextLlmOutput = document.querySelector('#integrated-context-llm-output');
 const insightCopy = document.querySelector('#insight-copy');
 const ragDocumentsTable = document.querySelector('#rag-documents tbody');
+const ragTokenGraph = document.querySelector('#rag-token-graph');
+const ragResponseTabList = document.querySelector('#rag-response-tablist');
+const ragResponsePanels = document.querySelector('#rag-response-panels');
+const contextTabButtons = Array.from(document.querySelectorAll('[data-context-tab]'));
+const contextPanels = Array.from(document.querySelectorAll('[data-context-panel]'));
 const dmlEntriesTable = document.querySelector('#dml-entries tbody');
 const knowledgeStatus = document.querySelector('#knowledge-status');
 const ragKnowledgeTable = document.querySelector('#rag-knowledge tbody');
@@ -64,6 +68,19 @@ const API = {
 };
 
 let nimConfigured = false;
+const state = {
+  ragBackends: [],
+  activeRagId: null,
+  lastComparison: null,
+  lastTokenBreakdown: [],
+  lastRequest: null,
+  visualizer: {
+    embedUrl: null,
+    targetUrl: null,
+    lastPrompt: null,
+    mode: 'auto',
+  },
+};
 
 if (nimImageInput && configureNimButton && nimStatus) {
   loadNimStatus();
@@ -83,6 +100,13 @@ if (startNimButton && stopNimButton) {
   stopNimButton.disabled = true;
   startNimButton.addEventListener('click', startNimContainer);
   stopNimButton.addEventListener('click', stopNimContainer);
+}
+
+if (contextTabButtons.length && contextPanels.length) {
+  contextTabButtons.forEach((button) => {
+    button.addEventListener('click', () => activateContextTab(button.dataset.contextTab));
+  });
+  activateContextTab(contextTabButtons[0]?.dataset.contextTab || 'rag');
 }
 
 uploadForm.addEventListener('submit', async (event) => {
@@ -124,6 +148,7 @@ runCompareButton.addEventListener('click', async () => {
       top_k: Number(topKInput.value) || 0,
       max_new_tokens: Number(maxTokensInput.value) || 512,
     };
+    state.lastRequest = { ...body };
     const response = await fetch(API.compare, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -146,7 +171,25 @@ function renderResults(payload) {
   resultsPanel.classList.remove('hidden');
   const nf = new Intl.NumberFormat('en-US');
   const promptTokens = payload.prompt_tokens_est ?? 0;
-  const ragTokens = payload.rag?.context_tokens ?? 0;
+
+  state.lastComparison = payload;
+  state.lastTokenBreakdown = Array.isArray(payload.rag_token_breakdown)
+    ? payload.rag_token_breakdown
+    : [];
+  if (payload.prompt) {
+    state.visualizer.mode = 'auto';
+    updateVisualizerPrompt(payload.prompt);
+  }
+  const ragBackends = Array.isArray(payload.rag_backends) ? payload.rag_backends : [];
+  state.ragBackends = ragBackends;
+  if (!state.activeRagId || !ragBackends.some((backend) => backend.id === state.activeRagId)) {
+    state.activeRagId = ragBackends.length ? ragBackends[0].id : null;
+  }
+  buildRagResponseTabs(ragBackends);
+  setActiveRagBackend(state.activeRagId);
+
+  const primaryRag = payload.rag || getActiveRagBackend();
+  const ragTokens = primaryRag?.context_tokens ?? 0;
   const dmlTokens = payload.dml?.context_tokens ?? 0;
   setMetricValue(tokenPromptMetric, promptTokens);
   setMetricValue(tokenRagMetric, ragTokens);
@@ -156,30 +199,34 @@ function renderResults(payload) {
     ? `${tokenDelta > 0 ? '−' : '+'}${nf.format(Math.abs(tokenDelta))} tokens`
     : '0';
   dmlFidelityMetric.textContent = formatFloat(payload.dml?.avg_fidelity);
-  ragDocsMetric.textContent = nf.format(payload.rag?.documents?.length ?? 0);
+  ragDocsMetric.textContent = nf.format(primaryRag?.documents?.length ?? 0);
   dmlEntriesMetric.textContent = nf.format(payload.dml?.entries?.length ?? 0);
 
   if (baseOutput) baseOutput.textContent = payload.base?.response || '';
-  if (ragOutput) ragOutput.textContent = payload.rag?.response || '';
   if (dmlOutput) dmlOutput.textContent = payload.dml?.response || '';
   if (integratedOutput) integratedOutput.textContent = payload.integrated?.response || '';
 
-  if (baseUsage) baseUsage.textContent = formatUsage(payload.base?.usage);
-  if (ragUsage) ragUsage.textContent = formatUsage(payload.rag?.usage);
-  if (dmlUsage) dmlUsage.textContent = formatUsage(payload.dml?.usage);
-  if (integratedUsage) integratedUsage.textContent = formatUsage(payload.integrated?.usage);
+  if (baseUsage) {
+    const usageText = formatUsage(payload.base?.usage);
+    baseUsage.textContent = usageText;
+    baseUsage.classList.toggle('hidden', !usageText);
+  }
+  if (dmlUsage) {
+    const usageText = formatUsage(payload.dml?.usage);
+    dmlUsage.textContent = usageText;
+    dmlUsage.classList.toggle('hidden', !usageText);
+  }
+  if (integratedUsage) {
+    const usageText = formatUsage(payload.integrated?.usage);
+    integratedUsage.textContent = usageText;
+    integratedUsage.classList.toggle('hidden', !usageText);
+  }
 
-  if (ragContext)
-    ragContext.textContent = payload.rag?.context || 'No RAG context retrieved for this prompt.';
   if (dmlContext)
     dmlContext.textContent = payload.dml?.context || 'No DML memories matched this prompt yet.';
-  renderRagDocuments(payload.rag?.documents || []);
   renderDmlEntries(payload.dml?.entries || []);
   renderDmlSummaries(payload.dml?.entries || []);
 
-  if (ragContextLlmOutput) {
-    ragContextLlmOutput.textContent = payload.rag?.response || 'No RAG response generated yet.';
-  }
   if (dmlContextLlmOutput) {
     dmlContextLlmOutput.textContent = payload.dml?.response || 'No DML response generated yet.';
   }
@@ -194,12 +241,178 @@ function renderResults(payload) {
       dmlTokens,
       tokenDelta,
       avgFidelity: payload.dml?.avg_fidelity,
-      ragCount: payload.rag?.documents?.length || 0,
+      ragCount: primaryRag?.documents?.length || 0,
       dmlCount: payload.dml?.entries?.length || 0,
     });
   }
 
+  renderTokenGraph(state.lastTokenBreakdown);
   refreshKnowledge();
+}
+
+function getActiveRagBackend() {
+  if (!state.activeRagId) {
+    return state.ragBackends[0] || null;
+  }
+  return state.ragBackends.find((backend) => backend.id === state.activeRagId) || null;
+}
+
+function buildRagResponseTabs(backends) {
+  if (!ragResponseTabList || !ragResponsePanels) {
+    return;
+  }
+  ragResponseTabList.innerHTML = '';
+  ragResponsePanels.innerHTML = '';
+  if (!backends.length) {
+    const emptyMessage = document.createElement('p');
+    emptyMessage.className = 'empty-state';
+    emptyMessage.textContent = 'No RAG responses generated yet.';
+    ragResponsePanels.appendChild(emptyMessage);
+    return;
+  }
+  const selectedId = state.activeRagId;
+  backends.forEach((backend, index) => {
+    const safeId = `rag-tab-${String(backend.id || index).replace(/[^a-z0-9-_]/gi, '-')}`;
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'tab-chip';
+    button.dataset.backendId = backend.id;
+    button.id = safeId;
+    button.setAttribute('role', 'tab');
+    button.textContent = backend.label || backend.id || `Backend ${index + 1}`;
+    button.addEventListener('click', () => setActiveRagBackend(backend.id));
+    ragResponseTabList.appendChild(button);
+
+    const panel = document.createElement('div');
+    panel.className = 'rag-response-panel';
+    panel.dataset.backendId = backend.id;
+    panel.setAttribute('role', 'tabpanel');
+    panel.setAttribute('aria-labelledby', safeId);
+    const responsePre = document.createElement('pre');
+    responsePre.className = 'rag-response-output';
+    responsePre.textContent = backend.response || 'No response generated yet.';
+    const usageFooter = document.createElement('footer');
+    usageFooter.className = 'usage';
+    usageFooter.textContent = formatUsage(backend.usage);
+    panel.appendChild(responsePre);
+    panel.appendChild(usageFooter);
+    ragResponsePanels.appendChild(panel);
+  });
+}
+
+function setActiveRagBackend(backendId) {
+  if (!state.ragBackends.length) {
+    state.activeRagId = null;
+  } else if (backendId && state.ragBackends.some((backend) => backend.id === backendId)) {
+    state.activeRagId = backendId;
+  } else {
+    state.activeRagId = state.ragBackends[0].id;
+  }
+  if (ragResponseTabList && ragResponsePanels) {
+    const buttons = Array.from(ragResponseTabList.querySelectorAll('[data-backend-id]'));
+    const panels = Array.from(ragResponsePanels.querySelectorAll('.rag-response-panel'));
+    buttons.forEach((button) => {
+      const isActive = button.dataset.backendId === state.activeRagId;
+      button.classList.toggle('active', isActive);
+      button.setAttribute('aria-selected', isActive ? 'true' : 'false');
+      button.setAttribute('tabindex', isActive ? '0' : '-1');
+    });
+    panels.forEach((panel) => {
+      const isActive = panel.dataset.backendId === state.activeRagId;
+      panel.classList.toggle('active', isActive);
+      panel.hidden = !isActive;
+      if (isActive) {
+        const backend = getActiveRagBackend();
+        if (backend) {
+          const responsePre = panel.querySelector('.rag-response-output');
+          if (responsePre) {
+            responsePre.textContent = backend.response || 'No response generated yet.';
+          }
+          const usageFooter = panel.querySelector('.usage');
+          if (usageFooter) {
+            usageFooter.textContent = formatUsage(backend.usage);
+          }
+        }
+      }
+    });
+  }
+  updateRagContextView();
+  renderTokenGraph(state.lastTokenBreakdown || []);
+}
+
+function updateRagContextView() {
+  const backend = getActiveRagBackend();
+  if (ragContextLabel) {
+    ragContextLabel.textContent = backend
+      ? `${backend.label || backend.id} context`
+      : 'No RAG backend selected.';
+  }
+  if (ragContext) {
+    ragContext.textContent = backend?.context || 'No RAG context retrieved for this prompt.';
+  }
+  renderRagDocuments(backend?.documents || []);
+  if (ragContextLlmOutput) {
+    ragContextLlmOutput.textContent = backend?.response || 'No RAG response generated yet.';
+  }
+}
+
+function activateContextTab(tabId) {
+  if (!tabId) {
+    return;
+  }
+  contextTabButtons.forEach((button) => {
+    const isActive = button.dataset.contextTab === tabId;
+    button.classList.toggle('active', isActive);
+    button.setAttribute('aria-selected', isActive ? 'true' : 'false');
+    button.setAttribute('tabindex', isActive ? '0' : '-1');
+  });
+  contextPanels.forEach((panel) => {
+    const isActive = panel.dataset.contextPanel === tabId;
+    panel.classList.toggle('active', isActive);
+    panel.hidden = !isActive;
+  });
+}
+
+function renderTokenGraph(breakdown) {
+  if (!ragTokenGraph) {
+    return;
+  }
+  state.lastTokenBreakdown = Array.isArray(breakdown) ? breakdown : [];
+  const entries = state.lastTokenBreakdown;
+  ragTokenGraph.innerHTML = '';
+  if (!entries.length) {
+    const emptyMessage = document.createElement('p');
+    emptyMessage.className = 'empty-state';
+    emptyMessage.textContent = 'No RAG retrievals yet.';
+    ragTokenGraph.appendChild(emptyMessage);
+    return;
+  }
+  const nf = new Intl.NumberFormat('en-US');
+  const maxTokens = Math.max(...entries.map((entry) => Number(entry.tokens) || 0), 1);
+  entries.forEach((entry) => {
+    const bar = document.createElement('div');
+    bar.className = 'token-graph-bar';
+    if (entry.id === state.activeRagId) {
+      bar.classList.add('active');
+    }
+    const label = document.createElement('span');
+    label.className = 'token-graph-label';
+    label.textContent = entry.label || entry.id || 'Backend';
+    const meter = document.createElement('div');
+    meter.className = 'token-graph-meter';
+    const fill = document.createElement('div');
+    fill.className = 'token-graph-fill';
+    const ratio = Math.min(100, ((Number(entry.tokens) || 0) / maxTokens) * 100);
+    fill.style.width = `${ratio}%`;
+    meter.appendChild(fill);
+    const value = document.createElement('span');
+    value.className = 'token-graph-value';
+    value.textContent = `${nf.format(Number(entry.tokens) || 0)} tok`;
+    bar.appendChild(label);
+    bar.appendChild(meter);
+    bar.appendChild(value);
+    ragTokenGraph.appendChild(bar);
+  });
 }
 
 function escapeHtml(value) {
@@ -225,7 +438,7 @@ function formatFloat(value) {
 
 function formatUsage(usage) {
   if (!usage) {
-    return 'Usage data unavailable from backend.';
+    return '';
   }
   const nf = new Intl.NumberFormat('en-US');
   const prompt = usage.prompt_tokens ?? usage.promptTokens;
@@ -235,7 +448,70 @@ function formatUsage(usage) {
   if (prompt !== undefined) pieces.push(`Prompt: ${nf.format(prompt)}`);
   if (completion !== undefined) pieces.push(`Completion: ${nf.format(completion)}`);
   if (total !== undefined) pieces.push(`Total: ${nf.format(total)}`);
-  return pieces.length ? pieces.join(' | ') : 'Usage data unavailable from backend.';
+  return pieces.length ? pieces.join(' | ') : '';
+}
+
+function getVisualizerTopK() {
+  if (state.lastRequest && typeof state.lastRequest.top_k === 'number') {
+    const requestTopK = Number(state.lastRequest.top_k);
+    if (!Number.isNaN(requestTopK) && requestTopK > 0) {
+      return requestTopK;
+    }
+  }
+  if (topKInput && topKInput.value) {
+    const direct = Number(topKInput.value);
+    if (!Number.isNaN(direct) && direct > 0) {
+      return direct;
+    }
+  }
+  return 6;
+}
+
+function buildVisualizerUrl(baseUrl, prompt, topK, mode = 'auto') {
+  if (!baseUrl) {
+    return null;
+  }
+  try {
+    const resolved = new URL(baseUrl, window.location.origin);
+    if (prompt) {
+      resolved.searchParams.set('prompt', prompt);
+    } else {
+      resolved.searchParams.delete('prompt');
+    }
+    if (topK) {
+      resolved.searchParams.set('top_k', String(topK));
+    } else {
+      resolved.searchParams.delete('top_k');
+    }
+    if (mode) {
+      resolved.searchParams.set('mode', mode);
+    }
+    resolved.searchParams.set('ts', Date.now().toString());
+    return resolved.toString();
+  } catch (err) {
+    console.warn('Unable to build visualizer URL:', err);
+    return baseUrl;
+  }
+}
+
+function updateVisualizerPrompt(prompt) {
+  state.visualizer.lastPrompt = prompt;
+  const topK = getVisualizerTopK();
+  const mode = state.visualizer.mode || 'auto';
+  const embedUrl = buildVisualizerUrl(state.visualizer.embedUrl, prompt, topK, mode);
+  const targetUrl = buildVisualizerUrl(state.visualizer.targetUrl, prompt, topK, mode);
+  if (embedUrl && visualizerFrame) {
+    if (visualizerFrame.src !== embedUrl) {
+      visualizerFrame.src = embedUrl;
+    }
+  }
+  if (targetUrl && visualizerInlineLink) {
+    visualizerInlineLink.href = targetUrl;
+  }
+  if (targetUrl && visualizeButton) {
+    visualizeButton.dataset.launchUrl = targetUrl;
+    visualizeButton.href = targetUrl;
+  }
 }
 
 function renderRagDocuments(documents) {
@@ -245,7 +521,7 @@ function renderRagDocuments(documents) {
   ragDocumentsTable.innerHTML = '';
   if (!documents.length) {
     const emptyRow = document.createElement('tr');
-    emptyRow.innerHTML = '<td colspan="4">No matching RAG documents ingested yet.</td>';
+    emptyRow.innerHTML = '<td colspan="4">No matching RAG documents for this backend yet.</td>';
     ragDocumentsTable.appendChild(emptyRow);
     return;
   }
@@ -632,11 +908,48 @@ async function stopNimContainer() {
 }
 
 function configureVisualizerButton() {
+  const handler = async (event) => {
+    event.preventDefault();
+    if (visualizeButton) {
+      visualizeButton.classList.add('busy');
+    }
+    try {
+      const response = await fetch(API.visualizerLaunch, { method: 'POST' });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(payload.detail || 'Failed to start visualiser');
+      }
+      const embedUrl = payload && payload.embed_url ? payload.embed_url : null;
+      const targetUrl = payload && payload.url ? payload.url : '/visualizer/redirect';
+      if (embedUrl) {
+        state.visualizer.embedUrl = embedUrl;
+      }
+      if (targetUrl) {
+        state.visualizer.targetUrl = targetUrl;
+      }
+      const prompt = state.visualizer.lastPrompt || (promptInput ? promptInput.value : '');
+      updateVisualizerPrompt(prompt || '');
+      const launchUrl = visualizeButton?.dataset.launchUrl || targetUrl;
+      window.open(launchUrl, '_blank', 'noopener');
+    } catch (err) {
+      console.error('Visualizer launch failed:', err);
+      if (visualizerStatus) {
+        visualizerStatus.textContent = `Visualizer unavailable: ${err.message}`;
+      }
+    } finally {
+      if (visualizeButton) {
+        visualizeButton.classList.remove('busy');
+      }
+    }
+  };
+
   if (visualizeButton) {
-    visualizeButton.href = '/visualizer';
+    visualizeButton.href = '#';
+    visualizeButton.addEventListener('click', handler);
   }
   if (visualizerInlineLink) {
-    visualizerInlineLink.href = '/visualizer';
+    visualizerInlineLink.href = '#';
+    visualizerInlineLink.addEventListener('click', handler);
   }
 }
 
@@ -659,8 +972,11 @@ async function prepareEmbeddedVisualizer() {
     const embedUrl = payload && typeof payload.embed_url === 'string' && payload.embed_url ? payload.embed_url : null;
     const targetUrl = payload && typeof payload.url === 'string' && payload.url ? payload.url : null;
 
-    if (visualizerInlineLink && targetUrl) {
-      visualizerInlineLink.href = targetUrl;
+    if (embedUrl) {
+      state.visualizer.embedUrl = embedUrl;
+    }
+    if (targetUrl) {
+      state.visualizer.targetUrl = targetUrl;
     }
 
     if (embedUrl && visualizerFrame) {
@@ -675,13 +991,13 @@ async function prepareEmbeddedVisualizer() {
         visualizerFrame.removeAttribute('src');
       }
       if (visualizerStatus) {
-        if (targetUrl) {
-          visualizerStatus.textContent = 'Visualizer ready. Open the dedicated visualizer page to view it.';
-        } else {
-          visualizerStatus.textContent = 'Visualizer ready. URL unavailable.';
-        }
+        const message = targetUrl
+          ? 'Visualizer ready. Open the dedicated visualizer page to view it.'
+          : 'Visualizer ready. URL unavailable.';
+        visualizerStatus.textContent = message;
       }
     }
+    updateVisualizerPrompt(state.visualizer.lastPrompt || (promptInput ? promptInput.value : ''));
   } catch (err) {
     console.error('Visualizer launch failed:', err);
     if (visualizerStatus) {
