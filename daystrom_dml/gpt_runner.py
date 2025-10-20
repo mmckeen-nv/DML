@@ -154,5 +154,14 @@ class _OpenAICompatibleBackend:
         choices = data.get("choices") or []
         if not choices:
             return "", data.get("usage")
-        content = choices[0].get("message", {}).get("content", "")
+        choice = choices[0] or {}
+        message = choice.get("message") or {}
+        content = message.get("content")
+        if content is None:
+            # Some OpenAI-compatible servers return ``null`` for empty content or use
+            # the older ``text`` field.  Normalise both cases to an empty string so we
+            # always return a ``str``.
+            content = choice.get("text") or ""
+        if not isinstance(content, str):
+            content = str(content)
         return content.strip(), data.get("usage")
