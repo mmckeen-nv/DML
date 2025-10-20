@@ -152,18 +152,20 @@ function renderResults(payload) {
   ragDocsMetric.textContent = nf.format(payload.rag?.documents?.length ?? 0);
   dmlEntriesMetric.textContent = nf.format(payload.dml?.entries?.length ?? 0);
 
-  baseOutput.textContent = payload.base?.response || '';
-  ragOutput.textContent = payload.rag?.response || '';
-  dmlOutput.textContent = payload.dml?.response || '';
-  integratedOutput.textContent = payload.integrated?.response || '';
+  if (baseOutput) baseOutput.textContent = payload.base?.response || '';
+  if (ragOutput) ragOutput.textContent = payload.rag?.response || '';
+  if (dmlOutput) dmlOutput.textContent = payload.dml?.response || '';
+  if (integratedOutput) integratedOutput.textContent = payload.integrated?.response || '';
 
-  baseUsage.textContent = formatUsage(payload.base?.usage);
-  ragUsage.textContent = formatUsage(payload.rag?.usage);
-  dmlUsage.textContent = formatUsage(payload.dml?.usage);
-  integratedUsage.textContent = formatUsage(payload.integrated?.usage);
+  if (baseUsage) baseUsage.textContent = formatUsage(payload.base?.usage);
+  if (ragUsage) ragUsage.textContent = formatUsage(payload.rag?.usage);
+  if (dmlUsage) dmlUsage.textContent = formatUsage(payload.dml?.usage);
+  if (integratedUsage) integratedUsage.textContent = formatUsage(payload.integrated?.usage);
 
-  ragContext.textContent = payload.rag?.context || 'No RAG context retrieved for this prompt.';
-  dmlContext.textContent = payload.dml?.context || 'No DML memories matched this prompt yet.';
+  if (ragContext)
+    ragContext.textContent = payload.rag?.context || 'No RAG context retrieved for this prompt.';
+  if (dmlContext)
+    dmlContext.textContent = payload.dml?.context || 'No DML memories matched this prompt yet.';
   renderRagDocuments(payload.rag?.documents || []);
   renderDmlEntries(payload.dml?.entries || []);
   renderDmlSummaries(payload.dml?.entries || []);
@@ -178,15 +180,17 @@ function renderResults(payload) {
     integratedContextLlmOutput.textContent = payload.integrated?.response || 'No integrated response generated yet.';
   }
 
-  insightCopy.textContent = buildInsightCopy({
-    promptTokens,
-    ragTokens,
-    dmlTokens,
-    tokenDelta,
-    avgFidelity: payload.dml?.avg_fidelity,
-    ragCount: payload.rag?.documents?.length || 0,
-    dmlCount: payload.dml?.entries?.length || 0,
-  });
+  if (insightCopy) {
+    insightCopy.textContent = buildInsightCopy({
+      promptTokens,
+      ragTokens,
+      dmlTokens,
+      tokenDelta,
+      avgFidelity: payload.dml?.avg_fidelity,
+      ragCount: payload.rag?.documents?.length || 0,
+      dmlCount: payload.dml?.entries?.length || 0,
+    });
+  }
 
   refreshKnowledge();
 }
@@ -228,6 +232,9 @@ function formatUsage(usage) {
 }
 
 function renderRagDocuments(documents) {
+  if (!ragDocumentsTable) {
+    return;
+  }
   ragDocumentsTable.innerHTML = '';
   if (!documents.length) {
     const emptyRow = document.createElement('tr');
@@ -249,6 +256,9 @@ function renderRagDocuments(documents) {
 }
 
 function renderDmlEntries(entries) {
+  if (!dmlEntriesTable) {
+    return;
+  }
   dmlEntriesTable.innerHTML = '';
   if (!entries.length) {
     const emptyRow = document.createElement('tr');
