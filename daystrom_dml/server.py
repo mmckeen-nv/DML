@@ -7,11 +7,12 @@ import os
 import shlex
 import shutil
 import subprocess
+import sys
 import time
-from urllib.parse import urlparse, urlunparse
 from pathlib import Path
 from threading import Lock
 from typing import Optional
+from urllib.parse import urlparse, urlunparse
 
 from fastapi import FastAPI, File, HTTPException, UploadFile, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -29,6 +30,11 @@ except Exception:  # pragma: no cover - defensive fallback for minimal envs
 
 WEB_DIR = Path(__file__).with_name("web")
 LOGGER = logging.getLogger(__name__)
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+DEFAULT_PYTHON = Path(sys.executable)
+VENV_DIR = REPO_ROOT / ".venv"
+VISUALIZER_LOG = REPO_ROOT / "visualizer.log"
 
 app = FastAPI(title="Daystrom Memory Lattice")
 if WEB_DIR.exists():
@@ -79,6 +85,9 @@ NIM_CONTAINER_NAME = os.environ.get("NIM_CONTAINER_NAME", "daystrom-dml-nim")
 NIM_DEFAULT_PORT = int(os.environ.get("NIM_PORT", "8000"))
 NIM_HEALTH_TIMEOUT = int(os.environ.get("NIM_HEALTH_TIMEOUT", "60"))
 NIM_HEALTH_INTERVAL = float(os.environ.get("NIM_HEALTH_INTERVAL", "5"))
+
+VISUALIZER_STATE = {"process": None, "log": None}
+VISUALIZER_LOCK = Lock()
 
 
 class TextPayload(BaseModel):
@@ -164,6 +173,181 @@ def _resolve_visualizer_url(request: Request) -> str:
     return f"{scheme}://{netloc}{path}"
 
 
+def _format_command(parts: list[str]) -> str:
+    return " ".join(shlex.quote(part) for part in parts)
+
+
+def _venv_python_path(venv_dir: Path) -> Path:
+    if os.name == "nt":
+        return venv_dir / "Scripts" / "python.exe"
+    return venv_dir / "bin" / "python"
+
+
+def _run_command(command: list[object], *, cwd: Optional[str] = None, env: Optional[dict] = None) -> subprocess.CompletedProcess[str]:
+    cmd_parts = [str(part) for part in command]
+    LOGGER.info("Executing command: %s", _format_command(cmd_parts))
+    try:
+        result = subprocess.run(
+            cmd_parts,
+            cwd=cwd,
+            env=env,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except subprocess.CalledProcessError as exc:  # pragma: no cover - defensive logging
+        output = (exc.stderr or exc.stdout or "").strip()
+        if output:
+            LOGGER.error("Command failed (%s): %s", exc.returncode, output)
+        else:
+            LOGGER.error("Command failed with exit code %s", exc.returncode)
+        detail = f"Command {_format_command(cmd_parts)} failed with exit code {exc.returncode}"
+        raise HTTPException(status_code=500, detail=detail) from exc
+    else:
+        if result.stdout:
+            LOGGER.debug("Command output: %s", result.stdout.strip())
+        if result.stderr:
+            LOGGER.debug("Command stderr: %s", result.stderr.strip())
+        return result
+
+
+def _ensure_visualizer_environment() -> Path:
+    if not VENV_DIR.exists():
+        LOGGER.info("Creating virtual environment in %s", VENV_DIR)
+        _run_command([DEFAULT_PYTHON, "-m", "venv", VENV_DIR])
+
+    venv_python = _venv_python_path(VENV_DIR)
+    if not venv_python.exists():  # pragma: no cover - corrupted environment safeguard
+        raise HTTPException(
+            status_code=500,
+            detail=f"Unable to locate virtual environment interpreter at {venv_python}",
+        )
+
+    upgrade_cmd = [venv_python, "-m", "pip", "install", "--upgrade", "pip", "setuptools", "wheel"]
+    editable_cmd = [venv_python, "-m", "pip", "install", "-e", ".[server,tokenizer,embeddings,faiss,mcp]"]
+    visualizer_cmd = [venv_python, "-m", "pip", "install", "streamlit", "plotly"]
+
+    _run_command(upgrade_cmd, cwd=str(REPO_ROOT))
+    _run_command(editable_cmd, cwd=str(REPO_ROOT))
+    _run_command(visualizer_cmd, cwd=str(REPO_ROOT))
+
+    return venv_python
+
+
+def _start_visualizer_process(venv_python: Path) -> subprocess.Popen[bytes]:
+    existing = VISUALIZER_STATE.get("process")
+    if existing and existing.poll() is None:
+        return existing
+
+    log_handle = VISUALIZER_STATE.get("log")
+    if log_handle is not None:
+        VISUALIZER_STATE["log"] = None
+        try:
+            log_handle.close()
+        except Exception:  # pragma: no cover - best effort cleanup
+            LOGGER.debug("Failed to close previous visualizer log handle", exc_info=True)
+    log_file = VISUALIZER_LOG.open("ab")
+    timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+    log_file.write(f"\n[{timestamp}] Starting visualizer process\n".encode("utf-8"))
+    log_file.flush()
+
+    command = [
+        venv_python,
+        "-m",
+        "streamlit",
+        "run",
+        str(REPO_ROOT / "visualize_dml_live.py"),
+        "--server.headless=true",
+        "--server.address=0.0.0.0",
+        f"--server.port={VISUALIZER_PORT}",
+    ]
+
+    env = os.environ.copy()
+    env.setdefault("STREAMLIT_BROWSER_GATHER_USAGE_STATS", "false")
+    env.setdefault("PYTHONPATH", str(REPO_ROOT))
+
+    try:
+        process = subprocess.Popen(
+            [str(part) for part in command],
+            cwd=str(REPO_ROOT),
+            env=env,
+            stdout=log_file,
+            stderr=subprocess.STDOUT,
+        )
+    except OSError as exc:
+        log_file.close()
+        LOGGER.exception("Failed to start visualizer process")
+        raise HTTPException(status_code=500, detail=f"Failed to start visualizer: {exc}") from exc
+
+    VISUALIZER_STATE["process"] = process
+    VISUALIZER_STATE["log"] = log_file
+    return process
+
+
+def _wait_for_visualizer_ready(timeout: int = 120) -> None:
+    if requests is None:
+        time.sleep(2)
+        return
+
+    base_url = f"http://127.0.0.1:{VISUALIZER_PORT}"
+    path = VISUALIZER_PATH if VISUALIZER_PATH.startswith("/") else f"/{VISUALIZER_PATH}"
+    url = f"{base_url}{path}"
+
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        process = VISUALIZER_STATE.get("process")
+        if process and process.poll() is not None:
+            raise HTTPException(status_code=500, detail="Visualizer exited unexpectedly during startup")
+        try:
+            response = requests.get(url, timeout=3)
+            if response.ok:
+                return
+        except Exception:
+            pass
+        time.sleep(1)
+
+    raise HTTPException(status_code=500, detail="Visualizer failed to start within the timeout window")
+
+
+def _launch_visualizer_server() -> None:
+    started = False
+    with VISUALIZER_LOCK:
+        process = VISUALIZER_STATE.get("process")
+        if process and process.poll() is None:
+            LOGGER.info("Visualizer already running")
+            return
+
+        venv_python = _ensure_visualizer_environment()
+        _start_visualizer_process(venv_python)
+        started = True
+
+    if started:
+        try:
+            _wait_for_visualizer_ready()
+        except Exception:
+            with VISUALIZER_LOCK:
+                process = VISUALIZER_STATE.get("process")
+                if process and process.poll() is None:
+                    process.terminate()
+                    try:
+                        process.wait(timeout=10)
+                    except Exception:  # pragma: no cover - best effort cleanup
+                        LOGGER.debug("Visualizer process did not exit cleanly after termination")
+                VISUALIZER_STATE["process"] = None
+                log_handle = VISUALIZER_STATE.get("log")
+                if log_handle is not None:
+                    try:
+                        log_handle.flush()
+                    except Exception:
+                        LOGGER.debug("Unable to flush visualizer log after failure", exc_info=True)
+                    try:
+                        log_handle.close()
+                    except Exception:
+                        LOGGER.debug("Unable to close visualizer log after failure", exc_info=True)
+                VISUALIZER_STATE["log"] = None
+            raise
+
+
 @app.get("/visualizer")
 def visualizer_redirect(request: Request) -> RedirectResponse:
     """Open the external visualiser in a new tab."""
@@ -176,6 +360,27 @@ def visualizer_url(request: Request) -> dict:
     """Expose the configured visualiser target for the frontend."""
 
     return {"url": _resolve_visualizer_url(request)}
+
+
+@app.post("/visualizer/launch")
+def launch_visualizer(request: Request) -> dict:
+    """Ensure the Streamlit visualiser is ready and return its URL."""
+
+    target_url = _resolve_visualizer_url(request)
+    if VISUALIZER_URL:
+        # External deployments are assumed to be managed separately.
+        LOGGER.info("External visualiser configured, skipping local launch")
+        return {"status": "external", "url": target_url}
+
+    try:
+        _launch_visualizer_server()
+    except HTTPException:
+        raise
+    except Exception as exc:  # pragma: no cover - defensive logging
+        LOGGER.exception("Unexpected error while launching visualiser")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    return {"status": "ready", "url": target_url}
 
 
 @app.post("/ingest")

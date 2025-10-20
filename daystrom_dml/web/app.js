@@ -58,6 +58,7 @@ const API = {
   nimStop: '/nim/stop',
   knowledge: '/knowledge',
   visualizerUrl: '/visualizer/url',
+  visualizerLaunch: '/visualizer/launch',
 };
 
 let nimConfigured = false;
@@ -69,6 +70,7 @@ if (nimImageInput && configureNimButton && nimStatus) {
 
 if (visualizeButton) {
   initialiseVisualizerLink();
+  setupVisualizerLaunch();
 }
 
 if (startNimButton && stopNimButton) {
@@ -638,6 +640,48 @@ async function initialiseVisualizerLink() {
     console.warn('Visualizer lookup failed:', err);
     visualizeButton.href = visualizeButton.href || '/visualizer';
   }
+}
+
+function setupVisualizerLaunch() {
+  const originalLabel = visualizeButton.textContent.trim();
+  visualizeButton.addEventListener('click', async (event) => {
+    if (visualizeButton.dataset.launching === 'true') {
+      event.preventDefault();
+      return;
+    }
+
+    event.preventDefault();
+    visualizeButton.dataset.launching = 'true';
+    visualizeButton.classList.add('busy');
+    visualizeButton.textContent = 'Starting…';
+
+    try {
+      const response = await fetch(API.visualizerLaunch, { method: 'POST' });
+      let payload = null;
+      try {
+        payload = await response.json();
+      } catch (err) {
+        payload = null;
+      }
+      if (!response.ok) {
+        const message = payload && payload.detail ? payload.detail : 'Failed to start visualiser';
+        throw new Error(message);
+      }
+
+      const targetUrl = payload && typeof payload.url === 'string' && payload.url
+        ? payload.url
+        : visualizeButton.href || '/visualizer';
+      window.open(targetUrl, '_blank', 'noopener');
+    } catch (err) {
+      console.error('Visualizer launch failed:', err);
+      window.alert(`Visualizer failed to start: ${err.message}`);
+    } finally {
+      visualizeButton.dataset.launching = 'false';
+      visualizeButton.classList.remove('busy');
+      visualizeButton.textContent = originalLabel;
+      visualizeButton.blur();
+    }
+  });
 }
 
 refreshKnowledge();
