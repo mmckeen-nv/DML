@@ -57,6 +57,13 @@ class GPTRunner:
 
     def generate(self, prompt: str, max_new_tokens: int = 256) -> str:
         self._last_usage = None
+        approx_tokens = len(prompt.split())
+        LOGGER.info(
+            "Sending prompt to language model (model=%s, approx_tokens=%d)",
+            self.model_name,
+            approx_tokens,
+        )
+        LOGGER.debug("Prompt excerpt: %s", prompt[:400])
         if isinstance(self._backend, _DummyBackend):
             return self._backend.generate(prompt, max_new_tokens=max_new_tokens)
         if isinstance(self._backend, _OpenAICompatibleBackend):

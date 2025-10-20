@@ -204,6 +204,63 @@ details pre {
   color: rgba(173, 210, 255, 0.95);
 }
 
+.metric-card--graph {
+  justify-content: space-between;
+  min-height: 220px;
+}
+
+.token-graph {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.token-graph-bar {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 2fr) auto;
+  align-items: center;
+  gap: 0.75rem;
+  background: rgba(5, 12, 20, 0.85);
+  border: 1px solid rgba(92, 160, 255, 0.18);
+  border-radius: 10px;
+  padding: 0.5rem 0.75rem;
+}
+
+.token-graph-bar.active {
+  border-color: rgba(126, 195, 255, 0.65);
+  box-shadow: 0 0 18px rgba(76, 154, 255, 0.35);
+}
+
+.token-graph-label {
+  font-weight: 600;
+  color: rgba(213, 232, 255, 0.9);
+}
+
+.token-graph-meter {
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(28, 54, 80, 0.8);
+  overflow: hidden;
+}
+
+.token-graph-fill {
+  height: 100%;
+  background: linear-gradient(120deg, #4c9aff 0%, #7ec3ff 100%);
+}
+
+.token-graph-value {
+  font-variant-numeric: tabular-nums;
+  color: rgba(229, 244, 255, 0.82);
+}
+
+.empty-state {
+  text-align: center;
+  color: rgba(229, 244, 255, 0.7);
+  font-style: italic;
+  margin: 0;
+  padding: 0.5rem 0;
+}
+
 .metric-list {
   margin: 0;
   display: grid;
@@ -262,6 +319,170 @@ details pre {
   word-break: break-word;
   overflow-wrap: anywhere;
   max-height: 320px;
+  overflow-y: auto;
+}
+
+.rag-response-card {
+  padding-bottom: 1.1rem;
+}
+
+.rag-response-card .tabbed-group {
+  padding: 0 1.1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  flex: 1;
+}
+
+.rag-response-card pre {
+  margin: 0;
+  padding: 1rem;
+  background: rgba(5, 12, 20, 0.9);
+  border: 1px solid rgba(92, 160, 255, 0.14);
+  border-radius: 10px;
+  max-height: 260px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.rag-response-card .usage {
+  padding: 0.5rem 0;
+  text-align: right;
+}
+
+
+.tabbed-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.tab-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+button.tab-chip {
+  margin-top: 0;
+  padding: 0.45rem 1rem;
+  background: rgba(76, 154, 255, 0.12);
+  border: 1px solid rgba(126, 195, 255, 0.35);
+  border-radius: 999px;
+  color: rgba(229, 244, 255, 0.9);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 600;
+}
+
+button.tab-chip:hover,
+button.tab-chip:focus-visible {
+  transform: none;
+  box-shadow: 0 8px 18px rgba(76, 154, 255, 0.25);
+}
+
+button.tab-chip.active {
+  background: linear-gradient(120deg, #4c9aff 0%, #7ec3ff 100%);
+  color: #031120;
+  border-color: rgba(126, 195, 255, 0.75);
+  box-shadow: 0 10px 24px rgba(76, 154, 255, 0.3);
+}
+
+.rag-response-panel {
+  background: rgba(7, 18, 30, 0.75);
+  border: 1px solid rgba(92, 160, 255, 0.16);
+  border-radius: 12px;
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.rag-response-panel .usage {
+  border: none;
+  padding: 0;
+  text-align: right;
+}
+
+.tabbed-context {
+  margin-top: 1.5rem;
+  background: rgba(7, 18, 30, 0.85);
+  border: 1px solid rgba(92, 160, 255, 0.2);
+  border-radius: 14px;
+  display: flex;
+  flex-direction: column;
+}
+
+.tabbed-context .tab-header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid rgba(92, 160, 255, 0.18);
+}
+
+button.tab-button {
+  margin-top: 0;
+  padding: 0.5rem 1.2rem;
+  background: rgba(76, 154, 255, 0.12);
+  border: 1px solid rgba(126, 195, 255, 0.35);
+  border-radius: 999px;
+  color: rgba(229, 244, 255, 0.88);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-weight: 600;
+}
+
+button.tab-button:hover,
+button.tab-button:focus-visible {
+  transform: none;
+  box-shadow: 0 10px 20px rgba(76, 154, 255, 0.25);
+}
+
+button.tab-button.active {
+  background: linear-gradient(120deg, #4c9aff 0%, #7ec3ff 100%);
+  color: #031120;
+  border-color: rgba(126, 195, 255, 0.75);
+  box-shadow: 0 12px 24px rgba(76, 154, 255, 0.3);
+}
+
+.tabbed-context .tab-panels {
+  display: flex;
+  flex-direction: column;
+}
+
+.tab-panel {
+  display: none;
+}
+
+.tab-panel.active {
+  display: block;
+}
+
+.tab-scroll {
+  max-height: 380px;
+  overflow-y: auto;
+  padding: 1.1rem 1.4rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.tab-subtitle {
+  margin: 0;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(173, 210, 255, 0.85);
+}
+
+.tabbed-context pre {
+  margin: 0;
+  padding: 1rem;
+  background: rgba(5, 12, 20, 0.9);
+  border: 1px solid rgba(92, 160, 255, 0.14);
+  border-radius: 10px;
+  max-height: 220px;
   overflow-y: auto;
 }
 

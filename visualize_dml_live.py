@@ -11,7 +11,7 @@ import numpy as np
 import plotly.graph_objects as go
 import streamlit as st
 
-from daystrom_dml import utils
+from daystrom_dml import utils, visualizer_bridge
 from daystrom_dml.dml_adapter import DMLAdapter
 from daystrom_dml.memory_store import MemoryItem
 
@@ -418,19 +418,72 @@ def main() -> None:
 
     adapter = get_adapter()
 
+    query_params = st.experimental_get_query_params()
+    prompt_param = query_params.get("prompt", [""])[0]
+    top_k_param = query_params.get("top_k", [""])[0]
+    mode_param = query_params.get("mode", ["auto"])[0]
+    stamp_param = query_params.get("ts", [""])[0]
+
+    latest_payload = None
+    if prompt_param:
+        try:
+            safe_top_k = int(top_k_param)
+        except (TypeError, ValueError):
+            safe_top_k = 0
+        stamp_key = f"{prompt_param}|{stamp_param}" if stamp_param else f"{prompt_param}|query"
+        if st.session_state.get("bridge_stamp") != stamp_key:
+            latest_payload = {
+                "prompt": prompt_param,
+                "top_k": safe_top_k,
+                "mode": mode_param or "auto",
+                "reason": "Prompt received from the Playground UI.",
+                "stamp": stamp_key,
+            }
+    else:
+        bridge_payload = visualizer_bridge.latest_prompt()
+        if bridge_payload and bridge_payload.get("prompt"):
+            stamp_key = f"{bridge_payload.get('prompt')}|{bridge_payload.get('timestamp')}"
+            if st.session_state.get("bridge_stamp") != stamp_key:
+                latest_payload = {
+                    "prompt": bridge_payload.get("prompt", ""),
+                    "top_k": bridge_payload.get("top_k"),
+                    "mode": bridge_payload.get("mode") or "auto",
+                    "reason": "Prompt queued by the backend.",
+                    "stamp": stamp_key,
+                }
+
+    if latest_payload and latest_payload["prompt"].strip():
+        st.session_state["prompt"] = latest_payload["prompt"]
+        if latest_payload.get("top_k"):
+            st.session_state["auto_top_k"] = int(latest_payload["top_k"])
+        st.session_state["auto_mode"] = latest_payload.get("mode") or "auto"
+        st.session_state["auto_trigger"] = True
+        st.session_state["auto_reason"] = latest_payload.get("reason")
+        st.session_state["bridge_stamp"] = latest_payload["stamp"]
+
     with left_col:
+        st.subheader("Controls")
+        st.markdown(
+            "Enter a prompt to animate how the Daystrom Memory Lattice retrieves and scores memories."
+        )
         st.subheader("Prompt")
         prompt = st.text_area(
             "Describe what you want the DML to recall", value=st.session_state.get("prompt", ""), height=180
         )
         st.session_state["prompt"] = prompt
+        mode_options = ["auto", "semantic", "literal", "hybrid"]
+        default_mode = st.session_state.get("auto_mode", "auto")
+        mode_index = mode_options.index(default_mode) if default_mode in mode_options else 0
         mode = st.radio(
             "Retrieval mode",
-            options=["auto", "semantic", "literal", "hybrid"],
-            index=0,
+            options=mode_options,
+            index=mode_index,
             help="Choose how the lattice should search. 'Auto' selects a mode heuristically.",
         )
-        top_k = st.slider("Max nodes", min_value=1, max_value=MAX_TOP_K, value=6, step=1)
+        default_top_k = int(st.session_state.get("auto_top_k", 6) or 6)
+        default_top_k = max(1, min(MAX_TOP_K, default_top_k))
+        top_k = st.slider("Max nodes", min_value=1, max_value=MAX_TOP_K, value=default_top_k, step=1)
+        st.session_state["auto_top_k"] = top_k
         run_clicked = st.button("Run retrieval", type="primary", use_container_width=True)
         st.caption("Nodes pulse as they are scored. Lower fidelity nodes dim over time.")
 
@@ -449,6 +502,15 @@ def main() -> None:
     graph_state = st.session_state["graph_state"]
     _refresh_graph_state(graph_state, adapter.store.items(), mode=graph_state.get("mode", DEFAULT_MODE))
     chart_placeholder.plotly_chart(build_figure(graph_state), use_container_width=True)
+
+    auto_trigger = st.session_state.pop("auto_trigger", False)
+    auto_reason = st.session_state.pop("auto_reason", None)
+    if auto_trigger:
+        run_clicked = True
+        if auto_reason:
+            summary_placeholder.info(auto_reason)
+        mode = st.session_state.get("auto_mode", mode) or mode
+        top_k = int(st.session_state.get("auto_top_k", top_k) or top_k)
 
     if not run_clicked or not prompt.strip():
         summary_placeholder.info("Enter a prompt and click *Run retrieval* to start the live visualisation.")

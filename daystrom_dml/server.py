@@ -24,7 +24,7 @@ from pypdf import PdfReader
 
 from starlette.websockets import WebSocketState
 
-from . import utils
+from . import utils, visualizer_bridge
 from .dml_adapter import DMLAdapter
 
 try:  # httpx is required for proxying the visualizer through the API origin
@@ -610,8 +610,20 @@ def visualizer_page() -> HTMLResponse:
 @app.get("/visualizer/redirect")
 def visualizer_redirect(request: Request) -> RedirectResponse:
     """Open the external visualiser in a new tab."""
-
-    return RedirectResponse(url=_resolve_visualizer_url(request))
+    if not VISUALIZER_URL:
+        try:
+            _launch_visualizer_server()
+        except HTTPException:
+            raise
+        except Exception as exc:  # pragma: no cover - defensive logging
+            LOGGER.exception("Unexpected error while preparing visualiser redirect")
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+    target = _resolve_visualizer_url(request)
+    query_string = str(request.query_params) if request.query_params else ""
+    if query_string:
+        separator = "&" if "?" in target else "?"
+        target = f"{target}{separator}{query_string}"
+    return RedirectResponse(url=target)
 
 
 @app.get("/visualizer/url")
@@ -702,11 +714,17 @@ def query(payload: QueryPayload) -> dict:
 @app.post("/rag/retrieve")
 def rag_retrieve(payload: QueryPayload) -> dict:
     rag_top_k = adapter.config.get("top_k", 6)
-    rag_report = adapter.rag_store.report(payload.prompt, top_k=rag_top_k)
+    rag_reports = adapter.rag_store.report_all(payload.prompt, top_k=rag_top_k)
     dml_report = adapter.retrieval_report(payload.prompt)
+    visualizer_bridge.queue_prompt(
+        payload.prompt,
+        top_k=rag_top_k,
+        mode="auto",
+        metadata={"source": "rag_retrieve"},
+    )
     return {
         "prompt": payload.prompt,
-        "rag": rag_report,
+        "rag_backends": rag_reports,
         "dml": dml_report,
     }
 
@@ -724,6 +742,12 @@ def rag_compare(payload: ComparePayload) -> dict:
             raise HTTPException(status_code=503, detail="NIM backend is unreachable. Start the container and try again.")
         raise
     prompt_tokens = utils.estimate_tokens(payload.prompt)
+    visualizer_bridge.queue_prompt(
+        payload.prompt,
+        top_k=payload.top_k or adapter.config.get("top_k", 6),
+        mode="auto",
+        metadata={"source": "rag_compare"},
+    )
     return {
         **result,
         "prompt_tokens_est": prompt_tokens,
