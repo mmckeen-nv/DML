@@ -42,6 +42,7 @@ const ragKnowledgeCount = document.querySelector('#knowledge-rag-count');
 const ragKnowledgeTokens = document.querySelector('#knowledge-rag-tokens');
 const dmlKnowledgeCount = document.querySelector('#knowledge-dml-count');
 const dmlKnowledgeTokens = document.querySelector('#knowledge-dml-tokens');
+const pipelineSteps = document.querySelector('#pipeline-steps');
 const nimImageInput = document.querySelector('#nim-image');
 const ngcApiKeyInput = document.querySelector('#ngc-api-key');
 const configureNimButton = document.querySelector('#configure-nim');
@@ -181,6 +182,11 @@ function renderResults(payload) {
     updateVisualizerPrompt(payload.prompt);
   }
   const ragBackends = Array.isArray(payload.rag_backends) ? payload.rag_backends : [];
+  ragBackends.sort((a, b) => {
+    const aSeq = Number.isFinite(a?.sequence) ? Number(a.sequence) : Number.MAX_SAFE_INTEGER;
+    const bSeq = Number.isFinite(b?.sequence) ? Number(b.sequence) : Number.MAX_SAFE_INTEGER;
+    return aSeq - bSeq;
+  });
   state.ragBackends = ragBackends;
   if (!state.activeRagId || !ragBackends.some((backend) => backend.id === state.activeRagId)) {
     state.activeRagId = ragBackends.length ? ragBackends[0].id : null;
@@ -247,6 +253,7 @@ function renderResults(payload) {
   }
 
   renderTokenGraph(state.lastTokenBreakdown);
+  renderPipeline(Array.isArray(payload.pipeline_trace) ? payload.pipeline_trace : []);
   refreshKnowledge();
 }
 
@@ -279,7 +286,10 @@ function buildRagResponseTabs(backends) {
     button.dataset.backendId = backend.id;
     button.id = safeId;
     button.setAttribute('role', 'tab');
-    button.textContent = backend.label || backend.id || `Backend ${index + 1}`;
+    const sequenceLabel = Number.isFinite(backend.sequence)
+      ? `${Number(backend.sequence)}. `
+      : '';
+    button.textContent = `${sequenceLabel}${backend.label || backend.id || `Backend ${index + 1}`}`;
     button.addEventListener('click', () => setActiveRagBackend(backend.id));
     ragResponseTabList.appendChild(button);
 
@@ -378,7 +388,14 @@ function renderTokenGraph(breakdown) {
     return;
   }
   state.lastTokenBreakdown = Array.isArray(breakdown) ? breakdown : [];
-  const entries = state.lastTokenBreakdown;
+  const entries = state.lastTokenBreakdown
+    .slice()
+    .sort((a, b) => {
+      const aSeq = Number.isFinite(a?.sequence) ? Number(a.sequence) : Number.MAX_SAFE_INTEGER;
+      const bSeq = Number.isFinite(b?.sequence) ? Number(b.sequence) : Number.MAX_SAFE_INTEGER;
+      if (aSeq !== bSeq) return aSeq - bSeq;
+      return (Number(b?.tokens) || 0) - (Number(a?.tokens) || 0);
+    });
   ragTokenGraph.innerHTML = '';
   if (!entries.length) {
     const emptyMessage = document.createElement('p');
@@ -397,7 +414,10 @@ function renderTokenGraph(breakdown) {
     }
     const label = document.createElement('span');
     label.className = 'token-graph-label';
-    label.textContent = entry.label || entry.id || 'Backend';
+    const sequenceLabel = Number.isFinite(entry.sequence)
+      ? `${Number(entry.sequence)}. `
+      : '';
+    label.textContent = `${sequenceLabel}${entry.label || entry.id || 'Backend'}`;
     const meter = document.createElement('div');
     meter.className = 'token-graph-meter';
     const fill = document.createElement('div');
@@ -413,6 +433,51 @@ function renderTokenGraph(breakdown) {
     bar.appendChild(value);
     ragTokenGraph.appendChild(bar);
   });
+}
+
+function renderPipeline(steps) {
+  if (!pipelineSteps) {
+    return;
+  }
+  pipelineSteps.innerHTML = '';
+  const entries = Array.isArray(steps) ? steps.slice() : [];
+  if (!entries.length) {
+    pipelineSteps.classList.add('hidden');
+    return;
+  }
+  pipelineSteps.classList.remove('hidden');
+  const stageLabels = {
+    base: 'Base model',
+    rag: 'RAG',
+    dml: 'DML',
+    integrated: 'Integrated',
+  };
+  entries
+    .sort((a, b) => {
+      const aSeq = Number.isFinite(a?.sequence) ? Number(a.sequence) : Number(a?.step) || Number.MAX_SAFE_INTEGER;
+      const bSeq = Number.isFinite(b?.sequence) ? Number(b.sequence) : Number(b?.step) || Number.MAX_SAFE_INTEGER;
+      return aSeq - bSeq;
+    })
+    .forEach((entry, index) => {
+      const item = document.createElement('li');
+      item.className = 'pipeline-step';
+      const badge = document.createElement('span');
+      badge.className = 'pipeline-step__index';
+      const stepNumber = Number.isFinite(entry.sequence)
+        ? Number(entry.sequence)
+        : Number.isFinite(entry.step)
+        ? Number(entry.step)
+        : index + 1;
+      badge.textContent = String(stepNumber);
+      const label = document.createElement('span');
+      label.className = 'pipeline-step__label';
+      const stage = entry.stage && stageLabels[entry.stage] ? stageLabels[entry.stage] : entry.stage;
+      const detail = entry.label || entry.id;
+      label.textContent = detail ? `${stage || 'Step'} · ${detail}` : stage || 'Step';
+      item.appendChild(badge);
+      item.appendChild(label);
+      pipelineSteps.appendChild(item);
+    });
 }
 
 function escapeHtml(value) {

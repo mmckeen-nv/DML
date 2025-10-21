@@ -24,7 +24,7 @@
     </header>
 
     <main>
-      <section class="panel" id="nim-config">
+      <section class="panel panel--wide" id="nim-config">
         <h2>NVIDIA NIM Setup</h2>
         <p class="hint">
           Select a NVIDIA Inference Microservice, provide your NGC API key, and let the playground
@@ -81,7 +81,7 @@
         <div id="compare-status" class="status"></div>
       </section>
 
-      <section class="panel" id="visualizer-panel">
+      <section class="panel panel--wide" id="visualizer-panel">
         <h2>DML Visualizer</h2>
         <p class="hint">
           Monitor the Daystrom Memory Lattice in real time without leaving the playground.
@@ -100,8 +100,9 @@
         </p>
       </section>
 
-      <section id="results" class="panel hidden">
+      <section id="results" class="panel panel--wide hidden">
         <h2>Generation Results</h2>
+        <ol id="pipeline-steps" class="pipeline-steps" aria-live="polite"></ol>
         <div class="metrics-grid">
           <article class="metric-card">
             <h3>Token Overview</h3>
