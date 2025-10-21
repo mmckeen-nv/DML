@@ -505,11 +505,13 @@ async def visualizer_embed_http(path: str, request: Request) -> StreamingRespons
         headers.append((name, value))
     headers.append(("x-frame-options", "ALLOWALL"))
 
-    return StreamingResponse(
+    response = StreamingResponse(
         stream_response(),
         status_code=upstream_response.status_code,
-        headers=headers,
     )
+    for name, value in headers:
+        response.headers[name] = value
+    return response
 
 
 @app.websocket("/visualizer/embed/{path:path}")
