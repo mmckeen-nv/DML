@@ -8,6 +8,11 @@ from typing import Optional
 
 import requests
 
+try:  # pragma: no cover - torch might be unavailable in minimal environments
+    import torch
+except ModuleNotFoundError:  # pragma: no cover - handled during tests
+    torch = None  # type: ignore[assignment]
+
 LOGGER = logging.getLogger(__name__)
 
 
@@ -43,7 +48,19 @@ class GPTRunner:
             from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline
 
             tokenizer = AutoTokenizer.from_pretrained(self.model_name)
-            model = AutoModelForCausalLM.from_pretrained(self.model_name)
+            model_kwargs = {}
+            if self._should_use_half_precision():
+                model_kwargs.update(
+                    {
+                        "torch_dtype": torch.float16,
+                        "low_cpu_mem_usage": True,
+                    }
+                )
+                LOGGER.info("Loading model %s in float16 precision", self.model_name)
+            model = AutoModelForCausalLM.from_pretrained(
+                self.model_name,
+                **model_kwargs,
+            )
             self._backend = pipeline(
                 self.task,
                 model=model,
@@ -107,6 +124,19 @@ class GPTRunner:
         """Return the token usage payload from the most recent call."""
 
         return self._last_usage
+
+    def _should_use_half_precision(self) -> bool:
+        """Return ``True`` when the model should load using float16 weights."""
+
+        if torch is None or not torch.cuda.is_available():
+            return False
+        if self.device is None:
+            return True
+        if isinstance(self.device, str):
+            return self.device.startswith("cuda")
+        if isinstance(self.device, int):
+            return self.device >= 0
+        return False
 
 
 class _DummyBackend:
