@@ -508,8 +508,9 @@ async def visualizer_embed_http(path: str, request: Request) -> StreamingRespons
     response = StreamingResponse(
         stream_response(),
         status_code=upstream_response.status_code,
-        headers=headers,
     )
+    for name, value in headers:
+        response.headers.append(name, value)
     return response
 
 
