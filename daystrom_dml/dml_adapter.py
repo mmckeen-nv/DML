@@ -8,7 +8,7 @@ import os
 import time
 from pathlib import Path
 from threading import RLock
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 import yaml
@@ -156,8 +156,20 @@ class DMLAdapter:
         top_k: Optional[int] = None,
         max_new_tokens: int = 512,
     ) -> Dict:
+        step_counter = 0
+        pipeline_trace: List[Dict[str, Any]] = []
+
         base_response = self.runner.generate(prompt, max_new_tokens=max_new_tokens)
         base_usage = self.runner.last_usage
+        step_counter += 1
+        base_sequence = step_counter
+        pipeline_trace.append(
+            {
+                "step": step_counter,
+                "stage": "base",
+                "label": "Base model",
+            }
+        )
 
         rag_top_k = self.config.get("top_k", 6) if top_k is None else top_k
         rag_reports = self.rag_store.report_all(prompt, top_k=rag_top_k)
@@ -167,15 +179,24 @@ class DMLAdapter:
             rag_prompt = self._compose_prompt(prompt, rag_context)
             rag_response = self.runner.generate(rag_prompt, max_new_tokens=max_new_tokens)
             rag_usage = self.runner.last_usage
-            rag_results.append(
+            step_counter += 1
+            rag_entry = {
+                "id": report.get("id"),
+                "label": report.get("label"),
+                "response": rag_response,
+                "usage": rag_usage,
+                "context": rag_context,
+                "context_tokens": report.get("tokens"),
+                "documents": report.get("documents"),
+                "sequence": step_counter,
+            }
+            rag_results.append(rag_entry)
+            pipeline_trace.append(
                 {
-                    "id": report.get("id"),
-                    "label": report.get("label"),
-                    "response": rag_response,
-                    "usage": rag_usage,
-                    "context": rag_context,
-                    "context_tokens": report.get("tokens"),
-                    "documents": report.get("documents"),
+                    "step": step_counter,
+                    "stage": "rag",
+                    "id": rag_entry["id"],
+                    "label": rag_entry.get("label"),
                 }
             )
         primary_rag = rag_results[0] if rag_results else None
@@ -186,6 +207,15 @@ class DMLAdapter:
         dml_response = self.runner.generate(dml_prompt, max_new_tokens=max_new_tokens)
         dml_usage = self.runner.last_usage
         self.reinforce(prompt, dml_response)
+        step_counter += 1
+        dml_sequence = step_counter
+        pipeline_trace.append(
+            {
+                "step": step_counter,
+                "stage": "dml",
+                "label": "Daystrom memory lattice",
+            }
+        )
 
         combined_blocks = [entry["context"] for entry in rag_results if entry.get("context")]
         combined_blocks.append(dml_context)
@@ -194,12 +224,22 @@ class DMLAdapter:
         combined_prompt = self._compose_prompt(prompt, combined_context)
         integrated_response = self.runner.generate(combined_prompt, max_new_tokens=max_new_tokens)
         integrated_usage = self.runner.last_usage
+        step_counter += 1
+        integrated_sequence = step_counter
+        pipeline_trace.append(
+            {
+                "step": step_counter,
+                "stage": "integrated",
+                "label": "Integrated context",
+            }
+        )
 
         return {
             "prompt": prompt,
             "base": {
                 "response": base_response,
                 "usage": base_usage,
+                "sequence": base_sequence,
             },
             "rag": primary_rag,
             "rag_backends": rag_results,
@@ -210,21 +250,25 @@ class DMLAdapter:
                 "context_tokens": utils.estimate_tokens(dml_context),
                 "avg_fidelity": dml_report["avg_fidelity"],
                 "entries": dml_report["entries"],
+                "sequence": dml_sequence,
             },
             "integrated": {
                 "response": integrated_response,
                 "usage": integrated_usage,
                 "context": combined_context,
                 "context_tokens": utils.estimate_tokens(combined_context),
+                "sequence": integrated_sequence,
             },
             "rag_token_breakdown": [
                 {
                     "id": entry.get("id"),
                     "label": entry.get("label"),
                     "tokens": entry.get("context_tokens", 0),
+                    "sequence": entry.get("sequence"),
                 }
                 for entry in rag_results
             ],
+            "pipeline_trace": pipeline_trace,
         }
 
     def knowledge_report(self) -> Dict:
