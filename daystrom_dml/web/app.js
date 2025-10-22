@@ -1,5 +1,7 @@
 const uploadForm = document.querySelector('#upload-form');
 const fileInput = document.querySelector('#file-input');
+const fileDropZone = document.querySelector('#file-drop-zone');
+const selectedFilesList = document.querySelector('#selected-files');
 const uploadStatus = document.querySelector('#upload-status');
 const promptInput = document.querySelector('#prompt');
 const topKInput = document.querySelector('#top-k');
@@ -42,6 +44,7 @@ const ragKnowledgeCount = document.querySelector('#knowledge-rag-count');
 const ragKnowledgeTokens = document.querySelector('#knowledge-rag-tokens');
 const dmlKnowledgeCount = document.querySelector('#knowledge-dml-count');
 const dmlKnowledgeTokens = document.querySelector('#knowledge-dml-tokens');
+const ragBackendList = document.querySelector('#rag-backends');
 const pipelineSteps = document.querySelector('#pipeline-steps');
 const nimImageInput = document.querySelector('#nim-image');
 const ngcApiKeyInput = document.querySelector('#ngc-api-key');
@@ -110,24 +113,69 @@ if (contextTabButtons.length && contextPanels.length) {
   activateContextTab(contextTabButtons[0]?.dataset.contextTab || 'rag');
 }
 
+if (fileInput) {
+  updateSelectedFileList(Array.from(fileInput.files || []));
+  fileInput.addEventListener('change', () => {
+    updateSelectedFileList(Array.from(fileInput.files || []));
+  });
+}
+
+if (fileDropZone) {
+  ['dragenter', 'dragover'].forEach((eventName) => {
+    fileDropZone.addEventListener(eventName, (event) => {
+      event.preventDefault();
+      setDropZoneHighlight(true);
+      if (event.dataTransfer) {
+        event.dataTransfer.dropEffect = 'copy';
+      }
+    });
+  });
+  ['dragleave', 'dragend', 'drop'].forEach((eventName) => {
+    fileDropZone.addEventListener(eventName, () => setDropZoneHighlight(false));
+  });
+  fileDropZone.addEventListener('drop', handleFileDrop);
+  fileDropZone.addEventListener('click', (event) => {
+    if (event.target === fileDropZone) {
+      fileInput?.click();
+    }
+  });
+  fileDropZone.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      fileInput?.click();
+    }
+  });
+}
+
 uploadForm.addEventListener('submit', async (event) => {
   event.preventDefault();
-  if (!fileInput.files || fileInput.files.length === 0) {
-    uploadStatus.textContent = 'Please choose a file first.';
+  const files = getSelectedUploadFiles();
+  if (!files.length) {
+    uploadStatus.textContent = 'Please choose at least one file or folder.';
     return;
   }
   const formData = new FormData();
-  formData.append('file', fileInput.files[0]);
-  uploadStatus.textContent = 'Uploading…';
+  files.forEach((file) => {
+    const relativePath = file.webkitRelativePath || file.name || 'document';
+    formData.append('files', file, relativePath);
+  });
+  uploadStatus.textContent = `Uploading ${files.length} file${files.length === 1 ? '' : 's'}…`;
   try {
     const response = await fetch(API.upload, { method: 'POST', body: formData });
     if (!response.ok) {
-      const err = await response.json();
-      throw new Error(err.detail || 'Upload failed');
+      let message = 'Upload failed';
+      try {
+        const err = await response.json();
+        message = err.detail || message;
+      } catch (parseErr) {
+        console.error('Failed to parse upload error payload', parseErr);
+      }
+      throw new Error(message);
     }
     const payload = await response.json();
-    uploadStatus.textContent = `Ingested ${payload.chunks} chunk(s) (~${payload.tokens} tokens) into RAG and the DML.`;
+    uploadStatus.textContent = formatUploadStatus(payload);
     fileInput.value = '';
+    updateSelectedFileList([]);
     refreshKnowledge();
   } catch (err) {
     console.error(err);
@@ -290,6 +338,9 @@ function buildRagResponseTabs(backends) {
       ? `${Number(backend.sequence)}. `
       : '';
     button.textContent = `${sequenceLabel}${backend.label || backend.id || `Backend ${index + 1}`}`;
+    if (backend.strategy) {
+      button.title = backend.strategy;
+    }
     button.addEventListener('click', () => setActiveRagBackend(backend.id));
     ragResponseTabList.appendChild(button);
 
@@ -298,6 +349,12 @@ function buildRagResponseTabs(backends) {
     panel.dataset.backendId = backend.id;
     panel.setAttribute('role', 'tabpanel');
     panel.setAttribute('aria-labelledby', safeId);
+    if (backend.strategy) {
+      const description = document.createElement('p');
+      description.className = 'rag-backend-description';
+      description.textContent = backend.strategy;
+      panel.appendChild(description);
+    }
     const responsePre = document.createElement('pre');
     responsePre.className = 'rag-response-output';
     responsePre.textContent = backend.response || 'No response generated yet.';
@@ -348,14 +405,32 @@ function setActiveRagBackend(backendId) {
   }
   updateRagContextView();
   renderTokenGraph(state.lastTokenBreakdown || []);
+  renderRagBackendList(
+    state.ragBackends.map((backend) => ({
+      id: backend.id,
+      label: backend.label,
+      strategy: backend.strategy,
+    }))
+  );
 }
 
 function updateRagContextView() {
   const backend = getActiveRagBackend();
   if (ragContextLabel) {
-    ragContextLabel.textContent = backend
-      ? `${backend.label || backend.id} context`
-      : 'No RAG backend selected.';
+    if (!backend) {
+      ragContextLabel.textContent = 'No RAG backend selected.';
+      ragContextLabel.removeAttribute('title');
+    } else {
+      const descriptor = backend.strategy
+        ? `${backend.label || backend.id} — ${backend.strategy}`
+        : backend.label || backend.id;
+      ragContextLabel.textContent = `${descriptor} context`;
+      if (backend.strategy) {
+        ragContextLabel.title = backend.strategy;
+      } else {
+        ragContextLabel.removeAttribute('title');
+      }
+    }
   }
   if (ragContext) {
     ragContext.textContent = backend?.context || 'No RAG context retrieved for this prompt.';
@@ -412,12 +487,23 @@ function renderTokenGraph(breakdown) {
     if (entry.id === state.activeRagId) {
       bar.classList.add('active');
     }
-    const label = document.createElement('span');
+    const label = document.createElement('div');
     label.className = 'token-graph-label';
+    const title = document.createElement('strong');
     const sequenceLabel = Number.isFinite(entry.sequence)
       ? `${Number(entry.sequence)}. `
       : '';
-    label.textContent = `${sequenceLabel}${entry.label || entry.id || 'Backend'}`;
+    title.textContent = `${sequenceLabel}${entry.label || entry.id || 'Backend'}`;
+    label.appendChild(title);
+    if (entry.strategy) {
+      const strategy = document.createElement('span');
+      strategy.className = 'token-graph-strategy';
+      strategy.textContent = entry.strategy;
+      label.appendChild(strategy);
+    }
+    if (entry.strategy) {
+      bar.title = entry.strategy;
+    }
     const meter = document.createElement('div');
     meter.className = 'token-graph-meter';
     const fill = document.createElement('div');
@@ -478,6 +564,139 @@ function renderPipeline(steps) {
       item.appendChild(label);
       pipelineSteps.appendChild(item);
     });
+}
+
+function getSelectedUploadFiles() {
+  if (!fileInput || !fileInput.files) {
+    return [];
+  }
+  return Array.from(fileInput.files);
+}
+
+function setDropZoneHighlight(active) {
+  if (!fileDropZone) {
+    return;
+  }
+  fileDropZone.classList.toggle('drag-active', Boolean(active));
+}
+
+function handleFileDrop(event) {
+  event.preventDefault();
+  const transfer = event.dataTransfer;
+  if (!transfer) {
+    return;
+  }
+  const droppedFiles = Array.from(transfer.files || []);
+  if (!droppedFiles.length && transfer.items) {
+    const items = Array.from(transfer.items);
+    items
+      .filter((item) => item.kind === 'file')
+      .map((item) => item.getAsFile())
+      .filter(Boolean)
+      .forEach((file) => droppedFiles.push(file));
+  }
+  if (!droppedFiles.length) {
+    return;
+  }
+  setFileSelection(droppedFiles);
+  setDropZoneHighlight(false);
+}
+
+function setFileSelection(files) {
+  if (!fileInput) {
+    return;
+  }
+  if (typeof DataTransfer === 'undefined') {
+    console.warn('DataTransfer API not available in this browser; drag and drop selection skipped.');
+    return;
+  }
+  const transfer = new DataTransfer();
+  files.forEach((file) => {
+    if (file) {
+      transfer.items.add(file);
+    }
+  });
+  fileInput.files = transfer.files;
+  fileInput.dispatchEvent(new Event('change', { bubbles: true }));
+}
+
+function updateSelectedFileList(files) {
+  if (!selectedFilesList) {
+    return;
+  }
+  selectedFilesList.innerHTML = '';
+  if (!files.length) {
+    const empty = document.createElement('li');
+    empty.className = 'selected-files-empty';
+    empty.textContent = 'No files selected yet.';
+    selectedFilesList.appendChild(empty);
+    return;
+  }
+  files.forEach((file) => {
+    const item = document.createElement('li');
+    item.className = 'selected-file';
+    if (file.webkitRelativePath || file.name) {
+      const name = document.createElement('span');
+      name.className = 'file-name';
+      name.textContent = file.webkitRelativePath || file.name;
+      item.appendChild(name);
+    }
+    const size = document.createElement('span');
+    size.className = 'file-size';
+    size.textContent = formatFileSize(file.size);
+    item.appendChild(size);
+    selectedFilesList.appendChild(item);
+  });
+}
+
+function formatFileSize(value) {
+  if (!Number.isFinite(value) || value <= 0) {
+    return '';
+  }
+  const units = ['B', 'KB', 'MB', 'GB'];
+  let size = value;
+  let unitIndex = 0;
+  while (size >= 1024 && unitIndex < units.length - 1) {
+    size /= 1024;
+    unitIndex += 1;
+  }
+  const precision = unitIndex === 0 ? 0 : size < 10 ? 1 : 0;
+  return `${size.toFixed(precision)} ${units[unitIndex]}`;
+}
+
+function formatUploadStatus(payload) {
+  if (!payload) {
+    return 'Upload complete.';
+  }
+  const nf = new Intl.NumberFormat('en-US');
+  const files = Number(payload.files_ingested ?? payload.files ?? 0);
+  const documents = Number(payload.documents ?? 0);
+  const chunks = Number(payload.chunks ?? 0);
+  const tokens = Number(payload.tokens ?? 0);
+  const skipped = Number(payload.skipped_files ?? payload.skipped ?? 0);
+  const pieces = [];
+  if (documents || files) {
+    pieces.push(
+      `Ingested ${nf.format(documents)} document${documents === 1 ? '' : 's'} from ${nf.format(files)} file${files === 1 ? '' : 's'}.`
+    );
+  }
+  if (chunks) {
+    pieces.push(
+      `${nf.format(chunks)} chunk${chunks === 1 ? '' : 's'} (~${nf.format(tokens)} tokens) indexed across RAG and the DML.`
+    );
+  }
+  if (skipped) {
+    pieces.push(`${nf.format(skipped)} file${skipped === 1 ? ' was' : 's were'} skipped.`);
+  }
+  if (!pieces.length) {
+    pieces.push('Upload complete.');
+  }
+  if (Array.isArray(payload.errors) && payload.errors.length) {
+    const preview = payload.errors.slice(0, 2).join(' ');
+    pieces.push(`Warnings: ${preview}${payload.errors.length > 2 ? '…' : ''}`);
+    console.warn('Upload warnings:', payload.errors);
+  }
+  return pieces.join(' ');
 }
 
 function escapeHtml(value) {
@@ -692,6 +911,7 @@ function renderKnowledge(payload) {
   setMetricValue(dmlKnowledgeTokens, payload.dml?.total_tokens ?? 0);
   renderRagKnowledge(payload.rag?.documents || []);
   renderDmlKnowledge(payload.dml?.entries || []);
+  renderRagBackendList(payload.rag?.backends || []);
 }
 
 function renderRagKnowledge(documents) {
@@ -741,6 +961,36 @@ function renderDmlKnowledge(entries) {
       <td>${escapeHtml(summary || 'No summary available.')}</td>
     `;
     dmlKnowledgeTable.appendChild(row);
+  });
+}
+
+function renderRagBackendList(backends) {
+  if (!ragBackendList) {
+    return;
+  }
+  ragBackendList.innerHTML = '';
+  if (!Array.isArray(backends) || !backends.length) {
+    const empty = document.createElement('li');
+    empty.className = 'rag-backend-empty';
+    empty.textContent = 'No simulated RAG backends are configured.';
+    ragBackendList.appendChild(empty);
+    return;
+  }
+  backends.forEach((backend) => {
+    const item = document.createElement('li');
+    item.className = 'rag-backend-item';
+    if (backend.id === state.activeRagId) {
+      item.classList.add('active');
+    }
+    const title = document.createElement('div');
+    title.className = 'rag-backend-title';
+    title.textContent = backend.label || backend.id || 'Backend';
+    const description = document.createElement('p');
+    description.className = 'rag-backend-description';
+    description.textContent = backend.strategy || 'Baseline cosine similarity.';
+    item.appendChild(title);
+    item.appendChild(description);
+    ragBackendList.appendChild(item);
   });
 }
 

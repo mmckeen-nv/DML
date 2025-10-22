@@ -38,16 +38,52 @@ class RAGBackendDescriptor:
     identifier: str
     label: str
     score_transform: Any
+    description: str = ""
 
 
 DEFAULT_BACKENDS: List[RAGBackendDescriptor] = [
-    RAGBackendDescriptor("chroma", "Chroma (Local)", _identity),
-    RAGBackendDescriptor("milvus", "Milvus (HNSW)", _favor_long),
-    RAGBackendDescriptor("pinecone", "Pinecone (Managed)", _bias_factory(0.015)),
-    RAGBackendDescriptor("weaviate", "Weaviate (Hybrid)", _favor_short),
-    RAGBackendDescriptor("qdrant", "Qdrant (Filtered)", _bias_factory(0.005)),
-    RAGBackendDescriptor("faiss", "Faiss (Library)", _favor_long),
-    RAGBackendDescriptor("annoy", "Annoy (In-memory)", _bias_factory(-0.01)),
+    RAGBackendDescriptor(
+        "chroma",
+        "Chroma (Local)",
+        _identity,
+        "Baseline cosine similarity with no scoring adjustments.",
+    ),
+    RAGBackendDescriptor(
+        "milvus",
+        "Milvus (HNSW)",
+        _favor_long,
+        "Boosts longer passages to highlight dense vector recall.",
+    ),
+    RAGBackendDescriptor(
+        "pinecone",
+        "Pinecone (Managed)",
+        _bias_factory(0.015),
+        "Applies a constant bias to simulate tuned production weights.",
+    ),
+    RAGBackendDescriptor(
+        "weaviate",
+        "Weaviate (Hybrid)",
+        _favor_short,
+        "Rewards concise chunks similar to BM25 hybrid recall.",
+    ),
+    RAGBackendDescriptor(
+        "qdrant",
+        "Qdrant (Filtered)",
+        _bias_factory(0.005),
+        "Adds a slight boost for matches passing metadata filters.",
+    ),
+    RAGBackendDescriptor(
+        "faiss",
+        "Faiss (Library)",
+        _favor_long,
+        "Prefers longer vectors to emulate IVFPQ recall heuristics.",
+    ),
+    RAGBackendDescriptor(
+        "annoy",
+        "Annoy (In-memory)",
+        _bias_factory(-0.01),
+        "Downranks lower-scoring hits to mimic approximate neighbours.",
+    ),
 ]
 
 
@@ -69,6 +105,7 @@ class MultiRAGStore:
                     "id": descriptor.identifier,
                     "label": descriptor.label,
                     "store": store,
+                    "descriptor": descriptor,
                 }
             )
         self._raw_documents: List[Dict[str, Any]] = []
@@ -101,6 +138,7 @@ class MultiRAGStore:
                 {
                     "id": backend["id"],
                     "label": backend["label"],
+                    "strategy": backend["descriptor"].description,
                     **report,
                 }
             )
@@ -117,7 +155,11 @@ class MultiRAGStore:
         primary_store: SimpleRAGStore = self._backends[0]["store"]
         catalog = primary_store.catalog()
         catalog["backends"] = [
-            {"id": backend["id"], "label": backend["label"]}
+            {
+                "id": backend["id"],
+                "label": backend["label"],
+                "strategy": backend["descriptor"].description,
+            }
             for backend in self._backends
         ]
         return catalog
@@ -142,7 +184,11 @@ class MultiRAGStore:
     # ------------------------------------------------------------------
     def descriptors(self) -> List[Dict[str, str]]:
         return [
-            {"id": backend["id"], "label": backend["label"]}
+            {
+                "id": backend["id"],
+                "label": backend["label"],
+                "strategy": backend["descriptor"].description,
+            }
             for backend in self._backends
         ]
 

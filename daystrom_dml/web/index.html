@@ -59,9 +59,28 @@
 
       <section class="panel">
         <h2>Document Upload</h2>
+        <p class="hint">
+          Upload individual files, drag in folders, or provide ZIP archives. Supported formats include PDF, TXT, Markdown,
+          CSV, JSON, HTML, and more—unsupported files are skipped automatically.
+        </p>
         <form id="upload-form">
-          <label for="file-input" class="file-label">Choose PDF or text file</label>
-          <input id="file-input" type="file" accept=".txt,.pdf" />
+          <input
+            id="file-input"
+            type="file"
+            multiple
+            webkitdirectory
+            mozdirectory
+            directory
+            accept=".txt,.pdf,.md,.markdown,.json,.csv,.tsv,.log,.yaml,.yml,.html,.htm,.zip"
+          />
+          <div id="file-drop-zone" class="file-drop-zone" tabindex="0">
+            <label for="file-input" class="file-label">
+              <strong>Select files or drop them here</strong>
+              <span>Choose multiple PDFs or text documents, or upload an entire directory at once.</span>
+            </label>
+            <p class="hint">Directory selection is supported in Chromium-based browsers.</p>
+          </div>
+          <ul id="selected-files" class="selected-files"></ul>
           <button type="submit">Upload &amp; Ingest</button>
         </form>
         <div id="upload-status" class="status"></div>
@@ -279,6 +298,10 @@
                 <tbody></tbody>
               </table>
             </div>
+          </article>
+          <article class="context-card">
+            <header>RAG Backends</header>
+            <ul id="rag-backends" class="rag-backend-list"></ul>
           </article>
         </div>
       </section>

@@ -183,6 +183,7 @@ class DMLAdapter:
             rag_entry = {
                 "id": report.get("id"),
                 "label": report.get("label"),
+                "strategy": report.get("strategy"),
                 "response": rag_response,
                 "usage": rag_usage,
                 "context": rag_context,
@@ -263,6 +264,7 @@ class DMLAdapter:
                 {
                     "id": entry.get("id"),
                     "label": entry.get("label"),
+                    "strategy": entry.get("strategy"),
                     "tokens": entry.get("context_tokens", 0),
                     "sequence": entry.get("sequence"),
                 }

@@ -5,15 +5,17 @@ import asyncio
 import contextlib
 import io
 import logging
+import mimetypes
 import os
 import shlex
 import shutil
 import subprocess
 import sys
 import time
+import zipfile
 from pathlib import Path
 from threading import Lock
-from typing import Optional, AsyncIterator
+from typing import Optional, AsyncIterator, Iterable
 from urllib.parse import urlparse, urlunparse
 
 from fastapi import FastAPI, File, HTTPException, UploadFile, Request, WebSocket
@@ -495,7 +497,7 @@ async def visualizer_embed_http(path: str, request: Request) -> StreamingRespons
     headers: list[tuple[str, str]] = []
     for name, value in upstream_response.headers.items():
         lower = name.lower()
-        if lower in {"content-encoding", "transfer-encoding", "connection", "keep-alive", "x-frame-options"}:
+        if lower in {"transfer-encoding", "connection", "keep-alive", "x-frame-options"}:
             continue
         if lower == "content-security-policy":
             sanitised = _strip_frame_ancestors(value)
@@ -674,24 +676,89 @@ def ingest(payload: TextPayload) -> dict:
 
 
 @app.post("/upload")
-async def upload(file: UploadFile = File(...)) -> dict:
-    contents = await file.read()
-    text = _extract_text(file.filename or "", contents, file.content_type)
-    if not text.strip():
-        raise HTTPException(status_code=400, detail="Unable to extract any text from upload")
-    chunks = utils.chunk_text(text)
-    if not chunks:
-        raise HTTPException(status_code=400, detail="Document produced no ingestible chunks")
+async def upload(
+    files: list[UploadFile] | None = File(default=None),
+    file: UploadFile | None = File(default=None),
+) -> dict:
+    """Accept one or more uploaded files and ingest supported documents."""
+
+    uploads: list[UploadFile] = []
+    if files:
+        uploads.extend(files)
+    if file is not None:
+        uploads.append(file)
+    if not uploads:
+        raise HTTPException(status_code=400, detail="No files were provided for upload.")
+
+    total_chunks = 0
     total_tokens = 0
-    for chunk in chunks:
-        tokens = utils.estimate_tokens(chunk)
-        total_tokens += tokens
-        adapter.ingest(chunk, meta={"doc_path": file.filename})
-    return {
-        "status": "ok",
-        "chunks": len(chunks),
+    document_count = 0
+    processed_files = 0
+    skipped_files = 0
+    errors: list[str] = []
+
+    for upload_file in uploads:
+        if upload_file is None:
+            continue
+        filename = upload_file.filename or "uploaded file"
+        try:
+            contents = await upload_file.read()
+        except Exception as exc:  # pragma: no cover - depends on Starlette internals
+            errors.append(f"{filename}: failed to read upload ({exc})")
+            skipped_files += 1
+            continue
+
+        try:
+            documents = list(
+                _iter_ingest_documents(
+                    filename,
+                    contents,
+                    upload_file.content_type,
+                )
+            )
+        except HTTPException as exc:
+            errors.append(f"{filename}: {exc.detail}")
+            skipped_files += 1
+            continue
+
+        if not documents:
+            errors.append(f"{filename}: no supported text documents detected.")
+            skipped_files += 1
+            continue
+
+        processed_files += 1
+        for text, meta in documents:
+            if not text.strip():
+                continue
+            chunks = utils.chunk_text(text)
+            if not chunks:
+                errors.append(
+                    f"{meta.get('doc_path', filename)}: document produced no ingestible chunks."
+                )
+                continue
+            document_count += 1
+            total_chunks += len(chunks)
+            for chunk in chunks:
+                tokens = utils.estimate_tokens(chunk)
+                total_tokens += tokens
+                adapter.ingest(chunk, meta=meta)
+
+    if total_chunks == 0:
+        message = errors[0] if errors else "Document produced no ingestible chunks."
+        raise HTTPException(status_code=400, detail=message)
+
+    status = "ok" if not errors else "partial"
+    payload: dict[str, object] = {
+        "status": status,
+        "files_ingested": processed_files,
+        "documents": document_count,
+        "chunks": total_chunks,
         "tokens": total_tokens,
+        "skipped_files": skipped_files,
     }
+    if errors:
+        payload["errors"] = errors
+    return payload
 
 
 @app.post("/reinforce")
@@ -974,6 +1041,135 @@ def nim_stop(payload: NimStopPayload | None = None) -> dict:
         "logs": logs,
         "runtime": runtime,
     }
+
+
+def _iter_ingest_documents(
+    filename: str,
+    contents: bytes,
+    content_type: str | None,
+    *,
+    parent: str | None = None,
+) -> Iterable[tuple[str, dict[str, str]]]:
+    """Yield ``(text, meta)`` tuples extracted from ``contents``.
+
+    The helper is resilient to archives and nested directory structures.  Each
+    yielded metadata dictionary contains a ``doc_path`` entry used to surface
+    the original source in the UI.
+    """
+
+    source_name = _compose_source_path(parent, filename)
+    if _is_archive_like(filename, content_type):
+        try:
+            with zipfile.ZipFile(io.BytesIO(contents)) as archive:
+                for member in archive.infolist():
+                    if member.is_dir():
+                        continue
+                    try:
+                        payload = archive.read(member)
+                    except Exception as exc:  # pragma: no cover - depends on zipfile internals
+                        LOGGER.debug(
+                            "Skipping %s inside %s due to read failure: %s",
+                            member.filename,
+                            source_name,
+                            exc,
+                        )
+                        continue
+                    inner_type, _ = mimetypes.guess_type(member.filename)
+                    yield from _iter_ingest_documents(
+                        member.filename,
+                        payload,
+                        inner_type,
+                        parent=source_name,
+                    )
+        except zipfile.BadZipFile as exc:
+            raise HTTPException(status_code=400, detail=f"Failed to open archive: {exc}") from exc
+        return
+
+    if _should_skip_binary(filename, content_type):
+        LOGGER.debug("Skipping non-text upload: %s", source_name)
+        return
+
+    text = _extract_text(filename, contents, content_type)
+    if not text.strip():
+        return
+    if not _looks_like_text(text):
+        LOGGER.debug("Skipping file that does not appear to contain text: %s", source_name)
+        return
+    yield text, {"doc_path": source_name}
+
+
+def _compose_source_path(parent: str | None, name: str) -> str:
+    cleaned = (name or "uploaded document").replace("\\", "/").strip()
+    cleaned = cleaned.lstrip("./") or "uploaded document"
+    if parent:
+        joiner = "::" if parent.lower().endswith(".zip") and "::" not in parent else "/"
+        parent_clean = parent.rstrip("/")
+        cleaned = cleaned.lstrip("/")
+        return f"{parent_clean}{joiner}{cleaned}" if cleaned else parent_clean
+    return cleaned
+
+
+def _is_archive_like(filename: str, content_type: str | None) -> bool:
+    suffix = (filename or "").lower()
+    if suffix.endswith(".zip"):
+        return True
+    if content_type and "zip" in content_type:
+        return True
+    return False
+
+
+def _should_skip_binary(filename: str, content_type: str | None) -> bool:
+    suffix = (filename or "").lower()
+    binary_exts = {
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".gif",
+        ".bmp",
+        ".svg",
+        ".mp3",
+        ".wav",
+        ".flac",
+        ".mp4",
+        ".mov",
+        ".avi",
+        ".mkv",
+        ".webm",
+        ".gz",
+        ".tar",
+        ".tgz",
+        ".bz2",
+        ".xz",
+        ".7z",
+        ".rar",
+        ".iso",
+        ".doc",
+        ".docx",
+        ".ppt",
+        ".pptx",
+        ".xls",
+        ".xlsx",
+    }
+    if suffix and any(suffix.endswith(ext) for ext in binary_exts):
+        return True
+    if content_type:
+        lower = content_type.lower()
+        if lower.startswith(("image/", "audio/", "video/")):
+            return True
+        if lower in {"application/octet-stream", "application/x-msdownload"} and suffix not in {".txt", ".csv"}:
+            return True
+    return False
+
+
+def _looks_like_text(value: str) -> bool:
+    if not value:
+        return False
+    sample = value[:2000]
+    if not sample:
+        return False
+    control_chars = sum(1 for ch in sample if ord(ch) < 9 or 13 < ord(ch) < 32)
+    ratio = control_chars / max(1, len(sample))
+    return ratio < 0.02
 
 
 def _extract_text(filename: str, contents: bytes, content_type: str | None) -> str:
