@@ -54,6 +54,10 @@ DEFAULT_PYTHON = Path(sys.executable)
 VENV_DIR = REPO_ROOT / ".venv"
 VISUALIZER_LOG = REPO_ROOT / "visualizer.log"
 
+MAX_ARCHIVE_MEMBER_SIZE = int(
+    os.environ.get("DML_MAX_ARCHIVE_MEMBER_SIZE", str(5 * 1024 * 1024))
+)
+
 app = FastAPI(title="Daystrom Memory Lattice")
 if WEB_DIR.exists():
     app.mount("/static", StaticFiles(directory=WEB_DIR), name="static")
@@ -1064,6 +1068,22 @@ def _iter_ingest_documents(
                 for member in archive.infolist():
                     if member.is_dir():
                         continue
+                    inner_type, _ = mimetypes.guess_type(member.filename)
+                    if _should_skip_binary(member.filename, inner_type):
+                        LOGGER.debug(
+                            "Skipping binary archive member %s inside %s",
+                            member.filename,
+                            source_name,
+                        )
+                        continue
+                    if member.file_size and member.file_size > MAX_ARCHIVE_MEMBER_SIZE:
+                        LOGGER.debug(
+                            "Skipping oversized archive member %s inside %s (%s bytes)",
+                            member.filename,
+                            source_name,
+                            member.file_size,
+                        )
+                        continue
                     try:
                         payload = archive.read(member)
                     except Exception as exc:  # pragma: no cover - depends on zipfile internals
@@ -1074,7 +1094,6 @@ def _iter_ingest_documents(
                             exc,
                         )
                         continue
-                    inner_type, _ = mimetypes.guess_type(member.filename)
                     yield from _iter_ingest_documents(
                         member.filename,
                         payload,
