@@ -6,6 +6,7 @@ import contextlib
 import io
 import logging
 import mimetypes
+import inspect
 import os
 import shlex
 import shutil
@@ -547,13 +548,62 @@ async def visualizer_embed_websocket(path: str, websocket: WebSocket) -> None:
 
     subprotocols = websocket.scope.get("subprotocols") or None
 
+    header_items = list(extra_headers)
+    origin_value = None
+    other_headers: list[tuple[str, str]] = []
+    for name, value in header_items:
+        if name.lower() == "origin" and origin_value is None:
+            origin_value = value
+            continue
+        other_headers.append((name, value))
+
+    connect_kwargs: dict[str, object] = {
+        "subprotocols": subprotocols,
+        "open_timeout": None,
+        "close_timeout": None,
+    }
+
+    try:
+        signature = inspect.signature(websocket_connect)
+        parameters = signature.parameters
+    except (TypeError, ValueError):  # pragma: no cover - defensive fallback
+        parameters = {}
+
+    def _supports(name: str) -> bool:
+        param = parameters.get(name)
+        if param is None:
+            return False
+        return param.kind in (inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.KEYWORD_ONLY)
+
+    forwarded_headers: list[tuple[str, str]] | None = header_items if header_items else None
+
+    if header_items:
+        if _supports("extra_headers"):
+            connect_kwargs["extra_headers"] = header_items
+        elif _supports("additional_headers"):
+            connect_kwargs["additional_headers"] = header_items
+        elif _supports("headers"):
+            connect_kwargs["headers"] = header_items
+        else:
+            if origin_value and _supports("origin"):
+                connect_kwargs["origin"] = origin_value
+            elif origin_value:
+                other_headers.append(("origin", origin_value))
+            if other_headers:
+                dropped = ", ".join(sorted({name for name, _ in other_headers}))
+                LOGGER.debug(
+                    "websocket_connect() cannot forward websocket headers; dropping: %s",
+                    dropped,
+                )
+            forwarded_headers = None
+
+    if forwarded_headers is None and origin_value and _supports("origin") and "origin" not in connect_kwargs:
+        connect_kwargs["origin"] = origin_value
+
     try:
         upstream = await websocket_connect(
             target,
-            extra_headers=extra_headers,
-            subprotocols=subprotocols,
-            open_timeout=None,
-            close_timeout=None,
+            **connect_kwargs,
         )
     except Exception as exc:  # pragma: no cover - network exceptions
         LOGGER.exception("Visualizer websocket proxy connection failed")

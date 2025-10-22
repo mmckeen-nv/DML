@@ -7,9 +7,17 @@
 
 body {
   margin: 0;
-  padding: 0;
   background: radial-gradient(circle at top, #16324c 0%, #05090f 60%);
   min-height: 100vh;
+}
+
+.page-shell {
+  width: min(1200px, 100% - 2.5rem);
+  margin: 0 auto;
+  padding: clamp(1.5rem, 3vw, 2.75rem) clamp(1.25rem, 3vw, 2rem) clamp(3rem, 5vw, 4rem);
+  display: flex;
+  flex-direction: column;
+  gap: clamp(1.5rem, 3vw, 2.75rem);
 }
 
 header,
@@ -56,9 +64,7 @@ header h1 {
 }
 
 main {
-  width: min(1200px, 100% - 2.5rem);
-  margin: 0 auto;
-  padding: clamp(1.5rem, 3vw, 2.75rem) 1.5rem clamp(3rem, 5vw, 4rem);
+  width: 100%;
   display: grid;
   gap: 1.75rem;
   grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
@@ -66,9 +72,12 @@ main {
 }
 
 @media (max-width: 720px) {
-  main {
+  .page-shell {
     width: 100%;
     padding: 1.5rem 1.25rem 3rem;
+  }
+
+  main {
     grid-template-columns: minmax(0, 1fr);
   }
 }

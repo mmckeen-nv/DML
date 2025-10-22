@@ -7,23 +7,24 @@
     <link rel="stylesheet" href="/static/styles.css" />
   </head>
   <body>
-    <header>
-      <h1>Daystrom Memory Lattice Playground</h1>
-      <p>Upload documents, run retrieval augmented generation, and compare model responses.</p>
-      <div class="header-actions">
-        <a
-          id="visualize-button"
-          class="link-button"
-          href="/visualizer/redirect"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Open Visualizer Page
-        </a>
-      </div>
-    </header>
+    <div class="page-shell">
+      <header>
+        <h1>Daystrom Memory Lattice Playground</h1>
+        <p>Upload documents, run retrieval augmented generation, and compare model responses.</p>
+        <div class="header-actions">
+          <a
+            id="visualize-button"
+            class="link-button"
+            href="/visualizer/redirect"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Open Visualizer Page
+          </a>
+        </div>
+      </header>
 
-    <main>
+      <main>
       <section class="panel panel--wide" id="nim-config">
         <h2>NVIDIA NIM Setup</h2>
         <p class="hint">
@@ -305,11 +306,12 @@
           </article>
         </div>
       </section>
-    </main>
+      </main>
 
-    <footer>
-      <p>Use the controls above to select and configure a NVIDIA NIM endpoint for the playground.</p>
-    </footer>
+      <footer>
+        <p>Use the controls above to select and configure a NVIDIA NIM endpoint for the playground.</p>
+      </footer>
+    </div>
 
     <script src="/static/app.js" type="module"></script>
   </body>
