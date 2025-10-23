@@ -313,6 +313,27 @@ def _run_command(command: list[object], *, cwd: Optional[str] = None, env: Optio
         return result
 
 
+def _should_include_faiss(version_info: tuple[int, int, int] | None = None) -> bool:
+    """Determine if the FAISS extra should be installed in the visualizer venv."""
+
+    if version_info is None:
+        version_info = sys.version_info[:3]
+    return version_info < (3, 12, 0)
+
+
+def _compute_visualizer_extras(version_info: tuple[int, int, int] | None = None) -> list[str]:
+    if version_info is None:
+        version_info = sys.version_info[:3]
+    extras = ["server", "tokenizer", "embeddings", "faiss", "mcp"]
+    if not _should_include_faiss(version_info):
+        LOGGER.warning(
+            "Skipping 'faiss' extra for visualizer environment on Python %s.%s.%s",
+            *version_info,
+        )
+        extras.remove("faiss")
+    return extras
+
+
 def _ensure_visualizer_environment() -> Path:
     if not VENV_DIR.exists():
         LOGGER.info("Creating virtual environment in %s", VENV_DIR)
@@ -325,8 +346,19 @@ def _ensure_visualizer_environment() -> Path:
             detail=f"Unable to locate virtual environment interpreter at {venv_python}",
         )
 
-    upgrade_cmd = [venv_python, "-m", "pip", "install", "--upgrade", "pip", "setuptools", "wheel"]
-    editable_cmd = [venv_python, "-m", "pip", "install", "-e", ".[server,tokenizer,embeddings,faiss,mcp]"]
+    upgrade_cmd = [
+        venv_python,
+        "-m",
+        "pip",
+        "install",
+        "--upgrade",
+        "pip",
+        "setuptools",
+        "wheel",
+    ]
+    extras = _compute_visualizer_extras()
+    editable_target = ".[{}]".format(",".join(extras)) if extras else "."
+    editable_cmd = [venv_python, "-m", "pip", "install", "-e", editable_target]
     visualizer_cmd = [venv_python, "-m", "pip", "install", "streamlit", "plotly"]
 
     _run_command(upgrade_cmd, cwd=str(REPO_ROOT))
