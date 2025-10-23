@@ -53,6 +53,7 @@ class DMLAdapter:
         self.config = self._load_config(config_path)
         if config_overrides:
             self.config.update(config_overrides)
+        self.config.setdefault("dml_top_k", 0)
         self.runner = runner or GPTRunner(self.config["model_name"])
         self.embedder = embedder or create_embedder(self.config.get("embedding_model"))
         if summarizer is not None:
@@ -111,16 +112,6 @@ class DMLAdapter:
         self._persist_all()
 
     def build_preamble(self, prompt: str, top_k: Optional[int] = None) -> str:
-        if top_k is None:
-            config_top_k = self.config.get("top_k", 6)
-        else:
-            config_top_k = top_k
-        try:
-            top_k_int = int(config_top_k)
-        except (TypeError, ValueError):
-            LOGGER.warning("Invalid top_k value %r, falling back to 0", config_top_k)
-            top_k_int = 0
-        top_k = max(0, top_k_int)
         items = self._retrieve_items(prompt, top_k)
         _, preamble, _ = self._prepare_context(prompt, items)
         return preamble
@@ -136,7 +127,7 @@ class DMLAdapter:
         self._persist_dml_state()
 
     def run_generation(self, prompt: str, *, max_new_tokens: int = 256) -> str:
-        context = self.build_preamble(prompt, top_k=self.config.get("top_k", 6))
+        context = self.build_preamble(prompt)
         augmented_prompt = f"{context}\n\n{prompt}"
         response = self.runner.generate(augmented_prompt, max_new_tokens=max_new_tokens)
         self.reinforce(prompt, response)
@@ -485,10 +476,17 @@ class DMLAdapter:
         if mode not in {"semantic", "literal", "hybrid", "auto"}:
             raise ValueError(f"Unsupported mode: {mode}")
         selected_mode = mode if mode != "auto" else self._classify_mode(prompt)
-        top_k = int(self.config.get("top_k", 6))
         start = time.perf_counter()
         query_embedding = self.embedder.embed(prompt)
         items = self.store.items()
+        dml_limit = self._resolve_dml_top_k(None)
+        if dml_limit is None:
+            configured_top_k = int(self.config.get("top_k", 6))
+            if configured_top_k <= 0:
+                configured_top_k = 6
+            top_k = min(len(items), configured_top_k)
+        else:
+            top_k = min(len(items), dml_limit)
         literal_results = []
         semantic_results = []
         if selected_mode in {"literal", "hybrid"}:
@@ -575,18 +573,28 @@ class DMLAdapter:
         return float(max(0.1, min(1.0, tokens / 200.0)))
 
     def _retrieve_items(self, prompt: str, top_k: Optional[int]) -> List[MemoryStore.MemoryItem]:
-        if top_k is None:
-            config_top_k = self.config.get("top_k", 6)
-        else:
-            config_top_k = top_k
-        try:
-            top_k_int = int(config_top_k)
-        except (TypeError, ValueError):
-            LOGGER.warning("Invalid top_k value %r, falling back to 0", config_top_k)
-            top_k_int = 0
-        top_k_int = max(0, top_k_int)
+        limit = self._resolve_dml_top_k(top_k)
         prompt_embedding = self.embedder.embed(prompt)
-        return self.store.retrieve(prompt_embedding, top_k=top_k_int)
+        return self.store.retrieve(prompt_embedding, top_k=limit)
+
+    def _resolve_dml_top_k(self, requested: Optional[int]) -> Optional[int]:
+        if requested is None:
+            raw_value = self.config.get("dml_top_k")
+        else:
+            raw_value = requested
+        if raw_value is None:
+            return None
+        try:
+            parsed = int(raw_value)
+        except (TypeError, ValueError):
+            LOGGER.warning(
+                "Invalid dml_top_k value %r; defaulting to unlimited retrieval.",
+                raw_value,
+            )
+            return None
+        if parsed <= 0:
+            return None
+        return parsed
 
     def _prepare_context(
         self, prompt: str, items: List[MemoryStore.MemoryItem]
