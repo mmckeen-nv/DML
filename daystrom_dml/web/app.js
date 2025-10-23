@@ -20,6 +20,9 @@ const baseOutput = document.querySelector('#base-output');
 const dmlOutput = document.querySelector('#dml-output');
 const baseUsage = document.querySelector('#base-usage');
 const dmlUsage = document.querySelector('#dml-usage');
+const ragAggregateOutput = document.querySelector('#rag-aggregate-output');
+const ragAggregateUsage = document.querySelector('#rag-aggregate-usage');
+const ragAggregateSource = document.querySelector('#rag-aggregate-source');
 const ragContext = document.querySelector('#rag-context');
 const dmlContext = document.querySelector('#dml-context');
 const dmlSummaryList = document.querySelector('#dml-summary-list');
@@ -65,10 +68,6 @@ const nimConfigSummary = document.querySelector('#nim-config-summary');
 const startNimButton = document.querySelector('#start-nim');
 const stopNimButton = document.querySelector('#stop-nim');
 const nimRuntimeStatus = document.querySelector('#nim-runtime-status');
-const visualizeButton = document.querySelector('#visualize-button');
-const visualizerFrame = document.querySelector('#visualizer-frame');
-const visualizerStatus = document.querySelector('#visualizer-status');
-const visualizerInlineLink = document.querySelector('#visualizer-inline-link');
 
 const API = {
   upload: '/upload',
@@ -78,7 +77,6 @@ const API = {
   nimStart: '/nim/start',
   nimStop: '/nim/stop',
   knowledge: '/knowledge',
-  visualizerLaunch: '/visualizer/launch',
 };
 
 let nimConfigured = false;
@@ -88,25 +86,11 @@ const state = {
   lastComparison: null,
   lastTokenBreakdown: [],
   lastRequest: null,
-  visualizer: {
-    embedUrl: null,
-    targetUrl: null,
-    lastPrompt: null,
-    mode: 'auto',
-  },
 };
 
 if (nimImageInput && configureNimButton && nimStatus) {
   loadNimStatus();
   configureNimButton.addEventListener('click', configureNimEndpoint);
-}
-
-if (visualizeButton) {
-  configureVisualizerButton();
-}
-
-if (visualizerFrame && visualizerStatus) {
-  prepareEmbeddedVisualizer();
 }
 
 if (startNimButton && stopNimButton) {
@@ -228,10 +212,6 @@ function renderResults(payload) {
   state.lastTokenBreakdown = Array.isArray(payload.rag_token_breakdown)
     ? payload.rag_token_breakdown
     : [];
-  if (payload.prompt) {
-    state.visualizer.mode = 'auto';
-    updateVisualizerPrompt(payload.prompt);
-  }
   const ragBackends = Array.isArray(payload.rag_backends) ? payload.rag_backends.slice() : [];
   ragBackends.sort((a, b) => {
     const aSeq = Number.isFinite(a?.sequence) ? Number(a.sequence) : Number.MAX_SAFE_INTEGER;
@@ -370,6 +350,7 @@ function setActiveRagBackend(backendId) {
   renderTokenGraph(state.lastTokenBreakdown || []);
   renderRagBackendList(state.ragBackends);
   renderRagLatencyMetrics(state.ragBackends);
+  renderAggregateRagCard(getActiveRagBackend());
 }
 
 function renderActiveRagPanel() {
@@ -461,6 +442,57 @@ function renderActiveRagPanel() {
     ragContext.textContent = backend.context || 'No RAG context retrieved for this prompt.';
   }
   renderRagDocuments(backend.documents || []);
+}
+
+function renderAggregateRagCard(backend) {
+  if (!ragAggregateOutput) {
+    return;
+  }
+  if (!backend) {
+    ragAggregateOutput.textContent = 'No RAG responses available yet.';
+    if (ragAggregateUsage) {
+      ragAggregateUsage.textContent = '';
+      ragAggregateUsage.classList.add('hidden');
+    }
+    if (ragAggregateSource) {
+      ragAggregateSource.textContent = 'Run a comparison and choose a backend to view its response here.';
+      ragAggregateSource.classList.remove('hidden');
+    }
+    return;
+  }
+  if (backend.available === false) {
+    ragAggregateOutput.textContent = 'Backend unavailable.';
+    if (ragAggregateUsage) {
+      ragAggregateUsage.textContent = '';
+      ragAggregateUsage.classList.add('hidden');
+    }
+    if (ragAggregateSource) {
+      ragAggregateSource.textContent = backend.error || 'No status details provided.';
+      ragAggregateSource.classList.remove('hidden');
+    }
+    return;
+  }
+  ragAggregateOutput.textContent = backend.response || 'No response generated yet.';
+  if (ragAggregateUsage) {
+    const usageText = formatUsage(backend.usage);
+    ragAggregateUsage.textContent = usageText;
+    ragAggregateUsage.classList.toggle('hidden', !usageText);
+  }
+  if (ragAggregateSource) {
+    const details = [];
+    const backendLabel = backend.label || backend.id;
+    if (backendLabel) {
+      details.push(`Active backend: ${backendLabel}`);
+    }
+    if (backend.grade?.grade) {
+      const score = Number(backend.grade.score);
+      const formattedScore = Number.isFinite(score) ? score.toFixed(2) : '–';
+      details.push(`Similarity vs DML: ${backend.grade.grade} (${formattedScore})`);
+    }
+    const note = details.join(' • ');
+    ragAggregateSource.textContent = note;
+    ragAggregateSource.classList.toggle('hidden', !note);
+  }
 }
 
 function renderTokenGraph(breakdown) {
@@ -792,69 +824,6 @@ function formatUsage(usage) {
   if (completion !== undefined) pieces.push(`Completion: ${nf.format(completion)}`);
   if (total !== undefined) pieces.push(`Total: ${nf.format(total)}`);
   return pieces.length ? pieces.join(' | ') : '';
-}
-
-function getVisualizerTopK() {
-  if (state.lastRequest && typeof state.lastRequest.top_k === 'number') {
-    const requestTopK = Number(state.lastRequest.top_k);
-    if (!Number.isNaN(requestTopK) && requestTopK > 0) {
-      return requestTopK;
-    }
-  }
-  if (topKInput && topKInput.value) {
-    const direct = Number(topKInput.value);
-    if (!Number.isNaN(direct) && direct > 0) {
-      return direct;
-    }
-  }
-  return 6;
-}
-
-function buildVisualizerUrl(baseUrl, prompt, topK, mode = 'auto') {
-  if (!baseUrl) {
-    return null;
-  }
-  try {
-    const resolved = new URL(baseUrl, window.location.origin);
-    if (prompt) {
-      resolved.searchParams.set('prompt', prompt);
-    } else {
-      resolved.searchParams.delete('prompt');
-    }
-    if (topK) {
-      resolved.searchParams.set('top_k', String(topK));
-    } else {
-      resolved.searchParams.delete('top_k');
-    }
-    if (mode) {
-      resolved.searchParams.set('mode', mode);
-    }
-    resolved.searchParams.set('ts', Date.now().toString());
-    return resolved.toString();
-  } catch (err) {
-    console.warn('Unable to build visualizer URL:', err);
-    return baseUrl;
-  }
-}
-
-function updateVisualizerPrompt(prompt) {
-  state.visualizer.lastPrompt = prompt;
-  const topK = getVisualizerTopK();
-  const mode = state.visualizer.mode || 'auto';
-  const embedUrl = buildVisualizerUrl(state.visualizer.embedUrl, prompt, topK, mode);
-  const targetUrl = buildVisualizerUrl(state.visualizer.targetUrl, prompt, topK, mode);
-  if (embedUrl && visualizerFrame) {
-    if (visualizerFrame.src !== embedUrl) {
-      visualizerFrame.src = embedUrl;
-    }
-  }
-  if (targetUrl && visualizerInlineLink) {
-    visualizerInlineLink.href = targetUrl;
-  }
-  if (targetUrl && visualizeButton) {
-    visualizeButton.dataset.launchUrl = targetUrl;
-    visualizeButton.href = targetUrl;
-  }
 }
 
 function renderRagDocuments(documents) {
@@ -1310,109 +1279,6 @@ async function stopNimContainer() {
   } catch (err) {
     console.error(err);
     updateRuntimeStatus(null, nimConfigured, `Error: ${err.message}`);
-  }
-}
-
-function configureVisualizerButton() {
-  const handler = async (event) => {
-    event.preventDefault();
-    if (visualizeButton) {
-      visualizeButton.classList.add('busy');
-    }
-    try {
-      const response = await fetch(API.visualizerLaunch, { method: 'POST' });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        throw new Error(payload.detail || 'Failed to start visualiser');
-      }
-      const embedUrl = payload && payload.embed_url ? payload.embed_url : null;
-      const targetUrl = payload && payload.url ? payload.url : '/visualizer/redirect';
-      if (embedUrl) {
-        state.visualizer.embedUrl = embedUrl;
-      }
-      if (targetUrl) {
-        state.visualizer.targetUrl = targetUrl;
-      }
-      const prompt = state.visualizer.lastPrompt || (promptInput ? promptInput.value : '');
-      updateVisualizerPrompt(prompt || '');
-      const launchUrl = visualizeButton?.dataset.launchUrl || targetUrl;
-      window.open(launchUrl, '_blank', 'noopener');
-    } catch (err) {
-      console.error('Visualizer launch failed:', err);
-      if (visualizerStatus) {
-        visualizerStatus.textContent = `Visualizer unavailable: ${err.message}`;
-      }
-    } finally {
-      if (visualizeButton) {
-        visualizeButton.classList.remove('busy');
-      }
-    }
-  };
-
-  if (visualizeButton) {
-    visualizeButton.href = '#';
-    visualizeButton.addEventListener('click', handler);
-  }
-  if (visualizerInlineLink) {
-    visualizerInlineLink.href = '#';
-    visualizerInlineLink.addEventListener('click', handler);
-  }
-}
-
-async function prepareEmbeddedVisualizer() {
-  if (visualizerStatus) {
-    visualizerStatus.textContent = 'Preparing visualizer…';
-  }
-  try {
-    const response = await fetch(API.visualizerLaunch, { method: 'POST' });
-    let payload = {};
-    try {
-      payload = await response.json();
-    } catch (err) {
-      payload = {};
-    }
-    if (!response.ok) {
-      const message = payload && payload.detail ? payload.detail : 'Failed to start visualiser';
-      throw new Error(message);
-    }
-    const embedUrl = payload && typeof payload.embed_url === 'string' && payload.embed_url ? payload.embed_url : null;
-    const targetUrl = payload && typeof payload.url === 'string' && payload.url ? payload.url : null;
-
-    if (embedUrl) {
-      state.visualizer.embedUrl = embedUrl;
-    }
-    if (targetUrl) {
-      state.visualizer.targetUrl = targetUrl;
-    }
-
-    if (embedUrl && visualizerFrame) {
-      visualizerFrame.src = embedUrl;
-      visualizerFrame.classList.remove('hidden');
-      if (visualizerStatus) {
-        visualizerStatus.textContent = 'Visualizer ready.';
-      }
-    } else {
-      if (visualizerFrame) {
-        visualizerFrame.classList.add('hidden');
-        visualizerFrame.removeAttribute('src');
-      }
-      if (visualizerStatus) {
-        const message = targetUrl
-          ? 'Visualizer ready. Open the dedicated visualizer page to view it.'
-          : 'Visualizer ready. URL unavailable.';
-        visualizerStatus.textContent = message;
-      }
-    }
-    updateVisualizerPrompt(state.visualizer.lastPrompt || (promptInput ? promptInput.value : ''));
-  } catch (err) {
-    console.error('Visualizer launch failed:', err);
-    if (visualizerStatus) {
-      visualizerStatus.textContent = `Visualizer unavailable: ${err.message}`;
-    }
-    if (visualizerFrame) {
-      visualizerFrame.classList.add('hidden');
-      visualizerFrame.removeAttribute('src');
-    }
   }
 }
 

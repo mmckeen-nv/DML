@@ -1,4 +1,4 @@
-"""Shared bridge between the FastAPI service and Streamlit visualiser."""
+"""Shared bridge between the FastAPI service and Streamlit visualizer."""
 from __future__ import annotations
 
 import json
@@ -18,7 +18,7 @@ def queue_prompt(
     mode: Optional[str] = None,
     metadata: Optional[Dict[str, Any]] = None,
 ) -> None:
-    """Persist the most recent prompt so the visualiser can react to it.
+    """Persist the most recent prompt so the visualizer can react to it.
 
     The Streamlit app polls this file and automatically replays the retrieval
     animation whenever a new payload is detected.  Persisting to disk keeps the

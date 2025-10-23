@@ -117,7 +117,7 @@ VISUALIZER_PROXY_METHODS = ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OP
 
 @app.on_event("startup")
 def _auto_launch_visualizer() -> None:
-    """Ensure the visualiser is running when the service starts."""
+    """Ensure the visualizer is running when the service starts."""
 
     if VISUALIZER_URL:
         LOGGER.info("Visualizer configured for external deployment at %s", VISUALIZER_URL)
@@ -172,7 +172,7 @@ def home() -> HTMLResponse:
 
 
 def _resolve_visualizer_url(request: Request) -> str:
-    """Resolve the visualiser target, adapting to remote deployments."""
+    """Resolve the visualizer target, adapting to remote deployments."""
 
     if VISUALIZER_URL:
         return VISUALIZER_URL
@@ -417,7 +417,7 @@ def _visualizer_process_running() -> bool:
 
 
 async def _ensure_visualizer_running_async() -> None:
-    """Start the embedded visualiser if it's not already running."""
+    """Start the embedded visualizer if it's not already running."""
 
     if VISUALIZER_URL or _visualizer_process_running():
         return
@@ -701,7 +701,7 @@ async def visualizer_embed_websocket(path: str, websocket: WebSocket) -> None:
 
 @app.get("/visualizer", response_class=HTMLResponse)
 def visualizer_page() -> HTMLResponse:
-    """Serve the embedded visualiser page."""
+    """Serve the embedded visualizer page."""
 
     page = WEB_DIR / "visualizer.html"
     if not page.exists():
@@ -711,14 +711,14 @@ def visualizer_page() -> HTMLResponse:
 
 @app.get("/visualizer/redirect")
 def visualizer_redirect(request: Request) -> RedirectResponse:
-    """Open the external visualiser in a new tab."""
+    """Open the external visualizer in a new tab."""
     if not VISUALIZER_URL:
         try:
             _launch_visualizer_server()
         except HTTPException:
             raise
         except Exception as exc:  # pragma: no cover - defensive logging
-            LOGGER.exception("Unexpected error while preparing visualiser redirect")
+            LOGGER.exception("Unexpected error while preparing visualizer redirect")
             raise HTTPException(status_code=500, detail=str(exc)) from exc
     target = _resolve_visualizer_url(request)
     query_string = str(request.query_params) if request.query_params else ""
@@ -730,7 +730,7 @@ def visualizer_redirect(request: Request) -> RedirectResponse:
 
 @app.get("/visualizer/url")
 def visualizer_url(request: Request) -> dict:
-    """Expose the configured visualiser target for the frontend."""
+    """Expose the configured visualizer target for the frontend."""
 
     payload = {"url": _resolve_visualizer_url(request)}
     embed_path = _resolve_visualizer_embed_path()
@@ -741,13 +741,13 @@ def visualizer_url(request: Request) -> dict:
 
 @app.post("/visualizer/launch")
 def launch_visualizer(request: Request) -> dict:
-    """Ensure the Streamlit visualiser is ready and return its URL."""
+    """Ensure the Streamlit visualizer is ready and return its URL."""
 
     target_url = _resolve_visualizer_url(request)
     embed_path = _resolve_visualizer_embed_path()
     if VISUALIZER_URL:
         # External deployments are assumed to be managed separately.
-        LOGGER.info("External visualiser configured, skipping local launch")
+        LOGGER.info("External visualizer configured, skipping local launch")
         payload = {"status": "external", "url": target_url}
         if embed_path:
             payload["embed_url"] = embed_path
@@ -758,7 +758,7 @@ def launch_visualizer(request: Request) -> dict:
     except HTTPException:
         raise
     except Exception as exc:  # pragma: no cover - defensive logging
-        LOGGER.exception("Unexpected error while launching visualiser")
+        LOGGER.exception("Unexpected error while launching visualizer")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     payload = {"status": "ready", "url": target_url}
