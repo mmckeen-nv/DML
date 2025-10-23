@@ -411,11 +411,24 @@ def _wait_for_visualizer_ready(timeout: int = 120) -> None:
     raise HTTPException(status_code=500, detail="Visualizer failed to start within the timeout window")
 
 
+def _visualizer_process_running() -> bool:
+    process = VISUALIZER_STATE.get("process")
+    return bool(process and process.poll() is None)
+
+
+async def _ensure_visualizer_running_async() -> None:
+    """Start the embedded visualiser if it's not already running."""
+
+    if VISUALIZER_URL or _visualizer_process_running():
+        return
+
+    await asyncio.to_thread(_launch_visualizer_server)
+
+
 def _launch_visualizer_server() -> None:
     started = False
     with VISUALIZER_LOCK:
-        process = VISUALIZER_STATE.get("process")
-        if process and process.poll() is None:
+        if _visualizer_process_running():
             LOGGER.info("Visualizer already running")
             return
 
@@ -457,6 +470,8 @@ async def visualizer_embed_http(path: str, request: Request) -> StreamingRespons
             status_code=503,
             detail="Visualizer proxy is unavailable because the httpx dependency is missing.",
         )
+
+    await _ensure_visualizer_running_async()
 
     scheme, netloc, base_path = _visualizer_upstream_components()
     upstream_path = _join_visualizer_path(base_path, path)
@@ -526,6 +541,17 @@ async def visualizer_embed_http(path: str, request: Request) -> StreamingRespons
 async def visualizer_embed_websocket(path: str, websocket: WebSocket) -> None:
     if websocket_connect is None:
         await websocket.close(code=1011, reason="Visualizer proxy unavailable (websockets dependency missing)")
+        return
+
+    try:
+        await _ensure_visualizer_running_async()
+    except HTTPException as exc:
+        LOGGER.error("Visualizer unavailable for websocket proxy: %s", exc.detail)
+        await websocket.close(code=1011, reason="Visualizer proxy unavailable")
+        return
+    except Exception:  # pragma: no cover - defensive logging
+        LOGGER.exception("Unexpected error while ensuring visualizer availability")
+        await websocket.close(code=1011, reason="Visualizer proxy unavailable")
         return
 
     scheme, netloc, base_path = _visualizer_upstream_components()
