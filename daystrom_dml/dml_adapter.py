@@ -481,9 +481,12 @@ class DMLAdapter:
         items = self.store.items()
         dml_limit = self._resolve_dml_top_k(None)
         if dml_limit is None:
-            top_k = max(len(items), int(self.config.get("top_k", 6)))
+            configured_top_k = int(self.config.get("top_k", 6))
+            if configured_top_k <= 0:
+                configured_top_k = 6
+            top_k = min(len(items), configured_top_k)
         else:
-            top_k = dml_limit
+            top_k = min(len(items), dml_limit)
         literal_results = []
         semantic_results = []
         if selected_mode in {"literal", "hybrid"}:
