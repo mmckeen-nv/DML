@@ -156,19 +156,79 @@ User:  "Temperature on Jan 3 at 2 PM?"
 
 ## 🧰 Deployment
 
-### Docker
+### Docker (single container)
+Build the runtime image and start the API server directly with Docker:
+
 ```bash
 docker build -t daystrom-dml .
-docker run --gpus all -p 8000:8000 daystrom-dml
+docker run --gpus all \
+  -p 9000:9000 \
+  -e DML_PORT=9000 \
+  -v "$(pwd)/data:/app/data" \
+  daystrom-dml
 ```
+
+- The bundled ``dml-server`` entrypoint automatically honours the
+  ``DML_HOST`` and ``DML_PORT`` environment variables.
+- Mounting ``./data`` keeps the lattice persistent between container restarts.
+- Provide a custom configuration file by mounting it and setting
+  ``DML_CONFIG_PATH`` (or ``DML_CONFIG``) to its location inside the container.
+
+### Docker Compose
+For repeatable deployments, a ``compose.yaml`` file is included:
+
+```bash
+docker compose up --build -d
+```
+
+The service exposes the API on ``${DML_PORT:-9000}`` and reserves a GPU when
+available. Stop the stack with ``docker compose down``.
+
+### Local execution
+```bash
+pip install .[server]
+dml-server --host 0.0.0.0 --port 9000
+```
+
+The command accepts ``--reload`` for development and mirrors the Docker
+environment variables described above.
+
+### MCP server
+```bash
+pip install .[mcp]
+dml-mcp-server --storage-path ./cma_store.json
+```
+
+Both ``--name`` and ``--storage-path`` can be supplied via CLI options or by
+setting ``CMA_MCP_NAME`` / ``CMA_STORAGE_PATH`` environment variables.
 
 ### MCP Integration
 ```yaml
 name: daystrom-dml
 type: retrieval
-entrypoint: http://localhost:8000/query
+entrypoint: http://localhost:9000/query
 args: [prompt, mode]
 ```
+
+Use ``dml-mcp-server`` with the configuration above to expose the lattice to
+MCP-compatible clients.
+
+## 🔌 Workflow Integration APIs
+
+Interact with a running lattice using the ``DMLClient`` helper:
+
+```python
+from daystrom_dml import DMLClient
+
+with DMLClient("http://localhost:9000") as client:
+    client.ingest("Investigate the Daystrom memory lattice release notes.")
+    result = client.query("Summarise the latest release.")
+    print(result["response"])
+```
+
+The client wraps the public REST API (``/ingest``, ``/query``, ``/reinforce``,
+``/stats`` and ``/knowledge``) with sensible defaults while remaining easy to
+extend with custom ``requests.Session`` instances.
 
 ---
 

@@ -1,0 +1,17 @@
+services:
+  dml:
+    build: .
+    image: daystrom-dml:latest
+    ports:
+      - "${DML_PORT:-9000}:9000"
+    environment:
+      DML_HOST: 0.0.0.0
+      DML_PORT: ${DML_PORT:-9000}
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - capabilities: [gpu]
