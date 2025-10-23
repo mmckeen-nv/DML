@@ -554,6 +554,17 @@ async def visualizer_embed_websocket(path: str, websocket: WebSocket) -> None:
         extra_headers.append(("x-forwarded-origin", client_origin))
 
     subprotocols = websocket.scope.get("subprotocols") or None
+    if not subprotocols:
+        for name, value in websocket.scope.get("headers", []):
+            if name.decode("latin-1").lower() == "sec-websocket-protocol":
+                parsed = [
+                    token.strip()
+                    for token in value.decode("latin-1").split(",")
+                    if token.strip()
+                ]
+                if parsed:
+                    subprotocols = parsed
+                break
 
     header_items = list(extra_headers)
     origin_value = None
