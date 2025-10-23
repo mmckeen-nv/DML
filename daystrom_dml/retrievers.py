@@ -64,8 +64,9 @@ class LiteralRetriever:
         phrase_pattern = self._build_pattern(query)
         literal_candidates: List[LiteralResult] = []
         level_zero_items = [item for item in items if item.level == 0]
-        doc_index = self._build_doc_index(level_zero_items)
-        for item in level_zero_items:
+        search_space = level_zero_items if level_zero_items else list(items)
+        doc_index = self._build_doc_index(search_space)
+        for item in search_space:
             snippet, regex_boost = self._extract_snippet(item.text, phrase_pattern)
             similarity = utils.cosine_similarity(item.embedding, query_embedding)
             literal_score = self._score_literal(regex_boost, similarity)

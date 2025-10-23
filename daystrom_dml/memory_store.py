@@ -116,7 +116,9 @@ class MemoryStore:
             self._enforce_capacity()
             return item
 
-    def retrieve(self, query_embedding: np.ndarray, top_k: int = 6) -> List[MemoryItem]:
+    def retrieve(
+        self, query_embedding: np.ndarray, top_k: Optional[int] = 6
+    ) -> List[MemoryItem]:
         with self._lock:
             scored = []
             now = time.time()
@@ -124,7 +126,16 @@ class MemoryStore:
                 score = self._score_item(item, query_embedding, now)
                 scored.append((score, item))
             scored.sort(key=lambda x: x[0], reverse=True)
-            return [item for _, item in scored[:top_k]]
+            if top_k is None:
+                limit = len(scored)
+            else:
+                try:
+                    limit = int(top_k)
+                except (TypeError, ValueError):
+                    limit = 0
+                if limit <= 0 or limit >= len(scored):
+                    limit = len(scored)
+            return [item for _, item in scored[:limit]]
 
     def items(self) -> Sequence[MemoryItem]:
         with self._lock:
