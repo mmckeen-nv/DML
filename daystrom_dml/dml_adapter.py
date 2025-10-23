@@ -186,53 +186,6 @@ class DMLAdapter:
             }
         )
 
-        rag_top_k = self.config.get("top_k", 6) if top_k is None else top_k
-        rag_reports = self.rag_store.report_all(prompt, top_k=rag_top_k)
-        rag_results: List[Dict] = []
-        for report in rag_reports:
-            if not report.get("available", True):
-                rag_results.append(
-                    {
-                        **report,
-                        "response": "",
-                        "usage": None,
-                        "context_tokens": report.get("tokens", 0),
-                        "sequence": None,
-                        "generation_latency_ms": 0,
-                        "retrieval_latency_ms": report.get("latency_ms", 0),
-                    }
-                )
-                continue
-            rag_context = self._format_rag_context(report.get("context") or "")
-            rag_prompt = self._compose_prompt(prompt, rag_context)
-            rag_response, rag_usage, rag_latency = self._generate_with_metrics(
-                rag_prompt, max_new_tokens=max_new_tokens
-            )
-            step_counter += 1
-            rag_entry = {
-                "id": report.get("id"),
-                "label": report.get("label"),
-                "strategy": report.get("strategy"),
-                "response": rag_response,
-                "usage": rag_usage,
-                "context": rag_context,
-                "context_tokens": report.get("tokens"),
-                "documents": report.get("documents"),
-                "sequence": step_counter,
-                "retrieval_latency_ms": report.get("latency_ms", 0),
-                "generation_latency_ms": rag_latency,
-                "available": True,
-                "error": report.get("error"),
-            }
-            rag_results.append(rag_entry)
-            pipeline_trace.append(
-                {
-                    "step": step_counter,
-                    "stage": "rag",
-                    "id": rag_entry["id"],
-                    "label": rag_entry.get("label"),
-                }
-            )
         dml_report = self.retrieval_report(prompt, top_k=top_k)
         dml_context = self._format_dml_context(dml_report["entries"])
         dml_prompt = self._compose_prompt(prompt, dml_context)
@@ -251,17 +204,100 @@ class DMLAdapter:
         )
 
         dml_reference = dml_response or ""
-        evaluations = []
-        if dml_reference.strip():
-            for entry in rag_results:
-                if not entry.get("available"):
+        evaluations: List[Dict[str, Any]] = []
+
+        reference_available = bool(dml_reference.strip())
+        if reference_available:
+            dml_grade = {
+                "score": 1.0,
+                "grade": self._score_to_grade(1.0),
+                "explanation": "Reference response for grading.",
+            }
+            evaluations.append(
+                {
+                    "backend_id": "dml",
+                    "score": 1.0,
+                    "grade": dml_grade["grade"],
+                }
+            )
+        else:
+            dml_grade = {
+                "score": 0.0,
+                "grade": "N/A",
+                "explanation": "DML response unavailable for comparison.",
+            }
+            evaluations.append(
+                {
+                    "backend_id": "dml",
+                    "score": 0.0,
+                    "grade": dml_grade["grade"],
+                }
+            )
+
+        rag_top_k = self.config.get("top_k", 6) if top_k is None else top_k
+        rag_reports = self.rag_store.report_all(prompt, top_k=rag_top_k)
+
+        # Ensure FAISS results are surfaced before Chroma when both are available.
+        preferred_order = {"faiss": 0, "chroma": 1}
+        indexed_reports = list(enumerate(rag_reports))
+        indexed_reports.sort(
+            key=lambda item: (
+                preferred_order.get(item[1].get("id"), len(preferred_order) + item[0]),
+                item[0],
+            )
+        )
+
+        rag_results: List[Dict[str, Any]] = []
+        for original_index, report in indexed_reports:
+            if not report.get("available", True):
+                entry = {
+                    **report,
+                    "response": "",
+                    "usage": None,
+                    "context_tokens": report.get("tokens", 0),
+                    "sequence": None,
+                    "generation_latency_ms": 0,
+                    "retrieval_latency_ms": report.get("latency_ms", 0),
+                }
+                if reference_available:
                     entry["grade"] = {
                         "score": 0.0,
                         "grade": "N/A",
-                        "explanation": entry.get("error") or "Backend unavailable",
+                        "explanation": report.get("error") or "Backend unavailable",
                     }
-                    continue
-                grade = self._grade_response(entry.get("response", ""), dml_reference)
+                else:
+                    entry["grade"] = {
+                        "score": 0.0,
+                        "grade": "N/A",
+                        "explanation": "DML response unavailable for comparison.",
+                    }
+                rag_results.append(entry)
+                continue
+
+            rag_context = self._format_rag_context(report.get("context") or "")
+            rag_prompt = self._compose_prompt(prompt, rag_context)
+            rag_response, rag_usage, rag_latency = self._generate_with_metrics(
+                rag_prompt, max_new_tokens=max_new_tokens
+            )
+            step_counter += 1
+            entry = {
+                "id": report.get("id"),
+                "label": report.get("label"),
+                "strategy": report.get("strategy"),
+                "response": rag_response,
+                "usage": rag_usage,
+                "context": rag_context,
+                "context_tokens": report.get("tokens"),
+                "documents": report.get("documents"),
+                "sequence": step_counter,
+                "retrieval_latency_ms": report.get("latency_ms", 0),
+                "generation_latency_ms": rag_latency,
+                "available": True,
+                "error": report.get("error"),
+            }
+
+            if reference_available:
+                grade = self._grade_response(rag_response, dml_reference)
                 entry["grade"] = grade
                 evaluations.append(
                     {
@@ -270,13 +306,22 @@ class DMLAdapter:
                         "grade": grade.get("grade"),
                     }
                 )
-        else:
-            for entry in rag_results:
+            else:
                 entry["grade"] = {
                     "score": 0.0,
                     "grade": "N/A",
                     "explanation": "DML response unavailable for comparison.",
                 }
+
+            rag_results.append(entry)
+            pipeline_trace.append(
+                {
+                    "step": step_counter,
+                    "stage": "rag",
+                    "id": entry["id"],
+                    "label": entry.get("label"),
+                }
+            )
 
         return {
             "prompt": prompt,
@@ -297,6 +342,7 @@ class DMLAdapter:
                 "sequence": dml_sequence,
                 "retrieval_latency_ms": dml_report.get("latency_ms", 0),
                 "generation_latency_ms": dml_latency,
+                "grade": dml_grade,
             },
             "rag_token_breakdown": [
                 {
