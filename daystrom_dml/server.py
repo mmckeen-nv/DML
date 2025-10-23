@@ -709,14 +709,23 @@ def visualizer_page() -> HTMLResponse:
     return HTMLResponse(page.read_text(encoding="utf-8"))
 
 
+def _translate_visualizer_failure(exc: HTTPException) -> HTTPException:
+    """Normalise visualizer startup failures for client consumption."""
+
+    if exc.status_code >= 500:
+        detail = exc.detail or "Visualizer is unavailable"
+        return HTTPException(status_code=503, detail=f"Visualizer unavailable: {detail}")
+    return exc
+
+
 @app.get("/visualizer/redirect")
 def visualizer_redirect(request: Request) -> RedirectResponse:
     """Open the external visualizer in a new tab."""
     if not VISUALIZER_URL:
         try:
             _launch_visualizer_server()
-        except HTTPException:
-            raise
+        except HTTPException as exc:
+            raise _translate_visualizer_failure(exc) from exc
         except Exception as exc:  # pragma: no cover - defensive logging
             LOGGER.exception("Unexpected error while preparing visualizer redirect")
             raise HTTPException(status_code=500, detail=str(exc)) from exc
@@ -755,8 +764,8 @@ def launch_visualizer(request: Request) -> dict:
 
     try:
         _launch_visualizer_server()
-    except HTTPException:
-        raise
+    except HTTPException as exc:
+        raise _translate_visualizer_failure(exc) from exc
     except Exception as exc:  # pragma: no cover - defensive logging
         LOGGER.exception("Unexpected error while launching visualizer")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
