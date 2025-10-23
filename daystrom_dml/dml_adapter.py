@@ -559,7 +559,13 @@ class DMLAdapter:
 
     def _load_config(self, path: str | os.PathLike | None) -> Dict:
         default_path = Path(__file__).with_name("config.yaml")
-        config_file = Path(path) if path else default_path
+        env_override = os.environ.get("DML_CONFIG_PATH") or os.environ.get("DML_CONFIG")
+        if path is not None:
+            config_file = Path(path)
+        elif env_override:
+            config_file = Path(env_override)
+        else:
+            config_file = default_path
         with open(config_file, "r", encoding="utf-8") as fh:
             data = yaml.safe_load(fh) or {}
         return data

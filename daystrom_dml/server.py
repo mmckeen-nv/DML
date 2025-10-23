@@ -1,6 +1,7 @@
 """FastAPI service exposing the Daystrom Memory Lattice."""
 from __future__ import annotations
 
+import argparse
 import asyncio
 import contextlib
 import io
@@ -1503,3 +1504,52 @@ def _nim_api_base_with_port(api_base: str, port: int) -> str:
     netloc = f"{userinfo}{host}:{port}"
     rebuilt = parsed._replace(netloc=netloc)
     return urlunparse(rebuilt)
+
+
+def main(argv: Optional[list[str]] = None) -> None:
+    """Run the Daystrom Memory Lattice API server via ``uvicorn``."""
+
+    parser = argparse.ArgumentParser(description="Run the Daystrom Memory Lattice API server.")
+    parser.add_argument(
+        "--host",
+        default=os.environ.get("DML_HOST", "0.0.0.0"),
+        help="Host interface for uvicorn to bind (default: 0.0.0.0).",
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=int(os.environ.get("DML_PORT", "9000")),
+        help="Port for uvicorn to expose (default: 9000).",
+    )
+    parser.add_argument(
+        "--reload",
+        action="store_true",
+        help="Enable uvicorn autoreload (useful for local development).",
+    )
+    parser.add_argument(
+        "--log-level",
+        default=os.environ.get("DML_LOG_LEVEL", "info"),
+        help="Log level passed to uvicorn (default: info).",
+    )
+
+    args = parser.parse_args(argv)
+
+    try:
+        import uvicorn
+    except Exception as exc:  # pragma: no cover - optional dependency import guard
+        raise RuntimeError(
+            "uvicorn is required to run the DML server. Install the 'server' extra "
+            "with `pip install .[server]`."
+        ) from exc
+
+    uvicorn.run(
+        "daystrom_dml.server:app",
+        host=args.host,
+        port=args.port,
+        log_level=args.log_level,
+        reload=args.reload,
+    )
+
+
+if __name__ == "__main__":  # pragma: no cover - CLI entry point
+    main()

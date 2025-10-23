@@ -1,6 +1,8 @@
 """Model Context Protocol (MCP) server exposing CMA operations."""
 from __future__ import annotations
 
+import argparse
+import os
 from pathlib import Path
 from typing import Any, Optional
 
@@ -89,9 +91,31 @@ def run(name: str = "concept-memory-adapter", storage_path: str | Path | None = 
     server.run()
 
 
-__all__ = ["create_mcp_server", "run"]
+def main(argv: Optional[list[str]] = None) -> None:
+    """Entry point used by the ``dml-mcp-server`` console script."""
+
+    parser = argparse.ArgumentParser(description="Run the Daystrom MCP server.")
+    parser.add_argument(
+        "--name",
+        default=os.environ.get("CMA_MCP_NAME", "concept-memory-adapter"),
+        help="Service name reported to MCP clients.",
+    )
+    parser.add_argument(
+        "--storage-path",
+        default=os.environ.get("CMA_STORAGE_PATH"),
+        help=(
+            "Optional path to persist the concept memory store. When omitted, "
+            "a local cma_store.json file is used."
+        ),
+    )
+
+    args = parser.parse_args(argv)
+    run(name=args.name, storage_path=args.storage_path)
+
+
+__all__ = ["create_mcp_server", "run", "main"]
 
 
 if __name__ == "__main__":  # pragma: no cover - module executable
-    run()
+    main()
 

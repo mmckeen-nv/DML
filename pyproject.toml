@@ -48,6 +48,8 @@ dev = [
 
 [project.scripts]
 cma = "cma.cli:app"
+dml-server = "daystrom_dml.server:main"
+dml-mcp-server = "cma.mcp_server:main"
 
 [tool.pytest.ini_options]
 addopts = "-q"
