@@ -548,8 +548,10 @@ async def visualizer_embed_websocket(path: str, websocket: WebSocket) -> None:
         if lower.startswith("sec-websocket"):
             continue
         extra_headers.append((header_name, value.decode("latin-1")))
-    origin_header = client_origin or f"{scheme}://{netloc}"
+    origin_header = f"{scheme}://{netloc}"
     extra_headers.append(("origin", origin_header))
+    if client_origin and client_origin != origin_header:
+        extra_headers.append(("x-forwarded-origin", client_origin))
 
     subprotocols = websocket.scope.get("subprotocols") or None
 
