@@ -142,6 +142,15 @@
             </dl>
             <p class="hint">Review the context panels below to see exactly what each system passes to the LLM.</p>
           </article>
+          <article class="metric-card">
+            <h3>Response Times</h3>
+            <dl class="metric-list">
+              <div><dt>Base LLM</dt><dd id="metric-base-latency">–</dd></div>
+              <div><dt>DML Retrieval</dt><dd id="metric-dml-retrieval-latency">–</dd></div>
+              <div><dt>DML Generation</dt><dd id="metric-dml-generation-latency">–</dd></div>
+            </dl>
+            <div id="metric-rag-latencies" class="metric-sublist"></div>
+          </article>
           <article class="metric-card metric-card--graph">
             <h3>RAG Retrieval Tokens</h3>
             <div id="rag-token-graph" class="token-graph" aria-live="polite"></div>
@@ -154,35 +163,47 @@
             <pre id="base-output"></pre>
             <footer id="base-usage" class="usage"></footer>
           </article>
-          <article class="response-card rag-response-card">
-            <header>RAG Responses</header>
-            <div id="rag-response-tabs" class="tabbed-group" aria-live="polite">
-              <div class="tab-list" id="rag-response-tablist" role="tablist" aria-label="RAG backends"></div>
-              <div class="tab-panels" id="rag-response-panels"></div>
-            </div>
-          </article>
           <article class="response-card">
             <header>DML Response</header>
             <pre id="dml-output"></pre>
             <footer id="dml-usage" class="usage"></footer>
           </article>
-          <article class="response-card">
-            <header>Integrated Response</header>
-            <pre id="integrated-output"></pre>
-            <footer id="integrated-usage" class="usage"></footer>
-          </article>
         </div>
-        <div id="context-tabs" class="tabbed-context">
-          <div class="tab-header" role="tablist" aria-label="Context views">
-            <button class="tab-button active" data-context-tab="rag" aria-selected="true">RAG Context</button>
-            <button class="tab-button" data-context-tab="dml" aria-selected="false">DML Context</button>
-            <button class="tab-button" data-context-tab="insights" aria-selected="false">Insights</button>
-          </div>
-          <div class="tab-panels">
-            <section class="tab-panel active" data-context-panel="rag" aria-labelledby="rag-context-label">
-              <div class="tab-scroll">
-                <p class="tab-subtitle" id="rag-context-label">No RAG backend selected.</p>
-                <pre id="rag-context"></pre>
+        <section class="panel rag-panel" id="rag-results">
+          <h3>RAG Backends</h3>
+          <div class="rag-panel-shell">
+            <div class="rag-tab-column" role="tablist" id="rag-response-tablist" aria-label="RAG backends"></div>
+            <div class="rag-panel-body" id="rag-response-panel" role="tabpanel" aria-live="polite">
+              <div class="rag-panel-placeholder">
+                <p>Select a RAG backend to inspect its response and context.</p>
+              </div>
+              <div class="rag-backend-view hidden" id="rag-backend-view">
+                <header class="rag-backend-header">
+                  <div>
+                    <h4 id="rag-backend-title">–</h4>
+                    <p id="rag-backend-description" class="rag-backend-description"></p>
+                  </div>
+                  <div class="rag-grade" id="rag-grade">
+                    <span class="rag-grade-letter" id="rag-grade-letter">–</span>
+                    <div class="rag-grade-detail">
+                      <span id="rag-grade-score">–</span>
+                      <span id="rag-grade-explanation">Select a backend to view its evaluation.</span>
+                    </div>
+                  </div>
+                </header>
+                <div id="rag-backend-status" class="status hidden"></div>
+                <pre id="rag-output"></pre>
+                <footer id="rag-usage" class="usage"></footer>
+                <dl class="metric-list inline">
+                  <div><dt>Retrieval time</dt><dd id="rag-retrieval-latency">–</dd></div>
+                  <div><dt>Generation time</dt><dd id="rag-generation-latency">–</dd></div>
+                  <div><dt>Context tokens</dt><dd id="rag-context-tokens">–</dd></div>
+                  <div><dt>Documents</dt><dd id="rag-document-count">–</dd></div>
+                </dl>
+                <div class="rag-context-block">
+                  <h4>Context</h4>
+                  <pre id="rag-context"></pre>
+                </div>
                 <div class="table-scroll">
                   <table id="rag-documents" class="data-table">
                     <thead>
@@ -197,54 +218,39 @@
                   </table>
                 </div>
               </div>
-            </section>
-            <section class="tab-panel" data-context-panel="dml">
-              <div class="tab-scroll">
-                <div class="context-summary">
-                  <h4>Summaries</h4>
-                  <ol id="dml-summary-list" class="summary-list"></ol>
-                </div>
-                <pre id="dml-context"></pre>
-                <div class="table-scroll">
-                  <table id="dml-entries" class="data-table">
-                    <thead>
-                      <tr>
-                        <th>ID</th>
-                        <th>Level</th>
-                        <th>Fidelity</th>
-                        <th>Tokens</th>
-                        <th>Summary</th>
-                      </tr>
-                    </thead>
-                    <tbody></tbody>
-                  </table>
-                </div>
-                <div class="context-llm-output">
-                  <h4>LLM Outputs</h4>
-                  <div class="llm-output-block">
-                    <h5>RAG Context</h5>
-                    <pre id="rag-context-llm-output" class="llm-output"></pre>
-                  </div>
-                  <div class="llm-output-block">
-                    <h5>DML Context</h5>
-                    <pre id="dml-context-llm-output" class="llm-output"></pre>
-                  </div>
-                  <div class="llm-output-block">
-                    <h5>Integrated Context</h5>
-                    <pre id="integrated-context-llm-output" class="llm-output"></pre>
-                  </div>
-                </div>
-              </div>
-            </section>
-            <section class="tab-panel" data-context-panel="insights">
-              <div class="tab-scroll">
-                <div class="insight-copy">
-                  <p id="insight-copy"></p>
-                </div>
-              </div>
-            </section>
+            </div>
           </div>
-        </div>
+        </section>
+        <section class="panel panel--wide" id="dml-context-panel">
+          <h3>DML Context &amp; Insights</h3>
+          <div class="dml-context-shell">
+            <div class="dml-context-scroll">
+              <div class="context-summary">
+                <h4>Summaries</h4>
+                <ol id="dml-summary-list" class="summary-list"></ol>
+              </div>
+              <pre id="dml-context"></pre>
+              <div class="table-scroll">
+                <table id="dml-entries" class="data-table">
+                  <thead>
+                    <tr>
+                      <th>ID</th>
+                      <th>Level</th>
+                      <th>Fidelity</th>
+                      <th>Tokens</th>
+                      <th>Summary</th>
+                    </tr>
+                  </thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+            </div>
+            <aside class="insight-copy">
+              <h4>Insights</h4>
+              <p id="insight-copy"></p>
+            </aside>
+          </div>
+        </section>
       </section>
 
       <section class="panel" id="knowledge-panel">

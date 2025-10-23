@@ -52,7 +52,7 @@ class GPTRunner:
             if self._should_use_half_precision():
                 model_kwargs.update(
                     {
-                        "torch_dtype": torch.float16,
+                        "dtype": torch.float16,
                         "low_cpu_mem_usage": True,
                     }
                 )

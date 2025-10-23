@@ -18,24 +18,30 @@ const ragDocsMetric = document.querySelector('#metric-rag-docs');
 const dmlEntriesMetric = document.querySelector('#metric-dml-entries');
 const baseOutput = document.querySelector('#base-output');
 const dmlOutput = document.querySelector('#dml-output');
-const integratedOutput = document.querySelector('#integrated-output');
 const baseUsage = document.querySelector('#base-usage');
 const dmlUsage = document.querySelector('#dml-usage');
-const integratedUsage = document.querySelector('#integrated-usage');
 const ragContext = document.querySelector('#rag-context');
-const ragContextLabel = document.querySelector('#rag-context-label');
 const dmlContext = document.querySelector('#dml-context');
 const dmlSummaryList = document.querySelector('#dml-summary-list');
-const ragContextLlmOutput = document.querySelector('#rag-context-llm-output');
-const dmlContextLlmOutput = document.querySelector('#dml-context-llm-output');
-const integratedContextLlmOutput = document.querySelector('#integrated-context-llm-output');
 const insightCopy = document.querySelector('#insight-copy');
 const ragDocumentsTable = document.querySelector('#rag-documents tbody');
 const ragTokenGraph = document.querySelector('#rag-token-graph');
 const ragResponseTabList = document.querySelector('#rag-response-tablist');
-const ragResponsePanels = document.querySelector('#rag-response-panels');
-const contextTabButtons = Array.from(document.querySelectorAll('[data-context-tab]'));
-const contextPanels = Array.from(document.querySelectorAll('[data-context-panel]'));
+const ragResponsePanel = document.querySelector('#rag-response-panel');
+const ragPanelPlaceholder = ragResponsePanel?.querySelector('.rag-panel-placeholder') || null;
+const ragBackendView = document.querySelector('#rag-backend-view');
+const ragBackendStatus = document.querySelector('#rag-backend-status');
+const ragBackendTitle = document.querySelector('#rag-backend-title');
+const ragBackendDescription = document.querySelector('#rag-backend-description');
+const ragGradeLetter = document.querySelector('#rag-grade-letter');
+const ragGradeScore = document.querySelector('#rag-grade-score');
+const ragGradeExplanation = document.querySelector('#rag-grade-explanation');
+const ragOutput = document.querySelector('#rag-output');
+const ragUsage = document.querySelector('#rag-usage');
+const ragRetrievalLatency = document.querySelector('#rag-retrieval-latency');
+const ragGenerationLatency = document.querySelector('#rag-generation-latency');
+const ragContextTokensMetric = document.querySelector('#rag-context-tokens');
+const ragDocumentCountMetric = document.querySelector('#rag-document-count');
 const dmlEntriesTable = document.querySelector('#dml-entries tbody');
 const knowledgeStatus = document.querySelector('#knowledge-status');
 const ragKnowledgeTable = document.querySelector('#rag-knowledge tbody');
@@ -46,6 +52,10 @@ const dmlKnowledgeCount = document.querySelector('#knowledge-dml-count');
 const dmlKnowledgeTokens = document.querySelector('#knowledge-dml-tokens');
 const ragBackendList = document.querySelector('#rag-backends');
 const pipelineSteps = document.querySelector('#pipeline-steps');
+const baseLatencyMetric = document.querySelector('#metric-base-latency');
+const dmlRetrievalLatencyMetric = document.querySelector('#metric-dml-retrieval-latency');
+const dmlGenerationLatencyMetric = document.querySelector('#metric-dml-generation-latency');
+const ragLatenciesList = document.querySelector('#metric-rag-latencies');
 const nimImageInput = document.querySelector('#nim-image');
 const ngcApiKeyInput = document.querySelector('#ngc-api-key');
 const configureNimButton = document.querySelector('#configure-nim');
@@ -104,13 +114,6 @@ if (startNimButton && stopNimButton) {
   stopNimButton.disabled = true;
   startNimButton.addEventListener('click', startNimContainer);
   stopNimButton.addEventListener('click', stopNimContainer);
-}
-
-if (contextTabButtons.length && contextPanels.length) {
-  contextTabButtons.forEach((button) => {
-    button.addEventListener('click', () => activateContextTab(button.dataset.contextTab));
-  });
-  activateContextTab(contextTabButtons[0]?.dataset.contextTab || 'rag');
 }
 
 if (fileInput) {
@@ -229,21 +232,26 @@ function renderResults(payload) {
     state.visualizer.mode = 'auto';
     updateVisualizerPrompt(payload.prompt);
   }
-  const ragBackends = Array.isArray(payload.rag_backends) ? payload.rag_backends : [];
+  const ragBackends = Array.isArray(payload.rag_backends) ? payload.rag_backends.slice() : [];
   ragBackends.sort((a, b) => {
     const aSeq = Number.isFinite(a?.sequence) ? Number(a.sequence) : Number.MAX_SAFE_INTEGER;
     const bSeq = Number.isFinite(b?.sequence) ? Number(b.sequence) : Number.MAX_SAFE_INTEGER;
     return aSeq - bSeq;
   });
   state.ragBackends = ragBackends;
-  if (!state.activeRagId || !ragBackends.some((backend) => backend.id === state.activeRagId)) {
-    state.activeRagId = ragBackends.length ? ragBackends[0].id : null;
+  if (
+    !state.activeRagId ||
+    !ragBackends.some((backend) => backend.id === state.activeRagId)
+  ) {
+    const firstAvailable = ragBackends.find((backend) => backend.available !== false);
+    state.activeRagId = firstAvailable?.id ?? (ragBackends[0]?.id || null);
   }
   buildRagResponseTabs(ragBackends);
+  renderRagLatencyMetrics(ragBackends);
   setActiveRagBackend(state.activeRagId);
 
-  const primaryRag = payload.rag || getActiveRagBackend();
-  const ragTokens = primaryRag?.context_tokens ?? 0;
+  const activeBackend = getActiveRagBackend();
+  const ragTokens = activeBackend?.context_tokens ?? 0;
   const dmlTokens = payload.dml?.context_tokens ?? 0;
   setMetricValue(tokenPromptMetric, promptTokens);
   setMetricValue(tokenRagMetric, ragTokens);
@@ -253,12 +261,15 @@ function renderResults(payload) {
     ? `${tokenDelta > 0 ? '−' : '+'}${nf.format(Math.abs(tokenDelta))} tokens`
     : '0';
   dmlFidelityMetric.textContent = formatFloat(payload.dml?.avg_fidelity);
-  ragDocsMetric.textContent = nf.format(primaryRag?.documents?.length ?? 0);
+  ragDocsMetric.textContent = nf.format(activeBackend?.documents?.length ?? 0);
   dmlEntriesMetric.textContent = nf.format(payload.dml?.entries?.length ?? 0);
+
+  setLatency(baseLatencyMetric, payload.base?.generation_latency_ms);
+  setLatency(dmlRetrievalLatencyMetric, payload.dml?.retrieval_latency_ms);
+  setLatency(dmlGenerationLatencyMetric, payload.dml?.generation_latency_ms);
 
   if (baseOutput) baseOutput.textContent = payload.base?.response || '';
   if (dmlOutput) dmlOutput.textContent = payload.dml?.response || '';
-  if (integratedOutput) integratedOutput.textContent = payload.integrated?.response || '';
 
   if (baseUsage) {
     const usageText = formatUsage(payload.base?.usage);
@@ -270,23 +281,11 @@ function renderResults(payload) {
     dmlUsage.textContent = usageText;
     dmlUsage.classList.toggle('hidden', !usageText);
   }
-  if (integratedUsage) {
-    const usageText = formatUsage(payload.integrated?.usage);
-    integratedUsage.textContent = usageText;
-    integratedUsage.classList.toggle('hidden', !usageText);
-  }
 
   if (dmlContext)
     dmlContext.textContent = payload.dml?.context || 'No DML memories matched this prompt yet.';
   renderDmlEntries(payload.dml?.entries || []);
   renderDmlSummaries(payload.dml?.entries || []);
-
-  if (dmlContextLlmOutput) {
-    dmlContextLlmOutput.textContent = payload.dml?.response || 'No DML response generated yet.';
-  }
-  if (integratedContextLlmOutput) {
-    integratedContextLlmOutput.textContent = payload.integrated?.response || 'No integrated response generated yet.';
-  }
 
   if (insightCopy) {
     insightCopy.textContent = buildInsightCopy({
@@ -295,7 +294,7 @@ function renderResults(payload) {
       dmlTokens,
       tokenDelta,
       avgFidelity: payload.dml?.avg_fidelity,
-      ragCount: primaryRag?.documents?.length || 0,
+      ragCount: activeBackend?.documents?.length || 0,
       dmlCount: payload.dml?.entries?.length || 0,
     });
   }
@@ -313,26 +312,27 @@ function getActiveRagBackend() {
 }
 
 function buildRagResponseTabs(backends) {
-  if (!ragResponseTabList || !ragResponsePanels) {
+  if (!ragResponseTabList) {
     return;
   }
   ragResponseTabList.innerHTML = '';
-  ragResponsePanels.innerHTML = '';
-  if (!backends.length) {
-    const emptyMessage = document.createElement('p');
-    emptyMessage.className = 'empty-state';
-    emptyMessage.textContent = 'No RAG responses generated yet.';
-    ragResponsePanels.appendChild(emptyMessage);
+  if (!Array.isArray(backends) || !backends.length) {
+    if (ragPanelPlaceholder) {
+      ragPanelPlaceholder.classList.remove('hidden');
+    }
+    if (ragBackendView) {
+      ragBackendView.classList.add('hidden');
+    }
     return;
   }
-  const selectedId = state.activeRagId;
   backends.forEach((backend, index) => {
-    const safeId = `rag-tab-${String(backend.id || index).replace(/[^a-z0-9-_]/gi, '-')}`;
     const button = document.createElement('button');
     button.type = 'button';
     button.className = 'tab-chip';
+    if (backend.available === false) {
+      button.classList.add('tab-chip--error');
+    }
     button.dataset.backendId = backend.id;
-    button.id = safeId;
     button.setAttribute('role', 'tab');
     const sequenceLabel = Number.isFinite(backend.sequence)
       ? `${Number(backend.sequence)}. `
@@ -340,30 +340,11 @@ function buildRagResponseTabs(backends) {
     button.textContent = `${sequenceLabel}${backend.label || backend.id || `Backend ${index + 1}`}`;
     if (backend.strategy) {
       button.title = backend.strategy;
+    } else if (backend.error) {
+      button.title = backend.error;
     }
     button.addEventListener('click', () => setActiveRagBackend(backend.id));
     ragResponseTabList.appendChild(button);
-
-    const panel = document.createElement('div');
-    panel.className = 'rag-response-panel';
-    panel.dataset.backendId = backend.id;
-    panel.setAttribute('role', 'tabpanel');
-    panel.setAttribute('aria-labelledby', safeId);
-    if (backend.strategy) {
-      const description = document.createElement('p');
-      description.className = 'rag-backend-description';
-      description.textContent = backend.strategy;
-      panel.appendChild(description);
-    }
-    const responsePre = document.createElement('pre');
-    responsePre.className = 'rag-response-output';
-    responsePre.textContent = backend.response || 'No response generated yet.';
-    const usageFooter = document.createElement('footer');
-    usageFooter.className = 'usage';
-    usageFooter.textContent = formatUsage(backend.usage);
-    panel.appendChild(responsePre);
-    panel.appendChild(usageFooter);
-    ragResponsePanels.appendChild(panel);
   });
 }
 
@@ -373,89 +354,113 @@ function setActiveRagBackend(backendId) {
   } else if (backendId && state.ragBackends.some((backend) => backend.id === backendId)) {
     state.activeRagId = backendId;
   } else {
-    state.activeRagId = state.ragBackends[0].id;
+    const firstAvailable = state.ragBackends.find((backend) => backend.available !== false);
+    state.activeRagId = firstAvailable?.id ?? state.ragBackends[0].id;
   }
-  if (ragResponseTabList && ragResponsePanels) {
+  if (ragResponseTabList) {
     const buttons = Array.from(ragResponseTabList.querySelectorAll('[data-backend-id]'));
-    const panels = Array.from(ragResponsePanels.querySelectorAll('.rag-response-panel'));
     buttons.forEach((button) => {
       const isActive = button.dataset.backendId === state.activeRagId;
       button.classList.toggle('active', isActive);
       button.setAttribute('aria-selected', isActive ? 'true' : 'false');
       button.setAttribute('tabindex', isActive ? '0' : '-1');
     });
-    panels.forEach((panel) => {
-      const isActive = panel.dataset.backendId === state.activeRagId;
-      panel.classList.toggle('active', isActive);
-      panel.hidden = !isActive;
-      if (isActive) {
-        const backend = getActiveRagBackend();
-        if (backend) {
-          const responsePre = panel.querySelector('.rag-response-output');
-          if (responsePre) {
-            responsePre.textContent = backend.response || 'No response generated yet.';
-          }
-          const usageFooter = panel.querySelector('.usage');
-          if (usageFooter) {
-            usageFooter.textContent = formatUsage(backend.usage);
-          }
-        }
-      }
-    });
   }
-  updateRagContextView();
+  renderActiveRagPanel();
   renderTokenGraph(state.lastTokenBreakdown || []);
-  renderRagBackendList(
-    state.ragBackends.map((backend) => ({
-      id: backend.id,
-      label: backend.label,
-      strategy: backend.strategy,
-    }))
-  );
+  renderRagBackendList(state.ragBackends);
+  renderRagLatencyMetrics(state.ragBackends);
 }
 
-function updateRagContextView() {
-  const backend = getActiveRagBackend();
-  if (ragContextLabel) {
-    if (!backend) {
-      ragContextLabel.textContent = 'No RAG backend selected.';
-      ragContextLabel.removeAttribute('title');
-    } else {
-      const descriptor = backend.strategy
-        ? `${backend.label || backend.id} — ${backend.strategy}`
-        : backend.label || backend.id;
-      ragContextLabel.textContent = `${descriptor} context`;
-      if (backend.strategy) {
-        ragContextLabel.title = backend.strategy;
-      } else {
-        ragContextLabel.removeAttribute('title');
-      }
-    }
-  }
-  if (ragContext) {
-    ragContext.textContent = backend?.context || 'No RAG context retrieved for this prompt.';
-  }
-  renderRagDocuments(backend?.documents || []);
-  if (ragContextLlmOutput) {
-    ragContextLlmOutput.textContent = backend?.response || 'No RAG response generated yet.';
-  }
-}
-
-function activateContextTab(tabId) {
-  if (!tabId) {
+function renderActiveRagPanel() {
+  if (!ragResponsePanel || !ragBackendView) {
     return;
   }
-  contextTabButtons.forEach((button) => {
-    const isActive = button.dataset.contextTab === tabId;
-    button.classList.toggle('active', isActive);
-    button.setAttribute('aria-selected', isActive ? 'true' : 'false');
-    button.setAttribute('tabindex', isActive ? '0' : '-1');
-  });
-  contextPanels.forEach((panel) => {
-    const isActive = panel.dataset.contextPanel === tabId;
-    panel.classList.toggle('active', isActive);
-    panel.hidden = !isActive;
-  });
+  const backend = getActiveRagBackend();
+  if (!backend) {
+    if (ragPanelPlaceholder) {
+      ragPanelPlaceholder.classList.remove('hidden');
+    }
+    ragBackendView.classList.add('hidden');
+    if (ragContext) {
+      ragContext.textContent = 'No RAG backend selected.';
+    }
+    renderRagDocuments([]);
+    return;
+  }
+  if (ragPanelPlaceholder) {
+    ragPanelPlaceholder.classList.add('hidden');
+  }
+  ragBackendView.classList.remove('hidden');
+  if (ragBackendTitle) {
+    ragBackendTitle.textContent = backend.label || backend.id || 'Backend';
+  }
+  if (ragBackendDescription) {
+    ragBackendDescription.textContent = backend.strategy || '';
+    ragBackendDescription.classList.toggle('hidden', !backend.strategy);
+  }
+  if (backend.available === false) {
+    if (ragBackendStatus) {
+      ragBackendStatus.textContent = backend.error || 'Backend unavailable.';
+      ragBackendStatus.classList.remove('hidden');
+    }
+    if (ragOutput) {
+      ragOutput.textContent = 'No response generated. Backend is unavailable.';
+    }
+    if (ragUsage) {
+      ragUsage.textContent = '';
+      ragUsage.classList.add('hidden');
+    }
+    if (ragGradeLetter) {
+      ragGradeLetter.textContent = '–';
+    }
+    if (ragGradeScore) {
+      ragGradeScore.textContent = '–';
+    }
+    if (ragGradeExplanation) {
+      ragGradeExplanation.textContent = backend.error || 'Backend unavailable.';
+    }
+    setLatency(ragRetrievalLatency, null);
+    setLatency(ragGenerationLatency, null);
+    setMetricValue(ragContextTokensMetric, 0);
+    setMetricValue(ragDocumentCountMetric, 0);
+    if (ragContext) {
+      ragContext.textContent = 'No RAG context available.';
+    }
+    renderRagDocuments([]);
+    return;
+  }
+  if (ragBackendStatus) {
+    ragBackendStatus.textContent = '';
+    ragBackendStatus.classList.add('hidden');
+  }
+  const usageText = formatUsage(backend.usage);
+  if (ragUsage) {
+    ragUsage.textContent = usageText;
+    ragUsage.classList.toggle('hidden', !usageText);
+  }
+  if (ragOutput) {
+    ragOutput.textContent = backend.response || 'No response generated yet.';
+  }
+  if (ragGradeLetter) {
+    ragGradeLetter.textContent = backend.grade?.grade || '–';
+    ragGradeLetter.classList.toggle('grade-na', backend.grade?.grade === 'N/A');
+  }
+  if (ragGradeScore) {
+    const score = Number(backend.grade?.score);
+    ragGradeScore.textContent = Number.isFinite(score) ? score.toFixed(2) : '–';
+  }
+  if (ragGradeExplanation) {
+    ragGradeExplanation.textContent = backend.grade?.explanation || 'No evaluation available.';
+  }
+  setLatency(ragRetrievalLatency, backend.retrieval_latency_ms);
+  setLatency(ragGenerationLatency, backend.generation_latency_ms);
+  setMetricValue(ragContextTokensMetric, backend.context_tokens ?? 0);
+  setMetricValue(ragDocumentCountMetric, backend.documents?.length ?? 0);
+  if (ragContext) {
+    ragContext.textContent = backend.context || 'No RAG context retrieved for this prompt.';
+  }
+  renderRagDocuments(backend.documents || []);
 }
 
 function renderTokenGraph(breakdown) {
@@ -536,7 +541,6 @@ function renderPipeline(steps) {
     base: 'Base model',
     rag: 'RAG',
     dml: 'DML',
-    integrated: 'Integrated',
   };
   entries
     .sort((a, b) => {
@@ -711,6 +715,61 @@ function setMetricValue(target, value) {
   const nf = new Intl.NumberFormat('en-US');
   const num = Number(value || 0);
   target.textContent = nf.format(num);
+}
+
+function setLatency(target, value) {
+  if (!target) return;
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric <= 0) {
+    target.textContent = '–';
+    return;
+  }
+  target.textContent = `${Math.round(numeric)} ms`;
+}
+
+function formatLatencyValue(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric <= 0) {
+    return '–';
+  }
+  return `${Math.round(numeric)} ms`;
+}
+
+function renderRagLatencyMetrics(backends) {
+  if (!ragLatenciesList) {
+    return;
+  }
+  ragLatenciesList.innerHTML = '';
+  if (!Array.isArray(backends) || !backends.length) {
+    const note = document.createElement('p');
+    note.className = 'metric-note';
+    note.textContent = 'No RAG responses yet.';
+    ragLatenciesList.appendChild(note);
+    return;
+  }
+  backends.forEach((backend) => {
+    const item = document.createElement('div');
+    item.className = 'metric-subitem';
+    if (backend.id === state.activeRagId) {
+      item.classList.add('active');
+    }
+    if (backend.available === false) {
+      item.classList.add('unavailable');
+    }
+    const name = document.createElement('span');
+    name.textContent = backend.label || backend.id || 'Backend';
+    const value = document.createElement('span');
+    if (backend.available === false) {
+      value.textContent = backend.error ? `Offline (${backend.error})` : 'Offline';
+    } else {
+      const retrieval = formatLatencyValue(backend.retrieval_latency_ms);
+      const generation = formatLatencyValue(backend.generation_latency_ms);
+      value.textContent = `${retrieval} / ${generation}`;
+    }
+    item.appendChild(name);
+    item.appendChild(value);
+    ragLatenciesList.appendChild(item);
+  });
 }
 
 function formatFloat(value) {
@@ -891,10 +950,17 @@ async function refreshKnowledge() {
     }
     const payload = await response.json();
     renderKnowledge(payload);
-    const hasKnowledge = (payload.rag?.count || 0) + (payload.dml?.count || 0) > 0;
-    knowledgeStatus.textContent = hasKnowledge
-      ? ''
-      : 'No documents have been ingested into the knowledge bases yet.';
+    const ragCount = payload.rag?.count || 0;
+    const dmlCount = payload.dml?.count || 0;
+    if (!ragCount && !dmlCount) {
+      knowledgeStatus.textContent = 'No documents have been ingested into the knowledge bases yet.';
+    } else if (payload.dml?.truncated) {
+      const shown = payload.dml?.entries?.length || 0;
+      const limit = payload.dml?.display_limit || shown;
+      knowledgeStatus.textContent = `Showing ${shown} of ${dmlCount} DML memories (limited to ${limit} for performance).`;
+    } else {
+      knowledgeStatus.textContent = '';
+    }
   } catch (err) {
     console.error(err);
     knowledgeStatus.textContent = `Error: ${err.message}`;
@@ -910,7 +976,7 @@ function renderKnowledge(payload) {
   setMetricValue(dmlKnowledgeCount, payload.dml?.count ?? 0);
   setMetricValue(dmlKnowledgeTokens, payload.dml?.total_tokens ?? 0);
   renderRagKnowledge(payload.rag?.documents || []);
-  renderDmlKnowledge(payload.dml?.entries || []);
+  renderDmlKnowledge(payload.dml);
   renderRagBackendList(payload.rag?.backends || []);
 }
 
@@ -936,11 +1002,12 @@ function renderRagKnowledge(documents) {
   });
 }
 
-function renderDmlKnowledge(entries) {
+function renderDmlKnowledge(dml) {
   if (!dmlKnowledgeTable) {
     return;
   }
   dmlKnowledgeTable.innerHTML = '';
+  const entries = dml?.entries || [];
   if (!entries.length) {
     const row = document.createElement('tr');
     row.innerHTML = '<td colspan="5">No DML memories stored yet.</td>';
@@ -955,13 +1022,22 @@ function renderDmlKnowledge(entries) {
     const row = document.createElement('tr');
     row.innerHTML = `
       <td>${entry.id}</td>
-      <td>L${entry.level}</td>
+      <td>L${entry.level ?? '?'}</td>
       <td>${fidelity}</td>
       <td>${entry.tokens ?? 0}</td>
       <td>${escapeHtml(summary || 'No summary available.')}</td>
     `;
     dmlKnowledgeTable.appendChild(row);
   });
+  if (dml?.truncated && (dml.count ?? 0) > entries.length) {
+    const infoRow = document.createElement('tr');
+    infoRow.className = 'table-note';
+    const remaining = (dml.count ?? 0) - entries.length;
+    infoRow.innerHTML = `
+      <td colspan="5">${remaining} additional memories are hidden for performance. Use retrieval reports for full context.</td>
+    `;
+    dmlKnowledgeTable.appendChild(infoRow);
+  }
 }
 
 function renderRagBackendList(backends) {
@@ -972,7 +1048,7 @@ function renderRagBackendList(backends) {
   if (!Array.isArray(backends) || !backends.length) {
     const empty = document.createElement('li');
     empty.className = 'rag-backend-empty';
-    empty.textContent = 'No simulated RAG backends are configured.';
+    empty.textContent = 'No RAG backends are configured.';
     ragBackendList.appendChild(empty);
     return;
   }
@@ -982,14 +1058,29 @@ function renderRagBackendList(backends) {
     if (backend.id === state.activeRagId) {
       item.classList.add('active');
     }
+    if (backend.available === false) {
+      item.classList.add('unavailable');
+    }
     const title = document.createElement('div');
     title.className = 'rag-backend-title';
     title.textContent = backend.label || backend.id || 'Backend';
-    const description = document.createElement('p');
-    description.className = 'rag-backend-description';
-    description.textContent = backend.strategy || 'Baseline cosine similarity.';
+    const status = document.createElement('span');
+    status.className = 'rag-backend-status';
+    status.textContent = backend.available === false ? 'Offline' : 'Ready';
+    title.appendChild(status);
     item.appendChild(title);
-    item.appendChild(description);
+    if (backend.strategy) {
+      const description = document.createElement('p');
+      description.className = 'rag-backend-description';
+      description.textContent = backend.strategy;
+      item.appendChild(description);
+    }
+    if (backend.available === false && backend.error) {
+      const error = document.createElement('p');
+      error.className = 'rag-backend-error';
+      error.textContent = backend.error;
+      item.appendChild(error);
+    }
     ragBackendList.appendChild(item);
   });
 }

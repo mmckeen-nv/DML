@@ -23,6 +23,11 @@ from . import utils
 
 LOGGER = logging.getLogger(__name__)
 
+# Limit the amount of data returned by the knowledge endpoint to keep the
+# payload responsive even when the lattice contains thousands of memories.
+KNOWLEDGE_MAX_ENTRIES = 200
+KNOWLEDGE_ENTRY_PREVIEW_CHARS = 320
+
 STARFLEET_BANNER = "\n".join(
     [
         "Initializing Daystrom Memory Lattice v1.0",
@@ -138,15 +143,18 @@ class DMLAdapter:
         return response
 
     def retrieval_report(self, prompt: str, *, top_k: Optional[int] = None) -> Dict:
+        start = time.perf_counter()
         items = self._retrieve_items(prompt, top_k)
         entries, preamble, tokens_used = self._prepare_context(prompt, items)
         fidelities = [entry["fidelity"] for entry in entries]
         avg_fidelity = float(np.mean(fidelities) if fidelities else 0.0)
+        latency_ms = int((time.perf_counter() - start) * 1000.0)
         return {
             "entries": entries,
             "preamble": preamble,
             "tokens": tokens_used,
             "avg_fidelity": avg_fidelity,
+            "latency_ms": latency_ms,
         }
 
     def compare_responses(
@@ -159,8 +167,9 @@ class DMLAdapter:
         step_counter = 0
         pipeline_trace: List[Dict[str, Any]] = []
 
-        base_response = self.runner.generate(prompt, max_new_tokens=max_new_tokens)
-        base_usage = self.runner.last_usage
+        base_response, base_usage, base_latency = self._generate_with_metrics(
+            prompt, max_new_tokens=max_new_tokens
+        )
         step_counter += 1
         base_sequence = step_counter
         pipeline_trace.append(
@@ -175,10 +184,24 @@ class DMLAdapter:
         rag_reports = self.rag_store.report_all(prompt, top_k=rag_top_k)
         rag_results: List[Dict] = []
         for report in rag_reports:
+            if not report.get("available", True):
+                rag_results.append(
+                    {
+                        **report,
+                        "response": "",
+                        "usage": None,
+                        "context_tokens": report.get("tokens", 0),
+                        "sequence": None,
+                        "generation_latency_ms": 0,
+                        "retrieval_latency_ms": report.get("latency_ms", 0),
+                    }
+                )
+                continue
             rag_context = self._format_rag_context(report.get("context") or "")
             rag_prompt = self._compose_prompt(prompt, rag_context)
-            rag_response = self.runner.generate(rag_prompt, max_new_tokens=max_new_tokens)
-            rag_usage = self.runner.last_usage
+            rag_response, rag_usage, rag_latency = self._generate_with_metrics(
+                rag_prompt, max_new_tokens=max_new_tokens
+            )
             step_counter += 1
             rag_entry = {
                 "id": report.get("id"),
@@ -190,6 +213,10 @@ class DMLAdapter:
                 "context_tokens": report.get("tokens"),
                 "documents": report.get("documents"),
                 "sequence": step_counter,
+                "retrieval_latency_ms": report.get("latency_ms", 0),
+                "generation_latency_ms": rag_latency,
+                "available": True,
+                "error": report.get("error"),
             }
             rag_results.append(rag_entry)
             pipeline_trace.append(
@@ -200,13 +227,12 @@ class DMLAdapter:
                     "label": rag_entry.get("label"),
                 }
             )
-        primary_rag = rag_results[0] if rag_results else None
-
         dml_report = self.retrieval_report(prompt, top_k=top_k)
         dml_context = self._format_dml_context(dml_report["entries"])
         dml_prompt = self._compose_prompt(prompt, dml_context)
-        dml_response = self.runner.generate(dml_prompt, max_new_tokens=max_new_tokens)
-        dml_usage = self.runner.last_usage
+        dml_response, dml_usage, dml_latency = self._generate_with_metrics(
+            dml_prompt, max_new_tokens=max_new_tokens
+        )
         self.reinforce(prompt, dml_response)
         step_counter += 1
         dml_sequence = step_counter
@@ -218,22 +244,33 @@ class DMLAdapter:
             }
         )
 
-        combined_blocks = [entry["context"] for entry in rag_results if entry.get("context")]
-        combined_blocks.append(dml_context)
-        combined_blocks = [block for block in combined_blocks if block]
-        combined_context = "\n\n".join(combined_blocks)
-        combined_prompt = self._compose_prompt(prompt, combined_context)
-        integrated_response = self.runner.generate(combined_prompt, max_new_tokens=max_new_tokens)
-        integrated_usage = self.runner.last_usage
-        step_counter += 1
-        integrated_sequence = step_counter
-        pipeline_trace.append(
-            {
-                "step": step_counter,
-                "stage": "integrated",
-                "label": "Integrated context",
-            }
-        )
+        dml_reference = dml_response or ""
+        evaluations = []
+        if dml_reference.strip():
+            for entry in rag_results:
+                if not entry.get("available"):
+                    entry["grade"] = {
+                        "score": 0.0,
+                        "grade": "N/A",
+                        "explanation": entry.get("error") or "Backend unavailable",
+                    }
+                    continue
+                grade = self._grade_response(entry.get("response", ""), dml_reference)
+                entry["grade"] = grade
+                evaluations.append(
+                    {
+                        "backend_id": entry.get("id"),
+                        "score": grade.get("score", 0.0),
+                        "grade": grade.get("grade"),
+                    }
+                )
+        else:
+            for entry in rag_results:
+                entry["grade"] = {
+                    "score": 0.0,
+                    "grade": "N/A",
+                    "explanation": "DML response unavailable for comparison.",
+                }
 
         return {
             "prompt": prompt,
@@ -241,8 +278,8 @@ class DMLAdapter:
                 "response": base_response,
                 "usage": base_usage,
                 "sequence": base_sequence,
+                "generation_latency_ms": base_latency,
             },
-            "rag": primary_rag,
             "rag_backends": rag_results,
             "dml": {
                 "response": dml_response,
@@ -252,13 +289,8 @@ class DMLAdapter:
                 "avg_fidelity": dml_report["avg_fidelity"],
                 "entries": dml_report["entries"],
                 "sequence": dml_sequence,
-            },
-            "integrated": {
-                "response": integrated_response,
-                "usage": integrated_usage,
-                "context": combined_context,
-                "context_tokens": utils.estimate_tokens(combined_context),
-                "sequence": integrated_sequence,
+                "retrieval_latency_ms": dml_report.get("latency_ms", 0),
+                "generation_latency_ms": dml_latency,
             },
             "rag_token_breakdown": [
                 {
@@ -267,10 +299,13 @@ class DMLAdapter:
                     "strategy": entry.get("strategy"),
                     "tokens": entry.get("context_tokens", 0),
                     "sequence": entry.get("sequence"),
+                    "retrieval_latency_ms": entry.get("retrieval_latency_ms", 0),
                 }
                 for entry in rag_results
+                if entry.get("available")
             ],
             "pipeline_trace": pipeline_trace,
+            "evaluations": evaluations,
         }
 
     def knowledge_report(self) -> Dict:
@@ -280,29 +315,98 @@ class DMLAdapter:
 
         dml_items = []
         dml_total_tokens = 0
-        for item in self.store.items():
+        store_items = self.store.items()
+        truncated = len(store_items) > KNOWLEDGE_MAX_ENTRIES
+        for index, item in enumerate(store_items):
             text = (item.text or "").strip()
             tokens = utils.estimate_tokens(text)
             dml_total_tokens += tokens
-            dml_items.append(
-                {
-                    "id": item.id,
-                    "level": item.level,
-                    "fidelity": item.fidelity,
-                    "tokens": tokens,
-                    "summary": text,
-                    "meta": item.meta or {},
-                }
-            )
+            if index < KNOWLEDGE_MAX_ENTRIES:
+                dml_items.append(
+                    {
+                        "id": item.id,
+                        "level": item.level,
+                        "fidelity": item.fidelity,
+                        "tokens": tokens,
+                        "summary": self._trim_summary(text),
+                        "meta": item.meta or {},
+                    }
+                )
 
         return {
             "rag": rag_summary,
             "dml": {
                 "entries": dml_items,
                 "total_tokens": dml_total_tokens,
-                "count": len(dml_items),
+                "count": len(store_items),
+                "truncated": truncated,
+                "display_limit": KNOWLEDGE_MAX_ENTRIES,
             },
         }
+
+    def _generate_with_metrics(
+        self,
+        prompt: str,
+        *,
+        max_new_tokens: int,
+    ) -> tuple[str, Optional[dict], int]:
+        start = time.perf_counter()
+        response = self.runner.generate(prompt, max_new_tokens=max_new_tokens)
+        usage = self.runner.last_usage
+        latency_ms = int((time.perf_counter() - start) * 1000.0)
+        return response, usage, latency_ms
+
+    def _grade_response(self, candidate: str, reference: str) -> Dict[str, Any]:
+        candidate = (candidate or "").strip()
+        reference = (reference or "").strip()
+        if not candidate:
+            return {
+                "score": 0.0,
+                "grade": "F",
+                "explanation": "No response generated by the backend.",
+            }
+        if not reference:
+            return {
+                "score": 0.0,
+                "grade": "N/A",
+                "explanation": "Reference answer missing for comparison.",
+            }
+        try:
+            cand_vec = np.asarray(self.embedder.embed(candidate), dtype=np.float32)
+            ref_vec = np.asarray(self.embedder.embed(reference), dtype=np.float32)
+            score = float(utils.cosine_similarity(cand_vec, ref_vec))
+        except Exception:
+            return {
+                "score": 0.0,
+                "grade": "N/A",
+                "explanation": "Failed to compute similarity for grading.",
+            }
+        grade = self._score_to_grade(score)
+        return {
+            "score": score,
+            "grade": grade,
+            "explanation": f"Cosine similarity to DML response: {score:.2f}",
+        }
+
+    @staticmethod
+    def _score_to_grade(score: float) -> str:
+        if score >= 0.9:
+            return "A"
+        if score >= 0.75:
+            return "B"
+        if score >= 0.6:
+            return "C"
+        if score >= 0.45:
+            return "D"
+        return "F"
+
+    def _trim_summary(self, text: str) -> str:
+        if not text:
+            return ""
+        if len(text) <= KNOWLEDGE_ENTRY_PREVIEW_CHARS:
+            return text
+        truncated = text[: KNOWLEDGE_ENTRY_PREVIEW_CHARS - 1].rstrip()
+        return f"{truncated}…"
 
     # ------------------------------------------------------------------
     # Persistence helpers

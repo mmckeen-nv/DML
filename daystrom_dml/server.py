@@ -535,16 +535,20 @@ async def visualizer_embed_websocket(path: str, websocket: WebSocket) -> None:
     if query:
         target = f"{target}?{query}"
 
+    client_origin = None
     extra_headers: list[tuple[str, str]] = []
     for name, value in websocket.scope.get("headers", []):
         header_name = name.decode("latin-1")
         lower = header_name.lower()
         if lower in {"host", "origin"}:
+            if lower == "origin" and client_origin is None:
+                client_origin = value.decode("latin-1")
             continue
         if lower.startswith("sec-websocket"):
             continue
         extra_headers.append((header_name, value.decode("latin-1")))
-    extra_headers.append(("origin", f"{scheme}://{netloc}"))
+    origin_header = client_origin or f"{scheme}://{netloc}"
+    extra_headers.append(("origin", origin_header))
 
     subprotocols = websocket.scope.get("subprotocols") or None
 

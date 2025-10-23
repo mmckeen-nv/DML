@@ -4,7 +4,11 @@ import time
 
 import numpy as np
 
-from daystrom_dml.dml_adapter import DMLAdapter
+from daystrom_dml.dml_adapter import (
+    DMLAdapter,
+    KNOWLEDGE_ENTRY_PREVIEW_CHARS,
+    KNOWLEDGE_MAX_ENTRIES,
+)
 from daystrom_dml.memory_store import MemoryStore
 from daystrom_dml.summarizer import DummySummarizer
 
@@ -82,3 +86,25 @@ def test_capacity_eviction_prefers_stale_items() -> None:
     assert old.id not in remaining
     assert mid.id in remaining
     assert new.id in remaining
+
+
+def test_knowledge_report_limits_payload(tmp_path):
+    adapter = DMLAdapter(
+        config_overrides={
+            "model_name": "dummy",
+            "embedding_model": None,
+            "capacity": KNOWLEDGE_MAX_ENTRIES + 50,
+            "storage_dir": str(tmp_path / "storage"),
+        },
+        start_aging_loop=False,
+    )
+    long_text = "Lorem ipsum dolor sit amet, consectetur adipiscing elit. " * 3
+    total = KNOWLEDGE_MAX_ENTRIES + 20
+    for idx in range(total):
+        adapter.ingest(f"Entry {idx}: {long_text}")
+    report = adapter.knowledge_report()
+    dml = report["dml"]
+    assert dml["count"] == total
+    assert len(dml["entries"]) == KNOWLEDGE_MAX_ENTRIES
+    assert dml["truncated"] is True
+    assert all(len(entry["summary"]) <= KNOWLEDGE_ENTRY_PREVIEW_CHARS for entry in dml["entries"])
