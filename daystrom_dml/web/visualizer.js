@@ -16,7 +16,7 @@ async function initialiseStandaloneVisualizer() {
       payload = {};
     }
     if (!response.ok) {
-      const message = payload && payload.detail ? payload.detail : 'Failed to start visualiser';
+      const message = payload && payload.detail ? payload.detail : 'Failed to start visualizer';
       throw new Error(message);
     }
     const embedUrl = payload && typeof payload.embed_url === 'string' && payload.embed_url ? payload.embed_url : null;

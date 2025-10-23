@@ -117,13 +117,28 @@ class DMLAdapter:
         return preamble
 
     def reinforce(self, prompt: str, response: str, meta: Optional[Dict] = None) -> None:
-        if not response:
+        prompt_text = (prompt or "").strip()
+        response_text = (response or "").strip()
+        if not response_text:
             return
-        combined = f"Prompt: {prompt}\nResponse: {response}".strip()
-        summary = self.summarizer.summarize(combined, max_len=256)
-        embedding = self.embedder.embed(summary)
-        salience = self._estimate_salience(summary) + 0.1
-        self.store.ingest(summary, embedding, salience=salience, meta=meta)
+        response_summary = self.summarizer.summarize(response_text, max_len=220).strip()
+        if not response_summary:
+            response_summary = response_text[:220].strip()
+        lines: List[str] = []
+        if prompt_text:
+            lines.append(f"Prompt: {prompt_text}")
+        else:
+            lines.append("Prompt: (empty)")
+        lines.append(f"Answer summary: {response_summary}")
+        memory_text = "\n".join(lines)
+        embedding = self.embedder.embed(memory_text)
+        salience = self._estimate_salience(response_summary) + 0.1
+        memory_meta = dict(meta or {})
+        if prompt_text:
+            memory_meta.setdefault("prompt", prompt_text)
+        if response_text:
+            memory_meta.setdefault("response_excerpt", response_text[:500])
+        self.store.ingest(memory_text, embedding, salience=salience, meta=memory_meta)
         self._persist_dml_state()
 
     def run_generation(self, prompt: str, *, max_new_tokens: int = 256) -> str:

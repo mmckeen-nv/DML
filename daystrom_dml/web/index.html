@@ -101,25 +101,6 @@
         <div id="compare-status" class="status"></div>
       </section>
 
-      <section class="panel panel--wide" id="visualizer-panel">
-        <h2>DML Visualizer</h2>
-        <p class="hint">
-          Monitor the Daystrom Memory Lattice in real time without leaving the playground.
-        </p>
-        <div class="visualizer-embed">
-          <div id="visualizer-status" class="status">Starting visualizer…</div>
-          <iframe
-            id="visualizer-frame"
-            title="Daystrom Memory Lattice Visualizer"
-            loading="lazy"
-            allowfullscreen
-          ></iframe>
-        </div>
-        <p class="hint">
-          Need more space? <a href="/visualizer/redirect" id="visualizer-inline-link" target="_blank" rel="noopener noreferrer">Open the dedicated visualizer page</a>.
-        </p>
-      </section>
-
       <section id="results" class="panel panel--wide hidden">
         <h2>Generation Results</h2>
         <ol id="pipeline-steps" class="pipeline-steps" aria-live="polite"></ol>
@@ -159,9 +140,15 @@
         </div>
         <div class="response-grid">
           <article class="response-card">
-            <header>Base Model</header>
+            <header>LLM with DMT Knowledge</header>
             <pre id="base-output"></pre>
             <footer id="base-usage" class="usage"></footer>
+          </article>
+          <article class="response-card">
+            <header>LLM with RAG Knowledge</header>
+            <pre id="rag-aggregate-output"></pre>
+            <footer id="rag-aggregate-usage" class="usage"></footer>
+            <div id="rag-aggregate-source" class="response-card__note hidden"></div>
           </article>
           <article class="response-card">
             <header>DML Response</header>
