@@ -73,16 +73,48 @@ class ChromaRAGBackend(RAGBackendProtocol):
     """Persistence-backed integration with Chroma DB."""
 
     def __init__(self, persist_dir: str = "./.chroma") -> None:
-        if chromadb is None or ChromaSettings is None:
+        if chromadb is None:
             raise RuntimeError("chromadb is not installed")
         self.identifier = "chroma"
         self.label = "Chroma"
         self.description = "Local Chroma collection backed by DuckDB.";
-        settings = ChromaSettings(chroma_db_impl="duckdb+parquet", persist_directory=persist_dir)
-        self._client = chromadb.PersistentClient(path=persist_dir, settings=settings)  # type: ignore[arg-type]
+        self._client = self._create_client(persist_dir)
         self._collection = self._client.get_or_create_collection(
             "daystrom-playground",
             metadata={"hnsw:space": "cosine"},
+        )
+
+    def _create_client(self, persist_dir: str) -> Any:
+        """Initialise a Chroma client compatible with legacy and modern APIs."""
+
+        errors: list[str] = []
+
+        # Preferred path for modern Chroma releases.
+        try:
+            return chromadb.PersistentClient(path=persist_dir)
+        except TypeError as exc:  # pragma: no cover - compatibility with older clients
+            errors.append(str(exc))
+        except Exception as exc:  # pragma: no cover - unexpected client errors
+            errors.append(str(exc))
+
+        # Backwards-compatible fallback for older releases still expecting Settings.
+        if ChromaSettings is not None:
+            settings = ChromaSettings(
+                chroma_db_impl="duckdb+parquet",
+                persist_directory=persist_dir,
+            )
+            try:
+                return chromadb.PersistentClient(path=persist_dir, settings=settings)  # type: ignore[arg-type]
+            except Exception as exc:  # pragma: no cover - unexpected client errors
+                errors.append(str(exc))
+            try:
+                return chromadb.Client(settings)  # type: ignore[call-arg]
+            except Exception as exc:  # pragma: no cover - compatibility fallback
+                errors.append(str(exc))
+
+        raise RuntimeError(
+            "Unable to initialise Chroma client with the available configuration; "
+            + "; ".join(errors)
         )
 
     def add_document(self, text: str, embedding: np.ndarray, tokens: int, meta: Optional[Dict[str, Any]] = None) -> None:
