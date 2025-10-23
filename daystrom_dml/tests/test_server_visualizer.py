@@ -10,6 +10,16 @@ from fastapi import HTTPException
 from daystrom_dml import server
 
 
+def test_compute_visualizer_extras_includes_faiss_for_supported_versions():
+    extras = server._compute_visualizer_extras((3, 11, 5))
+    assert "faiss" in extras
+
+
+def test_compute_visualizer_extras_skips_faiss_for_python312(monkeypatch):
+    extras = server._compute_visualizer_extras((3, 12, 0))
+    assert "faiss" not in extras
+
+
 def test_visualizer_redirect_gracefully_handles_launch_failure(monkeypatch):
     def fail_launch() -> None:
         raise HTTPException(status_code=500, detail="pip exploded")
