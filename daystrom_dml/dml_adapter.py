@@ -18,7 +18,7 @@ from .checkpoint import CheckpointManager
 from .embeddings import Embedder, create_embedder
 from .gpt_runner import GPTRunner
 from .memory_store import MemoryStore
-from .metrics import record_ingest, record_retrieval, update_memory_gauge
+from .metrics import record_retrieval, update_memory_gauge
 from .multi_rag import DEFAULT_BACKENDS, MultiRAGStore, RAGBackendDescriptor
 from .persistent_index import PersistentVectorBackend
 from .persistence import load_state as load_persisted_memories
@@ -231,7 +231,6 @@ class DMLAdapter:
         self.rag_store.add_document(text, meta=meta)
         self._persist_all()
         if self.metrics_enabled:
-            record_ingest()
             update_memory_gauge(len(self.store.items()))
 
     def build_preamble(self, prompt: str, top_k: Optional[int] = None) -> str:
@@ -768,7 +767,7 @@ class DMLAdapter:
         latency = time.perf_counter() - start
         latency_ms = latency * 1000.0
         if self.metrics_enabled:
-            record_retrieval(selected_mode, latency)
+            record_retrieval(selected_mode, latency_ms)
         token_count = utils.estimate_tokens(context)
         return {
             "mode": selected_mode,
