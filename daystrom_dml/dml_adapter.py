@@ -25,7 +25,8 @@ from .persistence import load_state as load_persisted_memories
 from .persistence import save_state as save_persisted_memories
 from .settings import DMLSettings
 from .summarizer import DummySummarizer, LLMSummarizer, Summarizer
-from .retrievers import LiteralRetriever, LiteralResult
+from .retrievers import LiteralRetriever
+from .rag_store import PersistentRAGStore
 from . import utils
 
 LOGGER = logging.getLogger(__name__)
@@ -138,6 +139,31 @@ class DMLAdapter:
             self.summarizer,
             context_window=int(self.config.get("literal_context", 1)),
         )
+        rag_settings = getattr(self.settings, "rag_store", None)
+        self.persistent_rag_store: Optional[PersistentRAGStore] = None
+        if rag_settings and getattr(rag_settings, "enable", False):
+            index_path = Path(rag_settings.path).expanduser()
+            meta_path = Path(rag_settings.meta_path).expanduser()
+            if not index_path.is_absolute():
+                index_path = self._resolve_storage_path(index_path)
+            if not meta_path.is_absolute():
+                meta_path = self._resolve_storage_path(meta_path)
+            try:
+                self.persistent_rag_store = PersistentRAGStore(
+                    enable=True,
+                    index_path=index_path,
+                    meta_path=meta_path,
+                    dim=int(rag_settings.dim),
+                    backend=str(rag_settings.backend),
+                )
+            except Exception:
+                LOGGER.exception("Failed to initialise persistent RAG store.")
+                self.persistent_rag_store = None
+            else:
+                with contextlib.suppress(Exception):
+                    self.persistent_rag_store.load()
+        else:
+            self.persistent_rag_store = None
         persistent_backend = RAGBackendDescriptor(
             identifier="persistent",
             label="Persistent Index",
@@ -198,6 +224,9 @@ class DMLAdapter:
         embedding = self.embedder.embed(text)
         salience = self._estimate_salience(text)
         self.store.ingest(text, embedding, salience=salience, meta=meta)
+        if self.persistent_rag_store is not None:
+            with contextlib.suppress(Exception):
+                self.persistent_rag_store.add(text, embedding, meta=meta)
         self.rag_store.add_document(text, meta=meta)
         self._persist_all()
         if self.metrics_enabled:
@@ -648,6 +677,11 @@ class DMLAdapter:
 
     def _persist_rag_state(self) -> None:
         with self._persist_lock:
+            if self.persistent_rag_store is not None:
+                try:
+                    self.persistent_rag_store.persist()
+                except Exception:
+                    LOGGER.exception("Failed to persist persistent RAG index.")
             data = self.rag_store.export_state()
             tmp = self.rag_state_path.with_suffix(".tmp")
             try:
@@ -706,10 +740,10 @@ class DMLAdapter:
             top_k = min(len(items), configured_top_k)
         else:
             top_k = min(len(items), dml_limit)
-        literal_results = []
-        semantic_results = []
+        literal_results: List[Dict[str, Any]] = []
+        semantic_results: List[Dict[str, Any]] = []
         if selected_mode in {"literal", "hybrid"}:
-            literal_results = self.literal_retriever.retrieve(
+            literal_results = self._literal_retrieve(
                 prompt, items, query_embedding, top_k=top_k
             )
         if selected_mode in {"semantic", "hybrid"}:
@@ -794,6 +828,18 @@ class DMLAdapter:
         blocks.append("=== User Prompt ===")
         blocks.append(prompt.strip())
         return "\n\n".join(blocks)
+
+    def _resolve_storage_path(self, candidate: Path) -> Path:
+        path = candidate.expanduser()
+        if path.is_absolute():
+            return path
+        relative = path
+        if relative.parts and relative.parts[0] == self.storage_dir.name:
+            if len(relative.parts) > 1:
+                relative = Path(*relative.parts[1:])
+            else:
+                relative = Path(relative.name)
+        return (self.storage_dir / relative).expanduser()
 
     def _load_config(self, path: str | os.PathLike | None) -> Dict:
         default_path = Path(__file__).with_name("config.yaml")
@@ -932,32 +978,144 @@ class DMLAdapter:
             )
         return results
 
+    def _literal_retrieve(
+        self,
+        prompt: str,
+        items: List[Any],
+        query_embedding: np.ndarray,
+        *,
+        top_k: int,
+    ) -> List[Dict[str, Any]]:
+        store_matches: List[Dict[str, Any]] = []
+        if self.persistent_rag_store is not None:
+            with contextlib.suppress(Exception):
+                store_matches = self.persistent_rag_store.search(query_embedding, top_k=top_k)
+        if store_matches:
+            return self._format_rag_matches(store_matches)
+        fallback = self.literal_retriever.retrieve(prompt, items, query_embedding, top_k=top_k)
+        formatted: List[Dict[str, Any]] = []
+        for result in fallback:
+            meta = result.item.meta if getattr(result, "item", None) else {}
+            formatted.append(
+                {
+                    "context": list(result.context),
+                    "semantic_score": float(result.semantic_score),
+                    "literal_score": float(result.literal_score),
+                    "source": result.source,
+                    "meta": dict(meta or {}),
+                    "text": result.snippet,
+                }
+            )
+        return formatted
+
+    def _format_rag_matches(self, matches: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        formatted: List[Dict[str, Any]] = []
+        max_snippet_chars = getattr(self.literal_retriever, "max_snippet_chars", 320)
+        literal_summarizer = getattr(self.literal_retriever, "summarizer", None)
+
+        def _clip_segment(value: Any) -> str:
+            segment = str(value or "").strip()
+            if not segment:
+                return ""
+            if len(segment) <= max_snippet_chars:
+                return segment
+            summarizer: Summarizer | None = None
+            if literal_summarizer is not None:
+                summarizer = literal_summarizer
+            elif hasattr(self, "summarizer"):
+                summarizer = getattr(self, "summarizer")
+            if summarizer is not None:
+                with contextlib.suppress(Exception):
+                    summary = summarizer.summarize(segment, max_len=max_snippet_chars)
+                    summary = str(summary or "").strip()
+                    if summary:
+                        if len(summary) <= max_snippet_chars:
+                            return summary
+                        return summary[: max_snippet_chars - 3] + "..."
+            return segment[: max_snippet_chars - 3] + "..."
+
+        for match in matches:
+            meta = dict(match.get("meta") or {})
+            context_segments: List[str] = []
+            raw_context = meta.get("context")
+            if isinstance(raw_context, list):
+                context_segments.extend(
+                    _clip_segment(segment)
+                    for segment in raw_context
+                    if isinstance(segment, str) and segment.strip()
+                )
+            for key in ("context_before", "preceding"):
+                value = meta.get(key)
+                if isinstance(value, str) and value.strip():
+                    clipped = _clip_segment(value)
+                    if clipped:
+                        context_segments.append(clipped)
+            text = _clip_segment(match.get("text"))
+            if text:
+                context_segments.append(text)
+            for key in ("context_after", "following"):
+                value = meta.get(key)
+                if isinstance(value, str) and value.strip():
+                    clipped = _clip_segment(value)
+                    if clipped:
+                        context_segments.append(clipped)
+            deduped: List[str] = []
+            seen: set[str] = set()
+            for segment in context_segments:
+                if not segment or segment in seen:
+                    continue
+                seen.add(segment)
+                deduped.append(segment)
+            if not deduped and text:
+                deduped = [text]
+            source = self.literal_retriever._resolve_source(meta) if meta else None
+            formatted.append(
+                {
+                    "id": match.get("id"),
+                    "text": text,
+                    "meta": meta,
+                    "literal_score": float(match.get("score", 0.0)),
+                    "semantic_score": 0.0,
+                    "source": source,
+                    "context": deduped,
+                }
+            )
+        return formatted
+
     def _blend_results(
         self,
-        literal_results: List[LiteralResult],
-        semantic_results: List[Dict],
+        literal_results: List[Dict[str, Any]],
+        semantic_results: List[Dict[str, Any]],
         alpha: float,
         *,
         top_k: int,
-    ) -> List[Dict]:
-        blended: List[Dict] = []
-        for res in literal_results:
-            blended.append(
-                {
-                    "context": res.context,
-                    "semantic_score": res.semantic_score,
-                    "literal_score": res.literal_score,
-                    "source": res.source,
-                }
-            )
-        blended.extend(semantic_results)
+    ) -> List[Dict[str, Any]]:
+        def _normalise(entry: Dict[str, Any]) -> Dict[str, Any]:
+            data = dict(entry)
+            context_value = data.get("context") or []
+            if isinstance(context_value, str):
+                context_list = [context_value]
+            else:
+                context_list = [
+                    str(segment).strip()
+                    for segment in context_value
+                    if isinstance(segment, str) and segment.strip()
+                ]
+            data["context"] = context_list
+            data["semantic_score"] = float(data.get("semantic_score", 0.0))
+            data["literal_score"] = float(data.get("literal_score", 0.0))
+            return data
+
+        blended: List[Dict[str, Any]] = []
+        blended.extend(_normalise(res) for res in literal_results)
+        blended.extend(_normalise(res) for res in semantic_results)
         for entry in blended:
             semantic_score = entry.get("semantic_score", 0.0)
             literal_score = entry.get("literal_score", 0.0)
             entry["final_score"] = alpha * semantic_score + (1 - alpha) * literal_score
         blended.sort(key=lambda x: x.get("final_score", 0.0), reverse=True)
         seen: set[str] = set()
-        deduped: List[Dict] = []
+        deduped: List[Dict[str, Any]] = []
         for entry in blended:
             key = "|".join(entry.get("context", []))
             if key in seen:

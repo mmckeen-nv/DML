@@ -49,6 +49,32 @@ class PersistenceSettings(BaseModel):
             return Path(str(value))
 
 
+class RAGStoreSettings(BaseModel):
+    """Configuration for the lightweight persistent RAG vector store."""
+
+    enable: bool = False
+    path: Path = Path("./data/rag_index.faiss")
+    meta_path: Path = Path("./data/rag_meta.json")
+    backend: str = "faiss"
+    dim: int = Field(384, ge=1)
+
+    if field_validator is not None:  # pragma: no branch - executed on Pydantic v2
+
+        @field_validator("path", "meta_path", mode="before")
+        def _coerce_path(cls, value: Any) -> Path:
+            if isinstance(value, Path):
+                return value
+            return Path(str(value))
+
+    else:  # pragma: no cover - Pydantic v1 compatibility
+
+        @legacy_validator("path", "meta_path", pre=True)
+        def _coerce_path(cls, value: Any) -> Path:
+            if isinstance(value, Path):
+                return value
+            return Path(str(value))
+
+
 class DMLSettings(BaseSettings):
     """Central configuration for the DML stack with env overrides."""
 
@@ -78,6 +104,7 @@ class DMLSettings(BaseSettings):
     nim_health_timeout: int = Field(60, ge=1)
     nim_health_interval: float = Field(5.0, ge=0.1)
     persistence: PersistenceSettings = PersistenceSettings()
+    rag_store: RAGStoreSettings = RAGStoreSettings()
 
     if ConfigDict is not None:  # pragma: no branch - executed on Pydantic v2
         model_config = ConfigDict(
@@ -122,4 +149,10 @@ class DMLSettings(BaseSettings):
         persistence = data.get("persistence")
         if isinstance(persistence, dict) and "path" in persistence:
             persistence["path"] = str(persistence["path"])
+        rag_store = data.get("rag_store")
+        if isinstance(rag_store, dict):
+            if "path" in rag_store:
+                rag_store["path"] = str(rag_store["path"])
+            if "meta_path" in rag_store:
+                rag_store["meta_path"] = str(rag_store["meta_path"])
         return data

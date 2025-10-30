@@ -1,148 +1,172 @@
-"""Lightweight in-memory RAG store for the Daystrom demo UI."""
+"""Lightweight persistent FAISS-backed retrieval store."""
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional
+import json
+import logging
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Dict, Iterable, List, Optional
 
 import numpy as np
 
-from . import utils
-from .embeddings import Embedder
+try:  # pragma: no cover - optional dependency
+    import faiss  # type: ignore[import]
+except Exception:  # pragma: no cover - handled gracefully when unavailable
+    faiss = None  # type: ignore[assignment]
+
+LOGGER = logging.getLogger(__name__)
 
 
 @dataclass
-class SimpleRAGStore:
-    """Extremely small RAG index backed by the configured embedder.
+class RAGRecord:
+    """Single document stored in the persistent RAG index."""
 
-    The implementation is intentionally naive – it keeps all documents in
-    memory, scores them using cosine similarity, and exposes the top ``k``
-    matches together with a human readable context block.  The goal is to
-    provide a transparent baseline for the frontend where users can inspect
-    exactly which snippets are forwarded to the language model.
-    """
+    id: int
+    text: str
+    meta: Dict[str, Any]
 
-    embedder: Embedder
-    score_transform: Optional[Callable[[float, Dict[str, Any]], float]] = None
-    _documents: List[Dict[str, Any]] = field(default_factory=list)
 
-    def add_document(self, text: str, meta: Optional[Dict[str, Any]] = None) -> None:
-        """Add ``text`` to the store along with optional metadata."""
+class PersistentRAGStore:
+    """Minimal persistent vector store backed by FAISS."""
 
-        if not text:
+    def __init__(
+        self,
+        *,
+        enable: bool,
+        index_path: Path,
+        meta_path: Path,
+        dim: int,
+        backend: str = "faiss",
+    ) -> None:
+        self.enable = enable
+        self.backend = backend
+        self.index_path = index_path
+        self.meta_path = meta_path
+        self._records: List[RAGRecord] = []
+        self._id_lookup: Dict[int, int] = {}
+        self._index: Any = None
+        self._next_id = 0
+        self._dim = int(dim)
+        if self.backend != "faiss":
+            raise ValueError(f"Unsupported backend: {backend}")
+        if self.enable and faiss is None:
+            raise RuntimeError("faiss is required for the persistent RAG store")
+
+    # ------------------------------------------------------------------
+    # lifecycle
+    # ------------------------------------------------------------------
+    def load(self) -> None:
+        """Load an existing index from disk if present."""
+
+        if not self.enable:
             return
-        embedding = self.embedder.embed(text)
+        if not self.index_path.exists() or not self.meta_path.exists():
+            return
+        try:
+            self._index = faiss.read_index(str(self.index_path))
+            data = json.loads(self.meta_path.read_text(encoding="utf-8"))
+        except Exception:  # pragma: no cover - defensive logging
+            LOGGER.exception("Failed to load persistent RAG index from disk")
+            return
+        records = data.get("records", [])
+        next_id = int(data.get("next_id", len(records)))
+        dim = int(data.get("dim", getattr(self._index, "d", self._dim)))
+        self._records = [
+            RAGRecord(id=int(entry.get("id", idx)), text=entry.get("text", ""), meta=dict(entry.get("meta") or {}))
+            for idx, entry in enumerate(records)
+        ]
+        self._id_lookup = {record.id: pos for pos, record in enumerate(self._records)}
+        self._next_id = max(next_id, (max(self._id_lookup.keys()) + 1) if self._id_lookup else 0)
+        self._dim = dim
+        if self._index is not None and getattr(self._index, "d", dim) != dim:
+            LOGGER.warning(
+                "FAISS index dimension (%s) mismatches metadata (%s); using index dimension.",
+                getattr(self._index, "d", "unknown"),
+                dim,
+            )
+            self._dim = int(getattr(self._index, "d", dim))
+        if self._index is not None and self._index.ntotal != len(self._records):
+            LOGGER.warning(
+                "FAISS index document count (%s) mismatches metadata (%s).",
+                self._index.ntotal,
+                len(self._records),
+            )
+
+    def persist(self) -> None:
+        """Persist the FAISS index and metadata to disk."""
+
+        if not self.enable or self._index is None:
+            return
+        self.index_path.parent.mkdir(parents=True, exist_ok=True)
+        self.meta_path.parent.mkdir(parents=True, exist_ok=True)
         payload = {
-            "text": text,
-            "embedding": embedding,
-            "meta": meta or {},
-            "tokens": utils.estimate_tokens(text),
+            "dim": self._dim,
+            "next_id": self._next_id,
+            "records": [record.__dict__ for record in self._records],
         }
-        self._documents.append(payload)
+        faiss.write_index(self._index, str(self.index_path))
+        self.meta_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    def clear(self) -> None:
-        """Reset the in-memory collection."""
+    # ------------------------------------------------------------------
+    # core operations
+    # ------------------------------------------------------------------
+    def add(self, text: str, embedding: Iterable[float], meta: Optional[Dict[str, Any]] = None) -> int:
+        """Add a new document to the persistent index."""
 
-        self._documents.clear()
+        if not text or not self.enable:
+            return -1
+        vector = self._prepare_vector(embedding)
+        if vector is None:
+            return -1
+        if self._index is None:
+            self._index = faiss.IndexFlatIP(vector.shape[1])
+            self._dim = vector.shape[1]
+        if vector.shape[1] != self._dim:
+            raise ValueError(
+                f"Embedding dimension mismatch: expected {self._dim}, received {vector.shape[1]}"
+            )
+        faiss.normalize_L2(vector)
+        self._index.add(vector)
+        record_id = self._next_id
+        self._next_id += 1
+        record = RAGRecord(id=record_id, text=text, meta=dict(meta or {}))
+        self._records.append(record)
+        self._id_lookup[record_id] = len(self._records) - 1
+        return record_id
 
-    def _score_documents(self, query_embedding: np.ndarray) -> List[Dict[str, Any]]:
+    def search(self, embedding: Iterable[float], top_k: int = 4) -> List[Dict[str, Any]]:
+        """Retrieve the closest matches for the supplied embedding."""
+
+        if not self.enable or self._index is None or not self._records:
+            return []
+        vector = self._prepare_vector(embedding)
+        if vector is None or vector.shape[1] != self._dim:
+            return []
+        faiss.normalize_L2(vector)
+        top_k = max(1, min(int(top_k), len(self._records)))
+        scores, indices = self._index.search(vector, top_k)
         results: List[Dict[str, Any]] = []
-        if query_embedding.size == 0:
-            return results
-        for doc in self._documents:
-            score = utils.cosine_similarity(doc["embedding"], query_embedding)
-            if self.score_transform:
-                try:
-                    score = float(self.score_transform(score, doc))
-                except Exception:
-                    pass
+        for idx, score in zip(indices[0], scores[0]):
+            if idx < 0 or idx >= len(self._records):
+                continue
+            record = self._records[idx]
             results.append(
                 {
-                    "text": doc["text"],
-                    "meta": doc["meta"],
-                    "tokens": doc["tokens"],
+                    "id": record.id,
+                    "text": record.text,
+                    "meta": dict(record.meta),
                     "score": float(score),
                 }
             )
-        results.sort(key=lambda entry: entry["score"], reverse=True)
         return results
 
-    def retrieve(self, prompt: str, *, top_k: int = 4) -> List[Dict[str, Any]]:
-        """Return the highest scoring documents for ``prompt``."""
-
-        if not self._documents:
-            return []
-        query_embedding = self.embedder.embed(prompt)
-        scored = self._score_documents(query_embedding)
-        return scored[: max(0, int(top_k))]
-
-    def report(self, prompt: str, *, top_k: int = 4) -> Dict[str, Any]:
-        """Return retrieval matches together with a formatted context block."""
-
-        matches = self.retrieve(prompt, top_k=top_k)
-        context_lines: List[str] = []
-        for idx, match in enumerate(matches, start=1):
-            source = match["meta"].get("doc_path") if match.get("meta") else None
-            source = source or match.get("meta", {}).get("source") or "uploaded document"
-            header = f"Document {idx} (score={match['score']:.3f})"
-            context_lines.extend([header, f"Source: {source}", match["text"].strip(), ""])
-        context = "\n".join(context_lines).strip()
-        tokens = utils.estimate_tokens(context)
-        return {
-            "documents": matches,
-            "context": context,
-            "tokens": tokens,
-        }
-
-    def count(self) -> int:
-        """Expose the number of stored documents for diagnostics."""
-
-        return len(self._documents)
-
-    def catalog(self) -> Dict[str, Any]:
-        """Return a summary of all stored documents and their token usage."""
-
-        documents: List[Dict[str, Any]] = []
-        total_tokens = 0
-        for idx, doc in enumerate(self._documents, start=1):
-            meta = doc.get("meta") or {}
-            source = meta.get("doc_path") or meta.get("source") or f"Document {idx}"
-            tokens = int(doc.get("tokens") or 0)
-            total_tokens += tokens
-            documents.append(
-                {
-                    "index": idx,
-                    "source": source,
-                    "tokens": tokens,
-                }
-            )
-        return {
-            "documents": documents,
-            "total_tokens": total_tokens,
-            "count": len(documents),
-        }
-
-    def export_state(self) -> Dict[str, Any]:
-        """Return a serialisable snapshot of the store."""
-
-        return {
-            "documents": [
-                {
-                    "text": doc["text"],
-                    "meta": doc.get("meta") or {},
-                }
-                for doc in self._documents
-            ]
-        }
-
-    def import_state(self, payload: Optional[Dict[str, Any]]) -> None:
-        """Restore documents from ``payload`` if provided."""
-
-        if not payload:
-            return
-        self.clear()
-        for entry in payload.get("documents", []):
-            text = entry.get("text")
-            if not text:
-                continue
-            meta = entry.get("meta") or {}
-            self.add_document(str(text), meta=meta)
+    # ------------------------------------------------------------------
+    # helpers
+    # ------------------------------------------------------------------
+    def _prepare_vector(self, embedding: Iterable[float]) -> Optional[np.ndarray]:
+        if embedding is None:
+            return None
+        vector = np.asarray(list(embedding), dtype=np.float32)
+        if vector.size == 0:
+            return None
+        return vector.reshape(1, -1)
