@@ -21,3 +21,9 @@ persistence:
   enable: true
   path: ./data/dml_state.jsonl
   interval_sec: 300
+rag_store:
+  enable: true
+  path: ./data/rag_index.faiss
+  meta_path: ./data/rag_meta.json
+  backend: faiss
+  dim: 384
