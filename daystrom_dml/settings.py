@@ -6,7 +6,7 @@ from typing import Any, Dict
 
 try:  # Support both Pydantic v1 and v2
     from pydantic import Field
-    from pydantic import BaseModel  # noqa: F401  # compatibility import
+    from pydantic import BaseModel
 except ImportError:  # pragma: no cover - pydantic should always be present via FastAPI
     raise
 
@@ -23,6 +23,30 @@ except ImportError:  # pragma: no cover - fallback for Pydantic v1
     from pydantic import validator as legacy_validator
 else:
     legacy_validator = None  # type: ignore[assignment]
+
+
+class PersistenceSettings(BaseModel):
+    """Configuration for durable memory persistence."""
+
+    enable: bool = False
+    path: Path = Path("data/dml_state.jsonl")
+    interval_sec: int = Field(300, ge=0)
+
+    if field_validator is not None:  # pragma: no branch - executed on Pydantic v2
+
+        @field_validator("path", mode="before")
+        def _coerce_path(cls, value: Any) -> Path:
+            if isinstance(value, Path):
+                return value
+            return Path(str(value))
+
+    else:  # pragma: no cover - Pydantic v1 compatibility
+
+        @legacy_validator("path", pre=True)
+        def _coerce_path(cls, value: Any) -> Path:
+            if isinstance(value, Path):
+                return value
+            return Path(str(value))
 
 
 class DMLSettings(BaseSettings):
@@ -53,6 +77,7 @@ class DMLSettings(BaseSettings):
     nim_default_id: str = Field("gpt-oss-20b", description="Default NIM model identifier.")
     nim_health_timeout: int = Field(60, ge=1)
     nim_health_interval: float = Field(5.0, ge=0.1)
+    persistence: PersistenceSettings = PersistenceSettings()
 
     if ConfigDict is not None:  # pragma: no branch - executed on Pydantic v2
         model_config = ConfigDict(
@@ -94,4 +119,7 @@ class DMLSettings(BaseSettings):
         else:  # pragma: no cover - used on Pydantic v1
             data = self.dict()
         data["storage_dir"] = str(self.storage_dir)
+        persistence = data.get("persistence")
+        if isinstance(persistence, dict) and "path" in persistence:
+            persistence["path"] = str(persistence["path"])
         return data

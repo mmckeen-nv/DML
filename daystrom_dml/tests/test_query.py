@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import tempfile
+from pathlib import Path
+
 from daystrom_dml.dml_adapter import DMLAdapter
 from daystrom_dml.embeddings import RandomEmbedder
 from daystrom_dml.summarizer import DummySummarizer
 
 
 def make_adapter():
+    storage_dir = Path(tempfile.mkdtemp(prefix="dml-test-storage-"))
     return DMLAdapter(
         config_overrides={
             "model_name": "dummy",
@@ -13,6 +17,8 @@ def make_adapter():
             "capacity": 100,
             "top_k": 4,
             "literal_context": 1,
+            "storage_dir": str(storage_dir),
+            "persistence": {"enable": False},
         },
         embedder=RandomEmbedder(dim=48),
         summarizer=DummySummarizer(),

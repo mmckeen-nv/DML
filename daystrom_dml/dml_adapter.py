@@ -5,9 +5,10 @@ import contextlib
 import json
 import logging
 import os
+import threading
 import time
 from pathlib import Path
-from threading import RLock
+from threading import Event, RLock
 from typing import Any, Dict, List, Optional
 
 import numpy as np
@@ -20,6 +21,8 @@ from .memory_store import MemoryStore
 from .metrics import record_ingest, record_retrieval, update_memory_gauge
 from .multi_rag import DEFAULT_BACKENDS, MultiRAGStore, RAGBackendDescriptor
 from .persistent_index import PersistentVectorBackend
+from .persistence import load_state as load_persisted_memories
+from .persistence import save_state as save_persisted_memories
 from .settings import DMLSettings
 from .summarizer import DummySummarizer, LLMSummarizer, Summarizer
 from .retrievers import LiteralRetriever, LiteralResult
@@ -103,6 +106,29 @@ class DMLAdapter:
             storage_dir = Path(__file__).resolve().parent.parent / storage_dir
         self.storage_dir = storage_dir
         self.storage_dir.mkdir(parents=True, exist_ok=True)
+        persistence_settings = getattr(self.settings, "persistence", None)
+        persistence_path = getattr(persistence_settings, "path", None) if persistence_settings else None
+        if persistence_path:
+            persistence_path = Path(persistence_path).expanduser()
+        else:
+            persistence_path = Path("dml_state.jsonl")
+        if not persistence_path.is_absolute():
+            relative_path = persistence_path
+            if relative_path.parts and relative_path.parts[0] == self.storage_dir.name:
+                if len(relative_path.parts) > 1:
+                    relative_path = Path(*relative_path.parts[1:])
+                else:
+                    relative_path = Path(relative_path.name)
+            persistence_path = (self.storage_dir / relative_path).expanduser()
+        self._persistence_path = persistence_path
+        interval_value = getattr(persistence_settings, "interval_sec", 0) if persistence_settings else 0
+        try:
+            self._persistence_interval = max(0, int(interval_value))
+        except (TypeError, ValueError):
+            self._persistence_interval = 0
+        self._persistence_enabled = bool(persistence_settings and getattr(persistence_settings, "enable", False))
+        self._persistence_stop_event = Event()
+        self._persistence_thread: Optional[threading.Thread] = None
         self.dml_state_path = self.storage_dir / "dml_store.json"
         self.rag_state_path = self.storage_dir / "rag_store.json"
         self.checkpoint_dir = self.storage_dir / "checkpoints"
@@ -145,6 +171,8 @@ class DMLAdapter:
                 retention=int(self.settings.checkpoint_retention),
             )
         self._load_persisted_state()
+        if self._persistence_enabled and self._persistence_interval > 0:
+            self._start_persistence_loop()
         if self.metrics_enabled:
             update_memory_gauge(len(self.store.items()))
         LOGGER.info("Daystrom Memory Lattice initialised with %d capacity", self.store.capacity)
@@ -154,6 +182,7 @@ class DMLAdapter:
     # ------------------------------------------------------------------
     def close(self) -> None:
         self._persist_all()
+        self._stop_persistence_loop()
         if self.checkpoint_manager:
             self.checkpoint_manager.close()
         if self.metrics_enabled:
@@ -530,11 +559,27 @@ class DMLAdapter:
     # Persistence helpers
     # ------------------------------------------------------------------
     def _load_persisted_state(self) -> None:
-        with contextlib.suppress(Exception):
-            if self.dml_state_path.exists():
-                data = json.loads(self.dml_state_path.read_text(encoding="utf-8"))
-                self._ensure_embedding_compatibility(data)
-                self.store.import_state(data)
+        state_loaded = False
+        if self._persistence_enabled:
+            try:
+                items = load_persisted_memories(self._persistence_path)
+            except FileNotFoundError:
+                pass
+            except Exception:
+                LOGGER.exception(
+                    "Failed to load durable DML state from %s", self._persistence_path
+                )
+            else:
+                payload = {"items": [item.to_dict() for item in items]}
+                self._ensure_embedding_compatibility(payload)
+                self.store.import_state(payload)
+                state_loaded = True
+        if not state_loaded:
+            with contextlib.suppress(Exception):
+                if self.dml_state_path.exists():
+                    data = json.loads(self.dml_state_path.read_text(encoding="utf-8"))
+                    self._ensure_embedding_compatibility(data)
+                    self.store.import_state(data)
         with contextlib.suppress(Exception):
             if self.rag_state_path.exists():
                 data = json.loads(self.rag_state_path.read_text(encoding="utf-8"))
@@ -543,6 +588,33 @@ class DMLAdapter:
     def _persist_all(self) -> None:
         self._persist_dml_state()
         self._persist_rag_state()
+
+    def _start_persistence_loop(self) -> None:
+        if self._persistence_thread and self._persistence_thread.is_alive():
+            return
+        if self._persistence_interval <= 0:
+            return
+        self._persistence_stop_event.clear()
+        self._persistence_thread = threading.Thread(
+            target=self._persistence_loop,
+            name="dml-persistence",
+            daemon=True,
+        )
+        self._persistence_thread.start()
+
+    def _stop_persistence_loop(self) -> None:
+        self._persistence_stop_event.set()
+        thread = self._persistence_thread
+        if thread and thread.is_alive():
+            thread.join(timeout=max(2.0, float(self._persistence_interval)))
+        self._persistence_thread = None
+
+    def _persistence_loop(self) -> None:
+        while not self._persistence_stop_event.wait(self._persistence_interval):
+            try:
+                self._persist_dml_state()
+            except Exception:
+                LOGGER.exception("Failed to persist DML state during background save.")
 
     def _gather_checkpoint_state(self) -> Dict[str, Any]:
         """Collect a combined state payload for checkpointing."""
@@ -555,6 +627,16 @@ class DMLAdapter:
         }
 
     def _persist_dml_state(self) -> None:
+        if self._persistence_enabled:
+            with self._persist_lock:
+                items = self.store.items()
+                try:
+                    save_persisted_memories(items, self._persistence_path)
+                except Exception:
+                    LOGGER.exception(
+                        "Failed to persist DML state to %s", self._persistence_path
+                    )
+            return
         with self._persist_lock:
             data = self.store.export_state()
             tmp = self.dml_state_path.with_suffix(".tmp")
