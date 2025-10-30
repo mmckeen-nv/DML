@@ -1,4 +1,4 @@
-"""Prometheus metrics instrumentation for the DML."""
+"""Prometheus metrics instrumentation for the Daystrom Memory Lattice."""
 from __future__ import annotations
 
 from typing import Iterable, Optional
@@ -9,10 +9,10 @@ try:  # pragma: no cover - optional dependency for lean environments
         Counter,
         Gauge,
         Histogram,
-        generate_latest,
         CONTENT_TYPE_LATEST,
+        generate_latest,
     )
-except Exception:  # pragma: no cover - fallback when prometheus_client missing
+except Exception:  # pragma: no cover - graceful degradation when dependency absent
     CollectorRegistry = None  # type: ignore[assignment]
     Counter = Gauge = Histogram = None  # type: ignore[assignment]
     CONTENT_TYPE_LATEST = "text/plain; version=0.0.4"  # type: ignore[assignment]
@@ -22,6 +22,8 @@ except Exception:  # pragma: no cover - fallback when prometheus_client missing
 
 
 class _NoOpMetric:
+    """Fallback metric implementation used when prometheus_client is unavailable."""
+
     def __init__(self, *_, **__):
         pass
 
@@ -44,53 +46,83 @@ else:  # pragma: no cover - fallback when dependency absent
     REGISTRY = None  # type: ignore[assignment]
 
 
-def _build_counter(name: str, documentation: str, labels: Optional[Iterable[str]] = None):
+def _build_counter(
+    name: str, documentation: str, labels: Optional[Iterable[str]] = None
+):
     if CollectorRegistry is None:
         return _NoOpMetric()
     return Counter(name, documentation, labelnames=tuple(labels or ()), registry=REGISTRY)
 
 
-def _build_histogram(name: str, documentation: str, buckets: Optional[Iterable[float]] = None):
+def _build_histogram(
+    name: str,
+    documentation: str,
+    buckets: Optional[Iterable[float]] = None,
+):
     if CollectorRegistry is None:
         return _NoOpMetric()
-    return Histogram(name, documentation, buckets=tuple(buckets or ()), registry=REGISTRY)
+    return Histogram(
+        name,
+        documentation,
+        buckets=tuple(buckets or ()),
+        registry=REGISTRY,
+    )
 
 
-def _build_gauge(name: str, documentation: str, labels: Optional[Iterable[str]] = None):
+def _build_gauge(
+    name: str,
+    documentation: str,
+    labels: Optional[Iterable[str]] = None,
+):
     if CollectorRegistry is None:
         return _NoOpMetric()
     return Gauge(name, documentation, labelnames=tuple(labels or ()), registry=REGISTRY)
 
 
-INGEST_COUNTER = _build_counter("dml_ingest_total", "Number of ingested memory fragments")
-RETRIEVAL_COUNTER = _build_counter(
-    "dml_retrieval_total", "Number of query_database calls", labels=["mode"]
-)
 RETRIEVAL_LATENCY = _build_histogram(
-    "dml_retrieval_latency_seconds",
-    "Latency of retrieval operations",
-    buckets=[0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.0, 5.0],
+    "dml_retrieval_latency_ms",
+    "Latency of retrieval operations in milliseconds.",
+    buckets=[1, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000],
 )
-ACTIVE_MEMORIES = _build_gauge("dml_memory_active", "Number of active memory items")
+MODE_COUNTER = _build_counter(
+    "dml_mode_count",
+    "Number of retrieval queries handled per mode.",
+    labels=["mode"],
+)
+TOKENS_CONSUMED = _build_counter(
+    "dml_tokens_consumed",
+    "Total tokens consumed when serving queries.",
+)
+TOKENS_SAVED = _build_counter(
+    "dml_tokens_saved",
+    "Estimated tokens saved due to Daystrom retrieval.",
+)
+DML_ITEMS = _build_gauge(
+    "dml_items",
+    "Number of items currently stored in the lattice.",
+)
 
 
-def record_ingest() -> None:
-    """Increment the ingest counter."""
+def record_retrieval(mode: str, latency_ms: float) -> None:
+    """Record latency and mode information for a retrieval."""
 
-    INGEST_COUNTER.inc()
+    MODE_COUNTER.labels(mode=mode).inc()
+    RETRIEVAL_LATENCY.observe(max(float(latency_ms), 0.0))
 
 
-def record_retrieval(mode: str, latency_seconds: float) -> None:
-    """Record a retrieval event for the given ``mode``."""
+def record_tokens(consumed: int, saved: int) -> None:
+    """Increment token consumption and savings counters."""
 
-    RETRIEVAL_COUNTER.labels(mode=mode).inc()
-    RETRIEVAL_LATENCY.observe(max(latency_seconds, 0.0))
+    if consumed > 0:
+        TOKENS_CONSUMED.inc(consumed)
+    if saved > 0:
+        TOKENS_SAVED.inc(saved)
 
 
 def update_memory_gauge(count: int) -> None:
-    """Update the active memory gauge."""
+    """Update the gauge tracking the number of stored items."""
 
-    ACTIVE_MEMORIES.set(max(0, int(count)))
+    DML_ITEMS.set(max(0, int(count)))
 
 
 def latest_metrics() -> tuple[bytes, str]:
@@ -100,3 +132,4 @@ def latest_metrics() -> tuple[bytes, str]:
         return b"", CONTENT_TYPE_LATEST
     payload = generate_latest(REGISTRY)
     return payload, CONTENT_TYPE_LATEST
+

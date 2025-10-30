@@ -14,6 +14,7 @@ import shutil
 import subprocess
 import sys
 import time
+import uuid
 import zipfile
 from pathlib import Path
 from threading import Lock
@@ -28,9 +29,13 @@ from pypdf import PdfReader
 
 from starlette.websockets import WebSocketState
 
+import structlog
+from structlog.contextvars import bind_contextvars, clear_contextvars
+from structlog.stdlib import ProcessorFormatter
+
 from . import utils, visualizer_bridge
 from .dml_adapter import DMLAdapter
-from .metrics import latest_metrics
+from .metrics import latest_metrics, record_tokens
 
 try:  # httpx is required for proxying the visualizer through the API origin
     import httpx
@@ -50,7 +55,41 @@ except Exception:  # pragma: no cover - defensive fallback for minimal envs
     requests = None
 
 WEB_DIR = Path(__file__).with_name("web")
+
+
+def _configure_structlog() -> None:
+    """Configure structlog so all logs share the same structured pipeline."""
+
+    timestamper = structlog.processors.TimeStamper(fmt="iso")
+    shared_processors = [
+        structlog.contextvars.merge_contextvars,
+        structlog.processors.add_log_level,
+        timestamper,
+    ]
+
+    handler = logging.StreamHandler()
+    handler.setFormatter(
+        ProcessorFormatter(
+            processor=structlog.processors.JSONRenderer(),
+            foreign_pre_chain=shared_processors,
+        )
+    )
+
+    logging.basicConfig(level=logging.INFO, handlers=[handler], force=True)
+
+    structlog.configure(
+        processors=shared_processors + [structlog.processors.JSONRenderer()],
+        context_class=dict,
+        logger_factory=structlog.stdlib.LoggerFactory(),
+        wrapper_class=structlog.stdlib.BoundLogger,
+        cache_logger_on_first_use=True,
+    )
+
+
+_configure_structlog()
+
 LOGGER = logging.getLogger(__name__)
+STRUCT_LOGGER = structlog.get_logger(__name__)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_PYTHON = Path(sys.executable)
@@ -67,6 +106,42 @@ if WEB_DIR.exists():
 
 ADAPTER_LOCK = Lock()
 adapter = DMLAdapter(start_aging_loop=False)
+
+
+@app.middleware("http")
+async def _request_context_middleware(
+    request: Request, call_next
+):  # pragma: no cover - exercised via integration tests
+    """Attach a per-request identifier for structured logging and tracing."""
+
+    request_id = request.headers.get("x-request-id") or uuid.uuid4().hex
+    bind_contextvars(
+        request_id=request_id,
+        path=request.url.path,
+        method=request.method,
+    )
+    start = time.perf_counter()
+    try:
+        response = await call_next(request)
+        duration_ms = int((time.perf_counter() - start) * 1000)
+        response.headers.setdefault("x-request-id", request_id)
+        STRUCT_LOGGER.info(
+            "http_request",
+            status_code=response.status_code,
+            duration_ms=duration_ms,
+        )
+        return response
+    except Exception:
+        duration_ms = int((time.perf_counter() - start) * 1000)
+        STRUCT_LOGGER.exception(
+            "http_request_error",
+            status_code=500,
+            duration_ms=duration_ms,
+        )
+        raise
+    finally:
+        clear_contextvars()
+
 
 NIM_OPTIONS = [
     {
@@ -834,6 +909,11 @@ def launch_visualizer(request: Request) -> dict:
 @app.post("/ingest")
 def ingest(payload: TextPayload) -> dict:
     adapter.ingest(payload.text, meta=payload.meta)
+    STRUCT_LOGGER.info(
+        "ingest_completed",
+        text_length=len(payload.text or ""),
+        meta_keys=sorted((payload.meta or {}).keys()),
+    )
     return {"status": "ok"}
 
 
@@ -931,11 +1011,30 @@ def reinforce(payload: TextPayload) -> dict:
 
 @app.post("/query")
 def query(payload: QueryPayload) -> dict:
-    context = adapter.build_preamble(payload.prompt)
-    augmented = f"{context}\n\n{payload.prompt}"
+    retrieval = adapter.query_database(payload.prompt)
+    context = (retrieval.get("context") or "").strip()
+    if context:
+        augmented = f"{context}\n\n{payload.prompt}"
+    else:
+        augmented = payload.prompt
     response = adapter.runner.generate(augmented)
     adapter.reinforce(payload.prompt, response)
+    prompt_tokens = utils.estimate_tokens(payload.prompt)
+    context_tokens = int(retrieval.get("tokens") or 0)
+    tokens_consumed = prompt_tokens + context_tokens
+    tokens_saved = max(0, prompt_tokens - context_tokens)
+    if adapter.metrics_enabled:
+        record_tokens(tokens_consumed, tokens_saved)
+    STRUCT_LOGGER.info(
+        "query_completed",
+        mode=retrieval.get("mode", "unknown"),
+        tokens_consumed=tokens_consumed,
+        tokens_saved=tokens_saved,
+        context_tokens=context_tokens,
+        latency_ms=retrieval.get("latency_ms", 0),
+    )
     return {
+        "mode": retrieval.get("mode"),
         "context": context,
         "response": response,
         "stats": adapter.stats(),
