@@ -26,6 +26,7 @@ from .persistence import save_state as save_persisted_memories
 from .settings import DMLSettings
 from .summarizer import DummySummarizer, LLMSummarizer, Summarizer
 from .retrievers import LiteralRetriever
+from .router import decide_mode
 from .rag_store import PersistentRAGStore
 from . import utils
 
@@ -728,7 +729,7 @@ class DMLAdapter:
 
         if mode not in {"semantic", "literal", "hybrid", "auto"}:
             raise ValueError(f"Unsupported mode: {mode}")
-        selected_mode = mode if mode != "auto" else self._classify_mode(prompt)
+        selected_mode = mode if mode != "auto" else decide_mode(prompt)
         start = time.perf_counter()
         query_embedding = self.embedder.embed(prompt)
         items = self.store.items()
@@ -913,43 +914,8 @@ class DMLAdapter:
         return entries, preamble, consumed
 
     def _classify_mode(self, prompt: str) -> str:
-        prompt_lower = prompt.lower()
-        literal_signals = {
-            "show",
-            "exact",
-            "line",
-            "code",
-            "api",
-            "function",
-            "table",
-            "timestamp",
-            "error",
-            "log",
-            "fetch",
-        }
-        semantic_signals = {
-            "summary",
-            "summarize",
-            "average",
-            "overview",
-            "trend",
-            "explain",
-            "insight",
-            "compare",
-            "why",
-        }
-        literal_hits = sum(token in prompt_lower for token in literal_signals)
-        semantic_hits = sum(token in prompt_lower for token in semantic_signals)
-        if literal_hits > semantic_hits + 1:
-            return "literal"
-        if semantic_hits > literal_hits + 1:
-            return "semantic"
-        if literal_hits and semantic_hits:
-            return "hybrid"
-        # fall back to heuristic using question type
-        if any(prompt_lower.startswith(prefix) for prefix in {"how", "why", "what"}):
-            return "semantic"
-        return "literal"
+        """Backward compatible wrapper around the intent router."""
+        return decide_mode(prompt)
 
     def _alpha_for_mode(self, mode: str) -> float:
         if mode == "semantic":
