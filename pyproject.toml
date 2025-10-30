@@ -24,6 +24,9 @@ dependencies = [
     "requests>=2.31",
     "numpy>=1.24",
     "PyYAML>=6.0",
+    "pydantic>=1.10",
+    "pydantic-settings>=2.0",
+    "prometheus-client>=0.16",
 ]
 [project.optional-dependencies]
 server = [
@@ -44,6 +47,8 @@ multiplex_rag = [
 mcp = ["mcp>=0.1.0"]
 dev = [
     "pytest>=7.4",
+    "ruff>=0.1.9",
+    "mypy>=1.6.0",
 ]
 
 [project.scripts]

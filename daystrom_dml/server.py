@@ -20,7 +20,7 @@ from threading import Lock
 from typing import Optional, AsyncIterator, Iterable
 from urllib.parse import urlparse, urlunparse
 
-from fastapi import FastAPI, File, HTTPException, UploadFile, Request, WebSocket
+from fastapi import FastAPI, File, HTTPException, UploadFile, Request, WebSocket, Response
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -30,6 +30,7 @@ from starlette.websockets import WebSocketState
 
 from . import utils, visualizer_bridge
 from .dml_adapter import DMLAdapter
+from .metrics import latest_metrics
 
 try:  # httpx is required for proxying the visualizer through the API origin
     import httpx
@@ -91,7 +92,7 @@ NIM_OPTIONS = [
     },
 ]
 
-DEFAULT_NIM_ID = "gpt-oss-20b"
+DEFAULT_NIM_ID = adapter.settings.nim_default_id
 VISUALIZER_URL = os.environ.get("DML_VISUALIZER_URL")
 VISUALIZER_PORT = int(os.environ.get("DML_VISUALIZER_PORT", "8501"))
 VISUALIZER_PATH = os.environ.get("DML_VISUALIZER_PATH", "/")
@@ -107,8 +108,12 @@ CURRENT_NIM_RUNTIME: dict = {"container_id": None, "running": False, "healthy": 
 
 NIM_CONTAINER_NAME = os.environ.get("NIM_CONTAINER_NAME", "daystrom-dml-nim")
 NIM_DEFAULT_PORT = int(os.environ.get("NIM_PORT", "8000"))
-NIM_HEALTH_TIMEOUT = int(os.environ.get("NIM_HEALTH_TIMEOUT", "60"))
-NIM_HEALTH_INTERVAL = float(os.environ.get("NIM_HEALTH_INTERVAL", "5"))
+NIM_HEALTH_TIMEOUT = int(
+    os.environ.get("NIM_HEALTH_TIMEOUT", str(adapter.settings.nim_health_timeout))
+)
+NIM_HEALTH_INTERVAL = float(
+    os.environ.get("NIM_HEALTH_INTERVAL", str(adapter.settings.nim_health_interval))
+)
 
 VISUALIZER_STATE = {"process": None, "log": None}
 VISUALIZER_LOCK = Lock()
@@ -161,6 +166,14 @@ class NimStartPayload(BaseModel):
 
 class NimStopPayload(BaseModel):
     timeout: Optional[int] = None
+
+
+@app.get("/metrics")
+def metrics_endpoint() -> Response:
+    """Expose Prometheus metrics for the Daystrom service."""
+
+    payload, content_type = latest_metrics()
+    return Response(content=payload, media_type=content_type)
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -681,7 +694,7 @@ async def visualizer_embed_websocket(path: str, websocket: WebSocket) -> None:
             target,
             **connect_kwargs,
         )
-    except Exception as exc:  # pragma: no cover - network exceptions
+    except Exception:  # pragma: no cover - network exceptions
         LOGGER.exception("Visualizer websocket proxy connection failed")
         await websocket.close(code=1011, reason="Visualizer proxy connection failed")
         return
@@ -778,6 +791,16 @@ def visualizer_url(request: Request) -> dict:
     if embed_path:
         payload["embed_url"] = embed_path
     return payload
+
+
+@app.get("/visualizer/state")
+def visualizer_state() -> dict:
+    """Expose the most recent prompt consumed by the visualizer."""
+
+    payload = visualizer_bridge.latest_prompt()
+    if not payload:
+        return {"available": False, "payload": None}
+    return {"available": True, "payload": payload}
 
 
 @app.post("/visualizer/launch")

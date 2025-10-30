@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import time
-
 import numpy as np
 
 from daystrom_dml.dml_adapter import (
@@ -38,6 +36,8 @@ def test_ingest_retrieve_reinforce(tmp_path):
             "embedding_model": None,
             "capacity": 50,
             "token_budget": 120,
+            "storage_dir": str(tmp_path / "storage"),
+            "persistence": {"enable": False},
         },
         start_aging_loop=False,
     )
@@ -95,6 +95,7 @@ def test_knowledge_report_limits_payload(tmp_path):
             "embedding_model": None,
             "capacity": KNOWLEDGE_MAX_ENTRIES + 50,
             "storage_dir": str(tmp_path / "storage"),
+            "persistence": {"enable": False},
         },
         start_aging_loop=False,
     )

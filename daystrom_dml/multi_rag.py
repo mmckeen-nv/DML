@@ -77,7 +77,7 @@ class ChromaRAGBackend(RAGBackendProtocol):
             raise RuntimeError("chromadb is not installed")
         self.identifier = "chroma"
         self.label = "Chroma"
-        self.description = "Local Chroma collection backed by DuckDB.";
+        self.description = "Local Chroma collection backed by DuckDB."
         self._client = self._create_client(persist_dir)
         self._collection = self._client.get_or_create_collection(
             "daystrom-playground",

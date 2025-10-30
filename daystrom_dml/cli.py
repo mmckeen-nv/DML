@@ -61,6 +61,16 @@ def stats() -> None:
     typer.echo(json.dumps(adapter.stats(), indent=2))
 
 
+@app.command()
+def checkpoint() -> None:
+    """Create an immediate persistence checkpoint."""
+
+    adapter = _build_adapter(None)
+    path = adapter.create_checkpoint()
+    adapter.close()
+    typer.echo(f"Checkpoint written to {path}")
+
+
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     app()

@@ -5,20 +5,27 @@ import contextlib
 import json
 import logging
 import os
+import threading
 import time
 from pathlib import Path
-from threading import RLock
+from threading import Event, RLock
 from typing import Any, Dict, List, Optional
 
 import numpy as np
 import yaml
 
+from .checkpoint import CheckpointManager
 from .embeddings import Embedder, create_embedder
 from .gpt_runner import GPTRunner
 from .memory_store import MemoryStore
+from .metrics import record_ingest, record_retrieval, update_memory_gauge
+from .multi_rag import DEFAULT_BACKENDS, MultiRAGStore, RAGBackendDescriptor
+from .persistent_index import PersistentVectorBackend
+from .persistence import load_state as load_persisted_memories
+from .persistence import save_state as save_persisted_memories
+from .settings import DMLSettings
 from .summarizer import DummySummarizer, LLMSummarizer, Summarizer
 from .retrievers import LiteralRetriever, LiteralResult
-from .multi_rag import MultiRAGStore
 from . import utils
 
 LOGGER = logging.getLogger(__name__)
@@ -50,10 +57,42 @@ class DMLAdapter:
         runner: Optional[GPTRunner] = None,
         start_aging_loop: bool = True,
     ) -> None:
-        self.config = self._load_config(config_path)
-        if config_overrides:
-            self.config.update(config_overrides)
+        raw_config = self._load_config(config_path)
+        overrides = dict(config_overrides or {})
+        combined_config = dict(raw_config)
+        combined_config.update(overrides)
+
+        base_settings = DMLSettings()
+        if hasattr(base_settings, "model_fields_set"):
+            env_fields = set(base_settings.model_fields_set)
+        else:  # pragma: no cover - Pydantic v1 compatibility
+            env_fields = set(getattr(base_settings, "__fields_set__", set()))
+        if hasattr(DMLSettings, "model_fields"):
+            defined_fields = set(DMLSettings.model_fields.keys())
+        else:  # pragma: no cover - Pydantic v1 compatibility
+            defined_fields = set(DMLSettings.__fields__.keys())
+
+        updates: Dict[str, Any] = {}
+        for key, value in combined_config.items():
+            if key in overrides:
+                updates[key] = value
+                continue
+            if key in defined_fields and key in env_fields:
+                continue
+            updates[key] = value
+
+        if hasattr(base_settings, "model_dump"):
+            base_data = base_settings.model_dump()
+        else:  # pragma: no cover - Pydantic v1 compatibility
+            base_data = base_settings.dict()
+        base_data.update(updates)
+        if hasattr(DMLSettings, "model_validate"):
+            self.settings = DMLSettings.model_validate(base_data)
+        else:  # pragma: no cover - Pydantic v1 compatibility
+            self.settings = DMLSettings(**base_data)
+        self.config = self.settings.as_dict()
         self.config.setdefault("dml_top_k", 0)
+        self.metrics_enabled = bool(self.settings.metrics_enabled)
         self.runner = runner or GPTRunner(self.config["model_name"])
         self.embedder = embedder or create_embedder(self.config.get("embedding_model"))
         if summarizer is not None:
@@ -62,20 +101,54 @@ class DMLAdapter:
             self.summarizer = DummySummarizer()
         else:
             self.summarizer = LLMSummarizer(self.runner)
-        storage_dir = self.config.get("storage_dir") or "data"
-        self.storage_dir = Path(storage_dir)
-        if not self.storage_dir.is_absolute():
-            self.storage_dir = Path(__file__).resolve().parent.parent / self.storage_dir
+        storage_dir = self.settings.storage_dir
+        if not storage_dir.is_absolute():
+            storage_dir = Path(__file__).resolve().parent.parent / storage_dir
+        self.storage_dir = storage_dir
         self.storage_dir.mkdir(parents=True, exist_ok=True)
+        persistence_settings = getattr(self.settings, "persistence", None)
+        persistence_path = getattr(persistence_settings, "path", None) if persistence_settings else None
+        if persistence_path:
+            persistence_path = Path(persistence_path).expanduser()
+        else:
+            persistence_path = Path("dml_state.jsonl")
+        if not persistence_path.is_absolute():
+            relative_path = persistence_path
+            if relative_path.parts and relative_path.parts[0] == self.storage_dir.name:
+                if len(relative_path.parts) > 1:
+                    relative_path = Path(*relative_path.parts[1:])
+                else:
+                    relative_path = Path(relative_path.name)
+            persistence_path = (self.storage_dir / relative_path).expanduser()
+        self._persistence_path = persistence_path
+        interval_value = getattr(persistence_settings, "interval_sec", 0) if persistence_settings else 0
+        try:
+            self._persistence_interval = max(0, int(interval_value))
+        except (TypeError, ValueError):
+            self._persistence_interval = 0
+        self._persistence_enabled = bool(persistence_settings and getattr(persistence_settings, "enable", False))
+        self._persistence_stop_event = Event()
+        self._persistence_thread: Optional[threading.Thread] = None
         self.dml_state_path = self.storage_dir / "dml_store.json"
         self.rag_state_path = self.storage_dir / "rag_store.json"
+        self.checkpoint_dir = self.storage_dir / "checkpoints"
         self._persist_lock = RLock()
         self.literal_retriever = LiteralRetriever(
             self.embedder,
             self.summarizer,
             context_window=int(self.config.get("literal_context", 1)),
         )
-        self.rag_store = MultiRAGStore(self.embedder)
+        persistent_backend = RAGBackendDescriptor(
+            identifier="persistent",
+            label="Persistent Index",
+            description="Disk-backed cosine similarity index",
+            factory=lambda: PersistentVectorBackend(
+                self.storage_dir / self.settings.vector_index_file
+            ),
+        )
+        backends = [persistent_backend]
+        backends.extend(DEFAULT_BACKENDS)
+        self.rag_store = MultiRAGStore(self.embedder, backends=backends)
         self.store = MemoryStore(
             self.summarizer,
             beta_a=float(self.config["beta_a"]),
@@ -89,7 +162,19 @@ class DMLAdapter:
             capacity=int(self.config["capacity"]),
             start_aging_loop=start_aging_loop,
         )
+        self.checkpoint_manager: Optional[CheckpointManager] = None
+        if int(self.settings.checkpoint_interval_seconds) > 0:
+            self.checkpoint_manager = CheckpointManager(
+                self.checkpoint_dir,
+                self._gather_checkpoint_state,
+                interval_seconds=int(self.settings.checkpoint_interval_seconds),
+                retention=int(self.settings.checkpoint_retention),
+            )
         self._load_persisted_state()
+        if self._persistence_enabled and self._persistence_interval > 0:
+            self._start_persistence_loop()
+        if self.metrics_enabled:
+            update_memory_gauge(len(self.store.items()))
         LOGGER.info("Daystrom Memory Lattice initialised with %d capacity", self.store.capacity)
 
     # ------------------------------------------------------------------
@@ -97,6 +182,11 @@ class DMLAdapter:
     # ------------------------------------------------------------------
     def close(self) -> None:
         self._persist_all()
+        self._stop_persistence_loop()
+        if self.checkpoint_manager:
+            self.checkpoint_manager.close()
+        if self.metrics_enabled:
+            update_memory_gauge(len(self.store.items()))
         self.store.close()
 
     # ------------------------------------------------------------------
@@ -110,6 +200,9 @@ class DMLAdapter:
         self.store.ingest(text, embedding, salience=salience, meta=meta)
         self.rag_store.add_document(text, meta=meta)
         self._persist_all()
+        if self.metrics_enabled:
+            record_ingest()
+            update_memory_gauge(len(self.store.items()))
 
     def build_preamble(self, prompt: str, top_k: Optional[int] = None) -> str:
         items = self._retrieve_items(prompt, top_k)
@@ -140,6 +233,8 @@ class DMLAdapter:
             memory_meta.setdefault("response_excerpt", response_text[:500])
         self.store.ingest(memory_text, embedding, salience=salience, meta=memory_meta)
         self._persist_dml_state()
+        if self.metrics_enabled:
+            update_memory_gauge(len(self.store.items()))
 
     def run_generation(self, prompt: str, *, max_new_tokens: int = 256) -> str:
         context = self.build_preamble(prompt)
@@ -464,11 +559,27 @@ class DMLAdapter:
     # Persistence helpers
     # ------------------------------------------------------------------
     def _load_persisted_state(self) -> None:
-        with contextlib.suppress(Exception):
-            if self.dml_state_path.exists():
-                data = json.loads(self.dml_state_path.read_text(encoding="utf-8"))
-                self._ensure_embedding_compatibility(data)
-                self.store.import_state(data)
+        state_loaded = False
+        if self._persistence_enabled:
+            try:
+                items = load_persisted_memories(self._persistence_path)
+            except FileNotFoundError:
+                pass
+            except Exception:
+                LOGGER.exception(
+                    "Failed to load durable DML state from %s", self._persistence_path
+                )
+            else:
+                payload = {"items": [item.to_dict() for item in items]}
+                self._ensure_embedding_compatibility(payload)
+                self.store.import_state(payload)
+                state_loaded = True
+        if not state_loaded:
+            with contextlib.suppress(Exception):
+                if self.dml_state_path.exists():
+                    data = json.loads(self.dml_state_path.read_text(encoding="utf-8"))
+                    self._ensure_embedding_compatibility(data)
+                    self.store.import_state(data)
         with contextlib.suppress(Exception):
             if self.rag_state_path.exists():
                 data = json.loads(self.rag_state_path.read_text(encoding="utf-8"))
@@ -478,7 +589,54 @@ class DMLAdapter:
         self._persist_dml_state()
         self._persist_rag_state()
 
+    def _start_persistence_loop(self) -> None:
+        if self._persistence_thread and self._persistence_thread.is_alive():
+            return
+        if self._persistence_interval <= 0:
+            return
+        self._persistence_stop_event.clear()
+        self._persistence_thread = threading.Thread(
+            target=self._persistence_loop,
+            name="dml-persistence",
+            daemon=True,
+        )
+        self._persistence_thread.start()
+
+    def _stop_persistence_loop(self) -> None:
+        self._persistence_stop_event.set()
+        thread = self._persistence_thread
+        if thread and thread.is_alive():
+            thread.join(timeout=max(2.0, float(self._persistence_interval)))
+        self._persistence_thread = None
+
+    def _persistence_loop(self) -> None:
+        while not self._persistence_stop_event.wait(self._persistence_interval):
+            try:
+                self._persist_dml_state()
+            except Exception:
+                LOGGER.exception("Failed to persist DML state during background save.")
+
+    def _gather_checkpoint_state(self) -> Dict[str, Any]:
+        """Collect a combined state payload for checkpointing."""
+
+        return {
+            "timestamp": time.time(),
+            "dml": self.store.export_state(),
+            "rag": self.rag_store.export_state(),
+            "stats": self.stats(),
+        }
+
     def _persist_dml_state(self) -> None:
+        if self._persistence_enabled:
+            with self._persist_lock:
+                items = self.store.items()
+                try:
+                    save_persisted_memories(items, self._persistence_path)
+                except Exception:
+                    LOGGER.exception(
+                        "Failed to persist DML state to %s", self._persistence_path
+                    )
+            return
         with self._persist_lock:
             data = self.store.export_state()
             tmp = self.dml_state_path.with_suffix(".tmp")
@@ -572,7 +730,10 @@ class DMLAdapter:
                 block_lines.append(segment)
             context_blocks.append("\n".join(block_lines))
         context = "\n\n".join(context_blocks).strip()
-        latency_ms = (time.perf_counter() - start) * 1000.0
+        latency = time.perf_counter() - start
+        latency_ms = latency * 1000.0
+        if self.metrics_enabled:
+            record_retrieval(selected_mode, latency)
         token_count = utils.estimate_tokens(context)
         return {
             "mode": selected_mode,
@@ -581,6 +742,24 @@ class DMLAdapter:
             "tokens": token_count,
             "latency_ms": int(latency_ms),
         }
+
+    def create_checkpoint(self) -> Path:
+        """Persist a combined snapshot of the lattice and RAG stores."""
+
+        if self.checkpoint_manager:
+            return self.checkpoint_manager.checkpoint()
+        self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
+        manager = CheckpointManager(
+            self.checkpoint_dir,
+            self._gather_checkpoint_state,
+            interval_seconds=0,
+            retention=int(self.settings.checkpoint_retention),
+            start=False,
+        )
+        try:
+            return manager.checkpoint()
+        finally:
+            manager.close()
 
     def stats(self) -> Dict:
         items = self.store.items()
