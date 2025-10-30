@@ -21,6 +21,7 @@ def test_literal_queries(query: str) -> None:
         "What is the average response time?",
         "Show me the trend over the last week",
         "Summarize the incidents today",
+        "Summarize incidents (last week)",
     ],
 )
 def test_semantic_queries(query: str) -> None:

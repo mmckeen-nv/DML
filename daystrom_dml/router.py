@@ -10,17 +10,17 @@ def decide_mode(query: str) -> RetrievalMode:
     """Infer the retrieval mode for a query using lightweight heuristics."""
     normalized = query.lower()
     # Detect explicit code and structured query signals.
-    literal_triggers = (
-        "(",
-        ")",
+    strong_literal_triggers = (
         "::",
         "->",
     )
-    if any(trigger in query for trigger in literal_triggers):
+    if any(trigger in query for trigger in strong_literal_triggers):
         return "literal"
-    if "select" in normalized:
-        return "literal"
-    if "fetchuserprofile(" in normalized:
+    literal_keywords = (
+        "select",
+        "fetchuserprofile(",
+    )
+    if any(keyword in normalized for keyword in literal_keywords):
         return "literal"
 
     semantic_keywords = (
@@ -30,5 +30,9 @@ def decide_mode(query: str) -> RetrievalMode:
     )
     if any(keyword in normalized for keyword in semantic_keywords):
         return "semantic"
+
+    # Treat parentheses as a literal cue only when no semantic intent was found.
+    if "(" in query or ")" in query:
+        return "literal"
 
     return "hybrid"
