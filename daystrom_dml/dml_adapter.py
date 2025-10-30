@@ -13,12 +13,16 @@ from typing import Any, Dict, List, Optional
 import numpy as np
 import yaml
 
+from .checkpoint import CheckpointManager
 from .embeddings import Embedder, create_embedder
 from .gpt_runner import GPTRunner
 from .memory_store import MemoryStore
+from .metrics import record_ingest, record_retrieval, update_memory_gauge
+from .multi_rag import DEFAULT_BACKENDS, MultiRAGStore, RAGBackendDescriptor
+from .persistent_index import PersistentVectorBackend
+from .settings import DMLSettings
 from .summarizer import DummySummarizer, LLMSummarizer, Summarizer
 from .retrievers import LiteralRetriever, LiteralResult
-from .multi_rag import MultiRAGStore
 from . import utils
 
 LOGGER = logging.getLogger(__name__)
@@ -50,10 +54,13 @@ class DMLAdapter:
         runner: Optional[GPTRunner] = None,
         start_aging_loop: bool = True,
     ) -> None:
-        self.config = self._load_config(config_path)
+        raw_config = self._load_config(config_path)
         if config_overrides:
-            self.config.update(config_overrides)
+            raw_config.update(config_overrides)
+        self.settings = DMLSettings(**raw_config)
+        self.config = self.settings.as_dict()
         self.config.setdefault("dml_top_k", 0)
+        self.metrics_enabled = bool(self.settings.metrics_enabled)
         self.runner = runner or GPTRunner(self.config["model_name"])
         self.embedder = embedder or create_embedder(self.config.get("embedding_model"))
         if summarizer is not None:
@@ -62,20 +69,31 @@ class DMLAdapter:
             self.summarizer = DummySummarizer()
         else:
             self.summarizer = LLMSummarizer(self.runner)
-        storage_dir = self.config.get("storage_dir") or "data"
-        self.storage_dir = Path(storage_dir)
-        if not self.storage_dir.is_absolute():
-            self.storage_dir = Path(__file__).resolve().parent.parent / self.storage_dir
+        storage_dir = self.settings.storage_dir
+        if not storage_dir.is_absolute():
+            storage_dir = Path(__file__).resolve().parent.parent / storage_dir
+        self.storage_dir = storage_dir
         self.storage_dir.mkdir(parents=True, exist_ok=True)
         self.dml_state_path = self.storage_dir / "dml_store.json"
         self.rag_state_path = self.storage_dir / "rag_store.json"
+        self.checkpoint_dir = self.storage_dir / "checkpoints"
         self._persist_lock = RLock()
         self.literal_retriever = LiteralRetriever(
             self.embedder,
             self.summarizer,
             context_window=int(self.config.get("literal_context", 1)),
         )
-        self.rag_store = MultiRAGStore(self.embedder)
+        persistent_backend = RAGBackendDescriptor(
+            identifier="persistent",
+            label="Persistent Index",
+            description="Disk-backed cosine similarity index",
+            factory=lambda: PersistentVectorBackend(
+                self.storage_dir / self.settings.vector_index_file
+            ),
+        )
+        backends = [persistent_backend]
+        backends.extend(DEFAULT_BACKENDS)
+        self.rag_store = MultiRAGStore(self.embedder, backends=backends)
         self.store = MemoryStore(
             self.summarizer,
             beta_a=float(self.config["beta_a"]),
@@ -89,7 +107,17 @@ class DMLAdapter:
             capacity=int(self.config["capacity"]),
             start_aging_loop=start_aging_loop,
         )
+        self.checkpoint_manager: Optional[CheckpointManager] = None
+        if int(self.settings.checkpoint_interval_seconds) > 0:
+            self.checkpoint_manager = CheckpointManager(
+                self.checkpoint_dir,
+                self._gather_checkpoint_state,
+                interval_seconds=int(self.settings.checkpoint_interval_seconds),
+                retention=int(self.settings.checkpoint_retention),
+            )
         self._load_persisted_state()
+        if self.metrics_enabled:
+            update_memory_gauge(len(self.store.items()))
         LOGGER.info("Daystrom Memory Lattice initialised with %d capacity", self.store.capacity)
 
     # ------------------------------------------------------------------
@@ -97,6 +125,10 @@ class DMLAdapter:
     # ------------------------------------------------------------------
     def close(self) -> None:
         self._persist_all()
+        if self.checkpoint_manager:
+            self.checkpoint_manager.close()
+        if self.metrics_enabled:
+            update_memory_gauge(len(self.store.items()))
         self.store.close()
 
     # ------------------------------------------------------------------
@@ -110,6 +142,9 @@ class DMLAdapter:
         self.store.ingest(text, embedding, salience=salience, meta=meta)
         self.rag_store.add_document(text, meta=meta)
         self._persist_all()
+        if self.metrics_enabled:
+            record_ingest()
+            update_memory_gauge(len(self.store.items()))
 
     def build_preamble(self, prompt: str, top_k: Optional[int] = None) -> str:
         items = self._retrieve_items(prompt, top_k)
@@ -140,6 +175,8 @@ class DMLAdapter:
             memory_meta.setdefault("response_excerpt", response_text[:500])
         self.store.ingest(memory_text, embedding, salience=salience, meta=memory_meta)
         self._persist_dml_state()
+        if self.metrics_enabled:
+            update_memory_gauge(len(self.store.items()))
 
     def run_generation(self, prompt: str, *, max_new_tokens: int = 256) -> str:
         context = self.build_preamble(prompt)
@@ -478,6 +515,16 @@ class DMLAdapter:
         self._persist_dml_state()
         self._persist_rag_state()
 
+    def _gather_checkpoint_state(self) -> Dict[str, Any]:
+        """Collect a combined state payload for checkpointing."""
+
+        return {
+            "timestamp": time.time(),
+            "dml": self.store.export_state(),
+            "rag": self.rag_store.export_state(),
+            "stats": self.stats(),
+        }
+
     def _persist_dml_state(self) -> None:
         with self._persist_lock:
             data = self.store.export_state()
@@ -572,7 +619,10 @@ class DMLAdapter:
                 block_lines.append(segment)
             context_blocks.append("\n".join(block_lines))
         context = "\n\n".join(context_blocks).strip()
-        latency_ms = (time.perf_counter() - start) * 1000.0
+        latency = time.perf_counter() - start
+        latency_ms = latency * 1000.0
+        if self.metrics_enabled:
+            record_retrieval(selected_mode, latency)
         token_count = utils.estimate_tokens(context)
         return {
             "mode": selected_mode,
@@ -581,6 +631,24 @@ class DMLAdapter:
             "tokens": token_count,
             "latency_ms": int(latency_ms),
         }
+
+    def create_checkpoint(self) -> Path:
+        """Persist a combined snapshot of the lattice and RAG stores."""
+
+        if self.checkpoint_manager:
+            return self.checkpoint_manager.checkpoint()
+        self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
+        manager = CheckpointManager(
+            self.checkpoint_dir,
+            self._gather_checkpoint_state,
+            interval_seconds=0,
+            retention=int(self.settings.checkpoint_retention),
+            start=False,
+        )
+        try:
+            return manager.checkpoint()
+        finally:
+            manager.close()
 
     def stats(self) -> Dict:
         items = self.store.items()

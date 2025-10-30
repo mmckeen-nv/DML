@@ -7,6 +7,8 @@ services:
     environment:
       DML_HOST: 0.0.0.0
       DML_PORT: ${DML_PORT:-9000}
+      DML_CHECKPOINT_INTERVAL_SECONDS: ${DML_CHECKPOINT_INTERVAL_SECONDS:-0}
+      DML_METRICS_ENABLED: ${DML_METRICS_ENABLED:-true}
     volumes:
       - ./data:/app/data
     restart: unless-stopped

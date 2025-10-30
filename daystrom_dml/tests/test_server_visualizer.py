@@ -4,10 +4,10 @@ import pytest
 
 fastapi = pytest.importorskip("fastapi")
 
-from fastapi.testclient import TestClient
-from fastapi import HTTPException
+from fastapi.testclient import TestClient  # noqa: E402
+from fastapi import HTTPException  # noqa: E402
 
-from daystrom_dml import server
+from daystrom_dml import server  # noqa: E402
 
 
 def test_compute_visualizer_extras_includes_faiss_for_supported_versions():

@@ -126,6 +126,31 @@ curl "http://localhost:8000/query?prompt=show+API+call+fetchUserProfile"
 ```
 Returns the minimal function snippet + surrounding context.
 
+### Persistence & Checkpoints
+- All ingests automatically persist to `data/` (configurable via `storage_dir`).
+- Create an immediate snapshot via the CLI:
+  ```bash
+  cma checkpoint
+  ```
+- Continuous checkpoints can be enabled with `checkpoint_interval_seconds` in `daystrom_dml/config.yaml` or by setting the `DML_CHECKPOINT_INTERVAL_SECONDS` environment variable.
+
+### Metrics & Observability
+- Prometheus metrics are exposed at `GET /metrics` and include ingest counts, retrieval latency histograms, and active memory gauges.
+- Metrics can be disabled with `DML_METRICS_ENABLED=false` when required.
+- The `/visualizer/state` endpoint mirrors the latest prompt queued for the Streamlit live visualizer, enabling dashboards to stay in sync.
+
+### Configuration & Secrets
+- Runtime settings are driven by `daystrom_dml/config.yaml` and overridable via environment variables (e.g. `DML_MODEL_NAME`, `DML_STORAGE_DIR`).
+- Optional `.env` files are loaded automatically for local development.
+- GPU and NIM parameters can be tuned via `DML_GPU_ACCELERATION`, `DML_NIM_HEALTH_TIMEOUT`, and `DML_NIM_DEFAULT_ID`.
+
+### Benchmarks & Load Tests
+- A repeatable micro-benchmark is available:
+  ```bash
+  python scripts/benchmark.py --iterations 25
+  ```
+- The script reports average and p95 retrieval latencies to help tune deployments.
+
 ### Example
 ```
 User:  "What were the average temperatures last year?"
