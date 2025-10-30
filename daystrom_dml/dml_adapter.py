@@ -55,9 +55,38 @@ class DMLAdapter:
         start_aging_loop: bool = True,
     ) -> None:
         raw_config = self._load_config(config_path)
-        if config_overrides:
-            raw_config.update(config_overrides)
-        self.settings = DMLSettings(**raw_config)
+        overrides = dict(config_overrides or {})
+        combined_config = dict(raw_config)
+        combined_config.update(overrides)
+
+        base_settings = DMLSettings()
+        if hasattr(base_settings, "model_fields_set"):
+            env_fields = set(base_settings.model_fields_set)
+        else:  # pragma: no cover - Pydantic v1 compatibility
+            env_fields = set(getattr(base_settings, "__fields_set__", set()))
+        if hasattr(DMLSettings, "model_fields"):
+            defined_fields = set(DMLSettings.model_fields.keys())
+        else:  # pragma: no cover - Pydantic v1 compatibility
+            defined_fields = set(DMLSettings.__fields__.keys())
+
+        updates: Dict[str, Any] = {}
+        for key, value in combined_config.items():
+            if key in overrides:
+                updates[key] = value
+                continue
+            if key in defined_fields and key in env_fields:
+                continue
+            updates[key] = value
+
+        if hasattr(base_settings, "model_dump"):
+            base_data = base_settings.model_dump()
+        else:  # pragma: no cover - Pydantic v1 compatibility
+            base_data = base_settings.dict()
+        base_data.update(updates)
+        if hasattr(DMLSettings, "model_validate"):
+            self.settings = DMLSettings.model_validate(base_data)
+        else:  # pragma: no cover - Pydantic v1 compatibility
+            self.settings = DMLSettings(**base_data)
         self.config = self.settings.as_dict()
         self.config.setdefault("dml_top_k", 0)
         self.metrics_enabled = bool(self.settings.metrics_enabled)
