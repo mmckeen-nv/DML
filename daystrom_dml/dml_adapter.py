@@ -1010,27 +1010,55 @@ class DMLAdapter:
 
     def _format_rag_matches(self, matches: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         formatted: List[Dict[str, Any]] = []
+        max_snippet_chars = getattr(self.literal_retriever, "max_snippet_chars", 320)
+        literal_summarizer = getattr(self.literal_retriever, "summarizer", None)
+
+        def _clip_segment(value: Any) -> str:
+            segment = str(value or "").strip()
+            if not segment:
+                return ""
+            if len(segment) <= max_snippet_chars:
+                return segment
+            summarizer: Summarizer | None = None
+            if literal_summarizer is not None:
+                summarizer = literal_summarizer
+            elif hasattr(self, "summarizer"):
+                summarizer = getattr(self, "summarizer")
+            if summarizer is not None:
+                with contextlib.suppress(Exception):
+                    summary = summarizer.summarize(segment, max_len=max_snippet_chars)
+                    summary = str(summary or "").strip()
+                    if summary:
+                        if len(summary) <= max_snippet_chars:
+                            return summary
+                        return summary[: max_snippet_chars - 3] + "..."
+            return segment[: max_snippet_chars - 3] + "..."
+
         for match in matches:
             meta = dict(match.get("meta") or {})
             context_segments: List[str] = []
             raw_context = meta.get("context")
             if isinstance(raw_context, list):
                 context_segments.extend(
-                    str(segment).strip()
+                    _clip_segment(segment)
                     for segment in raw_context
                     if isinstance(segment, str) and segment.strip()
                 )
             for key in ("context_before", "preceding"):
                 value = meta.get(key)
                 if isinstance(value, str) and value.strip():
-                    context_segments.append(value.strip())
-            text = str(match.get("text") or "").strip()
+                    clipped = _clip_segment(value)
+                    if clipped:
+                        context_segments.append(clipped)
+            text = _clip_segment(match.get("text"))
             if text:
                 context_segments.append(text)
             for key in ("context_after", "following"):
                 value = meta.get(key)
                 if isinstance(value, str) and value.strip():
-                    context_segments.append(value.strip())
+                    clipped = _clip_segment(value)
+                    if clipped:
+                        context_segments.append(clipped)
             deduped: List[str] = []
             seen: set[str] = set()
             for segment in context_segments:
