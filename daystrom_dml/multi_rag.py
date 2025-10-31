@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 import time
 import uuid
 from dataclasses import dataclass
@@ -292,6 +293,7 @@ class MultiRAGStore:
                 }
             )
         self._raw_documents: List[Dict[str, Any]] = []
+        self._lock = threading.RLock()
 
     # ------------------------------------------------------------------
     # Document management
@@ -300,37 +302,45 @@ class MultiRAGStore:
         if not text:
             return
         payload = {"text": text, "meta": meta or {}}
-        self._raw_documents.append(payload)
         embedding = np.asarray(self.embedder.embed(text), dtype=np.float32)
         tokens = utils.estimate_tokens(text)
-        for backend in self._backends:
+        with self._lock:
+            self._raw_documents.append(payload)
+            backends = list(self._backends)
+        for backend in backends:
             instance: RAGBackendProtocol = backend["backend"]
             if not backend["available"]:
                 continue
             try:
                 instance.add_document(text, embedding, tokens, meta=meta)
             except Exception:
-                backend["available"] = False
-                backend["error"] = "Failed to ingest document"
+                with self._lock:
+                    backend["available"] = False
+                    backend["error"] = "Failed to ingest document"
 
     def clear(self) -> None:
-        self._raw_documents.clear()
-        for backend in self._backends:
+        with self._lock:
+            self._raw_documents.clear()
+            backends = list(self._backends)
+        for backend in backends:
             try:
                 backend["backend"].clear()
             except Exception:
-                backend["available"] = False
-                backend["error"] = "Failed to reset backend"
+                with self._lock:
+                    backend["available"] = False
+                    backend["error"] = "Failed to reset backend"
 
     # ------------------------------------------------------------------
     # Reporting
     # ------------------------------------------------------------------
     def report_all(self, prompt: str, *, top_k: int = 4) -> List[Dict[str, Any]]:
         reports: List[Dict[str, Any]] = []
-        if not self._backends:
+        with self._lock:
+            backends = list(self._backends)
+        if not backends:
             return reports
         query_embedding = np.asarray(self.embedder.embed(prompt), dtype=np.float32)
-        for backend in self._backends:
+        for backend in backends:
             instance: RAGBackendProtocol = backend["backend"]
             start = time.perf_counter()
             if not backend["available"]:
@@ -373,8 +383,9 @@ class MultiRAGStore:
                     }
                 )
             except Exception as exc:
-                backend["available"] = False
-                backend["error"] = str(exc)
+                with self._lock:
+                    backend["available"] = False
+                    backend["error"] = str(exc)
                 reports.append(
                     {
                         "id": backend["id"],
@@ -397,7 +408,19 @@ class MultiRAGStore:
     def catalog_summary(self) -> Dict[str, Any]:
         documents: List[Dict[str, Any]] = []
         total_tokens = 0
-        for idx, entry in enumerate(self._raw_documents, start=1):
+        with self._lock:
+            documents_snapshot = list(self._raw_documents)
+            backends_snapshot = [
+                {
+                    "id": backend["id"],
+                    "label": backend["label"],
+                    "strategy": backend["description"],
+                    "available": backend["available"],
+                    "error": backend.get("error"),
+                }
+                for backend in self._backends
+            ]
+        for idx, entry in enumerate(documents_snapshot, start=1):
             meta = entry.get("meta") or {}
             source = meta.get("doc_path") or meta.get("source") or f"Document {idx}"
             tokens = utils.estimate_tokens(entry["text"])
@@ -407,20 +430,12 @@ class MultiRAGStore:
             "documents": documents,
             "total_tokens": total_tokens,
             "count": len(documents),
-            "backends": [
-                {
-                    "id": backend["id"],
-                    "label": backend["label"],
-                    "strategy": backend["description"],
-                    "available": backend["available"],
-                    "error": backend.get("error"),
-                }
-                for backend in self._backends
-            ],
+            "backends": backends_snapshot,
         }
 
     def export_state(self) -> Dict[str, Any]:
-        return {"documents": list(self._raw_documents)}
+        with self._lock:
+            return {"documents": list(self._raw_documents)}
 
     def import_state(self, payload: Optional[Dict[str, Any]]) -> None:
         if not payload:
@@ -438,14 +453,15 @@ class MultiRAGStore:
     # Utility helpers
     # ------------------------------------------------------------------
     def descriptors(self) -> List[Dict[str, str]]:
-        return [
-            {
-                "id": backend["id"],
-                "label": backend["label"],
-                "strategy": backend["description"],
-                "available": backend["available"],
-                "error": backend.get("error"),
-            }
-            for backend in self._backends
-        ]
+        with self._lock:
+            return [
+                {
+                    "id": backend["id"],
+                    "label": backend["label"],
+                    "strategy": backend["description"],
+                    "available": backend["available"],
+                    "error": backend.get("error"),
+                }
+                for backend in self._backends
+            ]
 

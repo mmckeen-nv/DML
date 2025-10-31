@@ -56,7 +56,7 @@ def test_ingest_retrieve_reinforce(tmp_path):
 def test_decay_adjusts_abstraction_level():
     store = make_store(tau_s=0.8)
     embedding = np.ones(8, dtype=np.float32)
-    item = store.ingest("Test memory", embedding, salience=1.0, fidelity=1.0)
+    item, _ = store.ingest("Test memory", embedding, salience=1.0, fidelity=1.0)
     target_time = item.timestamp + 3600 * 24
     store.decay_step(now=target_time)
     items = store.items()
@@ -68,8 +68,11 @@ def test_decay_adjusts_abstraction_level():
 def test_merging_stabilises_memory_count():
     store = make_store()
     vec = np.ones(16, dtype=np.float32)
-    store.ingest("Alpha observation", vec, salience=0.5)
-    store.ingest("Alpha observation repeated", vec, salience=0.5)
+    first, merged_flag = store.ingest("Alpha observation", vec, salience=0.5)
+    assert merged_flag is False
+    second, merged_flag = store.ingest("Alpha observation repeated", vec, salience=0.5)
+    assert merged_flag is True
+    assert first.id == second.id
     assert len(store.items()) == 1
     item = store.items()[0]
     assert item.meta.get("merges", 0) >= 1
@@ -78,10 +81,10 @@ def test_merging_stabilises_memory_count():
 def test_capacity_eviction_prefers_stale_items() -> None:
     store = make_store(capacity=2, theta_merge=2.0)
     vec = np.ones(8, dtype=np.float32)
-    old = store.ingest("Old observation", vec, salience=0.5, fidelity=1.0)
+    old, _ = store.ingest("Old observation", vec, salience=0.5, fidelity=1.0)
     old.timestamp -= 3600 * 24
-    mid = store.ingest("Mid observation", vec, salience=0.5, fidelity=1.0)
-    new = store.ingest("New observation", vec, salience=0.9, fidelity=1.0)
+    mid, _ = store.ingest("Mid observation", vec, salience=0.5, fidelity=1.0)
+    new, _ = store.ingest("New observation", vec, salience=0.9, fidelity=1.0)
     remaining = {item.id for item in store.items()}
     assert old.id not in remaining
     assert mid.id in remaining

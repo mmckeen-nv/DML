@@ -1,7 +1,13 @@
 """Intent routing utilities for retrieval mode selection."""
 from __future__ import annotations
 
+import re
 from typing import Literal
+
+_CODE_PAREN_PATTERN = re.compile(
+    r"(\b(?:if|for|while|switch|function|def)\s*\(|\b[\w\.]+\()",
+    re.IGNORECASE,
+)
 
 RetrievalMode = Literal["semantic", "literal", "hybrid"]
 
@@ -32,8 +38,10 @@ def decide_mode(query: str) -> RetrievalMode:
     if any(keyword in normalized for keyword in semantic_keywords):
         return "semantic"
 
-    # Treat parentheses as a literal cue only when no semantic intent was found.
-    if "(" in query or ")" in query:
+    # Treat parentheses as a literal cue only when no semantic intent was found
+    # and the structure resembles code or function invocations. Natural language
+    # asides such as "(2010-2020)" should continue through the semantic path.
+    if _CODE_PAREN_PATTERN.search(query):
         return "literal"
 
     return "hybrid"

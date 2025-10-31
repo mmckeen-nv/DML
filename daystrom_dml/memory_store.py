@@ -4,7 +4,7 @@ from __future__ import annotations
 import threading
 import time
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -96,12 +96,12 @@ class MemoryStore:
         fidelity: float = 1.0,
         level: int = 0,
         meta: Optional[Dict] = None,
-    ) -> MemoryItem:
+    ) -> Tuple[MemoryItem, bool]:
         now = time.time()
         with self._lock:
             merged = self._try_merge(text, embedding, salience)
             if merged:
-                return merged
+                return merged, True
             item = MemoryItem(
                 id=self._next_id(),
                 text=text,
@@ -114,7 +114,7 @@ class MemoryStore:
             )
             self._items.append(item)
             self._enforce_capacity()
-            return item
+            return item, False
 
     def retrieve(
         self, query_embedding: np.ndarray, top_k: Optional[int] = 6
