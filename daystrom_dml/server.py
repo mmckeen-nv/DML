@@ -16,9 +16,10 @@ import sys
 import time
 import uuid
 import zipfile
+from datetime import datetime, timezone
 from pathlib import Path
 from threading import Lock
-from typing import Optional, AsyncIterator, Iterable
+from typing import Any, Optional, AsyncIterator, Iterable
 from urllib.parse import urlparse, urlunparse
 
 from fastapi import FastAPI, File, HTTPException, UploadFile, Request, WebSocket, Response
@@ -106,6 +107,81 @@ if WEB_DIR.exists():
 
 ADAPTER_LOCK = Lock()
 adapter = DMLAdapter(start_aging_loop=False)
+SERVICE_START_TIME = time.time()
+
+
+def _adapter_health() -> dict[str, Any]:
+    """Return a lightweight view of the adapter state."""
+
+    try:
+        with ADAPTER_LOCK:
+            current = adapter
+        if current is None:
+            raise RuntimeError("Adapter is not initialised")
+        persistent_store = getattr(current, "persistent_rag_store", None)
+        persistent_info: dict[str, Any]
+        if persistent_store is not None:
+            persistent_info = {
+                "enabled": bool(getattr(persistent_store, "enable", False)),
+                "backend": getattr(persistent_store, "backend", None),
+                "index_path": str(getattr(persistent_store, "index_path", "")),
+                "meta_path": str(getattr(persistent_store, "meta_path", "")),
+            }
+        else:
+            persistent_info = {"enabled": False}
+        persistence_enabled = bool(getattr(current, "_persistence_enabled", False))
+        persistence_interval = int(getattr(current, "_persistence_interval", 0) or 0)
+        persistence_path = str(getattr(current, "_persistence_path", ""))
+        checkpoint_enabled = current.checkpoint_manager is not None
+        return {
+            "status": "ok",
+            "memories": len(current.store.items()),
+            "metrics_enabled": bool(current.metrics_enabled),
+            "storage_dir": str(current.storage_dir),
+            "rag_backends": current.rag_store.descriptors(),
+            "persistent_rag": persistent_info,
+            "persistence": {
+                "enabled": persistence_enabled,
+                "interval_seconds": persistence_interval,
+                "path": persistence_path,
+            },
+            "checkpoints": {
+                "enabled": checkpoint_enabled,
+                "directory": str(current.checkpoint_dir),
+            },
+        }
+    except Exception as exc:  # pragma: no cover - defensive logging
+        LOGGER.exception("Adapter health probe failed")
+        return {"status": "error", "error": str(exc)}
+
+
+def _nim_health() -> dict[str, Any]:
+    """Capture the current state of the managed NIM runtime."""
+
+    try:
+        runtime = _runtime_status()
+    except Exception as exc:  # pragma: no cover - defensive logging
+        LOGGER.exception("NIM health probe failed")
+        return {"status": "error", "error": str(exc)}
+
+    payload: dict[str, Any] = {
+        "status": "unconfigured",
+        "configured": False,
+        "runtime": runtime,
+    }
+    if CURRENT_NIM:
+        payload["configured"] = True
+        payload["selection"] = {
+            "id": CURRENT_NIM.get("id"),
+            "label": CURRENT_NIM.get("label"),
+            "model": CURRENT_NIM.get("model_name"),
+            "api_base": CURRENT_NIM.get("api_base"),
+        }
+        if runtime.get("running"):
+            payload["status"] = "running" if runtime.get("healthy") else "starting"
+        else:
+            payload["status"] = "stopped"
+    return payload
 
 
 @app.middleware("http")
@@ -243,12 +319,74 @@ class NimStopPayload(BaseModel):
     timeout: Optional[int] = None
 
 
+def _visualizer_health() -> dict[str, Any]:
+    """Summarise the current visualizer mode and runtime state."""
+
+    try:
+        if VISUALIZER_URL:
+            payload: dict[str, Any] = {
+                "status": "external",
+                "mode": "external",
+                "running": True,
+                "url": VISUALIZER_URL,
+            }
+            embed_path = _resolve_visualizer_embed_path()
+            if embed_path:
+                payload["embed_path"] = embed_path
+            return payload
+
+        process = VISUALIZER_STATE.get("process")
+        running = bool(process and process.poll() is None)
+        payload = {
+            "status": "running" if running else "idle",
+            "mode": "embedded",
+            "running": running,
+            "launch_on_demand": True,
+        }
+        if process is not None:
+            payload["pid"] = getattr(process, "pid", None)
+        embed_path = _resolve_visualizer_embed_path()
+        if embed_path:
+            payload["embed_path"] = embed_path
+        if VISUALIZER_LOG.exists():
+            payload["log_path"] = str(VISUALIZER_LOG)
+        return payload
+    except Exception as exc:  # pragma: no cover - defensive logging
+        LOGGER.exception("Visualizer health probe failed")
+        return {"status": "error", "error": str(exc)}
+
+
 @app.get("/metrics")
 def metrics_endpoint() -> Response:
     """Expose Prometheus metrics for the Daystrom service."""
 
     payload, content_type = latest_metrics()
     return Response(content=payload, media_type=content_type)
+
+
+@app.get("/health")
+def healthcheck() -> dict[str, Any]:
+    """Aggregate coarse service health details for orchestrators."""
+
+    components = {
+        "adapter": _adapter_health(),
+        "visualizer": _visualizer_health(),
+        "nim": _nim_health(),
+    }
+    failure_states = {"error", "failed", "unavailable"}
+    overall_status = "ok"
+    adapter_status = components["adapter"].get("status")
+    if adapter_status != "ok":
+        overall_status = "degraded"
+    elif any(component.get("status") in failure_states for component in components.values()):
+        overall_status = "degraded"
+
+    return {
+        "status": overall_status,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "uptime_seconds": round(time.time() - SERVICE_START_TIME, 3),
+        "components": components,
+    }
 
 
 @app.get("/", response_class=HTMLResponse)
