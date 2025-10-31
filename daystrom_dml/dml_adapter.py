@@ -12,8 +12,7 @@ from threading import Event, RLock
 from typing import Any, Dict, List, Optional
 
 import numpy as np
-import yaml
-
+from .config import load_config
 from .checkpoint import CheckpointManager
 from .embeddings import Embedder, create_embedder
 from .gpt_runner import GPTRunner
@@ -23,7 +22,6 @@ from .multi_rag import DEFAULT_BACKENDS, MultiRAGStore, RAGBackendDescriptor
 from .persistent_index import PersistentVectorBackend
 from .persistence import load_state as load_persisted_memories
 from .persistence import save_state as save_persisted_memories
-from .settings import DMLSettings
 from .summarizer import DummySummarizer, LLMSummarizer, Summarizer
 from .retrievers import LiteralRetriever
 from .router import decide_mode
@@ -59,39 +57,8 @@ class DMLAdapter:
         runner: Optional[GPTRunner] = None,
         start_aging_loop: bool = True,
     ) -> None:
-        raw_config = self._load_config(config_path)
         overrides = dict(config_overrides or {})
-        combined_config = dict(raw_config)
-        combined_config.update(overrides)
-
-        base_settings = DMLSettings()
-        if hasattr(base_settings, "model_fields_set"):
-            env_fields = set(base_settings.model_fields_set)
-        else:  # pragma: no cover - Pydantic v1 compatibility
-            env_fields = set(getattr(base_settings, "__fields_set__", set()))
-        if hasattr(DMLSettings, "model_fields"):
-            defined_fields = set(DMLSettings.model_fields.keys())
-        else:  # pragma: no cover - Pydantic v1 compatibility
-            defined_fields = set(DMLSettings.__fields__.keys())
-
-        updates: Dict[str, Any] = {}
-        for key, value in combined_config.items():
-            if key in overrides:
-                updates[key] = value
-                continue
-            if key in defined_fields and key in env_fields:
-                continue
-            updates[key] = value
-
-        if hasattr(base_settings, "model_dump"):
-            base_data = base_settings.model_dump()
-        else:  # pragma: no cover - Pydantic v1 compatibility
-            base_data = base_settings.dict()
-        base_data.update(updates)
-        if hasattr(DMLSettings, "model_validate"):
-            self.settings = DMLSettings.model_validate(base_data)
-        else:  # pragma: no cover - Pydantic v1 compatibility
-            self.settings = DMLSettings(**base_data)
+        self.settings = load_config(config_path, overrides=overrides)
         self.config = self.settings.as_dict()
         self.config.setdefault("dml_top_k", 0)
         self.metrics_enabled = bool(self.settings.metrics_enabled)
@@ -135,10 +102,20 @@ class DMLAdapter:
         self.rag_state_path = self.storage_dir / "rag_store.json"
         self.checkpoint_dir = self.storage_dir / "checkpoints"
         self._persist_lock = RLock()
+        literal_cfg = getattr(self.settings, "literal", None)
+        literal_tokens = 160
+        literal_snippets = 8
+        if literal_cfg is not None:
+            literal_tokens = int(getattr(literal_cfg, "max_snippet_tokens", literal_tokens))
+            literal_snippets = int(getattr(literal_cfg, "max_snippets", literal_snippets))
+        self.literal_snippet_cap = max(1, literal_snippets)
+        self.literal_token_cap = max(16, literal_tokens)
+        char_window = max(64, int(self.literal_token_cap * 4))
         self.literal_retriever = LiteralRetriever(
             self.embedder,
             self.summarizer,
             context_window=int(self.config.get("literal_context", 1)),
+            max_snippet_chars=char_window,
         )
         rag_settings = getattr(self.settings, "rag_store", None)
         self.persistent_rag_store: Optional[PersistentRAGStore] = None
@@ -841,19 +818,6 @@ class DMLAdapter:
                 relative = Path(relative.name)
         return (self.storage_dir / relative).expanduser()
 
-    def _load_config(self, path: str | os.PathLike | None) -> Dict:
-        default_path = Path(__file__).with_name("config.yaml")
-        env_override = os.environ.get("DML_CONFIG_PATH") or os.environ.get("DML_CONFIG")
-        if path is not None:
-            config_file = Path(path)
-        elif env_override:
-            config_file = Path(env_override)
-        else:
-            config_file = default_path
-        with open(config_file, "r", encoding="utf-8") as fh:
-            data = yaml.safe_load(fh) or {}
-        return data
-
     def _estimate_salience(self, text: str) -> float:
         tokens = utils.estimate_tokens(text)
         return float(max(0.1, min(1.0, tokens / 200.0)))
@@ -939,6 +903,7 @@ class DMLAdapter:
                     "semantic_score": similarity,
                     "literal_score": 0.0,
                     "source": source,
+                    "origin": "semantic",
                 }
             )
         return results
@@ -969,6 +934,7 @@ class DMLAdapter:
                     "source": result.source,
                     "meta": dict(meta or {}),
                     "text": result.snippet,
+                    "origin": "literal",
                 }
             )
         return formatted
@@ -1043,6 +1009,7 @@ class DMLAdapter:
                     "semantic_score": 0.0,
                     "source": source,
                     "context": deduped,
+                    "origin": "literal",
                 }
             )
         return formatted
@@ -1069,6 +1036,10 @@ class DMLAdapter:
             data["context"] = context_list
             data["semantic_score"] = float(data.get("semantic_score", 0.0))
             data["literal_score"] = float(data.get("literal_score", 0.0))
+            origin = str(data.get("origin") or "semantic")
+            data["origin"] = origin
+            if origin == "literal":
+                data["context"] = self._clip_literal_context(data["context"])
             return data
 
         blended: List[Dict[str, Any]] = []
@@ -1089,7 +1060,90 @@ class DMLAdapter:
             deduped.append(entry)
             if len(deduped) >= top_k:
                 break
-        return deduped
+        constrained = self._apply_token_budgets(deduped)
+        return constrained
+
+    def _clip_literal_context(self, segments: List[str]) -> List[str]:
+        if not segments:
+            return []
+        tokens_used = 0
+        clipped: List[str] = []
+        for segment in segments[: self.literal_snippet_cap]:
+            text = str(segment or "").strip()
+            if not text:
+                continue
+            tokens = max(1, utils.estimate_tokens(text))
+            if tokens_used + tokens > self.literal_token_cap:
+                remaining = self.literal_token_cap - tokens_used
+                if remaining <= 0:
+                    break
+                approx_chars = max(32, remaining * 4)
+                truncated = text[:approx_chars]
+                if len(text) > approx_chars:
+                    truncated = truncated.rstrip() + "..."
+                clipped.append(truncated)
+                tokens_used = self.literal_token_cap
+                break
+            clipped.append(text)
+            tokens_used += tokens
+        return clipped
+
+    def _apply_token_budgets(self, entries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        if not entries:
+            return []
+        total_budget = int(self.config.get("token_budget", 600))
+        total_budget = max(1, total_budget)
+        budgets = self.config.get("budgets", {}) or {}
+
+        def _pct(key: str, default: float) -> float:
+            raw = budgets.get(key, default)
+            try:
+                return float(raw)
+            except (TypeError, ValueError):
+                return default
+
+        semantic_limit = max(0, int(total_budget * _pct("semantic_pct", 0.7)))
+        literal_limit = max(0, int(total_budget * _pct("literal_pct", 0.2)))
+        free_limit = max(0, total_budget - semantic_limit - literal_limit)
+
+        consumed = {"semantic": 0, "literal": 0}
+        free_used = 0
+        total_used = 0
+        allowed: List[Dict[str, Any]] = []
+        for entry in entries:
+            origin = str(entry.get("origin") or "semantic")
+            if origin not in consumed:
+                origin = "semantic"
+            context_segments = entry.get("context") or []
+            if not isinstance(context_segments, list):
+                context_segments = [str(context_segments)]
+            tokens = entry.get("tokens")
+            if not isinstance(tokens, (int, float)):
+                tokens = sum(max(1, utils.estimate_tokens(seg)) for seg in context_segments)
+            tokens = int(max(1, tokens))
+            if total_used + tokens > total_budget:
+                continue
+            limit = semantic_limit if origin == "semantic" else literal_limit
+            if consumed[origin] + tokens <= limit:
+                consumed[origin] += tokens
+                total_used += tokens
+                entry["tokens"] = tokens
+                allowed.append(entry)
+                continue
+            if free_used + tokens <= free_limit:
+                free_used += tokens
+                total_used += tokens
+                entry["tokens"] = tokens
+                allowed.append(entry)
+
+        if not allowed and entries:
+            first = entries[0]
+            first_tokens = sum(
+                max(1, utils.estimate_tokens(seg)) for seg in first.get("context", [])
+            )
+            first["tokens"] = int(max(1, first_tokens))
+            return [first]
+        return allowed
 
     def __del__(self) -> None:  # pragma: no cover - destructor best effort
         try:

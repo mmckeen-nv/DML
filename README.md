@@ -139,17 +139,36 @@ Returns the minimal function snippet + surrounding context.
 - Metrics can be disabled with `DML_METRICS_ENABLED=false` when required.
 - The `/visualizer/state` endpoint mirrors the latest prompt queued for the Streamlit live visualizer, enabling dashboards to stay in sync.
 
+### Retrieval Playground
+- Install the optional dependencies with ``pip install .[playground]``.
+- Launch the Streamlit app via ``streamlit run app/playground.py``.
+- The playground renders a 3D lattice with Plotly, highlights retrieved
+  memories, and visualises token budget allocations across semantic, literal,
+  and free pools.
+
 ### Configuration & Secrets
-- Runtime settings are driven by `daystrom_dml/config.yaml` and overridable via environment variables (e.g. `DML_MODEL_NAME`, `DML_STORAGE_DIR`).
+- Runtime settings live in `daystrom_dml/config.yaml` and are loaded through
+  `daystrom_dml.config.load_config`. Any environment variable prefixed with
+  ``DML_`` overrides the YAML entry, e.g. ``DML_MODEL_NAME``,
+  ``DML_STORAGE_DIR`` or ``DML_PERSISTENCE_ENABLE=1``.
+- Nested configuration uses underscore-separated keys such as
+  ``DML_LITERAL_MAX_SNIPPET_TOKENS`` or ``DML_BUDGETS_SEMANTIC_PCT`` to adjust
+  literal snippet limits and token allocation across semantic/literal/free
+  buckets (default ratios 0.7 / 0.2 / 0.1).
 - Optional `.env` files are loaded automatically for local development.
-- GPU and NIM parameters can be tuned via `DML_GPU_ACCELERATION`, `DML_NIM_HEALTH_TIMEOUT`, and `DML_NIM_DEFAULT_ID`.
+- NIM deployments can tune VRAM pressure via environment variables:
+  ``NIM_KVCACHE_PERCENT=0.4``, ``NIM_ENABLE_KV_CACHE_REUSE=1``,
+  ``NIM_ENABLE_KV_CACHE_HOST_OFFLOAD=1``, and
+  ``NIM_KV_CACHE_HOST_MEM_FRACTION=0.3``.
 
 ### Benchmarks & Load Tests
-- A repeatable micro-benchmark is available:
+- Synthetic corpus benchmarks are available:
   ```bash
-  python scripts/benchmark.py --iterations 25
+  python bench/bench_dml_vs_rag.py --corpus-size 120 --queries 12
   ```
-- The script reports average and p95 retrieval latencies to help tune deployments.
+- Convenience targets ``make bench-small`` and ``make bench-large`` generate CSV
+  reports in ``bench/`` capturing per-mode latency, token usage, and cost
+  estimates.
 
 ### Example
 ```
@@ -187,9 +206,9 @@ Build the runtime image and start the API server directly with Docker:
 ```bash
 docker build -t daystrom-dml .
 docker run --gpus all \
-  -p 9000:9000 \
-  -e DML_PORT=9000 \
-  -v "$(pwd)/data:/app/data" \
+  -p 8000:8000 \
+  -e DML_PORT=8000 \
+  -v "$(pwd)/data:/opt/dml/data" \
   daystrom-dml
 ```
 
@@ -200,19 +219,22 @@ docker run --gpus all \
   ``DML_CONFIG_PATH`` (or ``DML_CONFIG``) to its location inside the container.
 
 ### Docker Compose
-For repeatable deployments, a ``compose.yaml`` file is included:
+A production-ready ``docker-compose.yml`` stack is included:
 
 ```bash
-docker compose up --build -d
+docker compose up -d
 ```
 
-The service exposes the API on ``${DML_PORT:-9000}`` and reserves a GPU when
-available. Stop the stack with ``docker compose down``.
+The service builds the CUDA runtime image, binds ``8000:8000``, mounts
+``./data`` into ``/opt/dml/data`` for persistence, and defines a health check
+against ``/health``. GPU resources are requested via ``runtime: nvidia`` so the
+container inherits the host's device drivers. Tear down with ``docker compose
+down`` when finished.
 
 ### Local execution
 ```bash
 pip install .[server]
-dml-server --host 0.0.0.0 --port 9000
+dml-server --host 0.0.0.0 --port 8000
 ```
 
 The command accepts ``--reload`` for development and mirrors the Docker
@@ -221,17 +243,18 @@ environment variables described above.
 ### MCP server
 ```bash
 pip install .[mcp]
-dml-mcp-server --storage-path ./cma_store.json
+dml-mcp-server --transport streamable-http --host 0.0.0.0 --port 7000
 ```
 
-Both ``--name`` and ``--storage-path`` can be supplied via CLI options or by
-setting ``CMA_MCP_NAME`` / ``CMA_STORAGE_PATH`` environment variables.
+Use ``--config`` to point at an alternate ``config.yaml`` and ``--storage`` to
+override the adapter's data directory. The server exposes ``ingest``, ``query``,
+and ``stats`` tools that return JSON responses compatible with MCP clients.
 
 ### MCP Integration
 ```yaml
 name: daystrom-dml
 type: retrieval
-entrypoint: http://localhost:9000/query
+entrypoint: http://localhost:8000/query
 args: [prompt, mode]
 ```
 
@@ -245,7 +268,7 @@ Interact with a running lattice using the ``DMLClient`` helper:
 ```python
 from daystrom_dml import DMLClient
 
-with DMLClient("http://localhost:9000") as client:
+with DMLClient("http://localhost:8000") as client:
     client.ingest("Investigate the Daystrom memory lattice release notes.")
     result = client.query("Summarise the latest release.")
     print(result["response"])

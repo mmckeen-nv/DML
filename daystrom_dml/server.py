@@ -1720,8 +1720,8 @@ def main(argv: Optional[list[str]] = None) -> None:
     parser.add_argument(
         "--port",
         type=int,
-        default=int(os.environ.get("DML_PORT", "9000")),
-        help="Port for uvicorn to expose (default: 9000).",
+        default=int(os.environ.get("DML_PORT", "8000")),
+        help="Port for uvicorn to expose (default: 8000).",
     )
     parser.add_argument(
         "--reload",

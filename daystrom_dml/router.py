@@ -19,6 +19,7 @@ def decide_mode(query: str) -> RetrievalMode:
     literal_keywords = (
         "select",
         "fetchuserprofile(",
+        "fetchuserprofile",
     )
     if any(keyword in normalized for keyword in literal_keywords):
         return "literal"
