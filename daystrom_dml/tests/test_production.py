@@ -7,7 +7,7 @@ import pytest
 from daystrom_dml import server
 from daystrom_dml.dml_adapter import DMLAdapter
 from daystrom_dml.persistent_index import PersistentVectorIndex
-from daystrom_dml.settings import DMLSettings
+from daystrom_dml.config import load_config
 from scripts.benchmark import run_benchmark
 
 fastapi = pytest.importorskip("fastapi")
@@ -84,9 +84,9 @@ def test_visualizer_state_endpoint(monkeypatch):
     assert data["payload"]["prompt"] == "hello"
 
 
-def test_settings_env_override(monkeypatch):
+def test_settings_env_override(monkeypatch, tmp_path):
     monkeypatch.setenv("DML_CHECKPOINT_INTERVAL_SECONDS", "15")
-    settings = DMLSettings()
+    settings = load_config(overrides={"storage_dir": str(tmp_path)})
     assert settings.checkpoint_interval_seconds == 15
 
 

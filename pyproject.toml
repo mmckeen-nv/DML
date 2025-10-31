@@ -50,6 +50,10 @@ multiplex_rag = [
     "faiss-cpu>=1.7",
 ]
 mcp = ["mcp>=0.1.0"]
+playground = [
+    "streamlit>=1.39",
+    "plotly>=5.22",
+]
 dev = [
     "pytest>=7.4",
     "ruff>=0.1.9",
@@ -59,7 +63,7 @@ dev = [
 [project.scripts]
 cma = "cma.cli:app"
 dml-server = "daystrom_dml.server:main"
-dml-mcp-server = "cma.mcp_server:main"
+dml-mcp-server = "mcp.dml_mcp_server:main"
 
 [tool.pytest.ini_options]
 addopts = "-q"

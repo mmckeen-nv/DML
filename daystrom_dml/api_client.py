@@ -25,7 +25,7 @@ class DMLClient:
 
     def __init__(
         self,
-        base_url: str = "http://localhost:9000",
+        base_url: str = "http://localhost:8000",
         *,
         timeout: Optional[float] = 30.0,
         session: Optional[requests.Session] = None,

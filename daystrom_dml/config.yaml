@@ -17,6 +17,13 @@ checkpoint_interval_seconds: 0
 checkpoint_retention: 5
 vector_index_file: vector_index.json
 metrics_enabled: true
+literal:
+  max_snippet_tokens: 160
+  max_snippets: 8
+budgets:
+  semantic_pct: 0.7
+  literal_pct: 0.2
+  free_pct: 0.1
 persistence:
   enable: true
   path: ./data/dml_state.jsonl

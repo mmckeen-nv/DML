@@ -5,15 +5,9 @@ from pathlib import Path
 from typing import Any, Dict
 
 try:  # Support both Pydantic v1 and v2
-    from pydantic import Field
-    from pydantic import BaseModel
+    from pydantic import BaseModel, Field
 except ImportError:  # pragma: no cover - pydantic should always be present via FastAPI
     raise
-
-try:  # pragma: no cover - prefer dedicated settings package on Pydantic v2
-    from pydantic_settings import BaseSettings
-except ImportError:  # pragma: no cover - fallback to legacy location
-    from pydantic import BaseSettings  # type: ignore[misc]
 
 try:  # pragma: no cover - optional import for Pydantic v2
     from pydantic import ConfigDict, field_validator
@@ -75,7 +69,27 @@ class RAGStoreSettings(BaseModel):
             return Path(str(value))
 
 
-class DMLSettings(BaseSettings):
+class LiteralSettings(BaseModel):
+    """Configuration for literal retrieval controls."""
+
+    max_snippet_tokens: int = Field(160, ge=16)
+    max_snippets: int = Field(8, ge=1)
+
+
+class BudgetSettings(BaseModel):
+    """Configuration for token allocation across retrieval strategies."""
+
+    semantic_pct: float = Field(0.7, ge=0.0, le=1.0)
+    literal_pct: float = Field(0.2, ge=0.0, le=1.0)
+    free_pct: float = Field(0.1, ge=0.0, le=1.0)
+
+    def validate_totals(self) -> None:
+        total = float(self.semantic_pct + self.literal_pct + self.free_pct)
+        if total > 1.0 + 1e-6:  # pragma: no cover - guardrail
+            raise ValueError("Token budget percentages cannot exceed 1.0")
+
+
+class DMLSettings(BaseModel):
     """Central configuration for the DML stack with env overrides."""
 
     beta_a: float = 0.08
@@ -105,21 +119,13 @@ class DMLSettings(BaseSettings):
     nim_health_interval: float = Field(5.0, ge=0.1)
     persistence: PersistenceSettings = PersistenceSettings()
     rag_store: RAGStoreSettings = RAGStoreSettings()
+    literal: LiteralSettings = LiteralSettings()
+    budgets: BudgetSettings = BudgetSettings()
 
     if ConfigDict is not None:  # pragma: no branch - executed on Pydantic v2
-        model_config = ConfigDict(
-            env_prefix="DML_",
-            env_file=".env",
-            case_sensitive=False,
-            env_nested_delimiter="__",
-            extra="allow",
-        )
+        model_config = ConfigDict(extra="allow")
     else:  # pragma: no cover - configuration for Pydantic v1
         class Config:
-            env_prefix = "DML_"
-            env_file = ".env"
-            case_sensitive = False
-            env_nested_delimiter = "__"
             extra = "allow"
 
     if field_validator is not None:  # pragma: no branch - Pydantic v2 path
