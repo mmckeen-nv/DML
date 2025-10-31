@@ -148,24 +148,25 @@ The compose stack builds the CUDA image, exposes `8000:8000`, and mounts `./data
 ## Feature reference
 ### 1. Memory ingestion
 **CLI:**
+Run the Daystrom CLI as a module (no standalone console script is published yet, e.g. `python -m daystrom_dml.cli --help`).
 ```bash
-cma ingest "Investigate warp-drive telemetry anomalies."
+python -m daystrom_dml.cli ingest "Investigate warp-drive telemetry anomalies."
 ```
 **HTTP API:** `POST /ingest` with JSON `{ "text": "...", "meta": {...} }`.
 
 **Bulk uploads:** `POST /upload` accepts multiple files or zipped archives, extracts supported text (PDF, `.txt`, `.md`, `.py`, etc.), chunks them, and streams each chunk into the lattice while preserving `doc_path` metadata. Unsupported or binary files are skipped gracefully.
 
 ### 2. Querying & generation
-- `cma query "Why did the telemetry fail?"` returns the DML preamble for inspection.
-- `cma run "Summarise the latest warp-drive postmortem."` performs retrieval + generation and reinforces the answer.
+- `python -m daystrom_dml.cli query "Why did the telemetry fail?"` returns the DML preamble for inspection.
+- `python -m daystrom_dml.cli run "Summarise the latest warp-drive postmortem."` performs retrieval + generation and reinforces the answer.
 - `POST /query` triggers adaptive retrieval, appends the resulting context to the prompt, sends it to the configured LLM, and emits usage metrics.
 
 Literal versus semantic routing is automatically selected, but can be forced via `mode` on advanced APIs such as `DMLAdapter.query_database()`.
 
 ### 3. Reinforcement learning loop
-- `cma reinforce "Drive realignment succeeded after recalibration."`
+- `python -m daystrom_dml.cli reinforce "Drive realignment succeeded after recalibration."`
 - `POST /reinforce` stores summarised outcomes (prompt + answer digest) with slightly higher salience to bias future retrievals.
-- Automatic reinforcement happens after every `/query` or `cma run` round-trip.
+- Automatic reinforcement happens after every `/query` or `python -m daystrom_dml.cli run` round-trip.
 
 ### 4. Retrieval analytics & knowledge surfaces
 - `POST /rag/retrieve` compares the lattice with each RAG backend, returning context, latency, and token usage per backend.
@@ -178,7 +179,7 @@ Literal versus semantic routing is automatically selected, but can be forced via
 
 ### 6. Persistence & checkpoints
 - Background persistence writes JSONL snapshots or full-state dumps (including RAG) on the configured interval.
-- `cma checkpoint` forces an immediate checkpoint with retention controls.
+- `python -m daystrom_dml.cli checkpoint` forces an immediate checkpoint with retention controls.
 - Storage defaults to `./data` but can be redirected via `storage_dir` or `DML_STORAGE_DIR`.
 
 ### 7. Metrics & observability
@@ -194,12 +195,12 @@ Literal versus semantic routing is automatically selected, but can be forced via
 ### 9. CLI quick reference
 | Command | Description |
 |---------|-------------|
-| `cma ingest <text>` | Store a new memory fragment |
-| `cma query <prompt>` | Print retrieval preamble |
-| `cma run <prompt>` | Retrieve + generate + reinforce |
-| `cma reinforce <text>` | Inject outcome summaries |
-| `cma stats` | Print lattice statistics |
-| `cma checkpoint` | Persist a snapshot immediately |
+| `python -m daystrom_dml.cli ingest <text>` | Store a new memory fragment |
+| `python -m daystrom_dml.cli query <prompt>` | Print retrieval preamble |
+| `python -m daystrom_dml.cli run <prompt>` | Retrieve + generate + reinforce |
+| `python -m daystrom_dml.cli reinforce <text>` | Inject outcome summaries |
+| `python -m daystrom_dml.cli stats` | Print lattice statistics |
+| `python -m daystrom_dml.cli checkpoint` | Persist a snapshot immediately |
 
 ---
 
