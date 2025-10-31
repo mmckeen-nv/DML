@@ -1,208 +1,128 @@
 # 🧠 Daystrom Memory Lattice (DML)
-*A hierarchical, self-compressing memory architecture for intelligent data retrieval.*
+*A hierarchical, self-compressing memory substrate for intelligent retrieval and generation pipelines.*
+
+---
+
+## Table of contents
+- [Overview](#overview)
+- [Core concepts](#core-concepts)
+- [System architecture](#system-architecture)
+- [Installation and setup](#installation-and-setup)
+- [Running the stack](#running-the-stack)
+- [Feature reference](#feature-reference)
+- [Configuration guide](#configuration-guide)
+- [Integration cookbook](#integration-cookbook)
+- [Benchmarks and load testing](#benchmarks-and-load-testing)
+- [DML vs traditional RAG](#dml-vs-traditional-rag)
+- [Summary](#summary)
 
 ---
 
 ## Overview
-The **Daystrom Memory Lattice (DML)** is a GPU-accelerated memory substrate that compresses, abstracts, and retrieves large knowledge bases efficiently — including text, PDFs, code, and structured data.  
-It allows LLMs and retrieval systems to *think less and know more* by serving pre-compressed, high-fidelity context windows instead of raw documents.
+The **Daystrom Memory Lattice (DML)** compresses, abstracts, and retrieves large knowledge bases on GPU hardware. It is purpose-built for long-horizon assistants that must *remember*, *reason*, and *explain* instead of simply vector-searching.
 
-Unlike traditional Retrieval-Augmented Generation (RAG) pipelines that rely on brute-force vector search, DML builds an evolving *lattice of memory* — a hierarchy that automatically merges, summarizes, and decays information.
-
----
-
-## 🚀 Key Features
-- **Hierarchical memory lattice:** Multi-level structure (L0–Lk) for fine-grained to abstract knowledge.  
-- **Dual retrieval modes:**  
-  - *Semantic retrieval* → high-level reasoning and summarization.  
-  - *Literal retrieval* → exact, surgical extractions (API calls, code lines, tabular entries).  
-- **Adaptive routing:** Automatic query classifier chooses between semantic, literal, or hybrid retrieval.  
-- **Mathematical decay and salience weighting:** Keeps relevant data fresh and merges redundancy.  
-- **GPU acceleration:** Embedding, summarization, and vector math run on CUDA (Torch nightly cu130).  
-- **Persistent research layer:** Queries external databases (not LLM memory) for exact and inferred answers.  
-- **MCP + Docker ready:** One-click deployment for local or enterprise environments.  
+Key ideas:
+- **Hierarchical memory** – lattice levels L0–Lk range from verbatim fragments to progressively distilled abstractions.
+- **Adaptive routing** – the router can choose semantic, literal, or hybrid retrieval based on the prompt.
+- **Self-maintenance** – salience decay, reinforcement, and summarisation continuously rebalance the store.
+- **OpenAI-compatible generation** – the lattice can drive NVIDIA NIMs or any OpenAI-compatible endpoint.
+- **Multi-RAG fanout** – a single ingest feeds FAISS, Chroma, and the persistent lattice simultaneously.
 
 ---
 
-## 🔬 Mathematical Foundation
-
-### Memory Node
-Each memory node is represented as:
-
+## Core concepts
+### Memory node
 ```
 M_i = (e_i, s_i, f_i, t_i)
 ```
+- **eᵢ** – embedding vector
+- **sᵢ** – salience score
+- **fᵢ** – fidelity (quality/confidence)
+- **tᵢ** – timestamp
 
-where:
-- **eᵢ** – embedding vector  
-- **sᵢ** – salience  
-- **fᵢ** – fidelity (quality / confidence)  
-- **tᵢ** – timestamp  
-
----
-
-### Retrieval Scoring
+### Retrieval scoring
 ```
 score_i = cos(e_i, q) + η * r_i + γ * s_i + κ * f_i
 ```
-where:
-- **rᵢ = 1 / (1 + ageᵢ)**  
-- **η, γ, κ** control recency, salience, and fidelity weighting.  
+- **rᵢ = 1 / (1 + ageᵢ)** captures recency
+- **η, γ, κ** control recency, salience, and fidelity weighting
 
-This ensures fresher, higher-fidelity memories are prioritized even when embedding similarity is ambiguous.
-
----
-
-### Decay and Fidelity
+### Decay and abstraction
 ```
 λ* = σ(β_r * r_i − β_a * age_i)
 ```
-Older, less-reinforced data gradually lose fidelity and are abstracted upward into summarized forms.
+Older memories gradually lose fidelity and merge into higher-level summaries.
 
----
-
-### Merging and Abstraction
-When two embeddings are similar:
-
-```
-if cos(e_a, e_b) >= θ_merge:
-    e_m = (e_a + e_b) / 2
-```
-
-Their texts are summarized by the LLM summarizer, creating a higher-order abstraction node with improved fidelity.
-
----
-
-### Token Budgeting
-To fit an LLM’s context window:
-
+### Token budgeting
 ```
 while Σ(tokens(S_i)) < B,  S_i ∈ top_k
 ```
-
-A greedy knapsack packs the highest information-density summaries within budget **B**.
+A greedy knapsack packs the highest information-density memories within budget **B**.
 
 ---
 
-## 🧩 Architecture
-
+## System architecture
 ```
         ┌──────────────┐
-        │ Data Sources │ ← PDFs, code, logs
+        │ Data Sources │ ← PDFs, code, logs, archives
         └──────┬───────┘
                │
       ┌────────▼────────┐
-      │ Embedding Model │  → GPU (Sentence-Transformer)
+      │ Embedding Model │ → GPU accelerated
       └────────┬────────┘
                │
      ┌─────────▼──────────┐
      │ Memory Lattice     │
      │  • Decay / Merge   │
-     │  • Summarization   │
+     │  • Summarisation   │
+     │  • Persistence     │
      └────────┬───────────┘
                │
       ┌────────▼──────────┐
-      │ Retrieval Router  │  → literal / semantic / hybrid
+      │ Retrieval Router  │ → literal / semantic / hybrid
       └────────┬──────────┘
                │
        ┌───────▼───────┐
-       │  Query Engine │  → LLM / MCP
+       │  Query Engine │ → OpenAI-compatible LLM / MCP / custom
        └───────────────┘
 ```
 
 ---
 
-## ⚙️ Usage
+## Installation and setup
+### Requirements
+- Python 3.10+
+- NVIDIA GPU (optional but recommended for embeddings and summarisation)
+- CUDA-compatible drivers if running GPU workloads
 
-### Ingestion
+### Install from source
 ```bash
-python dml_ingest_dir.py /data/docs
+pip install .[server]
 ```
-Automatically parses PDFs, text, and code into the lattice.
+Optional extras:
+- `pip install .[embeddings]` – GPU/CPU embedding backends
+- `pip install .[faiss]` – FAISS vector index acceleration
+- `pip install .[multiplex_rag]` – combined FAISS + Chroma fanout
+- `pip install .[playground]` – 3D Streamlit visualiser
+- `pip install .[mcp]` – MCP server adapter
 
-### Query
-```bash
-curl "http://localhost:8000/query?prompt=show+API+call+fetchUserProfile"
-```
-Returns the minimal function snippet + surrounding context.
-
-### Persistence & Checkpoints
-- All ingests automatically persist to `data/` (configurable via `storage_dir`).
-- Create an immediate snapshot via the CLI:
-  ```bash
-  cma checkpoint
-  ```
-- Continuous checkpoints can be enabled with `checkpoint_interval_seconds` in `daystrom_dml/config.yaml` or by setting the `DML_CHECKPOINT_INTERVAL_SECONDS` environment variable.
-
-### Metrics & Observability
-- Prometheus metrics are exposed at `GET /metrics` and include ingest counts, retrieval latency histograms, and active memory gauges.
-- Metrics can be disabled with `DML_METRICS_ENABLED=false` when required.
-- The `/visualizer/state` endpoint mirrors the latest prompt queued for the Streamlit live visualizer, enabling dashboards to stay in sync.
-
-### Retrieval Playground
-- Install the optional dependencies with ``pip install .[playground]``.
-- Launch the Streamlit app via ``streamlit run app/playground.py``.
-- The playground renders a 3D lattice with Plotly, highlights retrieved
-  memories, and visualises token budget allocations across semantic, literal,
-  and free pools.
-
-### Configuration & Secrets
-- Runtime settings live in `daystrom_dml/config.yaml` and are loaded through
-  `daystrom_dml.config.load_config`. Any environment variable prefixed with
-  ``DML_`` overrides the YAML entry, e.g. ``DML_MODEL_NAME``,
-  ``DML_STORAGE_DIR`` or ``DML_PERSISTENCE_ENABLE=1``.
-- Nested configuration uses underscore-separated keys such as
-  ``DML_LITERAL_MAX_SNIPPET_TOKENS`` or ``DML_BUDGETS_SEMANTIC_PCT`` to adjust
-  literal snippet limits and token allocation across semantic/literal/free
-  buckets (default ratios 0.7 / 0.2 / 0.1).
-- Optional `.env` files are loaded automatically for local development.
-- NIM deployments can tune VRAM pressure via environment variables:
-  ``NIM_KVCACHE_PERCENT=0.4``, ``NIM_ENABLE_KV_CACHE_REUSE=1``,
-  ``NIM_ENABLE_KV_CACHE_HOST_OFFLOAD=1``, and
-  ``NIM_KV_CACHE_HOST_MEM_FRACTION=0.3``.
-
-### Benchmarks & Load Tests
-- Synthetic corpus benchmarks are available:
-  ```bash
-  python bench/bench_dml_vs_rag.py --corpus-size 120 --queries 12
-  ```
-- Convenience targets ``make bench-small`` and ``make bench-large`` generate CSV
-  reports in ``bench/`` capturing per-mode latency, token usage, and cost
-  estimates.
-
-### Example
-```
-User:  "What were the average temperatures last year?"
-→ semantic summarization (aggregate view)
-
-User:  "Temperature on Jan 3 at 2 PM?"
-→ literal retrieval (exact log entry)
-```
+### Repository layout
+- `daystrom_dml/` – core lattice, APIs, adapters, and web assets
+- `app/` – Streamlit visualiser
+- `bench/` – synthetic benchmarking utilities
+- `scripts/` – helper automation
 
 ---
 
-## 🧠 Comparison — DML vs RAG
+## Running the stack
+### Local execution (uvicorn)
+```bash
+pip install .[server]
+dml-server --host 0.0.0.0 --port 8000
+```
+Use `--reload` during development for hot reloading. The server honours `DML_HOST` and `DML_PORT` when set.
 
-| Feature | Traditional RAG | Daystrom Memory Lattice |
-|----------|-----------------|-------------------------|
-| Retrieval granularity | Flat top-K chunks | Hierarchical (verbatim → summary → abstraction) |
-| Context optimization | Fixed, redundant | Dynamic, token-efficient |
-| Compression | Minimal | Continuous semantic + vector compression |
-| Decay / Reinforcement | None | Mathematical fidelity decay + reinforcement |
-| Exact lookup | Hard to control | Literal retriever for surgical precision |
-| Compute cost | Linear scaling | Bounded, GPU-accelerated lattice |
-| Output quality | Redundant, shallow | Dense, contextual, and traceable |
-
-> **In essence:**  
-> RAG *searches*, DML *remembers.*
-
----
-
-## 🧰 Deployment
-
-### Docker (single container)
-Build the runtime image and start the API server directly with Docker:
-
+### Docker
 ```bash
 docker build -t daystrom-dml .
 docker run --gpus all \
@@ -211,112 +131,174 @@ docker run --gpus all \
   -v "$(pwd)/data:/opt/dml/data" \
   daystrom-dml
 ```
-
-- The bundled ``dml-server`` entrypoint automatically honours the
-  ``DML_HOST`` and ``DML_PORT`` environment variables.
-- Mounting ``./data`` keeps the lattice persistent between container restarts.
-- Provide a custom configuration file by mounting it and setting
-  ``DML_CONFIG_PATH`` (or ``DML_CONFIG``) to its location inside the container.
+Mounting `./data` preserves the lattice and vector indexes across restarts. Provide a custom configuration via `-e DML_CONFIG_PATH=/opt/dml/config.yaml`.
 
 ### Docker Compose
-A production-ready ``docker-compose.yml`` stack is included:
-
 ```bash
 docker compose up -d
 ```
+The compose stack builds the CUDA image, exposes `8000:8000`, and mounts `./data` into `/opt/dml/data`. Tear down with `docker compose down`.
 
-The service builds the CUDA runtime image, binds ``8000:8000``, mounts
-``./data`` into ``/opt/dml/data`` for persistence, and defines a health check
-against ``/health``. GPU resources are requested via ``runtime: nvidia`` so the
-container inherits the host's device drivers. Tear down with ``docker compose
-down`` when finished.
+### GPU and NIM environment hints
+- `NIM_KVCACHE_PERCENT`, `NIM_ENABLE_KV_CACHE_REUSE`, `NIM_ENABLE_KV_CACHE_HOST_OFFLOAD`, and `NIM_KV_CACHE_HOST_MEM_FRACTION` tune NVIDIA NIM memory behaviour.
+- `DML_GPU_ACCELERATION=1` ensures GPU-optimised paths are enabled when available.
 
-### Local execution
+---
+
+## Feature reference
+### 1. Memory ingestion
+**CLI:**
+Run the Daystrom CLI as a module (no standalone console script is published yet, e.g. `python -m daystrom_dml.cli --help`).
 ```bash
-pip install .[server]
-dml-server --host 0.0.0.0 --port 8000
+python -m daystrom_dml.cli ingest "Investigate warp-drive telemetry anomalies."
 ```
+**HTTP API:** `POST /ingest` with JSON `{ "text": "...", "meta": {...} }`.
 
-The command accepts ``--reload`` for development and mirrors the Docker
-environment variables described above.
+**Bulk uploads:** `POST /upload` accepts multiple files or zipped archives, extracts supported text (PDF, `.txt`, `.md`, `.py`, etc.), chunks them, and streams each chunk into the lattice while preserving `doc_path` metadata. Unsupported or binary files are skipped gracefully.
 
-### MCP server
-```bash
-pip install .[mcp]
-dml-mcp-server --transport streamable-http --host 0.0.0.0 --port 7000
-```
+### 2. Querying & generation
+- `python -m daystrom_dml.cli query "Why did the telemetry fail?"` returns the DML preamble for inspection.
+- `python -m daystrom_dml.cli run "Summarise the latest warp-drive postmortem."` performs retrieval + generation and reinforces the answer.
+- `POST /query` triggers adaptive retrieval, appends the resulting context to the prompt, sends it to the configured LLM, and emits usage metrics.
 
-Use ``--config`` to point at an alternate ``config.yaml`` and ``--storage`` to
-override the adapter's data directory. The server exposes ``ingest``, ``query``,
-and ``stats`` tools that return JSON responses compatible with MCP clients.
+Literal versus semantic routing is automatically selected, but can be forced via `mode` on advanced APIs such as `DMLAdapter.query_database()`.
 
-### MCP Integration
-```yaml
-name: daystrom-dml
-type: retrieval
-entrypoint: http://localhost:8000/query
-args: [prompt, mode]
-```
+### 3. Reinforcement learning loop
+- `python -m daystrom_dml.cli reinforce "Drive realignment succeeded after recalibration."`
+- `POST /reinforce` stores summarised outcomes (prompt + answer digest) with slightly higher salience to bias future retrievals.
+- Automatic reinforcement happens after every `/query` or `python -m daystrom_dml.cli run` round-trip.
 
-Use ``dml-mcp-server`` with the configuration above to expose the lattice to
-MCP-compatible clients.
+### 4. Retrieval analytics & knowledge surfaces
+- `POST /rag/retrieve` compares the lattice with each RAG backend, returning context, latency, and token usage per backend.
+- `GET /stats` summarises lattice size, fidelity averages, and distribution across hierarchy levels.
+- `GET /knowledge` produces a combined catalogue (capped to 200 entries) containing lattice summaries and multi-RAG inventory counts.
 
-## 🔌 Workflow Integration APIs
+### 5. Multi-RAG fanout & comparisons
+- Every ingest fans out to FAISS, Chroma, and the disk-backed persistent index (when enabled).
+- `POST /rag/compare` runs: baseline model → DML-augmented model → each RAG backend, then grades their outputs, traces pipeline order, and records token budgets.
 
-Interact with a running lattice using the ``DMLClient`` helper:
+### 6. Persistence & checkpoints
+- Background persistence writes JSONL snapshots or full-state dumps (including RAG) on the configured interval.
+- `python -m daystrom_dml.cli checkpoint` forces an immediate checkpoint with retention controls.
+- Storage defaults to `./data` but can be redirected via `storage_dir` or `DML_STORAGE_DIR`.
 
+### 7. Metrics & observability
+- `GET /metrics` exposes Prometheus metrics (ingest counts, retrieval latency histograms, token savings).
+- Token consumption/savings per query are recorded when metrics are enabled.
+- Structured logs ship with request IDs and JSON formatting for easy ingestion.
+
+### 8. Streamlit visualiser
+- `POST /visualizer/launch` launches or connects to the 3D lattice explorer.
+- `/visualizer/state` mirrors the latest prompt for synchronising dashboards.
+- `/visualizer/embed/...` proxies the Streamlit UI through the FastAPI origin for iframe embedding.
+
+### 9. CLI quick reference
+| Command | Description |
+|---------|-------------|
+| `python -m daystrom_dml.cli ingest <text>` | Store a new memory fragment |
+| `python -m daystrom_dml.cli query <prompt>` | Print retrieval preamble |
+| `python -m daystrom_dml.cli run <prompt>` | Retrieve + generate + reinforce |
+| `python -m daystrom_dml.cli reinforce <text>` | Inject outcome summaries |
+| `python -m daystrom_dml.cli stats` | Print lattice statistics |
+| `python -m daystrom_dml.cli checkpoint` | Persist a snapshot immediately |
+
+---
+
+## Configuration guide
+The canonical configuration lives at `daystrom_dml/config.yaml`. Key sections:
+
+| Setting | Description |
+|---------|-------------|
+| `model_name` | Default LLM (used locally or for remote OpenAI-compatible calls) |
+| `embedding_model` | Embedding backend identifier |
+| `token_budget` | Maximum tokens reserved for DML context |
+| `persistence.enable` + `interval_sec` | Enable JSONL checkpoints and set cadence |
+| `rag_store.enable`/`backend` | Persist FAISS index to disk |
+| `literal.max_snippet_tokens` & `max_snippets` | Literal retriever window sizes |
+| `budgets.semantic_pct/literal_pct/free_pct` | Token allocation ratios |
+
+### Environment overrides
+- Any environment variable prefixed with `DML_` overrides configuration keys (`DML_MODEL_NAME`, `DML_STORAGE_DIR`, `DML_BUDGETS_SEMANTIC_PCT`, etc.).
+- Nested keys use underscores: `DML_PERSISTENCE_ENABLE=1`, `DML_LITERAL_MAX_SNIPPET_TOKENS=256`.
+- `.env` and `.env.local` files (current working directory and configuration directory) are loaded automatically.
+
+---
+
+## Integration cookbook
+### Python client (requests-based)
 ```python
 from daystrom_dml import DMLClient
 
 with DMLClient("http://localhost:8000") as client:
-    client.ingest("Investigate the Daystrom memory lattice release notes.")
-    result = client.query("Summarise the latest release.")
-    print(result["response"])
+    client.ingest("Warp-drive postmortem: capacitor failure at T+42s", meta={"source": "logs/warp.txt"})
+    answer = client.query("What triggered the capacitor failure?")
+    print(answer["response"])
 ```
+Use `client.stats()` and `client.knowledge()` for observability dashboards.
 
-The client wraps the public REST API (``/ingest``, ``/query``, ``/reinforce``,
-``/stats`` and ``/knowledge``) with sensible defaults while remaining easy to
-extend with custom ``requests.Session`` instances.
+### Embedding the adapter in custom agents
+```python
+from daystrom_dml.dml_adapter import DMLAdapter
 
----
-
-## ⚡ Performance (GPU Mode)
-
-| Operation | Speedup vs CPU |
-|------------|----------------|
-| Embedding | 5–8× |
-| Summarization | 3–5× |
-| Vector math | 10–20× |
-| Overall throughput | ~7× faster ingestion & query |
-
----
-
-## 🌍 Position in the Data Stack
-DML sits **between your database and your LLM.**
-
+adapter = DMLAdapter()
+context = adapter.build_preamble("Summarise warp-drive failure mitigations")
+print(context)
+response = adapter.run_generation("Draft a remediation plan for the next launch window.")
 ```
-[Raw Data] → DML → [Context Window] → [LLM]
+`run_generation` executes retrieval → LLM call → reinforcement in one step. Use `adapter.query_database(..., mode="literal")` to force literal snippets for structured lookups.
+
+### NVIDIA NIM control plane
+1. Call `POST /nim/options` to discover curated container images and defaults.
+2. `POST /nim/configure` with `{"nim_id": "llama3-8b", "api_key": "<NGC_TOKEN>"}` to pull the image, update the adapter model, and seed environment variables.
+3. `POST /nim/start` to launch the container (honours `NIM_PORT`, optional cache mounts, and waits for health checks).
+4. Point the UI or your agents at the running DML server—its GPTRunner automatically uses the NIM endpoint via the exported OpenAI-compatible API base.
+5. `POST /nim/stop` gracefully shuts down the managed container.
+
+### OpenAI-compatible endpoints (Ollama, vLLM, LM Studio, Azure, OpenAI, etc.)
+Set the following environment variables before starting `dml-server` or invoking the CLI:
+```bash
+export DML_API_BASE=http://localhost:11434      # Ollama / vLLM / LM Studio
+export DML_API_KEY=your-token-if-required
+export DML_MODEL_NAME=meta/llama3-8b-instruct   # Model identifier understood by the endpoint
 ```
+`GPTRunner` detects `DML_API_BASE`, `OPENAI_API_BASE`, or `NIM_API_BASE` automatically and routes completions through the provided endpoint. Token usage metadata is captured when the remote server returns OpenAI-compatible usage objects.
 
-- Handles knowledge persistence, compression, and fidelity.  
-- Supplies only relevant, compact context.  
-- Reduces GPU cost while improving recall accuracy.
-
----
-
-## 🧮 Research Layer Capabilities
-DML lets you *research your own data*:
-- Finds exact entities, timestamps, or API calls.  
-- Expands retrieval iteratively to include relational context.  
-- Returns dense, citation-ready summaries instead of massive token dumps.
-
-This turns querying large datasets from an I/O problem into an **intelligence problem.**
+### Custom orchestration
+- Wrap `/rag/compare` in automated evaluations to benchmark retrieval strategies as you iterate on prompt templates.
+- Combine `/upload` with CI artefacts (docs, release notes, logs) to pre-warm the lattice before deployments.
+- Consume `/metrics` from Prometheus/Grafana and `/visualizer/state` from custom dashboards to correlate live prompts with retrieval topology.
 
 ---
 
-## 📚 Summary
-> **DML = Hierarchical Memory + Semantic Compression + GPU Efficiency**
+## Benchmarks and load testing
+Run synthetic comparisons against baseline RAG pipelines:
+```bash
+python bench/bench_dml_vs_rag.py --corpus-size 120 --queries 12
+```
+Make targets are provided for convenience:
+- `make bench-small`
+- `make bench-large`
 
-DML is not a faster RAG; it’s a **self-organizing cognitive substrate** for persistent, scalable knowledge — designed for enterprises, research agents, and long-context LLMs.
+Each run emits CSV reports (latency, token usage, cost projections) under `bench/` for analysis.
 
 ---
+
+## DML vs traditional RAG
+| Capability | Traditional RAG | Daystrom Memory Lattice |
+|------------|-----------------|-------------------------|
+| Retrieval granularity | Flat top-K chunks | Hierarchical (verbatim → summary → abstraction) |
+| Context optimisation | Fixed, redundant | Dynamic token budgeting |
+| Compression | Minimal | Continuous semantic + vector compression |
+| Decay / reinforcement | Usually absent | Mathematical fidelity decay + reinforcement |
+| Exact lookups | Difficult | Dedicated literal retriever |
+| Compute profile | Linear with corpus size | GPU-accelerated lattice with bounded merges |
+| Output quality | Redundant snippets | Dense, contextual, citation-ready |
+
+> **In short:** RAG *searches*. DML *remembers*.
+
+---
+
+## Summary
+**DML = Hierarchical Memory + Semantic Compression + GPU Efficiency.**
+
+Deploy it as a persistent memory layer between your databases and LLMs, orchestrate NVIDIA NIMs or any OpenAI-compatible endpoint, and gain precise observability into what your assistant recalls, summarises, and reinforces over time.
