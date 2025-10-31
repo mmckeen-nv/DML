@@ -201,14 +201,17 @@ class DMLAdapter:
             return
         embedding = self.embedder.embed(text)
         salience = self._estimate_salience(text)
-        _, merged = self.store.ingest(text, embedding, salience=salience, meta=meta)
+        item, merged = self.store.ingest(text, embedding, salience=salience, meta=meta)
+        rag_text = item.text if merged else text
+        rag_embedding = item.embedding if merged else embedding
+        rag_meta: Dict[str, Any] = dict(meta or {})
+        rag_meta.setdefault("memory_id", item.id)
         if merged:
-            LOGGER.debug("Skipped RAG ingestion for merged memory fragment.")
-        else:
-            if self.persistent_rag_store is not None:
-                with contextlib.suppress(Exception):
-                    self.persistent_rag_store.add(text, embedding, meta=meta)
-            self.rag_store.add_document(text, meta=meta)
+            rag_meta["memory_merges"] = int(item.meta.get("merges", 0))
+        if self.persistent_rag_store is not None:
+            with contextlib.suppress(Exception):
+                self.persistent_rag_store.add(rag_text, rag_embedding, meta=rag_meta)
+        self.rag_store.add_document(rag_text, meta=rag_meta)
         self._persist_all()
         if self.metrics_enabled:
             update_memory_gauge(len(self.store.items()))
