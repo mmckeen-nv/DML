@@ -107,6 +107,7 @@ class DMLSettings(BaseModel):
     token_budget: int = Field(600, ge=1)
     model_name: str = "mistralai/Mistral-7B-Instruct-v0.2"
     embedding_model: str | None = "sentence-transformers/all-MiniLM-L6-v2"
+    embedding_device: str | None = None
     storage_dir: Path = Field(Path("data"), description="Root directory for persisted artefacts.")
     checkpoint_interval_seconds: int = Field(0, ge=0)
     checkpoint_retention: int = Field(3, ge=0)

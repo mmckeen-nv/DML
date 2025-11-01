@@ -12,6 +12,7 @@ dml_top_k: 0
 token_budget: 600
 model_name: mistralai/Mistral-7B-Instruct-v0.2
 embedding_model: sentence-transformers/all-MiniLM-L6-v2
+embedding_device: null
 storage_dir: data
 checkpoint_interval_seconds: 0
 checkpoint_retention: 5
