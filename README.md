@@ -142,6 +142,27 @@ The compose stack builds the CUDA image, exposes `8000:8000`, and mounts `./data
 ### GPU and NIM environment hints
 - `NIM_KVCACHE_PERCENT`, `NIM_ENABLE_KV_CACHE_REUSE`, `NIM_ENABLE_KV_CACHE_HOST_OFFLOAD`, and `NIM_KV_CACHE_HOST_MEM_FRACTION` tune NVIDIA NIM memory behaviour.
 - `DML_GPU_ACCELERATION=1` ensures GPU-optimised paths are enabled when available.
+- `DML_EMBEDDING_DEVICE=cuda` (or `cuda:1`, `mps`, etc.) pins the SentenceTransformer embedder to a specific accelerator and skips CPU fallback.
+
+### Streamlit playground (GPU quick start)
+1. Install the UI and embedding extras so the CUDA-enabled torch wheels are available:
+   ```bash
+   pip install .[playground,embeddings]
+   ```
+2. Point the embedder at your GPU before launching Streamlit. Use `cuda`, `cuda:0`, or `mps` depending on your environment:
+   ```bash
+   export DML_EMBEDDING_DEVICE=cuda
+   ```
+   Leaving the variable unset keeps auto-detection enabled, but the explicit override guarantees the playground never falls back to CPU.
+3. (Optional) Isolate the playground’s storage directory so first-run migrations don’t touch the main API cache:
+   ```bash
+   export DML_STORAGE_DIR=./data/playground
+   ```
+4. Launch the playground:
+   ```bash
+   streamlit run app/playground.py
+   ```
+   The adapter loads once, reports the chosen device in the logs, and subsequent ingestion/retrieval runs remain on GPU without the tqdm “Batches” spam.
 
 ---
 

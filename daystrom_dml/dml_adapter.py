@@ -63,7 +63,10 @@ class DMLAdapter:
         self.config.setdefault("dml_top_k", 0)
         self.metrics_enabled = bool(self.settings.metrics_enabled)
         self.runner = runner or GPTRunner(self.config["model_name"])
-        self.embedder = embedder or create_embedder(self.config.get("embedding_model"))
+        self.embedder = embedder or create_embedder(
+            self.config.get("embedding_model"),
+            device=self.config.get("embedding_device"),
+        )
         if summarizer is not None:
             self.summarizer = summarizer
         elif self.runner.is_dummy:
