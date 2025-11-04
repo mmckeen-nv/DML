@@ -21,8 +21,8 @@ def _create_adapter(storage_dir: Path) -> DMLAdapter:
     """Create a Daystrom adapter rooted at ``storage_dir``."""
 
     target = storage_dir.expanduser()
-    target.mkdir(parents=True, exist_ok=True)
     try:
+        target.mkdir(parents=True, exist_ok=True)
         adapter = DMLAdapter(
             config_overrides={"storage_dir": str(target)},
             start_aging_loop=False,
