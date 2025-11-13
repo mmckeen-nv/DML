@@ -1,9 +1,10 @@
 """Command line interface for the Daystrom Memory Lattice."""
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
-from typing import Optional
+from typing import Iterator, Optional
 
 import typer
 
@@ -17,12 +18,22 @@ def _build_adapter(model: Optional[str]) -> DMLAdapter:
     return DMLAdapter(config_overrides=overrides, start_aging_loop=False)
 
 
+@contextlib.contextmanager
+def _adapter_scope(model: Optional[str]) -> Iterator[DMLAdapter]:
+    adapter = _build_adapter(model)
+    try:
+        yield adapter
+    finally:
+        with contextlib.suppress(Exception):
+            adapter.close()
+
+
 @app.command()
 def ingest(text: str) -> None:
     """Store a new memory fragment."""
 
-    adapter = _build_adapter(None)
-    adapter.ingest(text)
+    with _adapter_scope(None) as adapter:
+        adapter.ingest(text)
     typer.echo("Ingested snippet.")
 
 
@@ -30,8 +41,8 @@ def ingest(text: str) -> None:
 def query(prompt: str, model: Optional[str] = typer.Option(None)) -> None:
     """Retrieve context for a prompt."""
 
-    adapter = _build_adapter(model)
-    context = adapter.build_preamble(prompt)
+    with _adapter_scope(model) as adapter:
+        context = adapter.build_preamble(prompt)
     typer.echo(context)
 
 
@@ -39,8 +50,8 @@ def query(prompt: str, model: Optional[str] = typer.Option(None)) -> None:
 def reinforce(text: str) -> None:
     """Reinforce a conclusion."""
 
-    adapter = _build_adapter(None)
-    adapter.reinforce("", text)
+    with _adapter_scope(None) as adapter:
+        adapter.reinforce("", text)
     typer.echo("Reinforced memory.")
 
 
@@ -48,8 +59,8 @@ def reinforce(text: str) -> None:
 def run(prompt: str, model: Optional[str] = typer.Option(None)) -> None:
     """Run an augmented generation round-trip."""
 
-    adapter = _build_adapter(model)
-    response = adapter.run_generation(prompt)
+    with _adapter_scope(model) as adapter:
+        response = adapter.run_generation(prompt)
     typer.echo(response)
 
 
@@ -57,17 +68,17 @@ def run(prompt: str, model: Optional[str] = typer.Option(None)) -> None:
 def stats() -> None:
     """Print diagnostic information about the current lattice."""
 
-    adapter = _build_adapter(None)
-    typer.echo(json.dumps(adapter.stats(), indent=2))
+    with _adapter_scope(None) as adapter:
+        payload = adapter.stats()
+    typer.echo(json.dumps(payload, indent=2))
 
 
 @app.command()
 def checkpoint() -> None:
     """Create an immediate persistence checkpoint."""
 
-    adapter = _build_adapter(None)
-    path = adapter.create_checkpoint()
-    adapter.close()
+    with _adapter_scope(None) as adapter:
+        path = adapter.create_checkpoint()
     typer.echo(f"Checkpoint written to {path}")
 
 
