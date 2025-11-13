@@ -73,9 +73,9 @@ class DMLAdapter:
             self.summarizer = DummySummarizer()
         else:
             self.summarizer = LLMSummarizer(self.runner)
-        storage_dir = self.settings.storage_dir
+        storage_dir = self.settings.storage_dir.expanduser()
         if not storage_dir.is_absolute():
-            storage_dir = Path(__file__).resolve().parent.parent / storage_dir
+            storage_dir = Path.cwd() / storage_dir
         self.storage_dir = storage_dir
         self.storage_dir.mkdir(parents=True, exist_ok=True)
         persistence_settings = getattr(self.settings, "persistence", None)

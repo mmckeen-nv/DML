@@ -144,17 +144,31 @@ The compose stack builds the CUDA image, exposes `8000:8000`, and mounts `./data
 - `DML_GPU_ACCELERATION=1` ensures GPU-optimised paths are enabled when available.
 - `DML_EMBEDDING_DEVICE=cuda` (or `cuda:1`, `mps`, etc.) pins the SentenceTransformer embedder to a specific accelerator and skips CPU fallback.
 
-### Streamlit playground (GPU quick start)
-1. Install the UI and embedding extras so the CUDA-enabled torch wheels are available:
+### Streamlit playground
+**Simple mode (zero-config)**
+
+1. Install the playground extra:
+   ```bash
+   pip install .[playground]
+   ```
+2. Launch Streamlit:
+   ```bash
+   streamlit run app/playground.py
+   ```
+
+The UI boots into **Simple** mode with a CPU-friendly embedder and stores data in `~/.dml/playground` (override via `DML_PLAYGROUND_STORAGE` or `DML_STORAGE_DIR`). Upload snippets, ask a question, and you’re done.
+
+**Advanced mode (GPU + enterprise controls)**
+
+1. Install the GPU-capable extras:
    ```bash
    pip install .[playground,embeddings]
    ```
-2. Point the embedder at your GPU before launching Streamlit. Use `cuda`, `cuda:0`, or `mps` depending on your environment:
+2. Pin the embedder to your accelerator before launching Streamlit:
    ```bash
-   export DML_EMBEDDING_DEVICE=cuda
+   export DML_EMBEDDING_DEVICE=cuda  # or cuda:0 / mps
    ```
-   Leaving the variable unset keeps auto-detection enabled, but the explicit override guarantees the playground never falls back to CPU.
-3. (Optional) Isolate the playground’s storage directory so first-run migrations don’t touch the main API cache:
+3. (Optional) Point the lattice at a dedicated storage root:
    ```bash
    export DML_STORAGE_DIR=./data/playground
    ```
@@ -162,7 +176,8 @@ The compose stack builds the CUDA image, exposes `8000:8000`, and mounts `./data
    ```bash
    streamlit run app/playground.py
    ```
-   The adapter loads once, reports the chosen device in the logs, and subsequent ingestion/retrieval runs remain on GPU without the tqdm “Batches” spam.
+
+Switch the in-app mode selector to **Advanced** for storage management, manual ingestion, token budgets, and the 3D lattice visualiser. The adapter initialises once, reports the chosen device, and subsequent ingestion/retrieval runs remain on GPU without the tqdm “Batches” spam.
 
 ---
 
