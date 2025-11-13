@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-import requests
 import pytest
 
+requests = pytest.importorskip("requests")
 fastapi = pytest.importorskip("fastapi")
 
 from fastapi.testclient import TestClient  # noqa: E402
