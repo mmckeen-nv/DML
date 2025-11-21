@@ -16,6 +16,10 @@ from daystrom_dml.dml_adapter import DMLAdapter
 
 st.set_page_config(page_title="Daystrom Playground", layout="wide")
 
+# Pricing defaults — roughly aligns with blended GPT-4o prompt/completion rates.
+DEFAULT_BASELINE_TOKENS = 8192
+DEFAULT_PRICE_PER_1K = 0.01
+
 
 def _normalise_storage_dir(path: Path) -> Path:
     """Expand ``path`` and ensure it is rooted on the local filesystem."""
@@ -170,6 +174,53 @@ def _build_lattice_plot(items: List, highlighted: set[int]) -> go.Figure:
     return fig
 
 
+def _render_cost_savings(tokens_used: int, *, key_prefix: str) -> None:
+    """Render a calculator estimating savings versus a naive baseline.
+
+    ``tokens_used`` should reflect the tokens consumed by the latest request. The
+    calculator compares that to an adjustable "no DML" baseline and a blended
+    average generation price.
+    """
+
+    st.markdown("#### Cost impact")
+    input_cols = st.columns(2)
+    baseline_key = f"{key_prefix}_baseline_tokens"
+    price_key = f"{key_prefix}_price_per_1k"
+    baseline_default = int(st.session_state.get(baseline_key, DEFAULT_BASELINE_TOKENS))
+    price_default = float(st.session_state.get(price_key, DEFAULT_PRICE_PER_1K))
+
+    baseline_tokens = input_cols[0].number_input(
+        "Baseline tokens without DML",
+        min_value=1,
+        value=baseline_default,
+        step=512,
+        help="Rough size of a naive context window you would have sent to the model.",
+    )
+    price_per_1k = input_cols[1].number_input(
+        "Avg generation price per 1K tokens (USD)",
+        min_value=0.0,
+        value=price_default,
+        step=0.001,
+        format="%.4f",
+        help="Use your provider's blended prompt + completion rate; defaults to GPT-4o averages.",
+    )
+
+    st.session_state[baseline_key] = int(baseline_tokens)
+    st.session_state[price_key] = float(price_per_1k)
+
+    adjusted_tokens_used = max(tokens_used, 0)
+    baseline_cost = (baseline_tokens / 1000) * price_per_1k
+    actual_cost = (adjusted_tokens_used / 1000) * price_per_1k
+    token_delta = max(baseline_tokens - adjusted_tokens_used, 0)
+    savings = max(baseline_cost - actual_cost, 0.0)
+    savings_pct = (savings / baseline_cost * 100) if baseline_cost else 0.0
+
+    metric_cols = st.columns(3)
+    metric_cols[0].metric("Baseline spend (est.)", f"${baseline_cost:,.4f}")
+    metric_cols[1].metric("DML spend", f"${actual_cost:,.4f}", f"{token_delta} tokens saved")
+    metric_cols[2].metric("Savings", f"${savings:,.4f}", f"{savings_pct:.1f}% vs baseline")
+
+
 def _run_retrieval(adapter: DMLAdapter, prompt: str, *, mode: str) -> Dict[str, Any] | None:
     cleaned = prompt.strip()
     if not cleaned:
@@ -281,6 +332,8 @@ def _render_simple_mode(adapter: DMLAdapter, storage_dir: Path) -> None:
         metrics[0].metric("Tokens", int(result.get("tokens", 0)))
         metrics[1].metric("Latency (ms)", int(result.get("latency_ms", 0)))
 
+        _render_cost_savings(int(result.get("tokens", 0)), key_prefix="simple")
+
     st.markdown("---")
     st.caption(
         "Ready for power features? Switch to **Advanced** to manage storage, inspect memory salience, and explore the 3D lattice."
@@ -330,6 +383,8 @@ def _render_advanced_mode(adapter: DMLAdapter, storage_dir: Path) -> None:
         with col_stats:
             st.metric("Tokens", int(result.get("tokens", 0)))
             st.metric("Latency (ms)", int(result.get("latency_ms", 0)))
+
+        _render_cost_savings(int(result.get("tokens", 0)), key_prefix="advanced")
 
         retrieved_texts = [
             segment for segment in (result.get("context") or "").split("\n") if segment
