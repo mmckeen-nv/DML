@@ -156,9 +156,9 @@ class LiteralRetriever:
                     text = neighbours[idx].text.strip()
                     if not text:
                         continue
-                    context_segments.append(
-                        self.summarizer.summarize(text, max_len=self.max_snippet_chars)
-                    )
+                    if len(text) > self.max_snippet_chars:
+                        text = text[: self.max_snippet_chars - 3] + "..."
+                    context_segments.append(text)
                     if len(context_segments) >= 2:
                         return context_segments
         return context_segments
