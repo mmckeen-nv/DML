@@ -12,6 +12,11 @@ import numpy as np
 import plotly.graph_objects as go
 import streamlit as st
 
+try:  # PDF ingestion is optional but preferred when available
+    from pypdf import PdfReader
+except Exception:  # pragma: no cover - optional dependency
+    PdfReader = None
+
 from daystrom_dml.dml_adapter import DMLAdapter
 
 st.set_page_config(page_title="Daystrom Playground", layout="wide")
@@ -196,7 +201,94 @@ def _try_ingest_text(adapter: DMLAdapter, text: str, source_label: str) -> tuple
     return "success", f"Ingested {source_label}"
 
 
+def _extract_text_from_file(upload) -> str:
+    suffix = Path(upload.name).suffix.lower()
+    if suffix == ".pdf" and PdfReader is not None:
+        try:
+            reader = PdfReader(upload)
+            return "\n".join(page.extract_text() or "" for page in reader.pages)
+        except Exception:
+            return ""
+    try:
+        return upload.read().decode("utf-8", errors="ignore")
+    except Exception:
+        return ""
+
+
+def _ingest_uploads(adapter: DMLAdapter, uploads: list, label_prefix: str = "upload") -> None:
+    for index, upload in enumerate(uploads):
+        text = _extract_text_from_file(upload)
+        label = f"{label_prefix}:{upload.name or index}"
+        status, message = _try_ingest_text(adapter, text, label)
+        if status == "success":
+            st.success(message)
+        elif status == "warning":
+            st.warning(message)
+        else:
+            st.error(message)
+
+
+def _render_sources(sources: List[str]) -> None:
+    cleaned = [Path(src).name if src else "unknown" for src in sources]
+    if cleaned:
+        st.markdown("**Sources**")
+        st.markdown("\n".join(f"- {src}" for src in cleaned))
+    else:
+        st.caption("Sources: none")
+
+
+def _render_budget_controls(adapter: DMLAdapter) -> None:
+    config = adapter.config
+    budgets = config.get("budgets", {}) or {}
+    total_budget_default = int(config.get("token_budget", 600))
+
+    control_cols = st.columns([1, 1, 1])
+    total_budget = control_cols[0].number_input(
+        "Total token budget",
+        min_value=64,
+        max_value=4096,
+        value=total_budget_default,
+        step=32,
+        key="token_budget_total",
+    )
+    semantic_default = float(budgets.get("semantic_pct", 0.7))
+    literal_default = float(budgets.get("literal_pct", 0.2))
+    semantic_pct = control_cols[1].slider(
+        "Semantic %",
+        min_value=0.0,
+        max_value=1.0,
+        value=min(semantic_default, 1.0),
+        step=0.05,
+        key="semantic_budget_pct",
+    )
+    literal_pct = control_cols[2].slider(
+        "Literal %",
+        min_value=0.0,
+        max_value=max(0.0, 1.0 - semantic_pct),
+        value=min(literal_default, max(0.0, 1.0 - semantic_pct)),
+        step=0.05,
+        key="literal_budget_pct",
+    )
+
+    free_pct = max(0.0, 1.0 - semantic_pct - literal_pct)
+    st.caption(f"Free % (calculated): {free_pct:.2f}")
+    budget_cols = st.columns(3)
+    budget_cols[0].progress(min(1.0, semantic_pct), text="Semantic")
+    budget_cols[1].progress(min(1.0, literal_pct), text="Literal")
+    budget_cols[2].progress(min(1.0, free_pct), text="Free")
+
+    config["token_budget"] = int(total_budget)
+    config["budgets"] = {
+        "semantic_pct": float(semantic_pct),
+        "literal_pct": float(literal_pct),
+        "free_pct": float(free_pct),
+    }
+
+
 def _render_simple_mode(adapter: DMLAdapter, storage_dir: Path) -> None:
+    if st.session_state.pop("simple_manual_reset", False):
+        st.session_state["simple_manual_text"] = ""
+
     st.caption("Quickstart mode — minimal controls with safe defaults.")
     st.info(
         textwrap.dedent(
@@ -211,20 +303,14 @@ def _render_simple_mode(adapter: DMLAdapter, storage_dir: Path) -> None:
 
     st.subheader("Add knowledge")
     uploaded = st.file_uploader(
-        "Upload text or markdown",
-        type=["txt", "md", "log", "json"],
+        "Upload text, markdown, JSON, logs, or PDFs",
+        type=["txt", "md", "log", "json", "pdf"],
+        accept_multiple_files=True,
         help="Each file is chunked and stored as individual memories.",
         key="simple_upload",
     )
-    if uploaded is not None:
-        text = uploaded.read().decode("utf-8", errors="ignore")
-        status, message = _try_ingest_text(adapter, text, uploaded.name)
-        if status == "success":
-            st.success(message)
-        elif status == "warning":
-            st.warning(message)
-        else:
-            st.error(message)
+    if uploaded:
+        _ingest_uploads(adapter, uploaded, label_prefix="simple-upload")
 
     with st.form("simple_manual_ingest"):
         manual_text = st.text_area(
@@ -233,12 +319,15 @@ def _render_simple_mode(adapter: DMLAdapter, storage_dir: Path) -> None:
             placeholder="Drop snippets here to create memories without uploading a file.",
             height=160,
         )
-        submit_manual = st.form_submit_button("Ingest text snippet", use_container_width=True)
+        submit_manual = st.form_submit_button(
+            "Ingest text snippet", use_container_width=True
+        )
     if submit_manual:
         status, message = _try_ingest_text(adapter, manual_text, "manual-entry")
         if status == "success":
             st.success("Manual snippet ingested.")
-            st.session_state["simple_manual_text"] = ""
+            st.session_state["simple_manual_reset"] = True
+            st.rerun()
         elif status == "warning":
             st.warning(message)
         else:
@@ -273,10 +362,7 @@ def _render_simple_mode(adapter: DMLAdapter, storage_dir: Path) -> None:
         st.markdown(f"**Mode:** {result['mode']}")
         st.write(result.get("context") or "No context produced.")
         sources = result.get("source_docs", []) or []
-        if sources:
-            st.caption("Sources: " + ", ".join(sources))
-        else:
-            st.caption("Sources: none")
+        _render_sources(sources)
         metrics = st.columns(2)
         metrics[0].metric("Tokens", int(result.get("tokens", 0)))
         metrics[1].metric("Latency (ms)", int(result.get("latency_ms", 0)))
@@ -288,6 +374,9 @@ def _render_simple_mode(adapter: DMLAdapter, storage_dir: Path) -> None:
 
 
 def _render_advanced_mode(adapter: DMLAdapter, storage_dir: Path) -> None:
+    if st.session_state.pop("advanced_manual_reset", False):
+        st.session_state["advanced_manual_text"] = ""
+
     st.caption("Advanced mode — full control for power users and enterprise tuning.")
 
     prompt = st.text_area(
@@ -323,10 +412,7 @@ def _render_advanced_mode(adapter: DMLAdapter, storage_dir: Path) -> None:
             st.subheader(f"Mode: {result['mode']}")
             st.write(result.get("context") or "No context produced.")
             sources = result.get("source_docs", []) or []
-            if sources:
-                st.caption("Sources: " + ", ".join(sources))
-            else:
-                st.caption("Sources: none")
+            _render_sources(sources)
         with col_stats:
             st.metric("Tokens", int(result.get("tokens", 0)))
             st.metric("Latency (ms)", int(result.get("latency_ms", 0)))
@@ -345,16 +431,8 @@ def _render_advanced_mode(adapter: DMLAdapter, storage_dir: Path) -> None:
             if any(fragment in snippet for fragment in retrieved_texts):
                 highlighted_ids.add(item.id)
 
-    budgets = adapter.config.get("budgets", {})
-    semantic_pct = float(budgets.get("semantic_pct", 0.7))
-    literal_pct = float(budgets.get("literal_pct", 0.2))
-    free_pct = float(budgets.get("free_pct", 0.1))
-
     st.markdown("### Token budget")
-    budget_cols = st.columns(3)
-    budget_cols[0].progress(min(1.0, semantic_pct), text="Semantic")
-    budget_cols[1].progress(min(1.0, literal_pct), text="Literal")
-    budget_cols[2].progress(min(1.0, free_pct), text="Free")
+    _render_budget_controls(adapter)
 
     fig = _build_lattice_plot(items, highlighted_ids)
     st.plotly_chart(fig, use_container_width=True)
@@ -388,6 +466,218 @@ def _render_advanced_mode(adapter: DMLAdapter, storage_dir: Path) -> None:
     st.caption(f"Storage directory: {storage_dir.resolve()}")
 
 
+def _render_benchmark_mode(adapter: DMLAdapter, storage_dir: Path) -> None:
+    st.caption(
+        "Benchmark mode — compare RAG vs DML pipelines with real LLM calls and token usage."
+    )
+
+    uploaded = st.file_uploader(
+        "Upload data for benchmarking (multi-file, PDFs supported)",
+        type=["txt", "md", "log", "json", "pdf"],
+        accept_multiple_files=True,
+        help="Files are ingested into both the RAG index and the DML lattice.",
+        key="benchmark_upload",
+    )
+    if uploaded:
+        _ingest_uploads(adapter, uploaded, label_prefix="benchmark-upload")
+
+    with st.form("benchmark_prompt_form"):
+        prompt = st.text_area(
+            "Prompt for benchmarking",
+            key="benchmark_prompt",
+            placeholder="Ask a question to benchmark DML vs RAG",
+        )
+        max_tokens = st.slider(
+            "Max new tokens for the LLM",
+            min_value=64,
+            max_value=1024,
+            step=32,
+            value=256,
+            key="benchmark_max_tokens",
+        )
+        run_benchmark = st.form_submit_button("Submit for Benchmark", type="primary")
+
+    if run_benchmark:
+        if not prompt.strip():
+            st.warning("Enter a prompt before benchmarking.")
+        else:
+            with st.spinner("Running benchmark across RAG and DML pipelines..."):
+                result = adapter.compare_responses(prompt, max_new_tokens=max_tokens)
+            st.session_state["benchmark_result"] = result
+
+    result = st.session_state.get("benchmark_result")
+    if not result:
+        st.info("Upload content and submit a prompt to see benchmark results.")
+        return
+
+    rag_backends = result.get("rag_backends", []) or []
+    rag_choice = next((entry for entry in rag_backends if entry.get("available")), None)
+    if rag_choice is None and rag_backends:
+        rag_choice = rag_backends[0]
+
+    dml_result = result.get("dml") or {}
+
+    rag_col, dml_col = st.columns(2)
+    with rag_col:
+        st.subheader("RAG pipeline")
+        if rag_choice:
+            rag_latency = int(rag_choice.get("retrieval_latency_ms", 0)) + int(
+                rag_choice.get("generation_latency_ms", 0)
+            )
+            rag_tokens = int(rag_choice.get("context_tokens", 0))
+            st.metric("Pipeline latency (ms)", rag_latency)
+            st.metric("Context tokens sent", rag_tokens)
+            if rag_choice.get("usage"):
+                usage = rag_choice["usage"]
+                prompt_tokens = usage.get("prompt_tokens") or usage.get("prompt")
+                completion_tokens = usage.get("completion_tokens") or usage.get(
+                    "completion"
+                )
+                st.caption(
+                    f"LLM tokens — prompt: {prompt_tokens}, completion: {completion_tokens}"
+                )
+            sources = []
+            documents = rag_choice.get("documents") or []
+            for doc in documents:
+                if isinstance(doc, dict):
+                    label = doc.get("source") or doc.get("id") or doc.get("label")
+                    if label:
+                        sources.append(str(label))
+                elif isinstance(doc, str):
+                    sources.append(doc)
+            _render_sources(sources)
+            with st.expander("Show retrieved context (RAG)"):
+                st.write(rag_choice.get("context") or "No context returned.")
+        else:
+            st.warning("No RAG backend results available.")
+
+    with dml_col:
+        st.subheader("DML pipeline")
+        dml_latency = int(dml_result.get("retrieval_latency_ms", 0)) + int(
+            dml_result.get("generation_latency_ms", 0)
+        )
+        dml_tokens = int(dml_result.get("context_tokens", 0))
+        st.metric("Pipeline latency (ms)", dml_latency)
+        st.metric("Context tokens sent", dml_tokens)
+        usage = dml_result.get("usage") or {}
+        prompt_tokens = usage.get("prompt_tokens") or usage.get("prompt")
+        completion_tokens = usage.get("completion_tokens") or usage.get("completion")
+        if prompt_tokens is not None or completion_tokens is not None:
+            st.caption(
+                f"LLM tokens — prompt: {prompt_tokens}, completion: {completion_tokens}"
+            )
+        sources = []
+        for entry in dml_result.get("entries", []) or []:
+            meta = entry.get("meta") or {}
+            doc_path = meta.get("doc_path") or meta.get("source") or meta.get("memory_id")
+            if doc_path:
+                sources.append(str(doc_path))
+        _render_sources(sources)
+        with st.expander("Show retrieved context (DML)"):
+            st.write(dml_result.get("context") or "No context returned.")
+
+    st.markdown("### Pipeline trace")
+    trace_rows = []
+    for step in result.get("pipeline_trace", []) or []:
+        trace_rows.append(
+            {
+                "Step": step.get("step"),
+                "Stage": step.get("stage"),
+                "Label": step.get("label") or step.get("id"),
+            }
+        )
+    if trace_rows:
+        st.table(trace_rows)
+    else:
+        st.caption("No trace data recorded.")
+
+    st.caption(f"Storage directory: {storage_dir.resolve()}")
+
+
+def _render_real_world_mode(adapter: DMLAdapter, storage_dir: Path) -> None:
+    st.caption(
+        "Real World Test — run the full DML retrieval + LLM generation pipeline with context injection."
+    )
+
+    uploaded = st.file_uploader(
+        "Upload supporting files",
+        type=["txt", "md", "log", "json", "pdf"],
+        accept_multiple_files=True,
+        help="Files are ingested and made available to the DML retriever.",
+        key="real_world_upload",
+    )
+    if uploaded:
+        _ingest_uploads(adapter, uploaded, label_prefix="real-world-upload")
+
+    prompt = st.text_area(
+        "Ask the LLM",
+        key="real_world_prompt",
+        placeholder="Ask a grounded question that should use retrieved memories.",
+    )
+    max_tokens = st.slider(
+        "Max new tokens",
+        min_value=64,
+        max_value=1024,
+        value=256,
+        step=32,
+        key="real_world_max_tokens",
+    )
+    run_test = st.button("Run real-world pipeline", type="primary")
+
+    if run_test:
+        if not prompt.strip():
+            st.warning("Enter a prompt before running the real-world test.")
+        else:
+            with st.spinner("Retrieving context and generating with the live LLM..."):
+                report = adapter.retrieval_report(prompt)
+                context = adapter._format_dml_context(report.get("entries", []))
+                augmented_prompt = adapter._compose_prompt(prompt, context)
+                response, usage, generation_latency = adapter._generate_with_metrics(
+                    augmented_prompt, max_new_tokens=max_tokens
+                )
+            adapter.reinforce(prompt, response)
+            st.session_state["real_world_result"] = {
+                "prompt": prompt,
+                "context": context,
+                "response": response,
+                "retrieval_latency_ms": report.get("latency_ms", 0),
+                "context_tokens": report.get("tokens", 0),
+                "usage": usage,
+                "generation_latency_ms": generation_latency,
+                "entries": report.get("entries", []),
+            }
+
+    result = st.session_state.get("real_world_result")
+    if not result:
+        st.info("Upload files and run the pipeline to see grounded answers.")
+        return
+
+    total_latency = int(result.get("retrieval_latency_ms", 0)) + int(
+        result.get("generation_latency_ms", 0)
+    )
+    st.subheader("Live LLM answer")
+    st.write(result.get("response") or "No response generated.")
+    metrics = st.columns(3)
+    metrics[0].metric("Pipeline latency (ms)", total_latency)
+    metrics[1].metric("Context tokens", int(result.get("context_tokens", 0)))
+    usage = result.get("usage") or {}
+    completion_tokens = usage.get("completion_tokens") or usage.get("completion")
+    metrics[2].metric("Completion tokens", completion_tokens or 0)
+
+    sources = []
+    for entry in result.get("entries", []) or []:
+        meta = entry.get("meta") or {}
+        doc_path = meta.get("doc_path") or meta.get("source") or meta.get("memory_id")
+        if doc_path:
+            sources.append(str(doc_path))
+    _render_sources(sources)
+
+    with st.expander("Show retrieved context (DML)"):
+        st.write(result.get("context") or "No context returned.")
+
+    st.caption(f"Storage directory: {storage_dir.resolve()}")
+
+
 if hasattr(st, "on_session_end"):
     st.on_session_end(_close_adapter)
 
@@ -405,7 +695,7 @@ if adapter is None:
 
 assert adapter is not None
 
-interface_options = ["Simple", "Advanced"]
+interface_options = ["Simple", "Advanced", "Benchmark", "Real World Test"]
 if "ui_mode" in st.session_state:
     try:
         default_index = interface_options.index(st.session_state["ui_mode"])
@@ -420,7 +710,7 @@ ui_mode = st.sidebar.radio(
     key="ui_mode",
 )
 
-if ui_mode == "Advanced":
+if ui_mode in {"Advanced", "Benchmark", "Real World Test"}:
     st.sidebar.header("Storage")
     storage_input = st.sidebar.text_input(
         "Storage directory",
@@ -457,21 +747,19 @@ if ui_mode == "Advanced":
 
     st.sidebar.divider()
     st.sidebar.subheader("Ingestion")
+
+    if st.session_state.pop("advanced_manual_reset", False):
+        st.session_state["advanced_manual_text"] = ""
+
     uploaded = st.sidebar.file_uploader(
-        "Upload text or markdown",
-        type=["txt", "md", "log", "json"],
+        "Upload text, markdown, JSON, logs, or PDFs",
+        type=["txt", "md", "log", "json", "pdf"],
+        accept_multiple_files=True,
         help="Each file is chunked and stored as individual memories.",
         key="advanced_upload",
     )
-    if uploaded is not None:
-        text = uploaded.read().decode("utf-8", errors="ignore")
-        status, message = _try_ingest_text(adapter, text, uploaded.name)
-        if status == "success":
-            st.sidebar.success(message)
-        elif status == "warning":
-            st.sidebar.warning(message)
-        else:
-            st.sidebar.error(message)
+    if uploaded:
+        _ingest_uploads(adapter, uploaded, label_prefix="advanced-upload")
 
     manual_text = st.sidebar.text_area(
         "Paste text to ingest",
@@ -483,7 +771,8 @@ if ui_mode == "Advanced":
         status, message = _try_ingest_text(adapter, manual_text, "manual-entry")
         if status == "success":
             st.sidebar.success("Manual snippet ingested.")
-            st.session_state["advanced_manual_text"] = ""
+            st.session_state["advanced_manual_reset"] = True
+            st.rerun()
         elif status == "warning":
             st.sidebar.warning(message)
         else:
@@ -500,5 +789,9 @@ st.title("Daystrom Memory Lattice Playground")
 
 if ui_mode == "Simple":
     _render_simple_mode(adapter, current_storage)
-else:
+elif ui_mode == "Advanced":
     _render_advanced_mode(adapter, current_storage)
+elif ui_mode == "Benchmark":
+    _render_benchmark_mode(adapter, current_storage)
+else:
+    _render_real_world_mode(adapter, current_storage)
