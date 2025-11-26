@@ -99,14 +99,39 @@ class MemoryStore:
         meta: Optional[Dict] = None,
     ) -> Tuple[MemoryItem, bool]:
         now = time.time()
+        enriched_meta = dict(meta or {})
+
         with self._lock:
-            merged = self._try_merge(text, embedding, salience)
-            if merged:
-                return merged, True
-            enriched_meta = dict(meta or {})
-            enriched_meta.setdefault(
-                "summary", self._generate_summary(text, max_len=256)
+            best_match, best_sim = self._best_match(embedding)
+
+        if best_match and best_sim >= self.theta_merge:
+            combined_text = f"{best_match.text}\n{text}".strip()
+            summary = self._generate_summary(combined_text, max_len=256)
+        else:
+            summary = enriched_meta.get("summary") or self._generate_summary(
+                text, max_len=256
             )
+
+        with self._lock:
+            if best_match:
+                current_match = next(
+                    (item for item in self._items if item.id == best_match.id), None
+                )
+                if current_match:
+                    sim = utils.cosine_similarity(current_match.embedding, embedding)
+                    if sim >= self.theta_merge:
+                        current_match.text = summary
+                        current_match.embedding = (
+                            current_match.embedding + embedding
+                        ) / 2.0
+                        current_match.timestamp = time.time()
+                        current_match.salience = max(current_match.salience, salience)
+                        current_match.meta.setdefault("merges", 0)
+                        current_match.meta["merges"] += 1
+                        current_match.meta["summary"] = summary
+                        return current_match, True
+
+            enriched_meta.setdefault("summary", summary)
             item = MemoryItem(
                 id=self._next_id(),
                 text=text,
@@ -203,11 +228,7 @@ class MemoryStore:
         self._id += 1
         return value
 
-    def _try_merge(
-        self, text: str, embedding: np.ndarray, salience: float
-    ) -> Optional[MemoryItem]:
-        if not self._items:
-            return None
+    def _best_match(self, embedding: np.ndarray) -> Tuple[Optional[MemoryItem], float]:
         best: Optional[MemoryItem] = None
         best_sim = 0.0
         for item in self._items:
@@ -215,18 +236,7 @@ class MemoryStore:
             if sim > best_sim:
                 best_sim = sim
                 best = item
-        if best and best_sim >= self.theta_merge:
-            combined_text = f"{best.text}\n{text}".strip()
-            summary = self._generate_summary(combined_text, max_len=256)
-            best.text = summary
-            best.embedding = (best.embedding + embedding) / 2.0
-            best.timestamp = time.time()
-            best.salience = max(best.salience, salience)
-            best.meta.setdefault("merges", 0)
-            best.meta["merges"] += 1
-            best.meta["summary"] = summary
-            return best
-        return None
+        return best, best_sim
 
     def _score_item(
         self, item: MemoryItem, query_embedding: np.ndarray, now: float
