@@ -1,6 +1,7 @@
 """Core Daystrom Memory Lattice implementation."""
 from __future__ import annotations
 
+import contextlib
 import threading
 import time
 from dataclasses import dataclass, field
@@ -98,10 +99,39 @@ class MemoryStore:
         meta: Optional[Dict] = None,
     ) -> Tuple[MemoryItem, bool]:
         now = time.time()
+        enriched_meta = dict(meta or {})
+
         with self._lock:
-            merged = self._try_merge(text, embedding, salience)
-            if merged:
-                return merged, True
+            best_match, best_sim = self._best_match(embedding)
+
+        if best_match and best_sim >= self.theta_merge:
+            combined_text = f"{best_match.text}\n{text}".strip()
+            summary = self._generate_summary(combined_text, max_len=256)
+        else:
+            summary = enriched_meta.get("summary") or self._generate_summary(
+                text, max_len=256
+            )
+
+        with self._lock:
+            if best_match:
+                current_match = next(
+                    (item for item in self._items if item.id == best_match.id), None
+                )
+                if current_match:
+                    sim = utils.cosine_similarity(current_match.embedding, embedding)
+                    if sim >= self.theta_merge:
+                        current_match.text = summary
+                        current_match.embedding = (
+                            current_match.embedding + embedding
+                        ) / 2.0
+                        current_match.timestamp = time.time()
+                        current_match.salience = max(current_match.salience, salience)
+                        current_match.meta.setdefault("merges", 0)
+                        current_match.meta["merges"] += 1
+                        current_match.meta["summary"] = summary
+                        return current_match, True
+
+            enriched_meta.setdefault("summary", summary)
             item = MemoryItem(
                 id=self._next_id(),
                 text=text,
@@ -110,7 +140,7 @@ class MemoryStore:
                 salience=float(salience),
                 fidelity=float(max(0.0, min(1.0, fidelity))),
                 level=int(level),
-                meta=meta or {},
+                meta=enriched_meta,
             )
             self._items.append(item)
             self._enforce_capacity()
@@ -198,11 +228,7 @@ class MemoryStore:
         self._id += 1
         return value
 
-    def _try_merge(
-        self, text: str, embedding: np.ndarray, salience: float
-    ) -> Optional[MemoryItem]:
-        if not self._items:
-            return None
+    def _best_match(self, embedding: np.ndarray) -> Tuple[Optional[MemoryItem], float]:
         best: Optional[MemoryItem] = None
         best_sim = 0.0
         for item in self._items:
@@ -210,17 +236,7 @@ class MemoryStore:
             if sim > best_sim:
                 best_sim = sim
                 best = item
-        if best and best_sim >= self.theta_merge:
-            combined_text = f"{best.text}\n{text}".strip()
-            summary = self.summarizer.summarize(combined_text, max_len=256)
-            best.text = summary
-            best.embedding = (best.embedding + embedding) / 2.0
-            best.timestamp = time.time()
-            best.salience = max(best.salience, salience)
-            best.meta.setdefault("merges", 0)
-            best.meta["merges"] += 1
-            return best
-        return None
+        return best, best_sim
 
     def _score_item(
         self, item: MemoryItem, query_embedding: np.ndarray, now: float
@@ -269,7 +285,7 @@ class MemoryStore:
         new_items: List[MemoryItem] = []
         for item in list(self._items):
             if item.fidelity < self.tau_s and item.level < self.K:
-                summary_text = self.summarizer.summarize(item.text, max_len=256)
+                summary_text = self._generate_summary(item.text, max_len=256)
                 if not summary_text:
                     continue
                 summary_embedding = item.embedding.copy()
@@ -281,12 +297,29 @@ class MemoryStore:
                     salience=item.salience * 0.9,
                     fidelity=min(1.0, item.fidelity + 0.5),
                     level=item.level + 1,
-                    meta={"abstracted_from": item.id},
+                    meta={"abstracted_from": item.id, "summary": summary_text},
                     summary_of=[item.id] + item.summary_of,
                 )
                 item.meta.setdefault("abstracted", True)
+                item.meta.setdefault("summary", self._generate_summary(item.text, max_len=256))
                 item.fidelity *= 0.5
                 new_items.append(new_item)
         self._items.extend(new_items)
         self._enforce_capacity()
+
+    def _generate_summary(self, text: str, *, max_len: int) -> str:
+        content = str(text or "").strip()
+        if not content:
+            return ""
+        summary = ""
+        with contextlib.suppress(Exception):
+            summary = str(self.summarizer.summarize(content, max_len=max_len) or "").strip()
+        if summary:
+            return self._truncate(summary, max_len=max_len)
+        return self._truncate(content, max_len=max_len)
+
+    def _truncate(self, text: str, *, max_len: int) -> str:
+        if len(text) <= max_len:
+            return text
+        return text[: max_len - 3].rstrip() + "..."
 
