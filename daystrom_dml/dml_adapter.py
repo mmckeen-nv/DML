@@ -831,6 +831,20 @@ class DMLAdapter:
         tokens = utils.estimate_tokens(text)
         return float(max(0.1, min(1.0, tokens / 200.0)))
 
+    def _fallback_truncate(self, text: str, *, max_len: int) -> str:
+        cleaned = str(text or "").strip()
+        if len(cleaned) <= max_len:
+            return cleaned
+        return cleaned[: max_len - 3].rstrip() + "..."
+
+    def _summary_for_item(self, item: MemoryStore.MemoryItem, *, max_len: int) -> str:
+        summary = ""
+        if item.meta:
+            summary = str(item.meta.get("summary") or "").strip()
+        if summary:
+            return self._fallback_truncate(summary, max_len=max_len)
+        return self._fallback_truncate(item.text, max_len=max_len)
+
     def _retrieve_items(self, prompt: str, top_k: Optional[int]) -> List[MemoryStore.MemoryItem]:
         limit = self._resolve_dml_top_k(top_k)
         prompt_embedding = self.embedder.embed(prompt)
@@ -863,7 +877,7 @@ class DMLAdapter:
         lines: List[str] = [STARFLEET_BANNER, "=== Daystrom Memory Lattice ==="]
         entries: List[Dict] = []
         for item in items:
-            summary = self.summarizer.summarize(item.text, max_len=180)
+            summary = self._summary_for_item(item, max_len=180)
             tokens = utils.estimate_tokens(summary)
             if consumed + tokens > budget:
                 break
@@ -902,7 +916,7 @@ class DMLAdapter:
         items = self.store.retrieve(query_embedding, top_k=top_k)
         results: List[Dict] = []
         for item in items:
-            summary = self.summarizer.summarize(item.text, max_len=220)
+            summary = self._summary_for_item(item, max_len=220)
             source = item.meta.get("doc_path") if item.meta else None
             similarity = utils.cosine_similarity(item.embedding, query_embedding)
             results.append(
@@ -951,7 +965,6 @@ class DMLAdapter:
     def _format_rag_matches(self, matches: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         formatted: List[Dict[str, Any]] = []
         max_snippet_chars = getattr(self.literal_retriever, "max_snippet_chars", 320)
-        literal_summarizer = getattr(self.literal_retriever, "summarizer", None)
 
         def _clip_segment(value: Any) -> str:
             segment = str(value or "").strip()
@@ -959,20 +972,7 @@ class DMLAdapter:
                 return ""
             if len(segment) <= max_snippet_chars:
                 return segment
-            summarizer: Summarizer | None = None
-            if literal_summarizer is not None:
-                summarizer = literal_summarizer
-            elif hasattr(self, "summarizer"):
-                summarizer = getattr(self, "summarizer")
-            if summarizer is not None:
-                with contextlib.suppress(Exception):
-                    summary = summarizer.summarize(segment, max_len=max_snippet_chars)
-                    summary = str(summary or "").strip()
-                    if summary:
-                        if len(summary) <= max_snippet_chars:
-                            return summary
-                        return summary[: max_snippet_chars - 3] + "..."
-            return segment[: max_snippet_chars - 3] + "..."
+            return self._fallback_truncate(segment, max_len=max_snippet_chars)
 
         for match in matches:
             meta = dict(match.get("meta") or {})
