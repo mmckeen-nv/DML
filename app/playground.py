@@ -517,6 +517,11 @@ def _render_benchmark_mode(adapter: DMLAdapter, storage_dir: Path) -> None:
 
     dml_result = result.get("dml") or {}
 
+    base_result = result.get("base") or {}
+
+    st.markdown("### Baseline model (no retrieval)")
+    st.write(base_result.get("response") or "No baseline response generated.")
+
     rag_col, dml_col = st.columns(2)
     with rag_col:
         st.subheader("RAG pipeline")
@@ -536,6 +541,8 @@ def _render_benchmark_mode(adapter: DMLAdapter, storage_dir: Path) -> None:
                 st.caption(
                     f"LLM tokens — prompt: {prompt_tokens}, completion: {completion_tokens}"
                 )
+            st.markdown("**LLM answer**")
+            st.write(rag_choice.get("response") or "No response generated.")
             sources = []
             documents = rag_choice.get("documents") or []
             for doc in documents:
@@ -566,6 +573,8 @@ def _render_benchmark_mode(adapter: DMLAdapter, storage_dir: Path) -> None:
             st.caption(
                 f"LLM tokens — prompt: {prompt_tokens}, completion: {completion_tokens}"
             )
+        st.markdown("**LLM answer**")
+        st.write(dml_result.get("response") or "No response generated.")
         sources = []
         for entry in dml_result.get("entries", []) or []:
             meta = entry.get("meta") or {}

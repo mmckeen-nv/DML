@@ -35,23 +35,39 @@ def _ingest_corpus(adapter: DMLAdapter, count: int, rng: random.Random) -> None:
         adapter.ingest(text, meta={"doc_path": f"synthetic/doc_{idx}.txt"})
 
 
-def _run_mode(adapter: "DMLAdapter", prompts: Iterable[str], mode: str) -> dict[str, float | str]:
+def _run_mode(
+    adapter: "DMLAdapter", prompts: Iterable[str], mode: str
+) -> dict[str, float | str | List[dict[str, str]]]:
     latencies: List[float] = []
     tokens: List[int] = []
+    generation_latencies: List[float] = []
+    outputs: List[dict[str, str]] = []
+    sample_output: str | None = None
     for prompt in prompts:
         start = time.perf_counter()
         report = adapter.query_database(prompt, mode=mode)
         duration_ms = (time.perf_counter() - start) * 1000.0
         latencies.append(duration_ms if report.get("latency_ms") is None else report["latency_ms"])
         tokens.append(int(report.get("tokens", 0)))
+        augmented = adapter._compose_prompt(prompt, report.get("context", ""))
+        gen_start = time.perf_counter()
+        response = adapter.runner.generate(augmented)
+        generation_latencies.append((time.perf_counter() - gen_start) * 1000.0)
+        outputs.append({"prompt": prompt, "response": response})
+        if sample_output is None:
+            sample_output = response
     avg_latency = statistics.mean(latencies)
     avg_tokens = statistics.mean(tokens) if tokens else 0.0
+    avg_generation_latency = statistics.mean(generation_latencies) if generation_latencies else 0.0
     cost_estimate = (avg_tokens / 1000.0) * 0.002
     return {
         "mode": mode,
         "avg_latency_ms": round(avg_latency, 3),
         "avg_tokens": round(avg_tokens, 2),
+        "avg_generation_latency_ms": round(avg_generation_latency, 3),
         "estimated_cost_usd": round(cost_estimate, 6),
+        "sample_output": (sample_output or "").strip(),
+        "outputs": outputs,
     }
 
 
@@ -81,12 +97,20 @@ def run_benchmark(
 
 def write_csv(results: List[dict[str, float | str]], path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    fieldnames = ["mode", "avg_latency_ms", "avg_tokens", "estimated_cost_usd"]
+    fieldnames = [
+        "mode",
+        "avg_latency_ms",
+        "avg_generation_latency_ms",
+        "avg_tokens",
+        "estimated_cost_usd",
+        "sample_output",
+    ]
     with path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=fieldnames)
         writer.writeheader()
         for row in results:
-            writer.writerow(row)
+            row_for_csv = {key: row.get(key, "") for key in fieldnames}
+            writer.writerow(row_for_csv)
 
 
 def main() -> None:
@@ -107,8 +131,11 @@ def main() -> None:
     for row in results:
         print(
             f"{row['mode']}: avg latency={row['avg_latency_ms']:.2f} ms, "
+            f"avg generation latency={row['avg_generation_latency_ms']:.2f} ms, "
             f"avg tokens={row['avg_tokens']:.1f}, est cost=${row['estimated_cost_usd']:.6f}"
         )
+        if row.get("sample_output"):
+            print("  Example LLM output:\n  " + str(row["sample_output"]).replace("\n", "\n  "))
 
 
 if __name__ == "__main__":  # pragma: no cover
