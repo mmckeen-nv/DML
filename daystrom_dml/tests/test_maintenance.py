@@ -66,3 +66,23 @@ def test_repair_cycle_refreshes_summary():
     updated = next(it for it in store.items() if it.id == item.id)
     assert updated.meta.get("summary", "").startswith("summary:")
     assert embedder.calls >= 1
+
+
+def test_repair_cycle_preserves_raw_text():
+    summarizer = CountingSummarizer()
+    embedder = StaticEmbedder()
+    store = make_store(summarizer)
+    store.quality_threshold = 1.1
+
+    original_text = "Detailed original memory"
+    emb_one = np.ones(8, dtype=np.float32)
+    emb_two = np.array([1, 0, 0, 0, 0, 0, 0, -1], dtype=np.float32)
+    item, _ = store.ingest(original_text, emb_one)
+    store.ingest("Additional context", emb_two)
+
+    store.retrieve(emb_one, top_k=2)
+    repaired = run_repair_cycle(store, embedder, summarizer, batch_size=2)
+
+    assert repaired >= 1
+    updated = next(it for it in store.items() if it.id == item.id)
+    assert updated.text == original_text

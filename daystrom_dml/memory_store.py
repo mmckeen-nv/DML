@@ -415,7 +415,6 @@ class MemoryStore:
                 return
             target.meta["summary"] = summary
             target.embedding = np.asarray(embedding, dtype=np.float32)
-            target.text = summary
             target.timestamp = time.time()
             self._register_lineage(target)
 
