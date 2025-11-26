@@ -831,6 +831,20 @@ class DMLAdapter:
         tokens = utils.estimate_tokens(text)
         return float(max(0.1, min(1.0, tokens / 200.0)))
 
+    def _fallback_truncate(self, text: str, *, max_len: int) -> str:
+        cleaned = str(text or "").strip()
+        if len(cleaned) <= max_len:
+            return cleaned
+        return cleaned[: max_len - 3].rstrip() + "..."
+
+    def _summary_for_item(self, item: MemoryStore.MemoryItem, *, max_len: int) -> str:
+        summary = ""
+        if item.meta:
+            summary = str(item.meta.get("summary") or "").strip()
+        if summary:
+            return self._fallback_truncate(summary, max_len=max_len)
+        return self._fallback_truncate(item.text, max_len=max_len)
+
     def _retrieve_items(self, prompt: str, top_k: Optional[int]) -> List[MemoryStore.MemoryItem]:
         limit = self._resolve_dml_top_k(top_k)
         prompt_embedding = self.embedder.embed(prompt)
@@ -951,7 +965,6 @@ class DMLAdapter:
     def _format_rag_matches(self, matches: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         formatted: List[Dict[str, Any]] = []
         max_snippet_chars = getattr(self.literal_retriever, "max_snippet_chars", 320)
-        literal_summarizer = getattr(self.literal_retriever, "summarizer", None)
 
         def _clip_segment(value: Any) -> str:
             segment = str(value or "").strip()

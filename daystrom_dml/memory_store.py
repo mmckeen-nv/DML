@@ -1,6 +1,7 @@
 """Core Daystrom Memory Lattice implementation."""
 from __future__ import annotations
 
+import contextlib
 import threading
 import time
 from dataclasses import dataclass, field
@@ -121,6 +122,19 @@ class MemoryStore:
         meta: Optional[Dict] = None,
     ) -> Tuple[MemoryItem, bool]:
         now = time.time()
+        enriched_meta = dict(meta or {})
+
+        with self._lock:
+            best_match, best_sim = self._best_match(embedding)
+
+        if best_match and best_sim >= self.theta_merge:
+            combined_text = f"{best_match.text}\n{text}".strip()
+            summary = self._generate_summary(combined_text, max_len=256)
+        else:
+            summary = enriched_meta.get("summary") or self._generate_summary(
+                text, max_len=256
+            )
+
         with self._lock:
             merged = self._try_merge(text, embedding, salience, meta=meta)
             if merged:
@@ -133,7 +147,7 @@ class MemoryStore:
                 salience=float(salience),
                 fidelity=float(max(0.0, min(1.0, fidelity))),
                 level=int(level),
-                meta=meta or {},
+                meta=enriched_meta,
             )
             self._cache_summary(item, text)
             item.summary_of = [item.id]
@@ -319,7 +333,7 @@ class MemoryStore:
         new_items: List[MemoryItem] = []
         for item in list(self._items):
             if item.fidelity < self.tau_s and item.level < self.K:
-                summary_text = self.summarizer.summarize(item.text, max_len=256)
+                summary_text = self._generate_summary(item.text, max_len=256)
                 if not summary_text:
                     summary_text = item.text[:253] + "..."
                 summary_embedding = item.embedding.copy()
@@ -336,6 +350,7 @@ class MemoryStore:
                 )
                 self._register_lineage(new_item)
                 item.meta.setdefault("abstracted", True)
+                item.meta.setdefault("summary", self._generate_summary(item.text, max_len=256))
                 item.fidelity *= 0.5
                 new_items.append(new_item)
         self._items.extend(new_items)
