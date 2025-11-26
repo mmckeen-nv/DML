@@ -319,7 +319,9 @@ def _render_simple_mode(adapter: DMLAdapter, storage_dir: Path) -> None:
             placeholder="Drop snippets here to create memories without uploading a file.",
             height=160,
         )
-        submit_manual = st.form_submit_button("Ingest text snippet", width="stretch")
+        submit_manual = st.form_submit_button(
+            "Ingest text snippet", use_container_width=True
+        )
     if submit_manual:
         status, message = _try_ingest_text(adapter, manual_text, "manual-entry")
         if status == "success":
@@ -433,7 +435,7 @@ def _render_advanced_mode(adapter: DMLAdapter, storage_dir: Path) -> None:
     _render_budget_controls(adapter)
 
     fig = _build_lattice_plot(items, highlighted_ids)
-    st.plotly_chart(fig, width="stretch")
+    st.plotly_chart(fig, use_container_width=True)
 
     with st.expander("Memory catalogue"):
         if items:
@@ -454,7 +456,7 @@ def _render_advanced_mode(adapter: DMLAdapter, storage_dir: Path) -> None:
                         "Preview": item.text[:100].replace("\n", " "),
                     }
                 )
-            st.dataframe(table_rows, hide_index=True, width="stretch")
+            st.dataframe(table_rows, hide_index=True, use_container_width=True)
         else:
             st.info("No memories ingested yet.")
 
@@ -715,7 +717,7 @@ if ui_mode in {"Advanced", "Benchmark", "Real World Test"}:
         value=st.session_state.get("storage_dir_input", str(current_storage)),
         key="storage_dir_input",
     )
-    if st.sidebar.button("Use storage directory", width="stretch"):
+    if st.sidebar.button("Use storage directory", use_container_width=True):
         requested_raw = (storage_input or "").strip() or str(DEFAULT_STORAGE_DIR)
         requested_dir = _normalise_storage_dir(Path(requested_raw))
         if requested_dir != current_storage:
@@ -729,7 +731,7 @@ if ui_mode in {"Advanced", "Benchmark", "Real World Test"}:
         else:
             st.sidebar.info("Storage directory unchanged.")
 
-    if st.sidebar.button("Reset lattice", width="stretch"):
+    if st.sidebar.button("Reset lattice", use_container_width=True):
         _close_adapter()
         try:
             _clear_storage(current_storage)
@@ -765,7 +767,7 @@ if ui_mode in {"Advanced", "Benchmark", "Real World Test"}:
         placeholder="Drop snippets here to create memories without uploading a file.",
         height=160,
     )
-    if st.sidebar.button("Ingest text snippet", width="stretch"):
+    if st.sidebar.button("Ingest text snippet", use_container_width=True):
         status, message = _try_ingest_text(adapter, manual_text, "manual-entry")
         if status == "success":
             st.sidebar.success("Manual snippet ingested.")
