@@ -877,7 +877,7 @@ class DMLAdapter:
         lines: List[str] = [STARFLEET_BANNER, "=== Daystrom Memory Lattice ==="]
         entries: List[Dict] = []
         for item in items:
-            summary = self._summary_for_item(item, max_len=180)
+            summary = item.cached_summary(max_len=180)
             tokens = utils.estimate_tokens(summary)
             if consumed + tokens > budget:
                 break
@@ -916,7 +916,7 @@ class DMLAdapter:
         items = self.store.retrieve(query_embedding, top_k=top_k)
         results: List[Dict] = []
         for item in items:
-            summary = self._summary_for_item(item, max_len=220)
+            summary = item.cached_summary(max_len=220)
             source = item.meta.get("doc_path") if item.meta else None
             similarity = utils.cosine_similarity(item.embedding, query_embedding)
             results.append(
@@ -972,7 +972,7 @@ class DMLAdapter:
                 return ""
             if len(segment) <= max_snippet_chars:
                 return segment
-            return self._fallback_truncate(segment, max_len=max_snippet_chars)
+            return segment[: max_snippet_chars - 3] + "..."
 
         for match in matches:
             meta = dict(match.get("meta") or {})
