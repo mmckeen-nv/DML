@@ -54,6 +54,7 @@ playground = [
     "streamlit>=1.39",
     "plotly>=5.22",
 ]
+cuda = ["pybind11>=2.10"]
 dev = [
     "pytest>=7.4",
     "ruff>=0.1.9",

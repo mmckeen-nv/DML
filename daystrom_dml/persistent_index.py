@@ -10,6 +10,7 @@ import numpy as np
 
 from . import utils
 from .multi_rag import RAGBackendProtocol
+from .vector_backend import get_vector_backend
 
 
 class PersistentVectorIndex:
@@ -20,6 +21,7 @@ class PersistentVectorIndex:
         self._lock = threading.RLock()
         self._vectors: List[np.ndarray] = []
         self._payloads: List[Dict[str, Any]] = []
+        self._backend = get_vector_backend()
         self._load()
 
     # ------------------------------------------------------------------
@@ -90,16 +92,15 @@ class PersistentVectorIndex:
             query_vec = np.asarray(query, dtype=np.float32)
             if query_vec.size == 0:
                 return []
-            scores: List[float] = []
-            for vector in self._vectors:
-                scores.append(utils.cosine_similarity(vector, query_vec))
-            ranked = sorted(
-                zip(scores, self._payloads),
-                key=lambda item: item[0],
-                reverse=True,
-            )
+            matrix = np.stack(self._vectors).astype(np.float32)
+            scores_matrix = self._backend.cosine_sim_matrix(query_vec, matrix)
+            scores = scores_matrix[0]
+            top_indices, _ = self._backend.top_k(scores, max(1, int(top_k)))
+            ranked = [
+                (scores[idx], self._payloads[idx]) for idx in top_indices[0]
+            ]
             results: List[Dict[str, Any]] = []
-            for score, payload in ranked[: max(1, int(top_k))]:
+            for score, payload in ranked:
                 entry = dict(payload)
                 entry["score"] = float(score)
                 entry.setdefault("tokens", utils.estimate_tokens(entry.get("text", "")))
