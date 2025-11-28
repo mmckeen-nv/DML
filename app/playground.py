@@ -221,11 +221,19 @@ def _rag_generate(adapter: DMLAdapter, prompt: str, retrieval: Dict[str, Any], *
     }
 
 
-def _dml_generate(adapter: DMLAdapter, prompt: str, retrieval: Dict[str, Any], *, max_new_tokens: int) -> Dict[str, Any]:
+def _dml_generate(
+    adapter: DMLAdapter,
+    prompt: str,
+    retrieval: Dict[str, Any],
+    *,
+    max_new_tokens: int,
+    reinforce: bool = True,
+) -> Dict[str, Any]:
     context = retrieval.get("context") or ""
     augmented_prompt = adapter._compose_prompt(prompt, context)
     response, usage, latency = adapter._generate_with_metrics(augmented_prompt, max_new_tokens=max_new_tokens)
-    adapter.reinforce(prompt, response)
+    if reinforce:
+        adapter.reinforce(prompt, response)
     return {
         "response": response,
         "usage": usage,
@@ -642,7 +650,13 @@ def _run_benchmark_suite(
                     }
                 )
 
-            dml_generation = _dml_generate(adapter, question, dml_retrieval, max_new_tokens=max_new_tokens)
+            dml_generation = _dml_generate(
+                adapter,
+                question,
+                dml_retrieval,
+                max_new_tokens=max_new_tokens,
+                reinforce=False,
+            )
             dml_reference = _token_overlap_score(reference_answer, dml_generation.get("response") or "")
             dml_judge = None
             if use_llm_judge:
