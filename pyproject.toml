@@ -1,5 +1,10 @@
 [build-system]
-requires = ["setuptools>=61", "wheel"]
+requires = [
+    "setuptools>=61",
+    "wheel",
+    "pybind11>=2.10",
+    "numpy>=1.24",
+]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
@@ -54,6 +59,7 @@ playground = [
     "streamlit>=1.39",
     "plotly>=5.22",
 ]
+cuda = ["pybind11>=2.10"]
 dev = [
     "pytest>=7.4",
     "ruff>=0.1.9",

@@ -10,6 +10,7 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 import numpy as np
 
 from . import utils
+from .vector_backend import get_vector_backend
 from .summarizer import Summarizer
 
 
@@ -96,6 +97,7 @@ class MemoryStore:
         self._lineage: Dict[int, MemoryItem] = {}
         self._repair_queue: List[int] = []
         self.quality_threshold = -0.1
+        self._vector_backend = get_vector_backend()
         self._aging_thread: Optional[threading.Thread] = None
         if start_aging_loop:
             self._aging_thread = threading.Thread(
@@ -127,16 +129,14 @@ class MemoryStore:
         with self._lock:
             best_match, best_sim = self._best_match(embedding)
 
-        if best_match and best_sim >= self.theta_merge:
-            combined_text = f"{best_match.text}\n{text}".strip()
-            summary = self._generate_summary(combined_text, max_len=256)
-        else:
-            summary = enriched_meta.get("summary") or self._generate_summary(
-                text, max_len=256
-            )
-
         with self._lock:
-            merged = self._try_merge(text, embedding, salience, meta=meta)
+            merged = self._try_merge(
+                text,
+                embedding,
+                salience,
+                meta=meta,
+                precomputed_match=(best_match, best_sim),
+            )
             if merged:
                 return merged, True
             item = MemoryItem(
@@ -160,23 +160,44 @@ class MemoryStore:
         self, query_embedding: np.ndarray, top_k: Optional[int] = 6
     ) -> List[MemoryItem]:
         with self._lock:
-            scored = []
             now = time.time()
-            for item in self._items:
-                score = self._score_item(item, query_embedding, now)
-                self._assess_quality(item, query_embedding, now)
-                scored.append((score, item))
-            scored.sort(key=lambda x: x[0], reverse=True)
+            if not self._items:
+                return []
+            backend = self._vector_backend
+            query_vec = np.asarray(query_embedding, dtype=np.float32)
+            key_matrix = np.stack([item.embedding for item in self._items]).astype(
+                np.float32
+            )
+            similarities = backend.cosine_sim_matrix(query_vec, key_matrix)[0]
+            ages = np.array(
+                [utils.age_in_hours(item.timestamp, now) for item in self._items],
+                dtype=np.float32,
+            )
+            recency = 1.0 / (1.0 + ages)
+            salience = np.array([item.salience for item in self._items], dtype=np.float32)
+            fidelity = np.array([item.fidelity for item in self._items], dtype=np.float32)
+            scores = (
+                similarities
+                + self.eta * recency
+                + self.gamma * salience
+                + self.kappa * fidelity
+            )
+            for item, similarity in zip(self._items, similarities):
+                self._assess_quality(item, query_vec, now, similarity=float(similarity))
+
             if top_k is None:
-                limit = len(scored)
+                limit = len(scores)
             else:
                 try:
                     limit = int(top_k)
                 except (TypeError, ValueError):
                     limit = 0
-                if limit <= 0 or limit >= len(scored):
-                    limit = len(scored)
-            return [item for _, item in scored[:limit]]
+                if limit <= 0 or limit >= len(scores):
+                    limit = len(scores)
+
+            top_indices, _ = backend.top_k(scores, limit)
+            ordered_items = [self._items[idx] for idx in top_indices[0]]
+            return ordered_items
 
     def items(self) -> Sequence[MemoryItem]:
         with self._lock:
@@ -241,18 +262,48 @@ class MemoryStore:
         self._id += 1
         return value
 
+    def _best_match(self, embedding: np.ndarray) -> Tuple[Optional[MemoryItem], float]:
+        """Return the most similar existing item and its similarity."""
+
+        if not self._items:
+            return None, 0.0
+        backend = self._vector_backend
+        candidate = np.asarray(embedding, dtype=np.float32)
+        key_matrix = np.stack([item.embedding for item in self._items]).astype(
+            np.float32
+        )
+        similarities = backend.cosine_sim_matrix(candidate, key_matrix)[0]
+        best_idx = int(np.argmax(similarities)) if similarities.size else -1
+        if best_idx < 0:
+            return None, 0.0
+        return self._items[best_idx], float(similarities[best_idx])
+
     def _try_merge(
-        self, text: str, embedding: np.ndarray, salience: float, meta: Optional[Dict]
+        self,
+        text: str,
+        embedding: np.ndarray,
+        salience: float,
+        meta: Optional[Dict],
+        *,
+        precomputed_match: Tuple[Optional[MemoryItem], float] | None = None,
     ) -> Optional[MemoryItem]:
         if not self._items:
             return None
-        best: Optional[MemoryItem] = None
-        best_sim = 0.0
-        for item in self._items:
-            sim = utils.cosine_similarity(item.embedding, embedding)
-            if sim > best_sim:
-                best_sim = sim
-                best = item
+        backend = self._vector_backend
+        if precomputed_match is not None:
+            best, best_sim = precomputed_match
+        else:
+            best_sim = 0.0
+            best = None
+            candidate = np.asarray(embedding, dtype=np.float32)
+            key_matrix = np.stack([item.embedding for item in self._items]).astype(
+                np.float32
+            )
+            similarities = backend.cosine_sim_matrix(candidate, key_matrix)[0]
+            best_idx = int(np.argmax(similarities)) if similarities.size else -1
+            if best_idx >= 0:
+                best = self._items[best_idx]
+                best_sim = float(similarities[best_idx])
         if best and best_sim >= self.theta_merge:
             combined_text = f"{best.text}\n{text}".strip()
             summary = self.summarizer.summarize(combined_text, max_len=256)
@@ -287,9 +338,15 @@ class MemoryStore:
         return None
 
     def _score_item(
-        self, item: MemoryItem, query_embedding: np.ndarray, now: float
+        self,
+        item: MemoryItem,
+        query_embedding: np.ndarray,
+        now: float,
+        *,
+        similarity: Optional[float] = None,
     ) -> float:
-        similarity = utils.cosine_similarity(item.embedding, query_embedding)
+        if similarity is None:
+            similarity = utils.cosine_similarity(item.embedding, query_embedding)
         age = utils.age_in_hours(item.timestamp, now)
         recency = 1.0 / (1.0 + age)
         return (
@@ -386,8 +443,24 @@ class MemoryStore:
             summary = text[:253] + "..."
         item.meta["summary"] = summary
 
-    def _assess_quality(self, item: MemoryItem, query_embedding: np.ndarray, now: float) -> None:
-        similarity = utils.cosine_similarity(item.embedding, query_embedding)
+    def _generate_summary(self, text: str, *, max_len: int) -> str:
+        summary = self.summarizer.summarize(text, max_len=max_len)
+        if summary:
+            return summary
+        if len(text) <= max_len:
+            return text
+        return text[: max_len - 3] + "..."
+
+    def _assess_quality(
+        self,
+        item: MemoryItem,
+        query_embedding: np.ndarray,
+        now: float,
+        *,
+        similarity: Optional[float] = None,
+    ) -> None:
+        if similarity is None:
+            similarity = utils.cosine_similarity(item.embedding, query_embedding)
         child_embeddings = self._child_embeddings(item.children)
         variance = float(np.var(child_embeddings)) if child_embeddings else 0.0
         age_hours = utils.age_in_hours(item.timestamp, now)
