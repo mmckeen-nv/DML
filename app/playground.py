@@ -6,7 +6,7 @@ import shutil
 import textwrap
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import plotly.graph_objects as go
@@ -18,6 +18,7 @@ except Exception:  # pragma: no cover - optional dependency
     PdfReader = None
 
 from daystrom_dml.dml_adapter import DMLAdapter
+from app.benchmarks import BENCHMARK_SUITES, BenchmarkSuite
 
 st.set_page_config(page_title="Daystrom Playground", layout="wide")
 
@@ -81,6 +82,31 @@ AGENTIC_SCENARIOS = {
 }
 
 
+# Benchmark suites -----------------------------------------------------
+
+
+def _token_overlap_score(reference: str, candidate: str) -> float:
+    """Simple lexical overlap score between reference and candidate answers."""
+
+    ref_tokens = {token.strip(".,!?;:") for token in reference.lower().split() if token.strip()}
+    cand_tokens = {token.strip(".,!?;:") for token in candidate.lower().split() if token.strip()}
+    if not ref_tokens or not cand_tokens:
+        return 0.0
+    overlap = ref_tokens & cand_tokens
+    union = ref_tokens | cand_tokens
+    return float(len(overlap) / len(union))
+
+
+def llm_judge_score(question: str, context: str, answer: str, reference: str) -> float:
+    """Optional: hook for an LLM-judged score.
+
+    Currently returns ``0.0`` as a stub so the UI can present "N/A" when the
+    checkbox is disabled. Replace with an evaluator prompt if needed.
+    """
+
+    return 0.0
+
+
 def _normalise_storage_dir(path: Path) -> Path:
     """Expand ``path`` and ensure it is rooted on the local filesystem."""
 
@@ -95,6 +121,126 @@ def _scenario_choices() -> tuple[list[str], dict[str, str]]:
     choices = ["None", *names]
     mapping = {scenario["name"]: scenario_id for scenario_id, scenario in AGENTIC_SCENARIOS.items()}
     return choices, mapping
+
+
+def _benchmark_doc_path(suite_id: str, doc_id: str) -> str:
+    return f"benchmark:{suite_id}:{doc_id}"
+
+
+def _ensure_benchmark_corpus(adapter: DMLAdapter, suite: BenchmarkSuite) -> None:
+    """Ingest benchmark documents into the lattice and RAG store once per session."""
+
+    ingested_key = f"bench_ingested_{suite['id']}_{adapter.storage_dir}"
+    if st.session_state.get(ingested_key):
+        return
+
+    for document in suite.get("documents", []):
+        doc_id = document.get("id") or "doc"
+        meta = dict(document.get("meta") or {})
+        meta.setdefault("doc_path", _benchmark_doc_path(suite["id"], doc_id))
+        meta.setdefault("benchmark_suite", suite["id"])
+        meta.setdefault("benchmark_doc_id", doc_id)
+        adapter.ingest(document.get("text") or "", meta=meta)
+
+    st.session_state[ingested_key] = True
+
+
+def _extract_id_from_document(document: Any) -> str:
+    if isinstance(document, dict):
+        for key in ("id", "source", "label", "doc_path"):
+            value = document.get(key)
+            if value:
+                return str(value)
+    return str(document)
+
+
+def _collect_retrieved_ids(documents: list[Any]) -> list[str]:
+    ids: list[str] = []
+    for doc in documents or []:
+        ids.append(_extract_id_from_document(doc))
+    return ids
+
+
+def _compute_retrieval_scores(retrieved: list[str], ground_truth: list[str], *, k: int) -> dict[str, float]:
+    if not ground_truth:
+        return {"precision": 0.0, "recall": 0.0, "hit": 0.0}
+    retrieved_set = set(retrieved[:k])
+    truth_set = set(ground_truth)
+    overlap = retrieved_set & truth_set
+    precision = float(len(overlap) / max(k, 1))
+    recall = float(len(overlap) / max(len(truth_set), 1))
+    hit = 1.0 if overlap else 0.0
+    return {"precision": precision, "recall": recall, "hit": hit}
+
+
+def _rag_retrieval(adapter: DMLAdapter, prompt: str, *, top_k: int) -> Optional[Dict[str, Any]]:
+    reports = adapter.rag_store.report_all(prompt, top_k=top_k)
+    if not reports:
+        return None
+    report = next((entry for entry in reports if entry.get("available", True)), reports[0])
+    documents = report.get("documents") or []
+    context = adapter._format_rag_context(report.get("context") or "")
+    return {
+        "report": report,
+        "context": context,
+        "retrieved_ids": _collect_retrieved_ids(documents),
+        "tokens": report.get("tokens", 0),
+        "latency_ms": report.get("latency_ms", 0),
+    }
+
+
+def _dml_retrieval(adapter: DMLAdapter, prompt: str, *, top_k: int) -> Dict[str, Any]:
+    report = adapter.retrieval_report(prompt, top_k=top_k)
+    dml_ids = []
+    for entry in report.get("entries", []) or []:
+        meta = entry.get("meta") or {}
+        doc_path = meta.get("doc_path") or meta.get("memory_id")
+        dml_ids.append(str(doc_path or entry.get("id")))
+    context = adapter._format_dml_context(report.get("entries", []))
+    return {
+        "report": report,
+        "context": context,
+        "retrieved_ids": dml_ids,
+        "tokens": report.get("tokens", 0),
+        "latency_ms": report.get("latency_ms", 0),
+    }
+
+
+def _rag_generate(adapter: DMLAdapter, prompt: str, retrieval: Dict[str, Any], *, max_new_tokens: int) -> Dict[str, Any]:
+    context = retrieval.get("context") or ""
+    augmented_prompt = adapter._compose_prompt(prompt, context)
+    response, usage, latency = adapter._generate_with_metrics(augmented_prompt, max_new_tokens=max_new_tokens)
+    return {
+        "response": response,
+        "usage": usage,
+        "context_tokens": retrieval.get("tokens", 0),
+        "prompt": augmented_prompt,
+        "prompt_tokens": usage.get("prompt_tokens") if usage else None,
+        "completion_tokens": (usage or {}).get("completion_tokens"),
+        "generation_latency_ms": latency,
+    }
+
+
+def _dml_generate(adapter: DMLAdapter, prompt: str, retrieval: Dict[str, Any], *, max_new_tokens: int) -> Dict[str, Any]:
+    context = retrieval.get("context") or ""
+    augmented_prompt = adapter._compose_prompt(prompt, context)
+    response, usage, latency = adapter._generate_with_metrics(augmented_prompt, max_new_tokens=max_new_tokens)
+    adapter.reinforce(prompt, response)
+    return {
+        "response": response,
+        "usage": usage,
+        "context_tokens": retrieval.get("tokens", 0),
+        "prompt": augmented_prompt,
+        "prompt_tokens": usage.get("prompt_tokens") if usage else None,
+        "completion_tokens": (usage or {}).get("completion_tokens"),
+        "generation_latency_ms": latency,
+    }
+
+
+def _needle_answer_hit(expected: Optional[str], answer: str) -> bool:
+    if not expected:
+        return False
+    return expected.lower() in (answer or "").lower()
 
 
 def _run_agentic_scenario(
@@ -429,6 +575,139 @@ def _render_budget_controls(adapter: DMLAdapter) -> None:
     }
 
 
+def _run_benchmark_suite(
+    adapter: DMLAdapter,
+    suite: BenchmarkSuite,
+    *,
+    run_retrieval: bool,
+    run_generation: bool,
+    use_llm_judge: bool,
+    max_new_tokens: int,
+) -> Dict[str, Any]:
+    """Run retrieval and generation benchmarks for the selected suite."""
+
+    _ensure_benchmark_corpus(adapter, suite)
+    k = int(suite.get("k", 3))
+
+    per_query: list[Dict[str, Any]] = []
+    retrieval_totals = {"rag": {"precision": 0.0, "recall": 0.0, "hit": 0.0, "count": 0}, "dml": {"precision": 0.0, "recall": 0.0, "hit": 0.0, "count": 0}}
+    generation_totals = {"rag": {"ref": 0.0, "judge": 0.0, "context_tokens": 0, "count": 0}, "dml": {"ref": 0.0, "judge": 0.0, "context_tokens": 0, "count": 0}}
+    needle_correct = {"rag": 0, "dml": 0, "count": 0}
+
+    for query in suite.get("queries", []):
+        question = query.get("question") or ""
+        reference_answer = query.get("answer") or ""
+        ground_truth = query.get("ground_truth_ids") or []
+        query_row: Dict[str, Any] = {"id": query.get("id"), "question": question}
+
+        rag_retrieval = _rag_retrieval(adapter, question, top_k=k)
+        dml_retrieval = _dml_retrieval(adapter, question, top_k=k)
+
+        query_row["rag_retrieval_ids"] = (rag_retrieval or {}).get("retrieved_ids", [])
+        query_row["dml_retrieval_ids"] = dml_retrieval.get("retrieved_ids", [])
+
+        if run_retrieval and ground_truth:
+            if rag_retrieval:
+                rag_scores = _compute_retrieval_scores(query_row["rag_retrieval_ids"], ground_truth, k=k)
+                for metric, value in rag_scores.items():
+                    retrieval_totals["rag"][metric] += value
+                retrieval_totals["rag"]["count"] += 1
+                query_row["rag_retrieval_hit"] = bool(rag_scores.get("hit"))
+            if dml_retrieval:
+                dml_scores = _compute_retrieval_scores(query_row["dml_retrieval_ids"], ground_truth, k=k)
+                for metric, value in dml_scores.items():
+                    retrieval_totals["dml"][metric] += value
+                retrieval_totals["dml"]["count"] += 1
+                query_row["dml_retrieval_hit"] = bool(dml_scores.get("hit"))
+
+        if run_generation and reference_answer:
+            rag_generation: Dict[str, Any] | None = None
+            if rag_retrieval:
+                rag_generation = _rag_generate(adapter, question, rag_retrieval, max_new_tokens=max_new_tokens)
+                reference_score = _token_overlap_score(reference_answer, rag_generation.get("response") or "")
+                rag_judge = None
+                if use_llm_judge:
+                    rag_judge = llm_judge_score(question, rag_retrieval.get("context", ""), rag_generation.get("response") or "", reference_answer)
+                generation_totals["rag"]["ref"] += reference_score
+                if rag_judge is not None:
+                    generation_totals["rag"]["judge"] += rag_judge
+                generation_totals["rag"]["context_tokens"] += int(rag_generation.get("context_tokens") or 0)
+                generation_totals["rag"]["count"] += 1
+                query_row.update(
+                    {
+                        "rag_answer": rag_generation.get("response"),
+                        "rag_reference_score": reference_score,
+                        "rag_judge_score": rag_judge,
+                        "rag_context_tokens": rag_generation.get("context_tokens"),
+                    }
+                )
+
+            dml_generation = _dml_generate(adapter, question, dml_retrieval, max_new_tokens=max_new_tokens)
+            dml_reference = _token_overlap_score(reference_answer, dml_generation.get("response") or "")
+            dml_judge = None
+            if use_llm_judge:
+                dml_judge = llm_judge_score(question, dml_retrieval.get("context", ""), dml_generation.get("response") or "", reference_answer)
+            generation_totals["dml"]["ref"] += dml_reference
+            if dml_judge is not None:
+                generation_totals["dml"]["judge"] += dml_judge
+            generation_totals["dml"]["context_tokens"] += int(dml_generation.get("context_tokens") or 0)
+            generation_totals["dml"]["count"] += 1
+            query_row.update(
+                {
+                    "dml_answer": dml_generation.get("response"),
+                    "dml_reference_score": dml_reference,
+                    "dml_judge_score": dml_judge,
+                    "dml_context_tokens": dml_generation.get("context_tokens"),
+                }
+            )
+
+            needle_expected = query.get("meta", {}).get("needle_fact") if isinstance(query.get("meta"), dict) else None
+            if needle_expected:
+                needle_correct["count"] += 1
+                if rag_generation and _needle_answer_hit(needle_expected, rag_generation.get("response") or ""):
+                    needle_correct["rag"] += 1
+                if _needle_answer_hit(needle_expected, dml_generation.get("response") or ""):
+                    needle_correct["dml"] += 1
+
+        per_query.append(query_row)
+
+    def _average(metrics: Dict[str, float]) -> Dict[str, float]:
+        count = float(metrics.pop("count", 0))
+        if count <= 0:
+            count = 0.0
+        base = {key: value for key, value in metrics.items()}
+        if count:
+            base = {key: value / count for key, value in base.items()}
+        else:
+            base = {key: 0.0 for key in base.keys()}
+        return base
+
+    retrieval_summary = {
+        "rag": _average(dict(retrieval_totals["rag"])),
+        "dml": _average(dict(retrieval_totals["dml"])),
+    }
+    generation_summary = {
+        "rag": _average(dict(generation_totals["rag"])),
+        "dml": _average(dict(generation_totals["dml"])),
+    }
+
+    needle_summary = None
+    if needle_correct["count"]:
+        needle_summary = {
+            "rag": needle_correct["rag"] / max(needle_correct["count"], 1),
+            "dml": needle_correct["dml"] / max(needle_correct["count"], 1),
+        }
+
+    return {
+        "suite": suite,
+        "k": k,
+        "queries": per_query,
+        "retrieval": retrieval_summary,
+        "generation": generation_summary,
+        "needle": needle_summary,
+    }
+
+
 def _render_simple_mode(adapter: DMLAdapter, storage_dir: Path) -> None:
     if st.session_state.pop("simple_manual_reset", False):
         st.session_state["simple_manual_text"] = ""
@@ -614,7 +893,7 @@ def _render_advanced_mode(adapter: DMLAdapter, storage_dir: Path) -> None:
     st.caption(f"Storage directory: {storage_dir.resolve()}")
 
 
-def _render_benchmark_mode(adapter: DMLAdapter, storage_dir: Path) -> None:
+def _render_interactive_benchmark(adapter: DMLAdapter, storage_dir: Path) -> None:
     st.caption(
         "Benchmark mode — compare RAG vs DML pipelines with real LLM calls and token usage."
     )
@@ -800,6 +1079,128 @@ def _render_benchmark_mode(adapter: DMLAdapter, storage_dir: Path) -> None:
         st.caption("No trace data recorded.")
 
     st.caption(f"Storage directory: {storage_dir.resolve()}")
+
+
+def _render_benchmark_suite_tab(adapter: DMLAdapter) -> None:
+    st.caption("Benchmarks (DML vs RAG) — run offline suites with retrieval and generation metrics.")
+
+    suite_options = {suite["name"]: suite for suite in BENCHMARK_SUITES}
+    selection = st.selectbox("Benchmark suite", options=list(suite_options.keys()), key="benchmark_suite_selection")
+    suite = suite_options.get(selection)
+
+    if not suite:
+        st.warning("No benchmark suite selected.")
+        return
+
+    st.caption(suite.get("description") or "")
+
+    run_retrieval = st.checkbox("Run retrieval evaluation", value=True, key="benchmark_run_retrieval")
+    run_generation = st.checkbox("Run generation evaluation", value=True, key="benchmark_run_generation")
+    use_judge = st.checkbox("Use LLM-as-judge (optional)", value=False, key="benchmark_use_judge")
+    max_tokens = st.slider(
+        "Max new tokens per answer",
+        min_value=64,
+        max_value=1024,
+        value=256,
+        step=32,
+        key="benchmark_suite_max_tokens",
+    )
+
+    if st.button("Run benchmark", type="primary", use_container_width=True, key="run_benchmark_suite"):
+        with st.spinner("Running benchmark suite across RAG and DML..."):
+            st.session_state["offline_benchmark_result"] = _run_benchmark_suite(
+                adapter,
+                suite,
+                run_retrieval=run_retrieval,
+                run_generation=run_generation,
+                use_llm_judge=use_judge,
+                max_new_tokens=max_tokens,
+            )
+
+    result = st.session_state.get("offline_benchmark_result")
+    if not result:
+        st.info("Select a suite and run to view metrics.")
+        return
+
+    st.markdown(f"### Results — {suite['name']}")
+    if run_retrieval:
+        st.markdown("#### Retrieval metrics")
+        retrieval_rows = [
+            {
+                "Metric": "Precision@k",
+                "RAG": f"{result['retrieval']['rag'].get('precision', 0.0):.3f}",
+                "DML": f"{result['retrieval']['dml'].get('precision', 0.0):.3f}",
+            },
+            {
+                "Metric": "Recall@k",
+                "RAG": f"{result['retrieval']['rag'].get('recall', 0.0):.3f}",
+                "DML": f"{result['retrieval']['dml'].get('recall', 0.0):.3f}",
+            },
+            {
+                "Metric": "HitRate@k",
+                "RAG": f"{result['retrieval']['rag'].get('hit', 0.0):.3f}",
+                "DML": f"{result['retrieval']['dml'].get('hit', 0.0):.3f}",
+            },
+        ]
+        st.table(retrieval_rows)
+
+    if run_generation:
+        st.markdown("#### Generation metrics")
+        judge_label = "LLM judge score" + (" (enabled)" if use_judge else " (N/A)")
+        gen_rows = [
+            {
+                "Metric": "Reference similarity",
+                "RAG": f"{result['generation']['rag'].get('ref', 0.0):.3f}",
+                "DML": f"{result['generation']['dml'].get('ref', 0.0):.3f}",
+            },
+            {
+                "Metric": judge_label,
+                "RAG": "N/A" if not use_judge else f"{result['generation']['rag'].get('judge', 0.0):.3f}",
+                "DML": "N/A" if not use_judge else f"{result['generation']['dml'].get('judge', 0.0):.3f}",
+            },
+            {
+                "Metric": "Avg context tokens",
+                "RAG": f"{result['generation']['rag'].get('context_tokens', 0.0):.1f}",
+                "DML": f"{result['generation']['dml'].get('context_tokens', 0.0):.1f}",
+            },
+        ]
+        st.table(gen_rows)
+
+    if result.get("needle"):
+        st.markdown("#### Needle-in-a-Haystack Accuracy")
+        accuracy_cols = st.columns(2)
+        accuracy_cols[0].metric("RAG", f"{result['needle'].get('rag', 0.0)*100:.1f}%")
+        accuracy_cols[1].metric("DML", f"{result['needle'].get('dml', 0.0)*100:.1f}%")
+
+    st.markdown("#### Per-query breakdown")
+    table_rows = []
+    for entry in result.get("queries", []):
+        table_rows.append(
+            {
+                "ID": entry.get("id"),
+                "Question": entry.get("question"),
+                "RAG IDs": ", ".join(entry.get("rag_retrieval_ids", [])),
+                "DML IDs": ", ".join(entry.get("dml_retrieval_ids", [])),
+                "RAG ref": f"{entry.get('rag_reference_score', 0.0):.3f}" if entry.get("rag_reference_score") is not None else "-",
+                "DML ref": f"{entry.get('dml_reference_score', 0.0):.3f}" if entry.get("dml_reference_score") is not None else "-",
+                "RAG ctx tokens": entry.get("rag_context_tokens") or "-",
+                "DML ctx tokens": entry.get("dml_context_tokens") or "-",
+                "RAG hit": "✅" if entry.get("rag_retrieval_hit") else "",
+                "DML hit": "✅" if entry.get("dml_retrieval_hit") else "",
+            }
+        )
+    if table_rows:
+        st.dataframe(table_rows, hide_index=True, use_container_width=True)
+    else:
+        st.info("No per-query data to display yet.")
+
+
+def _render_benchmark_mode(adapter: DMLAdapter, storage_dir: Path) -> None:
+    tabs = st.tabs(["Interactive comparison", "Benchmarks (DML vs RAG)"])
+    with tabs[0]:
+        _render_interactive_benchmark(adapter, storage_dir)
+    with tabs[1]:
+        _render_benchmark_suite_tab(adapter)
 
 
 def _render_real_world_mode(adapter: DMLAdapter, storage_dir: Path) -> None:
