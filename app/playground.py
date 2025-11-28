@@ -26,6 +26,61 @@ DEFAULT_BASELINE_TOKENS = 8192
 DEFAULT_PRICE_PER_1K = 0.01
 
 
+AGENTIC_SCENARIOS = {
+    "project_worker": {
+        "id": "project_worker",
+        "name": "Multi-Day Project Worker",
+        "description": "Tracks evolving project decisions over several days and tests if the system surfaces the latest, correct decisions.",
+        "steps": [
+            {"role": "memory", "text": "We are planning a product launch. Track every decision starting today."},
+            {"role": "memory", "text": "We decided the launch date will be October 12."},
+            {"role": "memory", "text": "We chose the codename: Project Aurora."},
+            {"role": "memory", "text": "Change of plans — the launch date moves to October 20."},
+            {"role": "memory", "text": "The codename stays Aurora."},
+            {"role": "memory", "text": "We added a stretch goal: Slack integration."},
+            {"role": "memory", "text": "Remove the old idea about Teams integration. Not happening."},
+            {
+                "role": "query",
+                "text": "Give me an authoritative, up-to-date summary of the project decisions we’ve made so far.",
+            },
+        ],
+    },
+    "tool_troubleshooting": {
+        "id": "tool_troubleshooting",
+        "name": "Tool-Using Troubleshooting Agent",
+        "description": "Simulates a diagnostic agent running tools, handling failures, and converging on a stable system state.",
+        "steps": [
+            {"role": "memory", "text": "Run diagnostic A. It failed with code 43."},
+            {"role": "memory", "text": "Retry diagnostic A with safe mode enabled."},
+            {"role": "memory", "text": "Diagnostic A succeeded this time."},
+            {"role": "memory", "text": "Move on to Diagnostic B. Diagnostic B passed on the first try."},
+            {"role": "memory", "text": "Ignore the earlier code 43 failure now that the retry succeeded."},
+            {"role": "memory", "text": "We only store the final successful state for diagnostics when possible."},
+            {
+                "role": "query",
+                "text": "Summarize what diagnostics were run, which ones failed, how they were resolved, and the final system health state.",
+            },
+        ],
+    },
+    "writing_prefs": {
+        "id": "writing_prefs",
+        "name": "Knowledge Worker Writing Preferences",
+        "description": "Tests updating and overriding user preferences over time and whether the system surfaces the latest rules only.",
+        "steps": [
+            {"role": "memory", "text": "When writing emails for me, always use a formal, professional style."},
+            {"role": "memory", "text": "Keep messages at around 150 words."},
+            {"role": "memory", "text": "New rule: use a friendly, casual tone instead of a formal one."},
+            {"role": "memory", "text": "Ignore the old formality rule."},
+            {"role": "memory", "text": "Preferred email length is now around 75 words."},
+            {
+                "role": "query",
+                "text": "State my current writing style preferences clearly and ignore outdated rules.",
+            },
+        ],
+    },
+}
+
+
 def _normalise_storage_dir(path: Path) -> Path:
     """Expand ``path`` and ensure it is rooted on the local filesystem."""
 
@@ -33,6 +88,44 @@ def _normalise_storage_dir(path: Path) -> Path:
     if expanded.is_absolute():
         return expanded
     return Path.cwd() / expanded
+
+
+def _scenario_choices() -> tuple[list[str], dict[str, str]]:
+    names = [scenario["name"] for scenario in AGENTIC_SCENARIOS.values()]
+    choices = ["None", *names]
+    mapping = {scenario["name"]: scenario_id for scenario_id, scenario in AGENTIC_SCENARIOS.items()}
+    return choices, mapping
+
+
+def _run_agentic_scenario(
+    adapter: DMLAdapter, scenario: Dict[str, Any], *, max_new_tokens: int
+) -> tuple[Dict[str, Any] | None, list[str]]:
+    logs: list[str] = []
+    result: Dict[str, Any] | None = None
+
+    for index, step in enumerate(scenario.get("steps", [])):
+        role = (step.get("role") or "").lower()
+        text = step.get("text") or ""
+        prefix = "MEMORY" if role == "memory" else "QUERY"
+        logs.append(f"[{prefix}] {text}")
+
+        if role == "memory":
+            adapter.ingest(
+                text,
+                meta={
+                    "doc_path": f"scenario:{scenario['id']}",
+                    "scenario_id": scenario["id"],
+                    "scenario_step": index,
+                    "scenario_role": role,
+                },
+            )
+            continue
+
+        if role == "query":
+            result = adapter.compare_responses(text, max_new_tokens=max_new_tokens)
+            break
+
+    return result, logs
 
 
 def _resolve_default_storage() -> Path:
@@ -526,6 +619,24 @@ def _render_benchmark_mode(adapter: DMLAdapter, storage_dir: Path) -> None:
         "Benchmark mode — compare RAG vs DML pipelines with real LLM calls and token usage."
     )
 
+    scenario_choices, scenario_mapping = _scenario_choices()
+    scenario_name = st.selectbox(
+        "Agentic scenario",
+        options=scenario_choices,
+        key="agentic_scenario_selection",
+        help="Select a scripted workflow to ingest and compare automatically.",
+    )
+    scenario_id = scenario_mapping.get(scenario_name)
+    scenario_meta = AGENTIC_SCENARIOS.get(scenario_id) if scenario_id else None
+    if scenario_meta:
+        st.caption(scenario_meta.get("description") or "")
+
+    run_scenario = st.button(
+        "Load scenario into memory and run comparison",
+        use_container_width=True,
+        key="benchmark_run_scenario",
+    )
+
     uploaded = st.file_uploader(
         "Upload data for benchmarking (multi-file, PDFs supported)",
         type=["txt", "md", "log", "json", "pdf"],
@@ -559,11 +670,44 @@ def _render_benchmark_mode(adapter: DMLAdapter, storage_dir: Path) -> None:
             with st.spinner("Running benchmark across RAG and DML pipelines..."):
                 result = adapter.compare_responses(prompt, max_new_tokens=max_tokens)
             st.session_state["benchmark_result"] = result
+            st.session_state["last_agentic_scenario"] = None
+            st.session_state.pop("agentic_trace", None)
+
+    if run_scenario:
+        if not scenario_meta:
+            st.warning("Select a scenario to run.")
+        else:
+            with st.spinner("Ingesting scenario steps and running comparisons..."):
+                scenario_result, logs = _run_agentic_scenario(
+                    adapter,
+                    scenario_meta,
+                    max_new_tokens=int(st.session_state.get("benchmark_max_tokens", 256)),
+                )
+            if scenario_result:
+                st.session_state["benchmark_result"] = scenario_result
+                st.session_state["agentic_trace"] = logs
+                st.session_state["last_agentic_scenario"] = scenario_meta["id"]
+                st.success("Scenario completed. Review the comparison below.")
+            else:
+                st.warning("Scenario did not include a query step to run.")
 
     result = st.session_state.get("benchmark_result")
     if not result:
         st.info("Upload content and submit a prompt to see benchmark results.")
         return
+
+    active_scenario_id = st.session_state.get("last_agentic_scenario")
+    if active_scenario_id and active_scenario_id in AGENTIC_SCENARIOS:
+        active_scenario = AGENTIC_SCENARIOS[active_scenario_id]
+        st.markdown(
+            f"**Scenario:** {active_scenario['name']} — {active_scenario.get('description') or ''}"
+        )
+        with st.expander("Show scenario steps", expanded=False):
+            logs = st.session_state.get("agentic_trace") or []
+            if logs:
+                st.markdown("\n".join(f"- {entry}" for entry in logs))
+            else:
+                st.caption("No steps recorded for this scenario run.")
 
     rag_backends = result.get("rag_backends", []) or []
     rag_choice = next((entry for entry in rag_backends if entry.get("available")), None)
