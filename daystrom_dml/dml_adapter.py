@@ -835,6 +835,7 @@ class DMLAdapter:
         kinds: Optional[List[str]] = None,
         top_k: Optional[int] = None,
     ) -> Dict[str, Any]:
+        start = time.perf_counter()
         try:
             limit = int(top_k) if top_k is not None else int(self.config.get("dml_top_k", DEFAULT_DML_TOP_K))
         except (TypeError, ValueError):
@@ -850,24 +851,36 @@ class DMLAdapter:
             kinds=kinds,
             top_k=limit,
         )
+
+        budget = int(self.config.get("token_budget", 600))
+        consumed = 0
+        lines: List[str] = [STARFLEET_BANNER, "=== Daystrom Memory Lattice ==="]
         entries: List[Dict[str, Any]] = []
         for item in candidates:
+            summary = item.cached_summary(max_len=180)
+            tokens = utils.estimate_tokens(summary)
+            if consumed + tokens > budget:
+                break
+            consumed += tokens
+            lines.append(f"- L{item.level} (f={item.fidelity:.2f}): {summary}")
             entries.append(
                 {
                     "id": str(item.id),
-                    "summary": item.cached_summary(max_len=256),
+                    "summary": summary,
                     "meta": item.meta or {},
                     "level": item.level,
                     "fidelity": item.fidelity,
+                    "tokens": tokens,
                 }
             )
-        raw_context = "\n".join(
-            [f"[{entry['id']}] {entry['summary']}" for entry in entries]
-        )
+
+        raw_context = "\n".join(lines)
+        latency_ms = int((time.perf_counter() - start) * 1000.0)
         return {
             "entries": entries,
-            "context_tokens": utils.estimate_tokens(raw_context),
+            "context_tokens": consumed,
             "raw_context": raw_context,
+            "latency_ms": latency_ms,
         }
 
     def collect_instance_scratch(
