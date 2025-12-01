@@ -178,6 +178,45 @@ class MemoryStore:
             ordered_items = [self._items[idx] for idx in top_indices[0]]
             return ordered_items
 
+    def retrieve_filtered(
+        self,
+        query_embedding: np.ndarray,
+        *,
+        tenant_id: str,
+        client_id: Optional[str] = None,
+        session_id: Optional[str] = None,
+        instance_id: Optional[str] = None,
+        kinds: Optional[Iterable[str]] = None,
+        top_k: Optional[int] = 6,
+    ) -> List[MemoryItem]:
+        """Retrieve memories scoped by tenant/client/session/instance/kind."""
+
+        with self._lock:
+            candidates = [
+                item
+                for item in self._items
+                if self._matches_filters(
+                    item,
+                    tenant_id=tenant_id,
+                    client_id=client_id,
+                    session_id=session_id,
+                    instance_id=instance_id,
+                    kinds=kinds,
+                )
+            ]
+            if not candidates:
+                return []
+            now = time.time()
+            query_vec = np.asarray(query_embedding, dtype=np.float32)
+            scores = self._score_candidates(candidates, query_vec, now)
+            limit = self._resolve_limit(top_k, len(scores))
+            if limit <= 0:
+                return []
+
+            backend = self._vector_backend
+            top_indices, _ = backend.top_k(scores, limit)
+            return [candidates[idx] for idx in top_indices[0]]
+
     def items(self) -> Sequence[MemoryItem]:
         with self._lock:
             return list(self._items)
@@ -270,6 +309,24 @@ class MemoryStore:
             existing_queue = payload.get("repair_queue") or []
             self._repair_queue = [
                 int(val) for val in existing_queue if int(val) in self._lineage
+            ]
+
+    def list_scratch(
+        self, tenant_id: str, client_id: Optional[str], instance_id: Optional[str]
+    ) -> List[MemoryItem]:
+        """Return scratch memories for an instance within a tenant."""
+
+        with self._lock:
+            return [
+                item
+                for item in self._items
+                if self._matches_filters(
+                    item,
+                    tenant_id=tenant_id,
+                    client_id=client_id,
+                    instance_id=instance_id,
+                    kinds={"scratch"},
+                )
             ]
 
     def decay_step(self, now: Optional[float] = None) -> None:
@@ -511,6 +568,31 @@ class MemoryStore:
         if limit <= 0:
             return available
         return min(limit, available)
+
+    def _matches_filters(
+        self,
+        item: MemoryItem,
+        *,
+        tenant_id: str,
+        client_id: Optional[str],
+        session_id: Optional[str],
+        instance_id: Optional[str],
+        kinds: Optional[Iterable[str]],
+    ) -> bool:
+        meta = item.meta or {}
+        if meta.get("tenant_id") != tenant_id:
+            return False
+        if kinds is not None:
+            allowed = set(kinds)
+            if meta.get("kind") not in allowed:
+                return False
+        if client_id is not None and meta.get("client_id") != client_id:
+            return False
+        if session_id is not None and meta.get("session_id") != session_id:
+            return False
+        if instance_id is not None and meta.get("instance_id") != instance_id:
+            return False
+        return True
 
     def _assess_quality(
         self,
