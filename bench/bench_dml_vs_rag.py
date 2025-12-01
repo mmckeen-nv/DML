@@ -32,7 +32,14 @@ def _synthetic_query(idx: int) -> str:
 def _ingest_corpus(adapter: DMLAdapter, count: int, rng: random.Random) -> None:
     for idx in range(count):
         text = _synthetic_document(idx, rng)
-        adapter.ingest(text, meta={"doc_path": f"synthetic/doc_{idx}.txt"})
+        adapter.ingest(
+            text,
+            meta={
+                "doc_path": f"synthetic/doc_{idx}.txt",
+                "tenant_id": "bench",
+                "client_id": "bench",
+            },
+        )
 
 
 def _run_mode(
