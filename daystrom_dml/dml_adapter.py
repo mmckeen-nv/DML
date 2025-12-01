@@ -30,6 +30,8 @@ from . import utils
 
 LOGGER = logging.getLogger(__name__)
 
+DEFAULT_DML_TOP_K = 8
+
 # Limit the amount of data returned by the knowledge endpoint to keep the
 # payload responsive even when the lattice contains thousands of memories.
 KNOWLEDGE_MAX_ENTRIES = 200
@@ -60,7 +62,13 @@ class DMLAdapter:
         overrides = dict(config_overrides or {})
         self.settings = load_config(config_path, overrides=overrides)
         self.config = self.settings.as_dict()
-        self.config.setdefault("dml_top_k", 0)
+        self.config.setdefault("dml_top_k", DEFAULT_DML_TOP_K)
+        self.enable_workflow_cache = bool(
+            self.config.get("enable_workflow_cache", False)
+        )
+        self.enable_quality_on_retrieval = bool(
+            self.config.get("enable_quality_on_retrieval", False)
+        )
         self.metrics_enabled = bool(self.settings.metrics_enabled)
         self.runner = runner or GPTRunner(self.config["model_name"])
         self.embedder = embedder or create_embedder(
@@ -168,6 +176,7 @@ class DMLAdapter:
             K=int(self.config["K"]),
             capacity=int(self.config["capacity"]),
             start_aging_loop=start_aging_loop,
+            enable_quality_on_retrieval=self.enable_quality_on_retrieval,
         )
         self.checkpoint_manager: Optional[CheckpointManager] = None
         if int(self.settings.checkpoint_interval_seconds) > 0:
@@ -719,13 +728,7 @@ class DMLAdapter:
         query_embedding = self.embedder.embed(prompt)
         items = self.store.items()
         dml_limit = self._resolve_dml_top_k(None)
-        if dml_limit is None:
-            configured_top_k = int(self.config.get("top_k", 6))
-            if configured_top_k <= 0:
-                configured_top_k = 6
-            top_k = min(len(items), configured_top_k)
-        else:
-            top_k = min(len(items), dml_limit)
+        top_k = min(len(items), dml_limit)
         literal_results: List[Dict[str, Any]] = []
         semantic_results: List[Dict[str, Any]] = []
         if selected_mode in {"literal", "hybrid"}:
@@ -789,6 +792,62 @@ class DMLAdapter:
             "avg_fidelity": float(np.mean([it.fidelity for it in items]) if items else 0.0),
         }
 
+    def run_maintenance(self, sample_ratio: float = 0.1) -> None:
+        """Run a maintenance pass to assess quality without slowing retrieval."""
+
+        self.store.maintenance_pass(sample_ratio=sample_ratio)
+
+    def record_agent_workflow(
+        self, task_description: str, steps: List[str], outcome: str
+    ) -> Optional[str]:
+        """Optionally store a successful agent workflow as a reusable template."""
+
+        if not self.enable_workflow_cache:
+            return None
+
+        text = self._format_workflow_text(task_description, steps, outcome)
+        embedding = self.embedder.embed(text)
+        item = self.store.add(
+            text=text,
+            embedding=embedding,
+            meta={
+                "kind": "workflow",
+                "task_description": task_description,
+                "steps_count": len(steps),
+                "outcome": outcome,
+            },
+        )
+        return str(item.id)
+
+    def suggest_workflows_for_task(
+        self, task_description: str, top_k: int = 3
+    ) -> List[Dict[str, Any]]:
+        """Retrieve reusable workflow templates related to a new task."""
+
+        if not self.enable_workflow_cache:
+            return []
+        try:
+            limit = max(1, int(top_k))
+        except (TypeError, ValueError):
+            limit = 3
+
+        query_embedding = self.embedder.embed(task_description)
+        candidates = self.store.retrieve_by_kind(
+            query_embedding=query_embedding, kind="workflow", top_k=limit
+        )
+
+        results: List[Dict[str, Any]] = []
+        for item in candidates:
+            results.append(
+                {
+                    "id": item.id,
+                    "summary": item.cached_summary(max_len=200),
+                    "task_description": (item.meta or {}).get("task_description", ""),
+                    "outcome": (item.meta or {}).get("outcome", ""),
+                }
+            )
+        return results
+
     # ------------------------------------------------------------------
     # helpers
     # ------------------------------------------------------------------
@@ -805,6 +864,18 @@ class DMLAdapter:
             lines.append(
                 f"- L{entry['level']} (f={entry['fidelity']:.2f}): {entry['summary']}"
             )
+        return "\n".join(lines)
+
+    def _format_workflow_text(
+        self, task_description: str, steps: List[str], outcome: str
+    ) -> str:
+        lines = [
+            f"Task: {task_description.strip()}",
+            "Steps:",
+        ]
+        for idx, step in enumerate(steps, start=1):
+            lines.append(f"{idx}. {step}")
+        lines.append(f"Outcome: {outcome.strip()}")
         return "\n".join(lines)
 
     def _compose_prompt(self, prompt: str, context: str) -> str:
@@ -850,23 +921,28 @@ class DMLAdapter:
         prompt_embedding = self.embedder.embed(prompt)
         return self.store.retrieve(prompt_embedding, top_k=limit)
 
-    def _resolve_dml_top_k(self, requested: Optional[int]) -> Optional[int]:
+    def _resolve_dml_top_k(self, requested: Optional[int]) -> int:
+        """Resolve a safe retrieval cap.
+
+        Non-positive or invalid values fall back to the configured default to
+        avoid unbounded scans of the lattice during retrieval.
+        """
+
         if requested is None:
-            raw_value = self.config.get("dml_top_k")
+            raw_value = self.config.get("dml_top_k", DEFAULT_DML_TOP_K)
         else:
             raw_value = requested
-        if raw_value is None:
-            return None
         try:
             parsed = int(raw_value)
         except (TypeError, ValueError):
             LOGGER.warning(
-                "Invalid dml_top_k value %r; defaulting to unlimited retrieval.",
+                "Invalid dml_top_k value %r; defaulting to %d.",
                 raw_value,
+                DEFAULT_DML_TOP_K,
             )
-            return None
+            return DEFAULT_DML_TOP_K
         if parsed <= 0:
-            return None
+            return DEFAULT_DML_TOP_K
         return parsed
 
     def _prepare_context(
