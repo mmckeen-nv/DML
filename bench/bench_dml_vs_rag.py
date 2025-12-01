@@ -12,7 +12,7 @@ from typing import Iterable, List
 
 from daystrom_dml.dml_adapter import DMLAdapter
 
-DEFAULT_MODES = ("semantic", "literal", "hybrid")
+DEFAULT_MODES = ("semantic", "literal", "hybrid", "agent")
 VOCAB = [
     "quantum", "warp", "lattice", "plasma", "neutrino", "protocol", "diagnostic",
     "hyperdrive", "tensor", "fusion", "relay", "synthesis", "analysis", "resonance",
@@ -45,11 +45,26 @@ def _run_mode(
     sample_output: str | None = None
     for prompt in prompts:
         start = time.perf_counter()
-        report = adapter.query_database(prompt, mode=mode)
-        duration_ms = (time.perf_counter() - start) * 1000.0
-        latencies.append(duration_ms if report.get("latency_ms") is None else report["latency_ms"])
-        tokens.append(int(report.get("tokens", 0)))
-        augmented = adapter._compose_prompt(prompt, report.get("context", ""))
+        if mode == "agent":
+            report = adapter.retrieve_context(
+                prompt,
+                tenant_id="bench",
+                client_id="bench",
+                session_id=None,
+                instance_id=None,
+                kinds=None,
+                top_k=None,
+            )
+            duration_ms = (time.perf_counter() - start) * 1000.0
+            latencies.append(report.get("latency_ms", duration_ms))
+            tokens.append(int(report.get("context_tokens", 0)))
+            augmented = adapter._compose_prompt(prompt, report.get("raw_context", ""))
+        else:
+            report = adapter.query_database(prompt, mode=mode)
+            duration_ms = (time.perf_counter() - start) * 1000.0
+            latencies.append(duration_ms if report.get("latency_ms") is None else report["latency_ms"])
+            tokens.append(int(report.get("tokens", 0)))
+            augmented = adapter._compose_prompt(prompt, report.get("context", ""))
         gen_start = time.perf_counter()
         response = adapter.runner.generate(augmented)
         generation_latencies.append((time.perf_counter() - gen_start) * 1000.0)
