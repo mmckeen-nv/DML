@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import contextlib
+import random
 import threading
 import time
 from dataclasses import dataclass, field
@@ -79,6 +80,7 @@ class MemoryStore:
         K: int,
         capacity: int,
         start_aging_loop: bool = True,
+        enable_quality_on_retrieval: bool = False,
     ) -> None:
         self.summarizer = summarizer
         self.beta_a = beta_a
@@ -97,6 +99,8 @@ class MemoryStore:
         self._lineage: Dict[int, MemoryItem] = {}
         self._repair_queue: List[int] = []
         self.quality_threshold = -0.1
+        # Expensive quality/repair checks can be deferred to a maintenance pass.
+        self.enable_quality_on_retrieval = bool(enable_quality_on_retrieval)
         self._vector_backend = get_vector_backend()
         self._aging_thread: Optional[threading.Thread] = None
         if start_aging_loop:
@@ -163,38 +167,13 @@ class MemoryStore:
             now = time.time()
             if not self._items:
                 return []
-            backend = self._vector_backend
             query_vec = np.asarray(query_embedding, dtype=np.float32)
-            key_matrix = np.stack([item.embedding for item in self._items]).astype(
-                np.float32
-            )
-            similarities = backend.cosine_sim_matrix(query_vec, key_matrix)[0]
-            ages = np.array(
-                [utils.age_in_hours(item.timestamp, now) for item in self._items],
-                dtype=np.float32,
-            )
-            recency = 1.0 / (1.0 + ages)
-            salience = np.array([item.salience for item in self._items], dtype=np.float32)
-            fidelity = np.array([item.fidelity for item in self._items], dtype=np.float32)
-            scores = (
-                similarities
-                + self.eta * recency
-                + self.gamma * salience
-                + self.kappa * fidelity
-            )
-            for item, similarity in zip(self._items, similarities):
-                self._assess_quality(item, query_vec, now, similarity=float(similarity))
+            scores = self._score_candidates(self._items, query_vec, now)
+            limit = self._resolve_limit(top_k, len(scores))
+            if limit <= 0:
+                return []
 
-            if top_k is None:
-                limit = len(scores)
-            else:
-                try:
-                    limit = int(top_k)
-                except (TypeError, ValueError):
-                    limit = 0
-                if limit <= 0 or limit >= len(scores):
-                    limit = len(scores)
-
+            backend = self._vector_backend
             top_indices, _ = backend.top_k(scores, limit)
             ordered_items = [self._items[idx] for idx in top_indices[0]]
             return ordered_items
@@ -202,6 +181,52 @@ class MemoryStore:
     def items(self) -> Sequence[MemoryItem]:
         with self._lock:
             return list(self._items)
+
+    def add(
+        self,
+        text: str,
+        embedding: np.ndarray,
+        *,
+        salience: float = 1.0,
+        fidelity: float = 1.0,
+        level: int = 0,
+        meta: Optional[Dict] = None,
+    ) -> MemoryItem:
+        """Convenience wrapper around :meth:`ingest` that ignores merge output."""
+
+        item, _ = self.ingest(
+            text,
+            embedding,
+            salience=salience,
+            fidelity=fidelity,
+            level=level,
+            meta=meta,
+        )
+        return item
+
+    def retrieve_by_kind(
+        self, query_embedding: np.ndarray, kind: str, top_k: Optional[int] = None
+    ) -> List[MemoryItem]:
+        """Retrieve nodes matching a specific ``meta['kind']`` value."""
+
+        with self._lock:
+            candidates = [
+                item
+                for item in self._items
+                if (item.meta or {}).get("kind") == kind
+            ]
+            if not candidates:
+                return []
+            now = time.time()
+            query_vec = np.asarray(query_embedding, dtype=np.float32)
+            scores = self._score_candidates(candidates, query_vec, now)
+            limit = self._resolve_limit(top_k, len(scores))
+            if limit <= 0:
+                return []
+
+            backend = self._vector_backend
+            top_indices, _ = backend.top_k(scores, limit)
+            return [candidates[idx] for idx in top_indices[0]]
 
     def export_state(self) -> Dict[str, Any]:
         """Return a JSON serialisable snapshot of the memory lattice."""
@@ -451,6 +476,42 @@ class MemoryStore:
             return text
         return text[: max_len - 3] + "..."
 
+    def _score_candidates(
+        self, items: Sequence[MemoryItem], query_vec: np.ndarray, now: float
+    ) -> np.ndarray:
+        key_matrix = np.stack([item.embedding for item in items]).astype(np.float32)
+        backend = self._vector_backend
+        similarities = backend.cosine_sim_matrix(query_vec, key_matrix)[0]
+        ages = np.array(
+            [utils.age_in_hours(item.timestamp, now) for item in items], dtype=np.float32
+        )
+        recency = 1.0 / (1.0 + ages)
+        salience = np.array([item.salience for item in items], dtype=np.float32)
+        fidelity = np.array([item.fidelity for item in items], dtype=np.float32)
+        scores = (
+            similarities
+            + self.eta * recency
+            + self.gamma * salience
+            + self.kappa * fidelity
+        )
+        if self.enable_quality_on_retrieval:
+            for item, similarity in zip(items, similarities):
+                self._assess_quality(item, query_vec, now, similarity=float(similarity))
+        return scores
+
+    def _resolve_limit(self, top_k: Optional[int], available: int) -> int:
+        if available <= 0:
+            return 0
+        if top_k is None:
+            return available
+        try:
+            limit = int(top_k)
+        except (TypeError, ValueError):
+            return available
+        if limit <= 0:
+            return available
+        return min(limit, available)
+
     def _assess_quality(
         self,
         item: MemoryItem,
@@ -509,4 +570,20 @@ class MemoryStore:
     def repair_queue(self) -> List[int]:
         with self._lock:
             return list(self._repair_queue)
+
+    def maintenance_pass(self, sample_ratio: float = 0.1) -> None:
+        """Run quality assessment on a sampled subset of items.
+
+        This shifts expensive quality/repair checks out of the retrieval hot path.
+        """
+
+        ratio = max(0.0, min(1.0, float(sample_ratio)))
+        with self._lock:
+            if not self._items or ratio <= 0.0:
+                return
+            now = time.time()
+            for item in self._items:
+                if random.random() > ratio:
+                    continue
+                self._assess_quality(item, item.embedding, now)
 

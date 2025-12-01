@@ -102,7 +102,7 @@ class DMLSettings(BaseModel):
     K: int = Field(4, ge=1)
     capacity: int = Field(2000, ge=1)
     top_k: int = Field(6, ge=1)
-    dml_top_k: int = Field(0, ge=0)
+    dml_top_k: int = Field(8, ge=0)
     literal_context: int = Field(1, ge=0)
     token_budget: int = Field(600, ge=1)
     model_name: str = "mistralai/Mistral-7B-Instruct-v0.2"
@@ -114,6 +114,13 @@ class DMLSettings(BaseModel):
     vector_index_file: str = Field("vector_index.json", description="Filename for the persistent vector index.")
     metrics_namespace: str = Field("daystrom_dml", description="Namespace prefix for exported metrics.")
     metrics_enabled: bool = Field(True, description="Toggle Prometheus metric emission.")
+    enable_quality_on_retrieval: bool = Field(
+        False,
+        description="Run quality assessment during retrieval when True; otherwise defer to maintenance.",
+    )
+    enable_workflow_cache: bool = Field(
+        False, description="Enable storing and suggesting reusable agent workflow templates."
+    )
     gpu_acceleration: bool = Field(False, description="Enable GPU specific optimisations when available.")
     nim_default_id: str = Field("gpt-oss-20b", description="Default NIM model identifier.")
     nim_health_timeout: int = Field(60, ge=1)
