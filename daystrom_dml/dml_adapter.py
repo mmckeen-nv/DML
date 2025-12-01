@@ -16,7 +16,7 @@ from .config import load_config
 from .checkpoint import CheckpointManager
 from .embeddings import Embedder, create_embedder
 from .gpt_runner import GPTRunner
-from .memory_store import MemoryStore
+from .memory_store import MemoryItem, MemoryStore
 from .metrics import record_retrieval, update_memory_gauge
 from .multi_rag import DEFAULT_BACKENDS, MultiRAGStore, RAGBackendDescriptor
 from .persistent_index import PersistentVectorBackend
@@ -31,6 +31,7 @@ from . import utils
 LOGGER = logging.getLogger(__name__)
 
 DEFAULT_DML_TOP_K = 8
+MAX_RETRIEVAL_TOP_K = 10
 
 # Limit the amount of data returned by the knowledge endpoint to keep the
 # payload responsive even when the lattice contains thousands of memories.
@@ -796,6 +797,92 @@ class DMLAdapter:
         """Run a maintenance pass to assess quality without slowing retrieval."""
 
         self.store.maintenance_pass(sample_ratio=sample_ratio)
+
+    # ------------------------------------------------------------------
+    # Multi-tenant helpers used by the DML memory service
+    # ------------------------------------------------------------------
+    def ingest_memory(
+        self,
+        text: str,
+        *,
+        tenant_id: str,
+        client_id: Optional[str] = None,
+        session_id: Optional[str] = None,
+        instance_id: Optional[str] = None,
+        kind: Optional[str] = None,
+        meta: Optional[Dict[str, Any]] = None,
+    ) -> MemoryItem:
+        enriched_meta: Dict[str, Any] = {
+            "tenant_id": tenant_id,
+            "client_id": client_id,
+            "session_id": session_id,
+            "instance_id": instance_id,
+            "kind": kind or "memory",
+        }
+        if meta:
+            enriched_meta.update(meta)
+        embedding = self.embedder.embed(text)
+        return self.store.add(text=text, embedding=embedding, meta=enriched_meta)
+
+    def retrieve_context(
+        self,
+        query: str,
+        *,
+        tenant_id: str,
+        client_id: Optional[str] = None,
+        session_id: Optional[str] = None,
+        instance_id: Optional[str] = None,
+        kinds: Optional[List[str]] = None,
+        top_k: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        try:
+            limit = int(top_k) if top_k is not None else int(self.config.get("dml_top_k", DEFAULT_DML_TOP_K))
+        except (TypeError, ValueError):
+            limit = int(self.config.get("dml_top_k", DEFAULT_DML_TOP_K))
+        limit = max(1, min(MAX_RETRIEVAL_TOP_K, limit))
+        query_embedding = self.embedder.embed(query)
+        candidates = self.store.retrieve_filtered(
+            query_embedding,
+            tenant_id=tenant_id,
+            client_id=client_id,
+            session_id=session_id,
+            instance_id=instance_id,
+            kinds=kinds,
+            top_k=limit,
+        )
+        entries: List[Dict[str, Any]] = []
+        for item in candidates:
+            entries.append(
+                {
+                    "id": str(item.id),
+                    "summary": item.cached_summary(max_len=256),
+                    "meta": item.meta or {},
+                    "level": item.level,
+                    "fidelity": item.fidelity,
+                }
+            )
+        raw_context = "\n".join(
+            [f"[{entry['id']}] {entry['summary']}" for entry in entries]
+        )
+        return {
+            "entries": entries,
+            "context_tokens": utils.estimate_tokens(raw_context),
+            "raw_context": raw_context,
+        }
+
+    def collect_instance_scratch(
+        self,
+        tenant_id: str,
+        client_id: Optional[str],
+        session_id: Optional[str],
+        instance_id: Optional[str],
+    ) -> List[MemoryStore.MemoryItem]:
+        return self.store.list_scratch(
+            tenant_id=tenant_id,
+            client_id=client_id,
+            session_id=session_id,
+            instance_id=instance_id,
+        )
 
     def record_agent_workflow(
         self, task_description: str, steps: List[str], outcome: str
