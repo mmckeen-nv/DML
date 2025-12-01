@@ -163,6 +163,7 @@ def promote_instance(payload: InstancePromoteRequest) -> Dict[str, Any]:
     scratch = adapter.collect_instance_scratch(
         tenant_id=payload.tenant_id,
         client_id=payload.client_id,
+        session_id=payload.session_id,
         instance_id=payload.instance_id,
     )
     if not scratch:

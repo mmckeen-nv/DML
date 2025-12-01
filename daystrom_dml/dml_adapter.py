@@ -871,9 +871,18 @@ class DMLAdapter:
         }
 
     def collect_instance_scratch(
-        self, tenant_id: str, client_id: Optional[str], instance_id: Optional[str]
+        self,
+        tenant_id: str,
+        client_id: Optional[str],
+        session_id: Optional[str],
+        instance_id: Optional[str],
     ) -> List[MemoryStore.MemoryItem]:
-        return self.store.list_scratch(tenant_id, client_id, instance_id)
+        return self.store.list_scratch(
+            tenant_id=tenant_id,
+            client_id=client_id,
+            session_id=session_id,
+            instance_id=instance_id,
+        )
 
     def record_agent_workflow(
         self, task_description: str, steps: List[str], outcome: str

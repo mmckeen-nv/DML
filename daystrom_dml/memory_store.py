@@ -312,7 +312,11 @@ class MemoryStore:
             ]
 
     def list_scratch(
-        self, tenant_id: str, client_id: Optional[str], instance_id: Optional[str]
+        self,
+        tenant_id: str,
+        client_id: Optional[str],
+        session_id: Optional[str],
+        instance_id: Optional[str],
     ) -> List[MemoryItem]:
         """Return scratch memories for an instance within a tenant."""
 
@@ -324,6 +328,7 @@ class MemoryStore:
                     item,
                     tenant_id=tenant_id,
                     client_id=client_id,
+                    session_id=session_id,
                     instance_id=instance_id,
                     kinds={"scratch"},
                 )
