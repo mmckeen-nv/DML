@@ -11,8 +11,8 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 DEFAULT_LLM_MODELS: Sequence[str] = (
     "mistralai/Mistral-7B-Instruct-v0.2",
-    "meta/llama3-8b-instruct",
-    "meta/llama3-70b-instruct",
+    "meta-llama/Meta-Llama-3-8B-Instruct",
+    "meta-llama/Meta-Llama-3-70B-Instruct",
     "mistralai/Mixtral-8x7B-Instruct-v0.1",
 )
 
