@@ -1492,12 +1492,19 @@ if ui_mode in {"Advanced", "Benchmark", "Real World Test"}:
     ):
         st.session_state["selected_llm_model"] = llm_text or llm_selection
         st.session_state["selected_embedding_model"] = embedding_text or embedding_selection
+        requested_embedding = st.session_state["selected_embedding_model"]
+        previous_embedding = adapter.config.get("embedding_model")
+        embedding_changed = requested_embedding != previous_embedding
         try:
+            if embedding_changed:
+                _clear_storage(current_storage)
             adapter = _replace_adapter(current_storage)
         except RuntimeError as exc:
             st.sidebar.error(str(exc))
             st.stop()
         st.sidebar.success("Updated models and restarted the adapter.")
+        if embedding_changed:
+            st.sidebar.info("Cleared stored memories due to embedding model change.")
 
     st.sidebar.divider()
     st.sidebar.subheader("Ingestion")
