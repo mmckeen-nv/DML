@@ -26,6 +26,22 @@ st.set_page_config(page_title="Daystrom Playground", layout="wide")
 DEFAULT_BASELINE_TOKENS = 8192
 DEFAULT_PRICE_PER_1K = 0.01
 
+LLM_MODEL_OPTIONS = [
+    {"label": "Mistral 7B Instruct (default)", "value": "mistralai/Mistral-7B-Instruct-v0.2"},
+    {"label": "Llama 3 8B Instruct", "value": "meta/llama3-8b-instruct"},
+    {"label": "Llama 3 70B Instruct", "value": "meta/llama3-70b-instruct"},
+    {"label": "Mixtral 8x7B Instruct", "value": "mistralai/Mixtral-8x7B-Instruct-v0.1"},
+]
+
+EMBEDDING_MODEL_OPTIONS = [
+    {
+        "label": "MiniLM-L6 v2 (default)",
+        "value": "sentence-transformers/all-MiniLM-L6-v2",
+    },
+    {"label": "BGE Base EN v1.5", "value": "BAAI/bge-base-en-v1.5"},
+    {"label": "BGE Large EN v1.5", "value": "BAAI/bge-large-en-v1.5"},
+]
+
 
 AGENTIC_SCENARIOS = {
     "project_worker": {
@@ -114,6 +130,17 @@ def _normalise_storage_dir(path: Path) -> Path:
     if expanded.is_absolute():
         return expanded
     return Path.cwd() / expanded
+
+
+def _model_overrides(storage_dir: Path) -> Dict[str, Any]:
+    overrides: Dict[str, Any] = {"storage_dir": str(_normalise_storage_dir(storage_dir))}
+    llm_model = (st.session_state.get("selected_llm_model") or "").strip()
+    embedding_model = (st.session_state.get("selected_embedding_model") or "").strip()
+    if llm_model:
+        overrides["model_name"] = llm_model
+    if embedding_model:
+        overrides["embedding_model"] = embedding_model
+    return overrides
 
 
 def _scenario_choices() -> tuple[list[str], dict[str, str]]:
@@ -300,12 +327,10 @@ def _create_adapter(storage_dir: Path) -> DMLAdapter:
     """Create a Daystrom adapter rooted at ``storage_dir``."""
 
     target = _normalise_storage_dir(storage_dir)
+    overrides = _model_overrides(target)
     try:
         target.mkdir(parents=True, exist_ok=True)
-        adapter = DMLAdapter(
-            config_overrides={"storage_dir": str(target)},
-            start_aging_loop=False,
-        )
+        adapter = DMLAdapter(config_overrides=overrides, start_aging_loop=False)
     except Exception as exc:  # pragma: no cover - surfaced in the UI
         raise RuntimeError(f"Failed to initialise Daystrom adapter: {exc}") from exc
     return adapter
@@ -315,6 +340,10 @@ def _store_adapter(adapter: DMLAdapter, storage_dir: Path) -> None:
     st.session_state["adapter"] = adapter
     st.session_state["storage_dir"] = str(storage_dir)
     st.session_state["storage_dir_input"] = str(storage_dir)
+    st.session_state.setdefault("selected_llm_model", adapter.config.get("model_name"))
+    st.session_state.setdefault(
+        "selected_embedding_model", adapter.config.get("embedding_model")
+    )
 
 
 def _close_adapter() -> None:
@@ -435,6 +464,10 @@ def _render_cost_savings(tokens_used: int, *, key_prefix: str) -> None:
     """
 
     st.markdown("#### Cost impact")
+    st.caption(
+        "We compare the tokens you actually sent to the model against a configurable"
+        " 'no-DML' baseline and multiply by the per-1K token rate."
+    )
     input_cols = st.columns(2)
     baseline_key = f"{key_prefix}_baseline_tokens"
     price_key = f"{key_prefix}_price_per_1k"
@@ -471,6 +504,18 @@ def _render_cost_savings(tokens_used: int, *, key_prefix: str) -> None:
     metric_cols[0].metric("Baseline spend (est.)", f"${baseline_cost:,.4f}")
     metric_cols[1].metric("DML spend", f"${actual_cost:,.4f}", f"{token_delta} tokens saved")
     metric_cols[2].metric("Savings", f"${savings:,.4f}", f"{savings_pct:.1f}% vs baseline")
+
+    with st.expander("How this is calculated", expanded=False):
+        st.markdown(
+            textwrap.dedent(
+                f"""
+                - **Baseline spend:** `(baseline tokens / 1000) × price per 1K` → `${baseline_cost:,.4f}`.
+                - **DML spend:** `(actual tokens / 1000) × price per 1K` → `${actual_cost:,.4f}`.
+                - **Savings:** `baseline spend - DML spend` → `${savings:,.4f}` ({savings_pct:.1f}% better).
+                - **Tokens avoided:** `{token_delta}` fewer tokens sent compared to the baseline window.
+                """
+            ).strip()
+        )
 
 
 def _run_retrieval(adapter: DMLAdapter, prompt: str, *, mode: str) -> Dict[str, Any] | None:
@@ -1033,19 +1078,20 @@ def _render_interactive_benchmark(adapter: DMLAdapter, storage_dir: Path) -> Non
                 st.caption(
                     f"LLM tokens — prompt: {prompt_tokens}, completion: {completion_tokens}"
                 )
-            st.markdown("**LLM answer**")
-            st.write(rag_choice.get("response") or "No response generated.")
-            sources = []
-            documents = rag_choice.get("documents") or []
-            for doc in documents:
-                if isinstance(doc, dict):
-                    label = doc.get("source") or doc.get("id") or doc.get("label")
-                    if label:
-                        sources.append(str(label))
-                elif isinstance(doc, str):
-                    sources.append(doc)
-            _render_sources(sources)
-            with st.expander("Show retrieved context (RAG)"):
+            with st.expander("View RAG output"):
+                st.markdown("**LLM answer**")
+                st.write(rag_choice.get("response") or "No response generated.")
+                sources = []
+                documents = rag_choice.get("documents") or []
+                for doc in documents:
+                    if isinstance(doc, dict):
+                        label = doc.get("source") or doc.get("id") or doc.get("label")
+                        if label:
+                            sources.append(str(label))
+                    elif isinstance(doc, str):
+                        sources.append(doc)
+                _render_sources(sources)
+                st.markdown("**Retrieved context**")
                 st.write(rag_choice.get("context") or "No context returned.")
         else:
             st.warning("No RAG backend results available.")
@@ -1065,16 +1111,17 @@ def _render_interactive_benchmark(adapter: DMLAdapter, storage_dir: Path) -> Non
             st.caption(
                 f"LLM tokens — prompt: {prompt_tokens}, completion: {completion_tokens}"
             )
-        st.markdown("**LLM answer**")
-        st.write(dml_result.get("response") or "No response generated.")
-        sources = []
-        for entry in dml_result.get("entries", []) or []:
-            meta = entry.get("meta") or {}
-            doc_path = meta.get("doc_path") or meta.get("source") or meta.get("memory_id")
-            if doc_path:
-                sources.append(str(doc_path))
-        _render_sources(sources)
-        with st.expander("Show retrieved context (DML)"):
+        with st.expander("View DML output"):
+            st.markdown("**LLM answer**")
+            st.write(dml_result.get("response") or "No response generated.")
+            sources = []
+            for entry in dml_result.get("entries", []) or []:
+                meta = entry.get("meta") or {}
+                doc_path = meta.get("doc_path") or meta.get("source") or meta.get("memory_id")
+                if doc_path:
+                    sources.append(str(doc_path))
+            _render_sources(sources)
+            st.markdown("**Retrieved context**")
             st.write(dml_result.get("context") or "No context returned.")
 
     st.markdown("### Pipeline trace")
@@ -1097,6 +1144,22 @@ def _render_interactive_benchmark(adapter: DMLAdapter, storage_dir: Path) -> Non
 
 def _render_benchmark_suite_tab(adapter: DMLAdapter) -> None:
     st.caption("Benchmarks (DML vs RAG) — run offline suites with retrieval and generation metrics.")
+
+    with st.expander("How the agentic tests are scored", expanded=False):
+        st.markdown(
+            "\n".join(
+                [
+                    "- **Agentic suites** replay scripted multi-step workflows (decision changes, tool retries, user preference updates) before issuing a query. They check whether the system keeps the freshest facts and discards superseded ones.",
+                    "- **Precision@k** measures how many of the top-*k* retrieved memories are actually relevant. Higher precision means less noisy context injected into the LLM.",
+                    "- **Recall@k** tracks how many of the ground-truth memories were recovered. Higher recall means the agent is less likely to omit critical facts when answering.",
+                    "- **HitRate@k** is a simple yes/no on whether at least one correct memory was returned. It highlights catastrophic misses.",
+                    "- **Reference similarity** compares generated answers to the suite's reference response using lexical overlap; better scores mean closer alignment to expected outcomes.",
+                    "- **LLM judge score** (optional) lets a model grade answers for faithfulness and completeness when lexical overlap is too strict.",
+                    "- **Avg context tokens** shows how much retrieved text was fed into the LLM; excessive tokens can bloat cost and dilute focus.",
+                    "- **Needle-in-a-Haystack accuracy** counts how often the system surfaces planted facts hidden in distractor text—an indicator of robustness under clutter.",
+                ]
+            )
+        )
 
     suite_options = {suite["name"]: suite for suite in BENCHMARK_SUITES}
     selection = st.selectbox("Benchmark suite", options=list(suite_options.keys()), key="benchmark_suite_selection")
@@ -1367,6 +1430,74 @@ if ui_mode in {"Advanced", "Benchmark", "Real World Test"}:
             st.sidebar.error(str(exc))
             st.stop()
         st.sidebar.success("Cleared stored memories.")
+
+    st.sidebar.divider()
+    st.sidebar.subheader("Models")
+
+    def _label_for_value(value: str, options: list[dict[str, str]]) -> str:
+        return next((entry["label"] for entry in options if entry["value"] == value), value)
+
+    llm_values = [entry["value"] for entry in LLM_MODEL_OPTIONS]
+    llm_default_value = st.session_state.get("selected_llm_model") or llm_values[0]
+    llm_default_index = llm_values.index(llm_default_value) if llm_default_value in llm_values else 0
+    llm_selection = st.sidebar.selectbox(
+        "LLM presets (fills the field below)",
+        options=llm_values,
+        index=llm_default_index,
+        format_func=lambda value: _label_for_value(value, LLM_MODEL_OPTIONS),
+        key="llm_preset_selection",
+    )
+    if st.session_state.get("last_llm_preset") != llm_selection:
+        st.session_state["llm_model_input"] = llm_selection
+        st.session_state["last_llm_preset"] = llm_selection
+    if "llm_model_input" not in st.session_state:
+        st.session_state["llm_model_input"] = llm_default_value
+    llm_text = st.sidebar.text_input(
+        "LLM model name",
+        value=st.session_state.get("llm_model_input", llm_selection),
+        key="llm_model_input",
+        help="Used for summarisation, generation, and RAG comparisons.",
+    )
+
+    embedding_values = [entry["value"] for entry in EMBEDDING_MODEL_OPTIONS]
+    embedding_default_value = (
+        st.session_state.get("selected_embedding_model") or embedding_values[0]
+    )
+    embedding_default_index = (
+        embedding_values.index(embedding_default_value)
+        if embedding_default_value in embedding_values
+        else 0
+    )
+    embedding_selection = st.sidebar.selectbox(
+        "Embedding presets",
+        options=embedding_values,
+        index=embedding_default_index,
+        format_func=lambda value: _label_for_value(value, EMBEDDING_MODEL_OPTIONS),
+        key="embedding_preset_selection",
+    )
+    if st.session_state.get("last_embedding_preset") != embedding_selection:
+        st.session_state["embedding_model_input"] = embedding_selection
+        st.session_state["last_embedding_preset"] = embedding_selection
+    if "embedding_model_input" not in st.session_state:
+        st.session_state["embedding_model_input"] = embedding_default_value
+    embedding_text = st.sidebar.text_input(
+        "Embedding model name",
+        value=st.session_state.get("embedding_model_input", embedding_selection),
+        key="embedding_model_input",
+        help="Vectoriser used across the lattice and RAG store.",
+    )
+
+    if st.sidebar.button(
+        "Apply model choices", use_container_width=True, key="apply_model_choices"
+    ):
+        st.session_state["selected_llm_model"] = llm_text or llm_selection
+        st.session_state["selected_embedding_model"] = embedding_text or embedding_selection
+        try:
+            adapter = _replace_adapter(current_storage)
+        except RuntimeError as exc:
+            st.sidebar.error(str(exc))
+            st.stop()
+        st.sidebar.success("Updated models and restarted the adapter.")
 
     st.sidebar.divider()
     st.sidebar.subheader("Ingestion")
