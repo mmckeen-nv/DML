@@ -339,7 +339,6 @@ def _create_adapter(storage_dir: Path) -> DMLAdapter:
 def _store_adapter(adapter: DMLAdapter, storage_dir: Path) -> None:
     st.session_state["adapter"] = adapter
     st.session_state["storage_dir"] = str(storage_dir)
-    st.session_state["storage_dir_input"] = str(storage_dir)
     st.session_state.setdefault("selected_llm_model", adapter.config.get("model_name"))
     st.session_state.setdefault(
         "selected_embedding_model", adapter.config.get("embedding_model")
