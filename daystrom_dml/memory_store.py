@@ -81,6 +81,7 @@ class MemoryStore:
         capacity: int,
         start_aging_loop: bool = True,
         enable_quality_on_retrieval: bool = False,
+        similarity_threshold: float = 0.0,
     ) -> None:
         self.summarizer = summarizer
         self.beta_a = beta_a
@@ -99,6 +100,7 @@ class MemoryStore:
         self._lineage: Dict[int, MemoryItem] = {}
         self._repair_queue: List[int] = []
         self.quality_threshold = -0.1
+        self.similarity_threshold = float(max(-1.0, min(1.0, similarity_threshold)))
         # Expensive quality/repair checks can be deferred to a maintenance pass.
         self.enable_quality_on_retrieval = bool(enable_quality_on_retrieval)
         self._vector_backend = get_vector_backend()
@@ -168,15 +170,8 @@ class MemoryStore:
             if not self._items:
                 return []
             query_vec = np.asarray(query_embedding, dtype=np.float32)
-            scores = self._score_candidates(self._items, query_vec, now)
-            limit = self._resolve_limit(top_k, len(scores))
-            if limit <= 0:
-                return []
-
-            backend = self._vector_backend
-            top_indices, _ = backend.top_k(scores, limit)
-            ordered_items = [self._items[idx] for idx in top_indices[0]]
-            return ordered_items
+            scores, similarities = self._score_candidates(self._items, query_vec, now)
+            return self._select_top_items(self._items, query_vec, top_k, now, scores, similarities)
 
     def retrieve_filtered(
         self,
@@ -208,14 +203,10 @@ class MemoryStore:
                 return []
             now = time.time()
             query_vec = np.asarray(query_embedding, dtype=np.float32)
-            scores = self._score_candidates(candidates, query_vec, now)
-            limit = self._resolve_limit(top_k, len(scores))
-            if limit <= 0:
-                return []
-
-            backend = self._vector_backend
-            top_indices, _ = backend.top_k(scores, limit)
-            return [candidates[idx] for idx in top_indices[0]]
+            scores, similarities = self._score_candidates(candidates, query_vec, now)
+            return self._select_top_items(
+                candidates, query_vec, top_k, now, scores, similarities
+            )
 
     def items(self) -> Sequence[MemoryItem]:
         with self._lock:
@@ -258,14 +249,10 @@ class MemoryStore:
                 return []
             now = time.time()
             query_vec = np.asarray(query_embedding, dtype=np.float32)
-            scores = self._score_candidates(candidates, query_vec, now)
-            limit = self._resolve_limit(top_k, len(scores))
-            if limit <= 0:
-                return []
-
-            backend = self._vector_backend
-            top_indices, _ = backend.top_k(scores, limit)
-            return [candidates[idx] for idx in top_indices[0]]
+            scores, similarities = self._score_candidates(candidates, query_vec, now)
+            return self._select_top_items(
+                candidates, query_vec, top_k, now, scores, similarities
+            )
 
     def export_state(self) -> Dict[str, Any]:
         """Return a JSON serialisable snapshot of the memory lattice."""
@@ -540,7 +527,7 @@ class MemoryStore:
 
     def _score_candidates(
         self, items: Sequence[MemoryItem], query_vec: np.ndarray, now: float
-    ) -> np.ndarray:
+    ) -> tuple[np.ndarray, np.ndarray]:
         key_matrix = np.stack([item.embedding for item in items]).astype(np.float32)
         backend = self._vector_backend
         similarities = backend.cosine_sim_matrix(query_vec, key_matrix)[0]
@@ -559,7 +546,38 @@ class MemoryStore:
         if self.enable_quality_on_retrieval:
             for item, similarity in zip(items, similarities):
                 self._assess_quality(item, query_vec, now, similarity=float(similarity))
-        return scores
+        return scores, similarities
+
+    def _select_top_items(
+        self,
+        candidates: Sequence[MemoryItem],
+        query_vec: np.ndarray,
+        top_k: Optional[int],
+        now: float,
+        scores: Optional[np.ndarray] = None,
+        similarities: Optional[np.ndarray] = None,
+    ) -> List[MemoryItem]:
+        """Rank candidates and return the highest scoring items above the similarity floor."""
+
+        if not candidates:
+            return []
+
+        if scores is None or similarities is None:
+            scores, similarities = self._score_candidates(candidates, query_vec, now)
+
+        mask = similarities >= self.similarity_threshold
+        if not bool(np.any(mask)):
+            return []
+
+        filtered_items = [item for item, keep in zip(candidates, mask) if keep]
+        filtered_scores = scores[mask]
+        limit = self._resolve_limit(top_k, len(filtered_scores))
+        if limit <= 0:
+            return []
+
+        backend = self._vector_backend
+        top_indices, _ = backend.top_k(filtered_scores, limit)
+        return [filtered_items[idx] for idx in top_indices[0]]
 
     def _resolve_limit(self, top_k: Optional[int], available: int) -> int:
         if available <= 0:
