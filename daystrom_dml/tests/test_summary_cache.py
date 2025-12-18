@@ -28,6 +28,7 @@ def make_adapter():
             "token_budget": 120,
             "storage_dir": str(storage_dir),
             "persistence": {"enable": False},
+            "similarity_threshold": 0.0,
         },
         embedder=RandomEmbedder(dim=32),
         summarizer=summarizer,

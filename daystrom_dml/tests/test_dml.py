@@ -24,6 +24,7 @@ def make_store(**kwargs) -> MemoryStore:
         K=4,
         capacity=20,
         start_aging_loop=False,
+        similarity_threshold=0.0,
     )
     defaults.update(kwargs)
     return MemoryStore(**defaults)
@@ -112,3 +113,37 @@ def test_knowledge_report_limits_payload(tmp_path):
     assert len(dml["entries"]) == KNOWLEDGE_MAX_ENTRIES
     assert dml["truncated"] is True
     assert all(len(entry["summary"]) <= KNOWLEDGE_ENTRY_PREVIEW_CHARS for entry in dml["entries"])
+
+
+def test_similarity_threshold_filters_irrelevant_memories():
+    store = make_store(similarity_threshold=0.25)
+    on_topic_vec = np.ones(8, dtype=np.float32)
+    off_topic_vec = np.array([1, 1, 1, 1, -1, -1, -1, -1], dtype=np.float32)
+
+    store.ingest("Climate change impacts ecosystems", on_topic_vec, salience=0.8)
+    store.ingest("Recipe for blueberry pancakes", off_topic_vec, salience=0.9)
+
+    results = store.retrieve(on_topic_vec, top_k=2)
+
+    assert any("Climate" in item.text for item in results)
+    assert all("pancakes" not in item.text for item in results)
+
+
+def test_similarity_threshold_backfills_top_k_after_filtering():
+    store = make_store(similarity_threshold=0.2)
+    query_vec = np.array([1.0, 0.0, 0.0, 0.0], dtype=np.float32)
+
+    high_similarity = np.array([1.0, 0.0, 0.0, 0.0], dtype=np.float32)
+    borderline_high_salience = np.array([-0.2, 1.0, 0.0, 0.0], dtype=np.float32)
+    mid_similarity = np.array([0.35, 1.0, 0.0, 0.0], dtype=np.float32)
+
+    store.ingest("Direct match", high_similarity, salience=0.5)
+    store.ingest("Off topic but salient", borderline_high_salience, salience=80.0)
+    store.ingest("Related but quieter", mid_similarity, salience=0.5)
+
+    results = store.retrieve(query_vec, top_k=2)
+
+    assert len(results) == 2
+    texts = {item.text for item in results}
+    assert "Off topic but salient" not in texts
+    assert {"Direct match", "Related but quieter"} == texts

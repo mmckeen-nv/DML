@@ -178,6 +178,7 @@ class DMLAdapter:
             capacity=int(self.config["capacity"]),
             start_aging_loop=start_aging_loop,
             enable_quality_on_retrieval=self.enable_quality_on_retrieval,
+            similarity_threshold=float(self.config.get("similarity_threshold", 0.0)),
         )
         self.checkpoint_manager: Optional[CheckpointManager] = None
         if int(self.settings.checkpoint_interval_seconds) > 0:

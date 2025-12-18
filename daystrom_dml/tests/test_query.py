@@ -19,6 +19,7 @@ def make_adapter():
             "literal_context": 1,
             "storage_dir": str(storage_dir),
             "persistence": {"enable": False},
+            "similarity_threshold": 0.0,
         },
         embedder=RandomEmbedder(dim=48),
         summarizer=DummySummarizer(),

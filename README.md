@@ -248,6 +248,7 @@ The canonical configuration lives at `daystrom_dml/config.yaml`. Key sections:
 | `model_name` | Default LLM (used locally or for remote OpenAI-compatible calls) |
 | `embedding_model` | Embedding backend identifier |
 | `token_budget` | Maximum tokens reserved for DML context |
+| `similarity_threshold` | Minimum cosine similarity required for a memory to be eligible for retrieval |
 | `persistence.enable` + `interval_sec` | Enable JSONL checkpoints and set cadence |
 | `rag_store.enable`/`backend` | Persist FAISS index to disk |
 | `literal.max_snippet_tokens` & `max_snippets` | Literal retriever window sizes |

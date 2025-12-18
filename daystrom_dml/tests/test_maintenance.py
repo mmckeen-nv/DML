@@ -18,6 +18,8 @@ def make_store(summarizer: Summarizer) -> MemoryStore:
         K=4,
         capacity=20,
         start_aging_loop=False,
+        enable_quality_on_retrieval=True,
+        similarity_threshold=0.0,
     )
 
 
