@@ -78,6 +78,7 @@ def test_query_endpoint_uses_context_and_records_metrics(
         def __init__(self) -> None:
             self.runner = StubRunner()
             self.metrics_enabled = True
+            self.enable_stm_controller = False
             self.retrieval_prompts: list[str] = []
             self.reinforcements: list[tuple[str, str]] = []
 

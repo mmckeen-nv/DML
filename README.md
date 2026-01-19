@@ -246,6 +246,13 @@ The canonical configuration lives at `daystrom_dml/config.yaml`. Key sections:
 | Setting | Description |
 |---------|-------------|
 | `model_name` | Default LLM (used locally or for remote OpenAI-compatible calls) |
+| `llm_backend` | LLM backend selector (`auto`, `transformers`, `openai`, `nim`) |
+| `llm_device` / `llm_dtype` | Device + dtype for local Transformers models |
+| `load_in_4bit` / `load_in_8bit` | Optional quantized loading when bitsandbytes is installed |
+| `enable_stm_controller` | Enable structured STM + controller loop |
+| `commitment_threshold` | Minimum confidence for LTM writes |
+| `ltm_write_policy` | LTM write policy (`strict`, `balanced`, `off`) |
+| `stm_max_commitments` / `ltm_top_k` | STM cap and LTM retrieval limits |
 | `embedding_model` | Embedding backend identifier |
 | `token_budget` | Maximum tokens reserved for DML context |
 | `similarity_threshold` | Minimum cosine similarity required for a memory to be eligible for retrieval |
@@ -283,6 +290,20 @@ print(context)
 response = adapter.run_generation("Draft a remediation plan for the next launch window.")
 ```
 `run_generation` executes retrieval → LLM call → reinforcement in one step. Use `adapter.query_database(..., mode="literal")` to force literal snippets for structured lookups.
+
+### Transformers backend + structured STM controller
+Enable the optional local Transformers backend and STM/controller loop via config or environment variables:
+```bash
+export DML_LLM_BACKEND=transformers
+export DML_MODEL_NAME=sshleifer/tiny-gpt2
+export DML_ENABLE_STM_CONTROLLER=true
+export DML_LTM_WRITE_POLICY=balanced
+```
+You can also run the demo script:
+```bash
+python -m daystrom_dml.demo_transformers --hf-model sshleifer/tiny-gpt2 --enable-stm
+```
+The controller keeps a structured STM summary, retrieves a small LTM slice, and applies conservative write policies to avoid storing low-confidence guesses.
 
 ### NVIDIA NIM control plane
 1. Call `POST /nim/options` to discover curated container images and defaults.

@@ -63,12 +63,15 @@ class DMLClient:
         )
         return self._json(response)
 
-    def query(self, prompt: str) -> Dict[str, Any]:
+    def query(self, prompt: str, *, session_id: Optional[str] = None) -> Dict[str, Any]:
         """Run a full retrieval + generation loop for ``prompt``."""
 
+        payload: Dict[str, Any] = {"prompt": prompt}
+        if session_id is not None:
+            payload["session_id"] = session_id
         response = self._session.post(
             self._url("/query"),
-            json={"prompt": prompt},
+            json=payload,
             timeout=self.timeout,
         )
         return self._json(response)

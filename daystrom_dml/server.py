@@ -295,6 +295,7 @@ class TextPayload(BaseModel):
 
 class QueryPayload(BaseModel):
     prompt: str
+    session_id: Optional[str] = None
 
 
 class ComparePayload(BaseModel):
@@ -1149,6 +1150,33 @@ def reinforce(payload: TextPayload) -> dict:
 
 @app.post("/query")
 def query(payload: QueryPayload) -> dict:
+    if adapter.enable_stm_controller:
+        result = adapter.generate_with_controller(
+            payload.prompt, session_id=payload.session_id
+        )
+        context = (result.get("context") or "").strip()
+        response = result.get("response") or ""
+        mode = result.get("mode", "unknown")
+        prompt_tokens = utils.estimate_tokens(payload.prompt)
+        context_tokens = utils.estimate_tokens(context)
+        tokens_consumed = prompt_tokens + context_tokens
+        tokens_saved = max(0, prompt_tokens - context_tokens)
+        if adapter.metrics_enabled:
+            record_tokens(tokens_consumed, tokens_saved)
+        STRUCT_LOGGER.info(
+            "query_completed",
+            mode=mode,
+            tokens_consumed=tokens_consumed,
+            tokens_saved=tokens_saved,
+            context_tokens=context_tokens,
+            latency_ms=0,
+        )
+        return {
+            "mode": mode,
+            "context": context,
+            "response": response,
+            "stats": adapter.stats(),
+        }
     retrieval = adapter.query_database(payload.prompt)
     context = (retrieval.get("context") or "").strip()
     if context:

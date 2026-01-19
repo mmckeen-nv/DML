@@ -4,14 +4,9 @@ from __future__ import annotations
 import logging
 import os
 from dataclasses import dataclass
-from typing import Optional
+from typing import Iterable, Optional
 
 import requests
-
-try:  # pragma: no cover - torch might be unavailable in minimal environments
-    import torch
-except ModuleNotFoundError:  # pragma: no cover - handled during tests
-    torch = None  # type: ignore[assignment]
 
 LOGGER = logging.getLogger(__name__)
 
@@ -28,6 +23,14 @@ class GPTRunner:
     model_name: str
     task: str = "text-generation"
     device: Optional[str] = None
+    backend: str = "auto"
+    dtype: str = "auto"
+    load_in_4bit: bool = False
+    load_in_8bit: bool = False
+    trust_remote_code: bool = False
+    use_fast_tokenizer: bool = True
+    temperature: float = 0.2
+    top_p: float = 1.0
 
     def __post_init__(self) -> None:
         self._backend = None
@@ -36,7 +39,21 @@ class GPTRunner:
         remote_base = remote_base or os.getenv("NIM_API_BASE")
         remote_key = os.getenv("DML_API_KEY") or os.getenv("OPENAI_API_KEY")
         remote_key = remote_key or os.getenv("NIM_API_KEY")
-        if remote_base:
+        backend_choice = (self.backend or "auto").lower()
+        if backend_choice in {"openai", "nim", "remote"}:
+            if not remote_base:
+                LOGGER.warning(
+                    "Remote backend requested but no API base was configured; falling back."
+                )
+            else:
+                self._backend = _OpenAICompatibleBackend(
+                    base_url=remote_base,
+                    api_key=remote_key,
+                    model_name=self.model_name,
+                )
+                LOGGER.info("Configured remote backend at %s", remote_base)
+                return
+        if backend_choice == "auto" and remote_base:
             self._backend = _OpenAICompatibleBackend(
                 base_url=remote_base,
                 api_key=remote_key,
@@ -44,35 +61,38 @@ class GPTRunner:
             )
             LOGGER.info("Configured remote backend at %s", remote_base)
             return
-        try:
-            from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline
+        if backend_choice not in {"auto", "transformers", "local"}:
+            LOGGER.warning("Unknown backend choice %s; falling back to auto.", backend_choice)
+            backend_choice = "auto"
+        if backend_choice in {"auto", "transformers", "local"}:
+            try:
+                from .llm_backends.transformers_backend import TransformersBackend
 
-            tokenizer = AutoTokenizer.from_pretrained(self.model_name)
-            model_kwargs = {}
-            if self._should_use_half_precision():
-                model_kwargs.update(
-                    {
-                        "torch_dtype": torch.float16,
-                        "low_cpu_mem_usage": True,
-                    }
+                self._backend = TransformersBackend(
+                    model_name=self.model_name,
+                    device=self.device or "auto",
+                    dtype=self.dtype,
+                    load_in_4bit=self.load_in_4bit,
+                    load_in_8bit=self.load_in_8bit,
+                    trust_remote_code=self.trust_remote_code,
+                    use_fast_tokenizer=self.use_fast_tokenizer,
                 )
-                LOGGER.info("Loading model %s in float16 precision", self.model_name)
-            model = AutoModelForCausalLM.from_pretrained(
-                self.model_name,
-                **model_kwargs,
-            )
-            self._backend = pipeline(
-                self.task,
-                model=model,
-                tokenizer=tokenizer,
-                device=self.device,
-            )
-            LOGGER.info("Loaded HF model %s", self.model_name)
-        except Exception as exc:  # pragma: no cover - executed in offline tests
-            LOGGER.warning("Using DummyGPT backend: %s", exc)
-            self._backend = _DummyBackend()
+                LOGGER.info("Loaded transformers backend for %s", self.model_name)
+                return
+            except Exception as exc:  # pragma: no cover - executed in offline tests
+                LOGGER.warning("Transformers backend unavailable: %s", exc)
+        LOGGER.warning("Using DummyGPT backend.")
+        self._backend = _DummyBackend()
 
-    def generate(self, prompt: str, max_new_tokens: int = 256) -> str:
+    def generate(
+        self,
+        prompt: str,
+        max_new_tokens: int = 256,
+        *,
+        temperature: Optional[float] = None,
+        top_p: Optional[float] = None,
+        stop: Iterable[str] | None = None,
+    ) -> str:
         self._last_usage = None
         approx_tokens = len(prompt.split())
         LOGGER.info(
@@ -84,9 +104,23 @@ class GPTRunner:
         if isinstance(self._backend, _DummyBackend):
             return self._backend.generate(prompt, max_new_tokens=max_new_tokens)
         if isinstance(self._backend, _OpenAICompatibleBackend):
-            text, usage = self._backend.generate(prompt, max_new_tokens=max_new_tokens)
+            text, usage = self._backend.generate(
+                prompt,
+                max_new_tokens=max_new_tokens,
+                temperature=temperature if temperature is not None else self.temperature,
+                top_p=top_p if top_p is not None else self.top_p,
+                stop=stop,
+            )
             self._last_usage = usage
             return text
+        if hasattr(self._backend, "generate"):
+            return self._backend.generate(
+                prompt=prompt,
+                max_new_tokens=max_new_tokens,
+                temperature=temperature if temperature is not None else self.temperature,
+                top_p=top_p if top_p is not None else self.top_p,
+                stop=stop,
+            )
         outputs = self._backend(prompt, max_new_tokens=max_new_tokens)
         if isinstance(outputs, list):
             return outputs[0]["generated_text"]
@@ -125,20 +159,6 @@ class GPTRunner:
 
         return self._last_usage
 
-    def _should_use_half_precision(self) -> bool:
-        """Return ``True`` when the model should load using float16 weights."""
-
-        if torch is None or not torch.cuda.is_available():
-            return False
-        if self.device is None:
-            return True
-        if isinstance(self.device, str):
-            return self.device.startswith("cuda")
-        if isinstance(self.device, int):
-            return self.device >= 0
-        return False
-
-
 class _DummyBackend:
     """Fallback backend used during tests."""
 
@@ -170,6 +190,9 @@ class _OpenAICompatibleBackend:
         *,
         max_new_tokens: int = 256,
         system_prompt: Optional[str] = None,
+        temperature: float = 0.2,
+        top_p: float = 1.0,
+        stop: Iterable[str] | None = None,
     ) -> tuple[str, Optional[dict]]:
         url = f"{self.base_url}/v1/chat/completions"
         headers = {"Content-Type": "application/json"}
@@ -183,8 +206,11 @@ class _OpenAICompatibleBackend:
             "model": self.model_name,
             "messages": messages,
             "max_tokens": max_new_tokens,
-            "temperature": 0.2,
+            "temperature": temperature,
+            "top_p": top_p,
         }
+        if stop:
+            payload["stop"] = list(stop)
         LOGGER.info(
             "Dispatching completion request to NIM endpoint %s using model %s",
             url,
