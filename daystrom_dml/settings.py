@@ -107,8 +107,24 @@ class DMLSettings(BaseModel):
     literal_context: int = Field(1, ge=0)
     token_budget: int = Field(600, ge=1)
     model_name: str = "mistralai/Mistral-7B-Instruct-v0.2"
+    llm_backend: str = "auto"
+    llm_device: str | None = None
+    llm_dtype: str = "auto"
+    load_in_4bit: bool = False
+    load_in_8bit: bool = False
+    trust_remote_code: bool = False
+    use_fast_tokenizer: bool = True
+    llm_temperature: float = Field(0.2, ge=0.0)
+    llm_top_p: float = Field(1.0, ge=0.0, le=1.0)
     embedding_model: str | None = "sentence-transformers/all-MiniLM-L6-v2"
     embedding_device: str | None = None
+    enable_stm_controller: bool = Field(False, description="Enable structured STM controller loop.")
+    commitment_threshold: float = Field(0.75, ge=0.0, le=1.0)
+    ltm_write_policy: str = Field("balanced", description="LTM write policy: strict, balanced, off.")
+    stm_max_commitments: int = Field(8, ge=1)
+    stm_max_entities: int = Field(8, ge=1)
+    ltm_top_k: int = Field(6, ge=1)
+    stm_extract_max_tokens: int = Field(256, ge=64)
     storage_dir: Path = Field(Path("data"), description="Root directory for persisted artefacts.")
     checkpoint_interval_seconds: int = Field(0, ge=0)
     checkpoint_retention: int = Field(3, ge=0)

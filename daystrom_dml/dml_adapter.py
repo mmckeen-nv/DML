@@ -26,6 +26,9 @@ from .summarizer import DummySummarizer, LLMSummarizer, Summarizer
 from .retrievers import LiteralRetriever
 from .router import decide_mode
 from .rag_store import PersistentRAGStore
+from .stm.controller import STMController
+from .stm.policy import LTMWritePolicy, MemoryWrite
+from .stm.schema import STMState
 from . import utils
 
 LOGGER = logging.getLogger(__name__)
@@ -71,7 +74,19 @@ class DMLAdapter:
             self.config.get("enable_quality_on_retrieval", False)
         )
         self.metrics_enabled = bool(self.settings.metrics_enabled)
-        self.runner = runner or GPTRunner(self.config["model_name"])
+        self.llm_backend = str(self.config.get("llm_backend", "auto"))
+        self.runner = runner or GPTRunner(
+            self.config["model_name"],
+            backend=self.llm_backend,
+            device=self.config.get("llm_device"),
+            dtype=self.config.get("llm_dtype", "auto"),
+            load_in_4bit=bool(self.config.get("load_in_4bit", False)),
+            load_in_8bit=bool(self.config.get("load_in_8bit", False)),
+            trust_remote_code=bool(self.config.get("trust_remote_code", False)),
+            use_fast_tokenizer=bool(self.config.get("use_fast_tokenizer", True)),
+            temperature=float(self.config.get("llm_temperature", 0.2)),
+            top_p=float(self.config.get("llm_top_p", 1.0)),
+        )
         self.embedder = embedder or create_embedder(
             self.config.get("embedding_model"),
             device=self.config.get("embedding_device"),
@@ -180,6 +195,22 @@ class DMLAdapter:
             enable_quality_on_retrieval=self.enable_quality_on_retrieval,
             similarity_threshold=float(self.config.get("similarity_threshold", 0.0)),
         )
+        self.enable_stm_controller = bool(self.config.get("enable_stm_controller", False))
+        self.stm_controller: Optional[STMController] = None
+        self._stm_states: Dict[str, STMState] = {}
+        self._stm_lock = RLock()
+        if self.enable_stm_controller:
+            policy = LTMWritePolicy(
+                mode=str(self.config.get("ltm_write_policy", "balanced")),
+                confidence_threshold=float(self.config.get("commitment_threshold", 0.75)),
+            )
+            self.stm_controller = STMController(
+                policy=policy,
+                stm_max_commitments=int(self.config.get("stm_max_commitments", 8)),
+                stm_max_entities=int(self.config.get("stm_max_entities", 8)),
+                top_k=int(self.config.get("ltm_top_k", self.config.get("dml_top_k", DEFAULT_DML_TOP_K))),
+                extract_max_tokens=int(self.config.get("stm_extract_max_tokens", 256)),
+            )
         self.checkpoint_manager: Optional[CheckpointManager] = None
         if int(self.settings.checkpoint_interval_seconds) > 0:
             self.checkpoint_manager = CheckpointManager(
@@ -262,12 +293,107 @@ class DMLAdapter:
         if self.metrics_enabled:
             update_memory_gauge(len(self.store.items()))
 
-    def run_generation(self, prompt: str, *, max_new_tokens: int = 256) -> str:
+    def run_generation(
+        self,
+        prompt: str,
+        *,
+        max_new_tokens: int = 256,
+        session_id: Optional[str] = None,
+    ) -> str:
+        if self.enable_stm_controller and self.stm_controller:
+            result = self._run_generation_with_controller(
+                prompt,
+                max_new_tokens=max_new_tokens,
+                session_id=session_id,
+            )
+            return result["response"]
         context = self.build_preamble(prompt)
         augmented_prompt = f"{context}\n\n{prompt}"
         response = self.runner.generate(augmented_prompt, max_new_tokens=max_new_tokens)
         self.reinforce(prompt, response)
         return response
+
+    def generate_with_controller(
+        self,
+        prompt: str,
+        *,
+        max_new_tokens: int = 256,
+        session_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        if not (self.enable_stm_controller and self.stm_controller):
+            return {
+                "response": self.run_generation(prompt, max_new_tokens=max_new_tokens),
+                "context": self.build_preamble(prompt),
+                "mode": "semantic",
+            }
+        return self._run_generation_with_controller(
+            prompt,
+            max_new_tokens=max_new_tokens,
+            session_id=session_id,
+        )
+
+    def get_stm_state(self, session_id: Optional[str] = None) -> STMState:
+        if not self.enable_stm_controller:
+            raise RuntimeError("STM controller is disabled.")
+        session_key = (session_id or "default").strip() or "default"
+        return self._get_stm_state(session_key)
+
+    def _run_generation_with_controller(
+        self,
+        prompt: str,
+        *,
+        max_new_tokens: int,
+        session_id: Optional[str],
+    ) -> Dict[str, Any]:
+        session_key = (session_id or "default").strip() or "default"
+        controller = self.stm_controller
+        if controller is None:
+            raise RuntimeError("STM controller not configured.")
+        stm = self._get_stm_state(session_key)
+        retrieval_plan = controller.decide_retrieval(stm, prompt)
+        ltm_items = []
+        if retrieval_plan.use_ltm:
+            ltm_items = self._retrieve_ltm_items(prompt, top_k=retrieval_plan.top_k)
+        stm_summary = controller.build_stm_summary(stm) if retrieval_plan.use_stm else ""
+        ltm_block = self._format_ltm_entries(ltm_items)
+        structured_prompt = self._compose_structured_prompt(
+            prompt=prompt,
+            stm_summary=stm_summary,
+            ltm_block=ltm_block,
+        )
+        response = self.runner.generate(
+            structured_prompt,
+            max_new_tokens=max_new_tokens,
+            temperature=float(self.config.get("llm_temperature", 0.2)),
+            top_p=float(self.config.get("llm_top_p", 1.0)),
+        )
+        extraction = controller.extract_structured_updates(
+            user_msg=prompt,
+            model_msg=response,
+            generator=self.runner.generate,
+        )
+        contradictions = controller.detect_contradictions(stm, extraction.commitments)
+        if contradictions:
+            reconcile = controller.slow_path_reconcile(
+                contradictions=contradictions, user_msg=prompt
+            )
+            extraction.commitments = []
+            response = reconcile.response
+        new_commitments = controller.update_stm_from_turn(
+            stm,
+            user_msg=prompt,
+            model_msg=response,
+            extraction=extraction,
+        )
+        if not contradictions:
+            writes = controller.decide_ltm_writes(new_commitments)
+            self._apply_ltm_writes(writes)
+        context = self._compose_context_summary(stm_summary, ltm_block)
+        return {
+            "response": response,
+            "context": context,
+            "mode": retrieval_plan.mode,
+        }
 
     def retrieval_report(self, prompt: str, *, top_k: Optional[int] = None) -> Dict:
         start = time.perf_counter()
@@ -957,6 +1083,82 @@ class DMLAdapter:
             return ""
         return "=== RAG Retrieval ===\n" + context.strip()
 
+    def _get_stm_state(self, session_key: str) -> STMState:
+        with self._stm_lock:
+            state = self._stm_states.get(session_key)
+            if state is None:
+                state = STMState()
+                self._stm_states[session_key] = state
+            return state
+
+    def _retrieve_ltm_items(self, prompt: str, top_k: int) -> List[MemoryStore.MemoryItem]:
+        items = self._retrieve_items(prompt, top_k)
+        filtered: List[MemoryStore.MemoryItem] = []
+        for item in items:
+            meta = item.meta or {}
+            kind = str(meta.get("kind") or "memory")
+            if kind in {"scratch", "stm"}:
+                continue
+            filtered.append(item)
+        return filtered
+
+    def _format_ltm_entries(self, items: List[MemoryStore.MemoryItem]) -> str:
+        if not items:
+            return ""
+        lines: List[str] = ["=== Retrieved Memory ==="]
+        for item in items:
+            meta = item.meta or {}
+            source = meta.get("source", "unknown")
+            confidence = meta.get("confidence")
+            scope = meta.get("scope", "session")
+            timestamp = time.strftime("%Y-%m-%d", time.gmtime(item.timestamp))
+            summary = item.cached_summary(max_len=220)
+            conf_text = f"{confidence:.2f}" if isinstance(confidence, (int, float)) else "n/a"
+            lines.append(
+                f"- ({timestamp}) [source={source} | conf={conf_text} | scope={scope}]\n  {summary}"
+            )
+        return "\n".join(lines)
+
+    def _compose_structured_prompt(
+        self,
+        *,
+        prompt: str,
+        stm_summary: str,
+        ltm_block: str,
+    ) -> str:
+        system_rules = "\n".join(
+            [
+                "=== System Rules ===",
+                "- Respect commitments; do not contradict unless you call it out.",
+                "- If uncertain, say so and ask questions.",
+                "- Use retrieved memory as grounding and cite provenance inline.",
+                "- Do NOT invent facts.",
+                "- Keep responses concise and helpful.",
+            ]
+        )
+        blocks: List[str] = [system_rules]
+        if stm_summary:
+            blocks.append("=== STM Summary ===\n" + stm_summary.strip())
+        if ltm_block:
+            blocks.append(ltm_block.strip())
+        blocks.append("=== User ===\n" + prompt.strip())
+        return "\n\n".join(blocks)
+
+    def _compose_context_summary(self, stm_summary: str, ltm_block: str) -> str:
+        blocks = []
+        if stm_summary:
+            blocks.append("=== STM Summary ===\n" + stm_summary.strip())
+        if ltm_block:
+            blocks.append(ltm_block.strip())
+        return "\n\n".join(blocks)
+
+    def _apply_ltm_writes(self, writes: List[MemoryWrite]) -> None:
+        for write in writes:
+            meta = dict(write.meta)
+            if write.expires_at is not None:
+                meta["expires_at"] = write.expires_at.isoformat()
+            self.ingest(write.text, meta=meta)
+
     def _format_dml_context(self, entries: List[Dict]) -> str:
         if not entries:
             return ""
@@ -1336,4 +1538,3 @@ class DMLAdapter:
             self.close()
         except Exception:
             pass
-
