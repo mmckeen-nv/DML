@@ -175,9 +175,10 @@ class STMController:
             lines.extend([f"- {constraint}" for constraint in stm.constraints[:5]])
         if stm.plan.steps:
             lines.append("Plan:")
+            current_step = max(0, min(stm.plan.current_step, len(stm.plan.steps) - 1))
             lines.append(
-                f"- Step {stm.plan.current_step + 1}/{len(stm.plan.steps)}: "
-                f"{stm.plan.steps[stm.plan.current_step]} ({stm.plan.status})"
+                f"- Step {current_step + 1}/{len(stm.plan.steps)}: "
+                f"{stm.plan.steps[current_step]} ({stm.plan.status})"
             )
         if stm.entities:
             lines.append("Entities:")
