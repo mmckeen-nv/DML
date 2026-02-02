@@ -24,7 +24,7 @@ The **Daystrom Memory Lattice (DML)** compresses, abstracts, and retrieves large
 Key ideas:
 - **Hierarchical memory** – lattice levels L0–Lk range from verbatim fragments to progressively distilled abstractions.
 - **Adaptive routing** – the router can choose semantic, literal, or hybrid retrieval based on the prompt.
-- **Self-maintenance** – salience decay, reinforcement, and summarisation continuously rebalance the store.
+- **Self-maintenance** – salience decay, reinforcement, and summariz ation continuously rebalance the store.
 - **OpenAI-compatible generation** – the lattice can drive NVIDIA NIMs or any OpenAI-compatible endpoint.
 - **Multi-RAG fanout** – a single ingest feeds FAISS, Chroma, and the persistent lattice simultaneously.
 
