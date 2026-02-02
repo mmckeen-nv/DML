@@ -14,11 +14,9 @@ RUN python3 -m venv /opt/venv
 
 WORKDIR /opt/dml
 
-COPY pyproject.toml README.md .
-COPY daystrom_dml ./daystrom_dml
-COPY tests ./tests
-COPY bench ./bench
-COPY scripts ./scripts
+COPY pyproject.toml README.md setup.py ./
+COPY dml_core ./dml_core
+COPY dml_mcp ./dml_mcp
 
 RUN pip install --no-cache-dir --upgrade pip \ 
     && pip install --no-cache-dir .[server,tokenizer,embeddings,faiss]

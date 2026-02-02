@@ -107,10 +107,14 @@ Optional extras:
 - `pip install .[mcp]` – MCP server adapter
 
 ### Repository layout
-- `daystrom_dml/` – core lattice, APIs, adapters, and web assets
-- `app/` – Streamlit visualiser
-- `bench/` – synthetic benchmarking utilities
-- `scripts/` – helper automation
+- `dml_core/` – core lattice, APIs, adapters, scripts, and tests
+- `dml_mcp/` – MCP server entrypoints for DML/CMA
+- `examples/` – playground, demos, chatbot, benchmarks, visualiser, and NIM notes
+
+### Helper scripts
+- `build_dml_core.sh` – build the CPU/runtime Docker image from `dml_core/Dockerfile`
+- `build_dml_cuda.sh` – build the CUDA image from `dml_core/Dockerfile.cuda`
+- `run__dml_playground.sh` – launch the Streamlit playground with sane defaults
 
 ---
 
@@ -124,7 +128,7 @@ Use `--reload` during development for hot reloading. The server honours `DML_HOS
 
 ### Docker
 ```bash
-docker build -t daystrom-dml .
+docker build -f dml_core/Dockerfile -t daystrom-dml .
 docker run --gpus all \
   -p 8000:8000 \
   -e DML_PORT=8000 \
@@ -153,7 +157,11 @@ The compose stack builds the CUDA image, exposes `8000:8000`, and mounts `./data
    ```
 2. Launch Streamlit:
    ```bash
-   streamlit run app/playground.py
+   PYTHONPATH=. streamlit run examples/playground/playground.py
+   ```
+   Or use the helper script:
+   ```bash
+   ./run__dml_playground.sh
    ```
 
 The UI boots into **Simple** mode with a CPU-friendly embedder and stores data in `~/.dml/playground` (override via `DML_PLAYGROUND_STORAGE` or `DML_STORAGE_DIR`). Upload snippets, ask a question, and you’re done.
@@ -174,7 +182,11 @@ The UI boots into **Simple** mode with a CPU-friendly embedder and stores data i
    ```
 4. Launch the playground:
    ```bash
-   streamlit run app/playground.py
+   PYTHONPATH=. streamlit run examples/playground/playground.py
+   ```
+   Or use:
+   ```bash
+   ./run__dml_playground.sh
    ```
 
 Switch the in-app mode selector to **Advanced** for storage management, manual ingestion, token budgets, and the 3D lattice visualiser. The adapter initialises once, reports the chosen device, and subsequent ingestion/retrieval runs remain on GPU without the tqdm “Batches” spam.
@@ -241,7 +253,7 @@ Literal versus semantic routing is automatically selected, but can be forced via
 ---
 
 ## Configuration guide
-The canonical configuration lives at `daystrom_dml/config.yaml`. Key sections:
+The canonical configuration lives at `dml_core/daystrom_dml/config.yaml`. Key sections:
 
 | Setting | Description |
 |---------|-------------|
@@ -331,13 +343,13 @@ export DML_MODEL_NAME=meta/llama3-8b-instruct   # Model identifier understood by
 ## Benchmarks and load testing
 Run synthetic comparisons against baseline RAG pipelines:
 ```bash
-python bench/bench_dml_vs_rag.py --corpus-size 120 --queries 12
+python examples/bench/bench_dml_vs_rag.py --corpus-size 120 --queries 12
 ```
 Make targets are provided for convenience:
 - `make bench-small`
 - `make bench-large`
 
-Each run emits CSV reports (latency, token usage, cost projections) under `bench/` for analysis.
+Each run emits CSV reports (latency, token usage, cost projections) under `examples/bench/` for analysis.
 
 ---
 

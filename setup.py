@@ -72,7 +72,7 @@ class CUDABuildExt(build_ext):
 
 cuda_extension = Extension(
     "daystrom_dml._cuda_backend",
-    sources=["daystrom_dml/_cuda_backend.cu"],
+    sources=["dml_core/daystrom_dml/_cuda_backend.cu"],
 )
 setattr(cuda_extension, "is_cuda", True)
 
@@ -85,7 +85,11 @@ setup(
     author_email="cma@example.com",
     license="MIT",
     python_requires=">=3.10",
-    packages=find_packages(exclude=["nim*", "tests*", "daystrom_dml.tests*"]),
+    packages=(
+        find_packages(where="dml_core", exclude=["nim*", "tests*", "daystrom_dml.tests*", "examples*"])
+        + ["dml_mcp"]
+    ),
+    package_dir={"": "dml_core", "dml_mcp": "dml_mcp"},
     install_requires=[
         "typer>=0.9",
         "fastapi>=0.100",

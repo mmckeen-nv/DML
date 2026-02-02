@@ -1,0 +1,74 @@
+version: "3.9"
+
+services:
+  vllm:
+    image: vllm/vllm-openai:latest
+    container_name: vllm
+    shm_size: "16gb"
+    ports:
+      - "8001:8000"
+    environment:
+      HF_TOKEN: ${HF_TOKEN-}
+    volumes:
+      - hf_cache:/root/.cache/huggingface
+    command: >
+      --model ${HF_MODEL_ID:-openai/gpt-oss-120b}
+      --served-model-name ${SERVED_MODEL_NAME:-gpt-oss-120b}
+      --host 0.0.0.0
+      --port 8000
+      --dtype ${VLLM_DTYPE:-bfloat16}
+      --max-model-len ${VLLM_MAX_LEN:-8192}
+      --tensor-parallel-size ${VLLM_TP_SIZE:-1}
+      --gpu-memory-utilization ${VLLM_GPU_UTIL:-0.92}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  dml:
+    build:
+      context: ../..
+      dockerfile: dml_core/Dockerfile
+    container_name: dml
+    depends_on:
+      - vllm
+    ports:
+      - "8000:8000"
+    environment:
+      DML_API_BASE: http://vllm:8000/v1
+      DML_MODEL_NAME: ${SERVED_MODEL_NAME:-gpt-oss-120b}
+      DML_ENABLE_STM_CONTROLLER: "true"
+      DML_LTM_WRITE_POLICY: ${DML_LTM_WRITE_POLICY:-balanced}
+      DML_STORAGE_DIR: /opt/dml/data
+      DML_GPU_ACCELERATION: "1"
+      DML_EMBEDDING_DEVICE: ${DML_EMBEDDING_DEVICE:-cuda}
+    volumes:
+      - dml_data:/opt/dml/data
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  ui:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: dml-chat-ui
+    depends_on:
+      - dml
+    ports:
+      - "7860:7860"
+    environment:
+      DML_BASE_URL: http://dml:8000
+      DML_SESSION_ID: ${DML_SESSION_ID:-default}
+    restart: unless-stopped
+
+volumes:
+  hf_cache:
+  dml_data:

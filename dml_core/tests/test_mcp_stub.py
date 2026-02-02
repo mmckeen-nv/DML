@@ -5,7 +5,7 @@ import importlib
 
 
 def test_mcp_server_importable():
-    module = importlib.import_module("mcp.dml_mcp_server")
+    module = importlib.import_module("dml_mcp.dml_mcp_server")
     assert hasattr(module, "create_server")
     if getattr(module, "MCP_AVAILABLE", False):
         server = module.create_server(host="127.0.0.1", port=8765)

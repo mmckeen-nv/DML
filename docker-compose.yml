@@ -2,7 +2,7 @@ services:
   dml-service:
     build:
       context: .
-      dockerfile: Dockerfile.dml
+      dockerfile: examples/Dockerfile
     container_name: dml-service
     runtime: nvidia
     environment:
@@ -19,8 +19,8 @@ services:
   nim-llm:
     build:
       context: .
-      dockerfile: Dockerfile.dml
-    command: ["python", "-m", "app.nim_demo"]
+      dockerfile: examples/Dockerfile
+    command: ["python", "-m", "examples.demos.nim_demo"]
     environment:
       DML_SERVICE_URL: "http://dml-service:8000"
     depends_on:
@@ -29,8 +29,8 @@ services:
   ace-agent-demo:
     build:
       context: .
-      dockerfile: Dockerfile.dml
-    command: ["python", "-m", "app.ace_agent_demo"]
+      dockerfile: examples/Dockerfile
+    command: ["python", "-m", "examples.demos.ace_agent_demo"]
     environment:
       DML_SERVICE_URL: "http://dml-service:8000"
     depends_on:
@@ -39,8 +39,8 @@ services:
   isaac-demo:
     build:
       context: .
-      dockerfile: Dockerfile.dml
-    command: ["python", "-m", "app.isaac_demo"]
+      dockerfile: examples/Dockerfile
+    command: ["python", "-m", "examples.demos.isaac_demo"]
     environment:
       DML_SERVICE_URL: "http://dml-service:8000"
     depends_on:

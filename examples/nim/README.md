@@ -48,7 +48,7 @@ Alternatively, build the provided Docker image and run the service as a
 container alongside NIM:
 
 ```bash
-docker build -t daystrom-dml .
+docker build -f dml_core/Dockerfile -t daystrom-dml .
 docker run --rm -p 9000:9000 \
     -e NIM_API_BASE="http://host.docker.internal:8000" \
     -e NIM_API_KEY="$NGC_API_KEY" \

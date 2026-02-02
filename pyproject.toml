@@ -7,8 +7,19 @@ requires = [
 ]
 build-backend = "setuptools.build_meta"
 
-[tool.setuptools.packages.find]
-exclude = ["nim*", "tests*", "daystrom_dml.tests*"]
+[tool.setuptools.package-dir]
+"" = "dml_core"
+"dml_mcp" = "dml_mcp"
+
+[tool.setuptools]
+packages = [
+    "daystrom_dml",
+    "daystrom_dml.llm_backends",
+    "daystrom_dml.stm",
+    "cma",
+    "scripts",
+    "dml_mcp",
+]
 
 [tool.setuptools.package-data]
 "daystrom_dml" = [
@@ -69,8 +80,8 @@ dev = [
 [project.scripts]
 cma = "cma.cli:app"
 dml-server = "daystrom_dml.server:main"
-dml-mcp-server = "mcp.dml_mcp_server:main"
+dml-mcp-server = "dml_mcp.dml_mcp_server:main"
 
 [tool.pytest.ini_options]
 addopts = "-q"
-pythonpath = ["."]
+pythonpath = [".", "dml_core"]

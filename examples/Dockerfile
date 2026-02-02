@@ -11,7 +11,8 @@ RUN pip3 install --no-cache-dir -e .
 
 ENV NVIDIA_VISIBLE_DEVICES=all \
     NVIDIA_DRIVER_CAPABILITIES=compute,utility \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/opt/dml
 
 EXPOSE 8000
-CMD ["python", "-m", "app.dml_service"]
+CMD ["python", "-m", "examples.demos.dml_service"]
