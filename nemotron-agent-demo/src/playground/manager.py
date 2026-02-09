@@ -11,8 +11,26 @@ from typing import Any, Dict, List, Optional, Tuple
 from . import policy
 
 BASE_DIR = Path(__file__).resolve().parents[2]
-WORKSPACE_ROOT = BASE_DIR / "playground_workspace"
 AGENT_PROJECTS_ROOT = BASE_DIR / "agent_projects"
+
+
+def _resolve_workspace_root() -> Path:
+    candidates = [BASE_DIR / "playground_workspace", AGENT_PROJECTS_ROOT / "playground_workspace"]
+    for candidate in candidates:
+        try:
+            candidate.mkdir(parents=True, exist_ok=True)
+            try:
+                os.chmod(candidate, 0o777)
+            except PermissionError:
+                pass
+            if os.access(candidate, os.W_OK):
+                return candidate
+        except OSError:
+            continue
+    return candidates[-1]
+
+
+WORKSPACE_ROOT = _resolve_workspace_root()
 DOCKER_ALLOWED_COMMANDS = {"inspect", "start", "run", "exec", "rm", "build", "stop", "restart", "ps", "logs", "pull", "compose"}
 DOCKER_BLOCKED_COMMANDS = {"prune", "rmi"}
 DOCKER_BLOCKED_SUBCOMMANDS = {("system", "prune"), ("volume", "rm"), ("network", "rm"), ("image", "rm")}

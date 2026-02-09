@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import os
+import re
+import shutil
 import subprocess
 from pathlib import Path
 from typing import Dict, List
@@ -29,6 +31,8 @@ STATIC_DIR = Path(__file__).resolve().parent / "static"
 CSS_PATH = STATIC_DIR / "style.css"
 BASE_DIR = Path(__file__).resolve().parents[2]
 HUMAN_INPUT_PATH = BASE_DIR / "prompt_library" / "human_input.json"
+RUN_STATE_NAME = "run_state.json"
+AGENT_PROJECTS_DIR = BASE_DIR / "agent_projects"
 
 DOCKER_PLAYGROUND_WARNING = (
     "<div class='banner warning'>Playground requires Docker CLI + /var/run/docker.sock mount.</div>"
@@ -389,10 +393,13 @@ def render_tool_activity(state: Dict) -> str:
         return f"{text[:limit]}...\n[truncated]"
 
     playground = state.get("playground", {})
+    bare = state.get("bare", {})
     cluster = state.get("cluster", {})
     log_entries: List[tuple[str, Dict[str, str]]] = []
     for entry in playground.get("log", []) or []:
         log_entries.append(("playground", entry))
+    for entry in bare.get("log", []) or []:
+        log_entries.append(("bare", entry))
     for entry in cluster.get("log", []) or []:
         log_entries.append(("cluster", entry))
     if not log_entries:
@@ -444,7 +451,7 @@ def _load_human_messages() -> List[str]:
         if item is None:
             continue
         text = str(item).strip()
-        if text:
+        if text and not text.upper().startswith("ALLOW_BARE"):
             messages.append(text)
     return messages
 
@@ -452,6 +459,23 @@ def _load_human_messages() -> List[str]:
 def _save_human_messages(messages: List[str]) -> None:
     HUMAN_INPUT_PATH.parent.mkdir(exist_ok=True)
     HUMAN_INPUT_PATH.write_text(json.dumps(messages, indent=2))
+
+
+def _run_state_waiting(run_id: str) -> bool:
+    if not run_id:
+        return False
+    path = BASE_DIR / "agent_projects" / run_id / RUN_STATE_NAME
+    try:
+        raw = path.read_text()
+    except FileNotFoundError:
+        return False
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError:
+        return False
+    if not isinstance(payload, dict):
+        return False
+    return bool(payload.get("awaiting_human_input"))
 
 
 def _format_tool_observation(entry: Dict[str, str], source: str) -> str:
@@ -471,6 +495,10 @@ def _format_tool_observation(entry: Dict[str, str], source: str) -> str:
         return f"{agent_label} ran cluster validation ({status})."
     if tool == "cluster.logs":
         return f"{agent_label} fetched cluster logs."
+    if tool == "bare.exec":
+        return f"{agent_label} ran a bare-metal command."
+    if tool == "bare.write_file":
+        return f"{agent_label} wrote a bare-metal file."
     if tool == "playground.exec_detached":
         return f"{agent_label} started a detached command."
     if tool == "playground.expose_port":
@@ -509,21 +537,89 @@ def _chatbot_supports_messages() -> bool:
 
 
 CHATBOT_USES_MESSAGES = _chatbot_supports_messages()
+CHATBOT_EXPECTS_MESSAGES: bool | None = None
+
+
+def _chatbot_prefers_messages() -> bool:
+    if CHATBOT_EXPECTS_MESSAGES is None:
+        return CHATBOT_USES_MESSAGES
+    return CHATBOT_EXPECTS_MESSAGES
+
+
+def _infer_chatbot_message_format(chatbot: gr.Chatbot) -> bool:
+    type_attr = getattr(chatbot, "type", None)
+    if isinstance(type_attr, str) and type_attr:
+        return type_attr == "messages"
+    check_format = getattr(chatbot, "_check_format", None)
+    if callable(check_format):
+        try:
+            check_format([{"role": "user", "content": "ping"}])
+            return True
+        except Exception:
+            pass
+        try:
+            check_format([("ping", "")])
+            return False
+        except Exception:
+            pass
+    return CHATBOT_USES_MESSAGES
+
+
+def _normalize_chat_history(history) -> List:
+    if not history:
+        return []
+    if _chatbot_prefers_messages():
+        normalized: List[Dict[str, str]] = []
+        for item in history:
+            if isinstance(item, dict) and "role" in item and "content" in item:
+                role = str(item.get("role") or "")
+                content = "" if item.get("content") is None else str(item.get("content"))
+                normalized.append({"role": role, "content": content})
+            elif isinstance(item, (list, tuple)) and len(item) == 2:
+                user, assistant = item
+                if user:
+                    normalized.append({"role": "user", "content": str(user)})
+                if assistant:
+                    normalized.append({"role": "assistant", "content": str(assistant)})
+            elif isinstance(item, str):
+                normalized.append({"role": "user", "content": item})
+            else:
+                normalized.append({"role": "user", "content": str(item)})
+        return normalized
+
+    normalized: List[tuple[str, str]] = []
+    for item in history:
+        if isinstance(item, (list, tuple)) and len(item) == 2:
+            user, assistant = item
+            normalized.append(
+                (
+                    "" if user is None else str(user),
+                    "" if assistant is None else str(assistant),
+                )
+            )
+        elif isinstance(item, dict) and "role" in item and "content" in item:
+            role = str(item.get("role") or "")
+            content = "" if item.get("content") is None else str(item.get("content"))
+            if role == "assistant":
+                if normalized:
+                    prev_user, _ = normalized[-1]
+                    normalized[-1] = (prev_user, content)
+                else:
+                    normalized.append(("", content))
+            else:
+                normalized.append((content, ""))
+        elif isinstance(item, str):
+            normalized.append((item, ""))
+        else:
+            normalized.append((str(item), ""))
+    return normalized
 
 
 def _build_chat_history(human_messages: List[str], supervisor_reply: str | None = None):
-    if CHATBOT_USES_MESSAGES:
-        history: List[Dict[str, str]] = [{"role": "user", "content": msg} for msg in human_messages]
-        if supervisor_reply:
-            history.append({"role": "assistant", "content": supervisor_reply})
-        return history
-    history: List[tuple[str, str]] = [(msg, "") for msg in human_messages]
+    history: List[Dict[str, str]] = [{"role": "user", "content": msg} for msg in human_messages]
     if supervisor_reply:
-        if history:
-            history[-1] = (history[-1][0], supervisor_reply)
-        else:
-            history.append(("", supervisor_reply))
-    return history
+        history.append({"role": "assistant", "content": supervisor_reply})
+    return _normalize_chat_history(history)
 
 
 def load_human_chat():
@@ -531,14 +627,14 @@ def load_human_chat():
 
 
 def add_human_message(message: str, history) -> tuple:
+    history = _normalize_chat_history(history or [])
     text = (message or "").strip()
     if not text:
         return gr.update(value=""), history
     messages = _load_human_messages()
     messages.append(text)
     _save_human_messages(messages)
-    history = list(history or [])
-    if CHATBOT_USES_MESSAGES:
+    if _chatbot_prefers_messages():
         history.append({"role": "user", "content": text})
     else:
         history.append((text, ""))
@@ -547,7 +643,65 @@ def add_human_message(message: str, history) -> tuple:
 
 def clear_human_messages() -> tuple:
     _save_human_messages([])
-    return [], gr.update(value="")
+    return _normalize_chat_history([]), gr.update(value="")
+
+
+def reset_human_for_run(allow_sudo: bool) -> tuple:
+    messages: List[str] = []
+    if allow_sudo:
+        messages.append("ALLOW_BARE: sudo")
+    _save_human_messages(messages)
+    return _normalize_chat_history([]), gr.update(value="")
+
+
+def _scrub_tool_json(text: str) -> str:
+    if not text:
+        return text
+
+    def _strip_fenced(match: re.Match) -> str:
+        block = match.group(0)
+        if '"tool"' in block or '"tool_calls"' in block:
+            return ""
+        return block
+
+    cleaned = re.sub(r"```(?:json)?\s*.*?```", _strip_fenced, text, flags=re.DOTALL | re.IGNORECASE)
+    lines: List[str] = []
+    skip_json = False
+    brace_depth = 0
+    for line in cleaned.splitlines():
+        if '"tool"' in line or '"tool_calls"' in line:
+            skip_json = True
+            brace_depth += line.count("{") - line.count("}")
+            continue
+        if skip_json:
+            brace_depth += line.count("{") - line.count("}")
+            if brace_depth <= 0 and "}" in line:
+                skip_json = False
+                brace_depth = 0
+            continue
+        if any(token in line for token in ('"cmd"', '"timeout_s"', '"args"', '"path"', '"content"')):
+            continue
+        if line.strip().startswith(("{", "}", "[", "]")):
+            continue
+        lines.append(line)
+    return "\n".join([line for line in lines if line.strip()])
+
+
+def purge_agent_projects() -> str:
+    if not AGENT_PROJECTS_DIR.exists():
+        return "Agent projects directory not found."
+    errors = []
+    for item in AGENT_PROJECTS_DIR.iterdir():
+        try:
+            if item.is_dir():
+                shutil.rmtree(item)
+            else:
+                item.unlink()
+        except OSError as exc:
+            errors.append(f"{item.name}: {exc}")
+    if errors:
+        return "Purge completed with errors:\n" + "\n".join(errors)
+    return "Purged agent_projects directory."
 
 
 def _build_supervisor_chat(state: Dict, human_messages: List[str]):
@@ -555,6 +709,7 @@ def _build_supervisor_chat(state: Dict, human_messages: List[str]):
     supervisor = stage_map.get("supervisor", {}) if stage_map else {}
     status = str(supervisor.get("status", "")).lower()
     output = supervisor.get("output") or ""
+    output = _scrub_tool_json(output)
     reply = output if status == "done" and output else None
     return _build_chat_history(human_messages, supervisor_reply=reply)
 
@@ -568,6 +723,7 @@ def stream_runner(
     use_playground: bool,
     playground_image: str,
     auto_remove_playground: bool,
+    use_bare_metal: bool,
     use_cluster: bool,
     cluster_image: str,
     cluster_size: int,
@@ -579,6 +735,7 @@ def stream_runner(
     observations: List[str] = []
     stage_status: Dict[str, str] = {}
     last_playground_log = 0
+    last_bare_log = 0
     last_cluster_log = 0
     last_human_count = 0
     last_event_count = 0
@@ -592,6 +749,7 @@ def stream_runner(
         use_playground=use_playground,
         playground_image=playground_image,
         auto_remove_playground=auto_remove_playground,
+        use_bare_metal=use_bare_metal,
         use_cluster=use_cluster,
         cluster_image=cluster_image,
         cluster_size=cluster_size,
@@ -625,6 +783,11 @@ def stream_runner(
         for entry in playground_log[last_playground_log:]:
             observations.append(_format_tool_observation(entry, "playground"))
         last_playground_log = len(playground_log)
+
+        bare_log = state.get("bare", {}).get("log", []) or []
+        for entry in bare_log[last_bare_log:]:
+            observations.append(_format_tool_observation(entry, "bare"))
+        last_bare_log = len(bare_log)
 
         cluster_log = state.get("cluster", {}).get("log", []) or []
         for entry in cluster_log[last_cluster_log:]:
@@ -731,6 +894,8 @@ def build_ui() -> gr.Blocks:
                 use_playground = gr.Checkbox(label="Use Playground Container", value=True)
                 playground_image = gr.Textbox(label="Playground image", value="nemotron-playground:latest", visible=False)
                 auto_remove_playground = gr.Checkbox(label="Auto-remove container after run", value=False, visible=False)
+                use_bare_metal = gr.Checkbox(label="Bare Metal (host exec)", value=False)
+                allow_bare_sudo = gr.Checkbox(label="Allow sudo (bare metal)", value=False, visible=False)
                 use_cluster = gr.Checkbox(label="Use Cluster Playground", value=False)
                 cluster_size = gr.Slider(label="Cluster size", minimum=3, maximum=5, step=1, value=4, visible=False)
                 cluster_image = gr.Textbox(label="Cluster image", value="nemotron-playground:latest", visible=False)
@@ -751,10 +916,12 @@ def build_ui() -> gr.Blocks:
                 delete_status = gr.Markdown(value="")
                 delete_cluster_status = gr.Markdown(value="")
                 gr.Markdown("Supervisor Chat")
-                if CHATBOT_USES_MESSAGES:
+                try:
                     human_chat = gr.Chatbot(label="Supervisor Chat", height=200, type="messages")
-                else:
+                except TypeError:
                     human_chat = gr.Chatbot(label="Supervisor Chat", height=200)
+                global CHATBOT_EXPECTS_MESSAGES
+                CHATBOT_EXPECTS_MESSAGES = _infer_chatbot_message_format(human_chat)
                 human_input = gr.Textbox(
                     label="Message to Supervisor",
                     lines=2,
@@ -763,6 +930,9 @@ def build_ui() -> gr.Blocks:
                 with gr.Row():
                     send_human_btn = gr.Button("Send")
                     clear_human_btn = gr.Button("Clear")
+                with gr.Row():
+                    purge_projects_btn = gr.Button("Purge Agent Projects Directory", variant="stop")
+                purge_status = gr.Markdown(value="")
             with gr.Column(scale=2):
                 cookbook_panel = gr.HTML(elem_classes=["card", "scroll-panel"])
                 ingest_panel = gr.HTML(elem_classes=["card", "scroll-panel"])
@@ -945,6 +1115,33 @@ def build_ui() -> gr.Blocks:
                 gr.update(visible=enabled),
             )
 
+        def toggle_bare_metal(enabled: bool, playground_enabled: bool, cluster_enabled: bool):
+            if enabled:
+                return (
+                    gr.update(value=False, interactive=False),
+                    gr.update(value=False, interactive=False),
+                    gr.update(visible=False),
+                    gr.update(visible=False),
+                    gr.update(visible=False),
+                    gr.update(visible=False),
+                    gr.update(visible=False),
+                    gr.update(visible=False),
+                    gr.update(visible=False),
+                    gr.update(visible=True),
+                )
+            return (
+                gr.update(interactive=True),
+                gr.update(interactive=True),
+                gr.update(visible=playground_enabled),
+                gr.update(visible=playground_enabled),
+                gr.update(visible=cluster_enabled),
+                gr.update(visible=cluster_enabled),
+                gr.update(visible=cluster_enabled),
+                gr.update(visible=cluster_enabled),
+                gr.update(visible=cluster_enabled),
+                gr.update(visible=False),
+            )
+
         def remove_playground_container(name: str):
             if not name:
                 return (
@@ -1033,8 +1230,13 @@ def build_ui() -> gr.Blocks:
 
         goal.input(fn=update_goal_source, inputs=goal, outputs=prompt_source)
 
-        send_human_btn.click(fn=add_human_message, inputs=[human_input, human_chat], outputs=[human_input, human_chat])
+        send_human_event = send_human_btn.click(
+            fn=add_human_message,
+            inputs=[human_input, human_chat],
+            outputs=[human_input, human_chat],
+        )
         clear_human_btn.click(fn=clear_human_messages, inputs=None, outputs=[human_chat, human_input])
+        purge_projects_btn.click(fn=purge_agent_projects, inputs=None, outputs=purge_status)
 
         agent_dropdown.change(fn=load_agent, inputs=agent_dropdown, outputs=[default_prompt, active_prompt, badge_holder, diff_text, agent_status])
         active_prompt.change(fn=update_diff, inputs=[active_prompt, agent_dropdown], outputs=[badge_holder, diff_text])
@@ -1044,13 +1246,106 @@ def build_ui() -> gr.Blocks:
 
         use_dml.change(fn=lambda enabled: gr.update(visible=enabled), inputs=use_dml, outputs=dml_top_k)
         use_playground.change(fn=toggle_playground, inputs=use_playground, outputs=[playground_image, auto_remove_playground])
+        use_bare_metal.change(
+            fn=toggle_bare_metal,
+            inputs=[use_bare_metal, use_playground, use_cluster],
+            outputs=[
+                use_playground,
+                use_cluster,
+                playground_image,
+                auto_remove_playground,
+                cluster_size,
+                cluster_image,
+                create_cluster_btn,
+                validate_cluster_btn,
+                destroy_cluster_btn,
+                allow_bare_sudo,
+            ],
+        )
         use_cluster.change(
             fn=toggle_cluster,
             inputs=use_cluster,
             outputs=[cluster_size, cluster_image, create_cluster_btn, validate_cluster_btn, destroy_cluster_btn],
         )
 
-        run_event = run_btn.click(
+        run_outputs = [
+            metrics_card,
+            timeline,
+            cookbook_panel,
+            ingest_panel,
+            supervisor_box,
+            planner_box,
+            coder_box,
+            reviewer_box,
+            ops_box,
+            aggregator_box,
+            final_box,
+            dml_cookbook_tab,
+            dml_ingest_tab,
+            playground_status,
+            playground_name_display,
+            playground_workspace_host,
+            playground_workspace_container,
+            tool_activity,
+            observations_box,
+            human_chat,
+            remove_playground_btn,
+            delete_workspace_btn,
+            playground_name_state,
+            cluster_status,
+            cluster_run_id_display,
+            cluster_workspace_host,
+            cluster_workspace_container,
+            cluster_validation,
+            destroy_cluster_btn,
+            delete_cluster_workspace_btn,
+            cluster_run_id_state,
+        ]
+
+        def _noop_updates():
+            return tuple(gr.update() for _ in run_outputs)
+
+        def resume_if_waiting(
+            goal_value: str,
+            scenario_value: str,
+            fast_value: bool,
+            use_dml_value: bool,
+            dml_top_k_value: int,
+            use_playground_value: bool,
+            playground_image_value: str,
+            auto_remove_playground_value: bool,
+            use_bare_metal_value: bool,
+            use_cluster_value: bool,
+            cluster_image_value: str,
+            cluster_size_value: int,
+            cluster_run_id_value: str,
+        ):
+            if not _run_state_waiting(cluster_run_id_value):
+                yield _noop_updates()
+                return
+            yield from stream_runner(
+                goal_value,
+                scenario_value,
+                fast_value,
+                use_dml_value,
+                dml_top_k_value,
+                use_playground_value,
+                playground_image_value,
+                auto_remove_playground_value,
+                use_bare_metal_value,
+                use_cluster_value,
+                cluster_image_value,
+                cluster_size_value,
+                cluster_run_id_value,
+            )
+
+        reset_event = run_btn.click(
+            fn=reset_human_for_run,
+            inputs=[allow_bare_sudo],
+            outputs=[human_chat, human_input],
+            show_progress=False,
+        )
+        run_event = reset_event.then(
             fn=stream_runner,
             inputs=[
                 goal,
@@ -1061,47 +1356,37 @@ def build_ui() -> gr.Blocks:
                 use_playground,
                 playground_image,
                 auto_remove_playground,
+                use_bare_metal,
                 use_cluster,
                 cluster_image,
                 cluster_size,
                 cluster_run_id_state,
             ],
-            outputs=[
-                metrics_card,
-                timeline,
-                cookbook_panel,
-                ingest_panel,
-                supervisor_box,
-                planner_box,
-                coder_box,
-                reviewer_box,
-                ops_box,
-                aggregator_box,
-                final_box,
-                dml_cookbook_tab,
-                dml_ingest_tab,
-                playground_status,
-                playground_name_display,
-                playground_workspace_host,
-                playground_workspace_container,
-                tool_activity,
-                observations_box,
-                human_chat,
-                remove_playground_btn,
-                delete_workspace_btn,
-                playground_name_state,
-                cluster_status,
-                cluster_run_id_display,
-                cluster_workspace_host,
-                cluster_workspace_container,
-                cluster_validation,
-                destroy_cluster_btn,
-                delete_cluster_workspace_btn,
-                cluster_run_id_state,
-            ],
+            outputs=run_outputs,
             show_progress=False,
         )
         stop_btn.click(fn=None, inputs=None, outputs=None, cancels=[run_event])
+
+        send_human_event.then(
+            fn=resume_if_waiting,
+            inputs=[
+                goal,
+                scenario_state,
+                fast,
+                use_dml,
+                dml_top_k,
+                use_playground,
+                playground_image,
+                auto_remove_playground,
+                use_bare_metal,
+                use_cluster,
+                cluster_image,
+                cluster_size,
+                cluster_run_id_state,
+            ],
+            outputs=run_outputs,
+            show_progress=False,
+        )
 
         remove_playground_btn.click(
             fn=remove_playground_container,

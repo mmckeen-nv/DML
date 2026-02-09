@@ -197,10 +197,35 @@ def build_chat_payload(
     return payload
 
 
+def _extract_error_detail(response: requests.Response) -> str:
+    try:
+        payload = response.json()
+    except ValueError:
+        text = response.text.strip()
+        return text[:2000] if text else ""
+    if isinstance(payload, dict):
+        for key in ("error", "detail", "message"):
+            value = payload.get(key)
+            if value:
+                try:
+                    return json.dumps(value)[:2000]
+                except TypeError:
+                    return str(value)[:2000]
+    try:
+        return json.dumps(payload)[:2000]
+    except TypeError:
+        return str(payload)[:2000]
+
+
 def post_chat_completion(payload: dict[str, Any], *, base_url: Optional[str] = None) -> dict[str, Any]:
     url = f"{(base_url or VLLM_BASE_URL).rstrip('/')}/chat/completions"
     response = requests.post(url, json=payload, timeout=VLLM_TIMEOUT_S)
-    response.raise_for_status()
+    try:
+        response.raise_for_status()
+    except requests.HTTPError as exc:
+        detail = _extract_error_detail(response)
+        detail_suffix = f" | response={detail}" if detail else ""
+        raise requests.HTTPError(f"{exc}{detail_suffix}", response=response) from None
     return response.json()
 
 
