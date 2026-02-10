@@ -5,8 +5,14 @@ services:
     restart: unless-stopped
     gpus: all
     ipc: host
+    volumes:
+      - /mnt/md1/models/nim_cache:/models/nim-cache
     environment:
       NGC_API_KEY: ${NGC_API_KEY:-}
+      NIM_KV_CACHE_PERCENT: ${NIM_KV_CACHE_PERCENT:-0.15}
+      NIM_CACHE_PATH: /models/nim-cache
+      NIM_MANIFEST_DOWNLOAD_MAX_RETRY_COUNT: ${NIM_MANIFEST_DOWNLOAD_MAX_RETRY_COUNT:-5}
+      NIM_MANIFEST_DOWNLOAD_WAIT_INTERVAL_MS: ${NIM_MANIFEST_DOWNLOAD_WAIT_INTERVAL_MS:-2000}
     ports:
       - "8000:8000"
 
@@ -16,8 +22,14 @@ services:
     restart: unless-stopped
     gpus: all
     ipc: host
+    volumes:
+      - /mnt/md1/models/nim_cache:/models/nim-cache
     environment:
       NGC_API_KEY: ${NGC_API_KEY:-}
+      NIM_KV_CACHE_PERCENT: ${NIM_KV_CACHE_PERCENT:-0.15}
+      NIM_CACHE_PATH: /models/nim-cache
+      NIM_MANIFEST_DOWNLOAD_MAX_RETRY_COUNT: ${NIM_MANIFEST_DOWNLOAD_MAX_RETRY_COUNT:-5}
+      NIM_MANIFEST_DOWNLOAD_WAIT_INTERVAL_MS: ${NIM_MANIFEST_DOWNLOAD_WAIT_INTERVAL_MS:-2000}
     ports:
       - "8001:8000"
 
@@ -27,8 +39,14 @@ services:
     restart: unless-stopped
     gpus: all
     ipc: host
+    volumes:
+      - /mnt/md1/models/nim_cache:/models/nim-cache
     environment:
       NGC_API_KEY: ${NGC_API_KEY:-}
+      NIM_KV_CACHE_PERCENT: ${NIM_KV_CACHE_PERCENT:-0.15}
+      NIM_CACHE_PATH: /models/nim-cache
+      NIM_MANIFEST_DOWNLOAD_MAX_RETRY_COUNT: ${NIM_MANIFEST_DOWNLOAD_MAX_RETRY_COUNT:-5}
+      NIM_MANIFEST_DOWNLOAD_WAIT_INTERVAL_MS: ${NIM_MANIFEST_DOWNLOAD_WAIT_INTERVAL_MS:-2000}
     ports:
       - "8002:8000"
 
@@ -38,8 +56,14 @@ services:
     restart: unless-stopped
     gpus: all
     ipc: host
+    volumes:
+      - /mnt/md1/models/nim_cache:/models/nim-cache
     environment:
       NGC_API_KEY: ${NGC_API_KEY:-}
+      NIM_KV_CACHE_PERCENT: ${NIM_KV_CACHE_PERCENT:-0.15}
+      NIM_CACHE_PATH: /models/nim-cache
+      NIM_MANIFEST_DOWNLOAD_MAX_RETRY_COUNT: ${NIM_MANIFEST_DOWNLOAD_MAX_RETRY_COUNT:-5}
+      NIM_MANIFEST_DOWNLOAD_WAIT_INTERVAL_MS: ${NIM_MANIFEST_DOWNLOAD_WAIT_INTERVAL_MS:-2000}
     ports:
       - "8003:8000"
 
@@ -49,8 +73,14 @@ services:
     restart: unless-stopped
     gpus: all
     ipc: host
+    volumes:
+      - /mnt/md1/models/nim_cache:/models/nim-cache
     environment:
       NGC_API_KEY: ${NGC_API_KEY:-}
+      NIM_KV_CACHE_PERCENT: ${NIM_KV_CACHE_PERCENT:-0.15}
+      NIM_CACHE_PATH: /models/nim-cache
+      NIM_MANIFEST_DOWNLOAD_MAX_RETRY_COUNT: ${NIM_MANIFEST_DOWNLOAD_MAX_RETRY_COUNT:-5}
+      NIM_MANIFEST_DOWNLOAD_WAIT_INTERVAL_MS: ${NIM_MANIFEST_DOWNLOAD_WAIT_INTERVAL_MS:-2000}
     ports:
       - "8004:8000"
 

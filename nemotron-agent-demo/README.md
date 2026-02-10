@@ -20,6 +20,7 @@ Containers are started with `restart: unless-stopped`, so they will auto-restart
 - `docker-compose.yml`: UI + DML only (expects external vLLM at `VLLM_BASE_URL`).
 - `docker-compose.nemotron3-nim.yml`: adds the Nemotron 3 Nano NIM service and points UI + DML to it.
 - `docker-compose.nemotron3-nim-multi.yml`: runs separate NIM containers per agent role.
+- `docker-compose.experimental.yml`: per-role vLLM containers with Hugging Face models (profile: `experimental`).
 
 **Multi-NIM (Per-Role Agents)**
 ```bash
@@ -27,13 +28,62 @@ Containers are started with `restart: unless-stopped`, so they will auto-restart
 docker compose --env-file creds.env -f docker-compose.yml -f docker-compose.nemotron3-nim-multi.yml up -d
 ```
 
+**Experimental vLLM (Per-Role Hugging Face Models)**
+```bash
+echo 'HUGGINGFACE_TOKEN=hf_xxx' > creds.env
+```
+
+Optional host pre-pull:
+```bash
+export HUGGINGFACE_TOKEN=hf_xxx
+cd nemotron-agent-demo
+./scripts/pull_hf_models.sh
+```
+
+Compose up:
+```bash
+docker compose --env-file creds.env \
+  -f docker-compose.yml \
+  -f docker-compose.experimental.yml \
+  --profile experimental up -d
+```
+
+Verify:
+```bash
+docker compose ps
+curl -s http://localhost:7860/
+docker logs -f vllm-planner
+```
+
+Notes:
+- Llama models are gated; your HF token must have access.
+- First run downloads models into `nemotron-agent-demo/models/`.
+- For reproducibility, pin the `vllm/vllm-openai:latest` digest after the first pull.
+
+**Model Storage (Repo-Local)**
+All models are stored in `nemotron-agent-demo/models/`.
+
+First-time setup:
+```bash
+export HUGGINGFACE_TOKEN=hf_xxx
+docker compose \
+  -f docker-compose.yml \
+  -f docker-compose.experimental.yml \
+  --profile experimental up hf-prepull
+```
+
+Models are reused across all agent roles, no global cache is used, and deleting `nemotron-agent-demo/models/` forces a clean re-download.
+
 
 **Environment Overrides**
 - `NGC_API_KEY` for NGC registry auth (stored locally in `creds.env`).
+- `HUGGINGFACE_TOKEN` for Hugging Face model access (stored locally in `creds.env`).
 - `VLLM_BASE_URL` (default: `http://host.docker.internal:8000/v1`).
 - `VLLM_MODEL_ID` (default: `nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-NVFP4`).
 - `VLLM_TIMEOUT_S` (default: `120`).
 - Per-role overrides: `ROLE_BASE_URL_<ROLE>` (e.g., `ROLE_BASE_URL_SUPERVISOR`, `ROLE_BASE_URL_PLANNER`, `ROLE_BASE_URL_CODER`).
+- Experimental per-role model overrides: `EXPERIMENTAL_MODEL_<ROLE>` (e.g., `EXPERIMENTAL_MODEL_SUPERVISOR`).
+- Experimental vLLM tuning: `EXPERIMENTAL_MAX_MODEL_LEN` (default: `8192`), `EXPERIMENTAL_GPU_UTIL` (default: `0.90`).
 - `PLAYGROUND_SSH_DIR` (optional): host path to mount into `/root/.ssh` for SSH deployments.
 - `PLAYGROUND_KUBECONFIG` (optional): host kubeconfig path mounted as `/root/.kube/config` for kubectl.
 - `PLAYGROUND_DOCKER_SOCK` (optional, `1`/`0`): mount `/var/run/docker.sock` into playground for Docker CLI.
