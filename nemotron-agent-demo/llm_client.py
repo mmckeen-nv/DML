@@ -13,6 +13,7 @@ logger = logging.getLogger("vllm-client")
 VLLM_BASE_URL = os.getenv("VLLM_BASE_URL", "http://host.docker.internal:8000/v1").rstrip("/")
 VLLM_MODEL_ID = os.getenv("VLLM_MODEL_ID", "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-NVFP4")
 VLLM_TIMEOUT_S = int(os.getenv("VLLM_TIMEOUT_S", "120"))
+AGENT_ENABLE_THINKING = os.getenv("AGENT_ENABLE_THINKING")
 
 _startup_check_started = False
 _resolved_model_id: Optional[str] = None
@@ -25,6 +26,24 @@ def _normalize_role(role: Optional[str]) -> Optional[str]:
         return None
     role_clean = str(role).strip().upper()
     return role_clean if role_clean else None
+
+
+def _parse_bool_env(value: Optional[str]) -> Optional[bool]:
+    if value is None:
+        return None
+    cleaned = str(value).strip().lower()
+    if cleaned in {"1", "true", "yes", "on"}:
+        return True
+    if cleaned in {"0", "false", "no", "off"}:
+        return False
+    return None
+
+
+def _default_chat_template_kwargs() -> Optional[dict[str, Any]]:
+    enable_thinking = _parse_bool_env(AGENT_ENABLE_THINKING)
+    if enable_thinking is None:
+        return None
+    return {"enable_thinking": enable_thinking}
 
 
 def _get_role_env(prefix: str, role: Optional[str]) -> Optional[str]:
@@ -189,7 +208,13 @@ def build_chat_payload(
     if top_p is not None:
         payload["top_p"] = top_p
     if chat_template_kwargs:
-        payload["chat_template_kwargs"] = chat_template_kwargs
+        base_kwargs = _default_chat_template_kwargs() or {}
+        merged = {**base_kwargs, **chat_template_kwargs}
+        payload["chat_template_kwargs"] = merged
+    else:
+        default_kwargs = _default_chat_template_kwargs()
+        if default_kwargs:
+            payload["chat_template_kwargs"] = default_kwargs
     if extra_body:
         payload["extra_body"] = extra_body
     if extra_payload:

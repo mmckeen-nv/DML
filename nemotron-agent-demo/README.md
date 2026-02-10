@@ -27,6 +27,7 @@ Containers are started with `restart: unless-stopped`, so they will auto-restart
 docker compose --env-file creds.env -f docker-compose.yml -f docker-compose.nemotron3-nim-multi.yml up -d
 ```
 
+
 **Environment Overrides**
 - `NGC_API_KEY` for NGC registry auth (stored locally in `creds.env`).
 - `VLLM_BASE_URL` (default: `http://host.docker.internal:8000/v1`).

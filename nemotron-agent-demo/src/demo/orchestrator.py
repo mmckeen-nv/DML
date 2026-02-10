@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import time
@@ -72,6 +73,11 @@ TOOL_REQUEST_SCHEMA_TEXT = (
     "1) Single object: {\"tool\": \"playground.exec\", \"cmd\": [\"bash\",\"-lc\",\"ls\"], \"timeout_s\": 60}\n"
     "2) Array of objects: [{...}, {...}]\n"
     "3) Wrapper: {\"tool_calls\": [{...}, {...}]}\n"
+    "Formatting rules:\n"
+    "- Output ONLY JSON for tool requests (no extra prose inside the JSON block).\n"
+    "- Do NOT include raw newlines inside JSON strings.\n"
+    "- Do NOT use shell line continuations (\"\\\") inside JSON strings.\n"
+    "- For multi-step shell commands, join with '&&' or ';' inside a single string.\n"
     "Rules:\n"
     "- tool: string, one of: playground.exec, playground.exec_detached, playground.write_file, playground.docker, "
     "playground.expose_port, bare.exec, bare.write_file, cluster.exec, cluster.logs, cluster.validate\n"
@@ -81,6 +87,10 @@ TOOL_REQUEST_SCHEMA_TEXT = (
     "- host_port/container_port: integers for playground.expose_port\n"
     "- container: string for cluster.exec/cluster.logs\n"
     "- tail: integer for cluster.logs\n"
+    "Examples (valid JSON):\n"
+    "{\"tool\":\"bare.exec\",\"cmd\":[\"sshpass\",\"-p\",\"nvidia\",\"ssh\",\"-o\",\"StrictHostKeyChecking=no\",\"nvidia@192.168.50.81\",\"uname -a\"],\"timeout_s\":30}\n"
+    "{\"tool\":\"bare.exec\",\"cmd\":[\"bash\",\"-lc\",\"cd /opt/ai-stack/openwebui-ollama && docker compose up -d\"],\"timeout_s\":600}\n"
+    "{\"tool_calls\":[{\"tool\":\"playground.exec\",\"cmd\":[\"bash\",\"-lc\",\"ls -la /workspace\"],\"timeout_s\":60}]}\n"
     "You may return raw JSON or a fenced ```json``` block, but the JSON must be valid."
 )
 TOOL_REQUEST_SCHEMA_JSON = {
@@ -100,6 +110,20 @@ TOOL_REQUEST_SCHEMA_JSON = {
     },
     "examples": [
         {"tool": "playground.exec", "cmd": ["bash", "-lc", "ls -la"], "timeout_s": 60},
+        {
+            "tool": "bare.exec",
+            "cmd": [
+                "sshpass",
+                "-p",
+                "nvidia",
+                "ssh",
+                "-o",
+                "StrictHostKeyChecking=no",
+                "nvidia@192.168.50.81",
+                "uname -a",
+            ],
+            "timeout_s": 30,
+        },
         {"tool": "playground.write_file", "path": "/workspace/agent_projects/<run_id>/app.py", "content": "print('hello')"},
     ],
 }
@@ -192,11 +216,49 @@ def _extract_ssh_target(text: str) -> tuple[Optional[str], Optional[str]]:
         return user_match.group(1), user_match.group(2)
     host_match = re.search(r"target\s+host\s*[:=]\s*(\d{1,3}(?:\.\d{1,3}){3})", text, re.IGNORECASE)
     host = host_match.group(1) if host_match else None
-    user_match = re.search(r"username\s*[:=]\s*([A-Za-z0-9._-]+)", text, re.IGNORECASE)
+    user_match = re.search(r"username\s*(?:[:=]\s*|\s+)([A-Za-z0-9._-]+)", text, re.IGNORECASE)
     if not user_match:
-        user_match = re.search(r"user\s*[:=]\s*([A-Za-z0-9._-]+)", text, re.IGNORECASE)
+        user_match = re.search(r"user\s*(?:[:=]\s*|\s+)([A-Za-z0-9._-]+)", text, re.IGNORECASE)
     user = user_match.group(1) if user_match else None
     return user, host
+
+
+def _ssh_key_available() -> bool:
+    if os.environ.get("SSH_AUTH_SOCK"):
+        return True
+    for home in {Path.home(), Path("/root"), Path("/home/nvidia")}:
+        ssh_dir = home / ".ssh"
+        try:
+            if not ssh_dir.exists():
+                continue
+        except PermissionError:
+            continue
+        for key_name in ("id_ed25519", "id_rsa", "id_ecdsa", "id_dsa"):
+            try:
+                if (ssh_dir / key_name).exists():
+                    return True
+            except PermissionError:
+                continue
+    return False
+
+
+def _prompt_prefers_ssh_key(text: str) -> bool:
+    if not text:
+        return False
+    lowered = text.lower()
+    return any(
+        phrase in lowered
+        for phrase in (
+            "ssh key",
+            "ssh-key",
+            "key pair",
+            "keypair",
+            "private key",
+            "public key",
+            "key-based",
+            "key based",
+        )
+    )
 
 
 def _parse_max_tokens(raw: Optional[str], default: Optional[int]) -> Optional[int]:
@@ -594,52 +656,72 @@ def _is_long_run(goal: str, scenario: Optional[str]) -> bool:
     return False
 
 
+def _extract_fenced_json_blocks(text: str) -> List[str]:
+    if not text:
+        return []
+    fences = re.findall(r"```(?:json)?\s*(.*?)```", text, flags=re.DOTALL | re.IGNORECASE)
+    return [block.strip() for block in fences if block and block.strip()]
+
+
+def _log_json_block_error(block: str, exc: json.JSONDecodeError, context: str) -> None:
+    snippet = block.strip()
+    if len(snippet) > 400:
+        snippet = snippet[:400] + "\n...truncated..."
+    logger.warning("%s: fenced JSON parse error (%s). Block snippet:\n%s", context, exc.msg, snippet)
+
+
+def _scan_json_objects(blob: str) -> List[Any]:
+    found: List[Any] = []
+    decoder = json.JSONDecoder()
+    idx = 0
+    length = len(blob)
+    while idx < length:
+        ch = blob[idx]
+        if ch not in "{[":
+            idx += 1
+            continue
+        try:
+            obj, end = decoder.raw_decode(blob[idx:])
+        except json.JSONDecodeError:
+            idx += 1
+            continue
+        found.append(obj)
+        idx += max(end, 1)
+    return found
+
+
+def _collect_tool_requests(obj: Any, sink: List[Dict[str, Any]]) -> None:
+    if isinstance(obj, dict):
+        if obj.get("tool"):
+            sink.append(obj)
+            return
+        tool_calls = obj.get("tool_calls")
+        if isinstance(tool_calls, list):
+            for item in tool_calls:
+                if isinstance(item, dict) and item.get("tool"):
+                    sink.append(item)
+        return
+    if isinstance(obj, list):
+        for item in obj:
+            _collect_tool_requests(item, sink)
+
+
 def _extract_tool_requests(text: str) -> List[Dict[str, Any]]:
     if not text:
         return []
 
-    def _scan_json_objects(blob: str) -> List[Any]:
-        found: List[Any] = []
-        decoder = json.JSONDecoder()
-        idx = 0
-        length = len(blob)
-        while idx < length:
-            ch = blob[idx]
-            if ch not in "{[":
-                idx += 1
-                continue
-            try:
-                obj, end = decoder.raw_decode(blob[idx:])
-            except json.JSONDecodeError:
-                idx += 1
-                continue
-            found.append(obj)
-            idx += max(end, 1)
-        return found
-
-    def _collect(obj: Any, sink: List[Dict[str, Any]]) -> None:
-        if isinstance(obj, dict):
-            if obj.get("tool"):
-                sink.append(obj)
-                return
-            tool_calls = obj.get("tool_calls")
-            if isinstance(tool_calls, list):
-                for item in tool_calls:
-                    if isinstance(item, dict) and item.get("tool"):
-                        sink.append(item)
-            return
-        if isinstance(obj, list):
-            for item in obj:
-                _collect(item, sink)
-
     requests: List[Dict[str, Any]] = []
-    fences = re.findall(r"```(?:json)?\\s*(.*?)```", text, flags=re.DOTALL | re.IGNORECASE)
-    for block in fences:
+    for block in _extract_fenced_json_blocks(text):
+        if '"tool"' in block or "tool_calls" in block:
+            try:
+                json.loads(block)
+            except json.JSONDecodeError as exc:
+                _log_json_block_error(block, exc, "_extract_tool_requests")
         for obj in _scan_json_objects(block):
-            _collect(obj, requests)
+            _collect_tool_requests(obj, requests)
     # Fallback: scan the full text for inline JSON objects.
     for obj in _scan_json_objects(text):
-        _collect(obj, requests)
+        _collect_tool_requests(obj, requests)
     return requests
 
 
@@ -649,13 +731,13 @@ def _extract_tool_requests_with_errors(text: str) -> tuple[List[Dict[str, Any]],
     errors: List[str] = []
     tool_mentions = re.findall(r'"tool"\s*:', text)
     tool_hints = bool(tool_mentions) or "playground." in text or "cluster." in text
-    fences = re.findall(r"```(?:json)?\s*(.*?)```", text, flags=re.DOTALL | re.IGNORECASE)
-    for block in fences:
+    for block in _extract_fenced_json_blocks(text):
         if '"tool"' in block or "tool_calls" in block:
             try:
                 json.loads(block)
             except json.JSONDecodeError as exc:
                 errors.append(f"Invalid JSON in fenced block: {exc.msg}")
+                _log_json_block_error(block, exc, "_extract_tool_requests_with_errors")
     requests = _extract_tool_requests(text)
     if tool_mentions and len(requests) < len(tool_mentions):
         errors.append(
@@ -744,68 +826,90 @@ def _run_tool_preflight(
     system_messages: List[str],
     max_tokens: Optional[int],
 ) -> tuple[bool, List[str], str]:
-    schema_text = json.dumps(TOOL_REQUEST_SCHEMA_JSON, indent=2)
-    preflight_messages = list(system_messages)
-    preflight_messages.append("TOOL_REQUEST_SCHEMA_JSON:\n" + schema_text)
-    preflight_messages.append(
-        "TOOL_REQUEST_PREFLIGHT: Return ONLY the JSON schema object above. No Markdown, no extra text."
-    )
+    def _parse_schema_json(text: str) -> tuple[Any | None, str | None]:
+        if not text or not text.strip():
+            return None, "Schema JSON parse error: empty output."
+        objects = _scan_json_objects(text)
+        if not objects:
+            return None, "Schema JSON parse error: no JSON object found."
+        for obj in objects:
+            if isinstance(obj, dict) and "schema_version" in obj:
+                return obj, None
+        return None, "Schema JSON parse error: schema object not found."
+
+    preflight_schema = {
+        "schema_version": "1",
+        "allowed_tools": list(ALLOWED_TOOLS),
+    }
+    schema_text = json.dumps(preflight_schema, indent=2)
+    preflight_messages = [
+        "TOOL_REQUEST_SCHEMA_JSON:\n" + schema_text,
+        "TOOL_REQUEST_PREFLIGHT: Return ONLY the JSON schema object above. No Markdown, no extra text.",
+        "The user goal is irrelevant for this step; only return the schema JSON.",
+    ]
     preflight_result = call_agent(
-        stage_name,
-        goal,
-        scenario,
+        "schema_preflight",
+        "Return the schema JSON only.",
+        None,
         max_tokens=_limit_tokens(max_tokens, 256),
-        extra_context=extra_context,
+        extra_context="",
         system_messages=preflight_messages,
     )
     output = preflight_result.output or ""
     errors: List[str] = []
-    parsed = None
-    try:
-        parsed = json.loads(output)
-    except json.JSONDecodeError as exc:
-        errors.append(f"Schema JSON parse error: {exc.msg}")
+    parsed, parse_error = _parse_schema_json(output)
+    if parse_error:
+        errors.append(parse_error)
     if parsed is not None:
         errors.extend(_validate_tool_schema(parsed))
     if not errors:
         return True, [], output
 
-    repair_messages = list(system_messages)
-    repair_messages.append("TOOL_REQUEST_SCHEMA_JSON:\n" + schema_text)
-    repair_messages.append(
-        "TOOL_REQUEST_PREFLIGHT_REPAIR: Fix the schema output. Return ONLY valid JSON that matches "
-        "TOOL_REQUEST_SCHEMA_JSON. No extra text."
-    )
-    repair_context = "\n\n".join(
-        filter(
-            None,
-            [
-                extra_context,
-                "Previous schema output (invalid):\n" + output.strip(),
-                "Issues:\n- " + "\n- ".join(errors),
-            ],
+    max_repairs = int(os.getenv("TOOL_PREFLIGHT_REPAIR_MAX", "3"))
+    last_output = output
+    last_errors = errors
+    for attempt in range(1, max_repairs + 1):
+        repair_messages = [
+            "TOOL_REQUEST_SCHEMA_JSON:\n" + schema_text,
+        ]
+        repair_notice = (
+            "TOOL_REQUEST_PREFLIGHT_REPAIR: Fix the schema output. Return ONLY valid JSON that matches "
+            "TOOL_REQUEST_SCHEMA_JSON. No extra text."
         )
-    )
-    repair_result = call_agent(
-        stage_name,
-        goal,
-        scenario,
-        max_tokens=_limit_tokens(max_tokens, 256),
-        extra_context=repair_context,
-        system_messages=repair_messages,
-    )
-    repair_output = repair_result.output or ""
-    repair_errors: List[str] = []
-    repaired = None
-    try:
-        repaired = json.loads(repair_output)
-    except json.JSONDecodeError as exc:
-        repair_errors.append(f"Schema JSON parse error: {exc.msg}")
-    if repaired is not None:
-        repair_errors.extend(_validate_tool_schema(repaired))
-    if not repair_errors:
-        return True, [], repair_output
-    return False, repair_errors, repair_output
+        if attempt == max_repairs:
+            repair_notice += " FINAL ATTEMPT: If this fails, the run will terminate."
+        repair_messages.append(repair_notice)
+        repair_context = "\n\n".join(
+            filter(
+                None,
+                [
+                    "",
+                    f"Attempt {attempt} of {max_repairs}.",
+                    "Previous schema output (invalid):\n" + (last_output or "").strip(),
+                    "Issues:\n- " + "\n- ".join(last_errors),
+                ],
+            )
+        )
+        repair_result = call_agent(
+            "schema_preflight",
+            "Return the schema JSON only.",
+            None,
+            max_tokens=_limit_tokens(max_tokens, 256),
+            extra_context=repair_context,
+            system_messages=repair_messages,
+        )
+        repair_output = repair_result.output or ""
+        repair_errors: List[str] = []
+        repaired, repair_parse_error = _parse_schema_json(repair_output)
+        if repair_parse_error:
+            repair_errors.append(repair_parse_error)
+        if repaired is not None:
+            repair_errors.extend(_validate_tool_schema(repaired))
+        if not repair_errors:
+            return True, [], repair_output
+        last_output = repair_output
+        last_errors = repair_errors
+    return False, last_errors, last_output
 
 
 def _format_tool_context(entry: Dict[str, Any]) -> str:
@@ -923,6 +1027,7 @@ def _validate_bare_command(cmd: List[str], project_root: Path, permissions: set[
     command_name = cmd[0].split("/")[-1]
     if command_name not in BARE_ALLOWLIST:
         return False, f"Command '{command_name}' is not in allowlist.", True
+    is_remote_ssh = command_name in {"ssh", "sshpass"}
     command_text = " ".join(cmd)
     lowered = command_text.lower()
     if "sudo" in lowered:
@@ -930,11 +1035,12 @@ def _validate_bare_command(cmd: List[str], project_root: Path, permissions: set[
             pass
         else:
             return False, "sudo requires explicit permission.", True
-    for token in BARE_DENY_TOKENS:
-        if token in lowered:
-            if "*" in permissions or any(token in perm.lower() for perm in permissions):
-                break
-            return False, f"Command contains forbidden token '{token}'.", True
+    if not is_remote_ssh:
+        for token in BARE_DENY_TOKENS:
+            if token in lowered:
+                if "*" in permissions or any(token in perm.lower() for perm in permissions):
+                    break
+                return False, f"Command contains forbidden token '{token}'.", True
     if command_name == "docker" and "*" not in permissions:
         safe_docker = {"--version", "version", "ps", "images", "info"}
         if len(cmd) >= 2 and cmd[1] in safe_docker:
@@ -946,6 +1052,8 @@ def _validate_bare_command(cmd: List[str], project_root: Path, permissions: set[
     if "pip" in command_name or " pip " in f" {lowered} ":
         if ".venv" not in lowered and "python -m venv" not in lowered:
             return False, "pip usage requires a .venv (python -m venv .venv, then .venv/bin/pip).", False
+    if is_remote_ssh:
+        return True, "", False
     for arg in cmd[1:]:
         if arg.startswith("/"):
             try:
@@ -982,9 +1090,29 @@ def _normalize_exec_cmd(cmd: List[str]) -> List[str]:
             cleaned.append(part[1:-1])
             changed = True
         else:
-            cleaned.append(part)
+            if isinstance(part, str) and part.endswith(")") and len(part) > 1 and not part.startswith("("):
+                cleaned.append(part[:-1])
+                changed = True
+            else:
+                cleaned.append(part)
     if changed:
         cmd = cleaned
+    if cmd and cmd[0] == "sshpass":
+        cmd = _strip_batchmode_args(cmd)
+    if len(cmd) >= 3 and cmd[0] == "bash" and cmd[1] == "-lc" and isinstance(cmd[2], str):
+        shell_cmd = cmd[2]
+        shell_cmd = re.sub(
+            r"(sshpass\s+-p\s+)([^\s\"')]+)\)",
+            r"\\1\\2",
+            shell_cmd,
+        )
+        shell_cmd = re.sub(
+            r"(sshpass\s+-p\s+['\"])([^\"')]+)\\)",
+            r"\\1\\2",
+            shell_cmd,
+        )
+        shell_cmd = shell_cmd.replace(" -o BatchMode=yes", "")
+        cmd = [cmd[0], cmd[1], shell_cmd]
     if cmd[0] in {"bash", "sh"}:
         return cmd
     if len(cmd) <= 1:
@@ -996,6 +1124,42 @@ def _normalize_exec_cmd(cmd: List[str]) -> List[str]:
         shell_cmd = " && ".join(part.strip() for part in cmd if part.strip())
         return ["bash", "-lc", shell_cmd]
     return cmd
+
+
+def _strip_batchmode_args(cmd: List[str]) -> List[str]:
+    if not cmd:
+        return cmd
+    sanitized: List[str] = []
+    skip_next = False
+    i = 0
+    while i < len(cmd):
+        if skip_next:
+            skip_next = False
+            i += 1
+            continue
+        if cmd[i] == "-o" and i + 1 < len(cmd) and str(cmd[i + 1]).startswith("BatchMode="):
+            skip_next = True
+            i += 1
+            continue
+        if isinstance(cmd[i], str) and cmd[i].startswith("BatchMode="):
+            i += 1
+            continue
+        sanitized.append(cmd[i])
+        i += 1
+    return sanitized
+
+
+def _ssh_auth_failed(entry: Dict[str, Any]) -> bool:
+    stderr = (entry.get("stderr") or "")
+    stdout = (entry.get("stdout") or "")
+    combined = f"{stderr}\n{stdout}"
+    indicators = (
+        "permission denied",
+        "publickey",
+        "authentication failed",
+        "no supported authentication",
+    )
+    return any(token in combined.lower() for token in indicators)
 
 
 def _resolve_bare_executable(cmd: List[str]) -> List[str]:
@@ -1134,6 +1298,7 @@ def run_demo_stream(
     ssh_password = _extract_password_from_text(goal) or _extract_password_from_text(scenario or "")
     ssh_user = None
     ssh_host = None
+    ssh_key_preferred = _prompt_prefers_ssh_key(goal) or _prompt_prefers_ssh_key(scenario or "")
     for candidate in (goal, scenario or ""):
         if not candidate:
             continue
@@ -1149,6 +1314,14 @@ def run_demo_stream(
             ssh_password = _extract_password_from_text(message)
             if ssh_password:
                 break
+    if not ssh_key_preferred:
+        for message in _load_human_messages():
+            if _prompt_prefers_ssh_key(message):
+                ssh_key_preferred = True
+                break
+    ssh_key_available = _ssh_key_available()
+    # If a password is provided in the prompt, prefer it unless the user explicitly requests key-based auth.
+    ssh_use_password = bool(ssh_password and not ssh_key_preferred)
     if resuming and resume_state:
         requesting_stage = str(resume_state.get("requesting_stage") or "").strip().lower()
         saved_queue = resume_state.get("stage_queue") or []
@@ -1400,6 +1573,18 @@ def run_demo_stream(
         "handoffs": [],
     }
     base_system_messages: List[str] = []
+    if ssh_host and ssh_user:
+        base_system_messages.append(f"SSH_TARGET: {ssh_user}@{ssh_host}.")
+    if ssh_password:
+        base_system_messages.append(
+            "SSH_AUTH_POLICY: Credentials are provided in the user request. "
+            "You are authorized to use password-based SSH non-interactively (sshpass) if needed. "
+            "Do not request HUMAN_INPUT_REQUIRED for SSH credentials."
+        )
+        if ssh_key_available:
+            base_system_messages.append(
+                "SSH_FALLBACK: If key-based SSH fails, fall back to sshpass with the provided password."
+            )
     if dml_enabled and cookbook_info["found"] and cookbook_info["cookbook_text"]:
         base_system_messages.append(f"DML_COOKBOOK_GUIDANCE:\n{cookbook_info['cookbook_text']}")
     if use_playground:
@@ -1685,17 +1870,28 @@ def run_demo_stream(
         def _cluster_write_cmd(path_value: str, content_value: str) -> List[str]:
             payload = base64.b64encode(content_value.encode("utf-8")).decode("ascii")
             script = (
-                "python - <<'PY'\n"
+                "if command -v python3 >/dev/null 2>&1; then\n"
+                "  python3 - <<'PY'\n"
                 "import base64, pathlib\n"
                 f"path = pathlib.Path({path_value!r})\n"
                 "path.parent.mkdir(parents=True, exist_ok=True)\n"
                 f"path.write_bytes(base64.b64decode('{payload}'))\n"
-                "PY"
+                "PY\n"
+                "elif command -v python >/dev/null 2>&1; then\n"
+                "  python - <<'PY'\n"
+                "import base64, pathlib\n"
+                f"path = pathlib.Path({path_value!r})\n"
+                "path.parent.mkdir(parents=True, exist_ok=True)\n"
+                f"path.write_bytes(base64.b64decode('{payload}'))\n"
+                "PY\n"
+                "else\n"
+                f"  mkdir -p \"$(dirname {path_value!r})\" && echo '{payload}' | base64 -d > {path_value!r}\n"
+                "fi"
             )
             return ["bash", "-lc", script]
 
         def _maybe_wrap_ssh(cmd_value: List[str]) -> List[str]:
-            if not ssh_password:
+            if not ssh_use_password:
                 return cmd_value
             if not cmd_value:
                 return cmd_value
@@ -1752,7 +1948,20 @@ def run_demo_stream(
             return any(token in cmd_text for token in remote_tokens)
 
         def _wrap_remote_exec(cmd_value: List[str]) -> List[str]:
-            base_cmd = ["ssh", f"{ssh_user}@{ssh_host}"] + cmd_value
+            base_cmd = [
+                "ssh",
+                "-o",
+                "StrictHostKeyChecking=no",
+                "-o",
+                "UserKnownHostsFile=/dev/null",
+                "-o",
+                "HostKeyAlgorithms=+ssh-ed25519",
+                "-o",
+                "PubkeyAcceptedAlgorithms=+ssh-ed25519",
+            ]
+            if not ssh_use_password:
+                base_cmd += ["-o", "BatchMode=yes"]
+            base_cmd += [f"{ssh_user}@{ssh_host}"] + cmd_value
             return _maybe_wrap_ssh(base_cmd)
 
         def _should_remote_write(path_value: Optional[str]) -> bool:
@@ -1769,12 +1978,23 @@ def run_demo_stream(
         def _remote_write_cmd(path_value: str, content_value: str) -> List[str]:
             payload = base64.b64encode(content_value.encode("utf-8")).decode("ascii")
             script = (
-                "python - <<'PY'\n"
+                "if command -v python3 >/dev/null 2>&1; then\n"
+                "  python3 - <<'PY'\n"
                 "import base64, pathlib\n"
                 f"path = pathlib.Path({path_value!r})\n"
                 "path.parent.mkdir(parents=True, exist_ok=True)\n"
                 f"path.write_bytes(base64.b64decode('{payload}'))\n"
-                "PY"
+                "PY\n"
+                "elif command -v python >/dev/null 2>&1; then\n"
+                "  python - <<'PY'\n"
+                "import base64, pathlib\n"
+                f"path = pathlib.Path({path_value!r})\n"
+                "path.parent.mkdir(parents=True, exist_ok=True)\n"
+                f"path.write_bytes(base64.b64decode('{payload}'))\n"
+                "PY\n"
+                "else\n"
+                f"  mkdir -p \"$(dirname {path_value!r})\" && echo '{payload}' | base64 -d > {path_value!r}\n"
+                "fi"
             )
             return _wrap_remote_exec(["bash", "-lc", script])
 
@@ -1791,6 +2011,45 @@ def run_demo_stream(
                     mapped.append(arg)
             return mapped
 
+        def _rewrite_shell_ssh(cmd_value: List[str]) -> tuple[List[str], Optional[str]]:
+            if (
+                len(cmd_value) < 3
+                or cmd_value[0] != "bash"
+                or cmd_value[1] != "-lc"
+                or not isinstance(cmd_value[2], str)
+            ):
+                return cmd_value, None
+            shell_cmd = cmd_value[2].strip()
+            if not shell_cmd.startswith("ssh "):
+                return cmd_value, None
+            if "sshpass" in shell_cmd:
+                return cmd_value, None
+            rest = shell_cmd[len("ssh ") :].strip()
+            base_opts = (
+                "-o StrictHostKeyChecking=no "
+                "-o UserKnownHostsFile=/dev/null "
+                "-o HostKeyAlgorithms=+ssh-ed25519 "
+                "-o PubkeyAcceptedAlgorithms=+ssh-ed25519"
+            )
+            if ssh_password:
+                pw = shlex.quote(ssh_password)
+                if ssh_key_available:
+                    ssh_try = f"ssh -o BatchMode=yes {base_opts} {rest}"
+                    ssh_fallback = (
+                        f"sshpass -p {pw} ssh {base_opts} "
+                        "-o PubkeyAuthentication=no -o PreferredAuthentications=password "
+                        f"{rest}"
+                    )
+                    return [cmd_value[0], cmd_value[1], f"{ssh_try} || {ssh_fallback}"], "Injected ssh key+password fallback"
+                ssh_cmd = (
+                    f"sshpass -p {pw} ssh {base_opts} "
+                    "-o PubkeyAuthentication=no -o PreferredAuthentications=password "
+                    f"{rest}"
+                )
+                return [cmd_value[0], cmd_value[1], ssh_cmd], "Injected sshpass for shell ssh"
+            ssh_cmd = f"ssh -o BatchMode=yes {base_opts} {rest}"
+            return [cmd_value[0], cmd_value[1], ssh_cmd], "Injected non-interactive ssh options"
+
         def _maybe_rewrite_ssh_keyscan(cmd_value: List[str]) -> tuple[List[str], Optional[str]]:
             if not cmd_value or cmd_value[0] != "ssh-keyscan":
                 return cmd_value, None
@@ -1802,7 +2061,7 @@ def run_demo_stream(
                 break
             if not host:
                 return cmd_value, None
-            if ssh_password:
+            if ssh_use_password and ssh_password:
                 rewritten = [
                     "sshpass",
                     "-p",
@@ -1861,6 +2120,11 @@ def run_demo_stream(
                     if mapped_cmd != cmd_value:
                         rewritten["cmd"] = mapped_cmd
                         cmd_value = mapped_cmd
+                    shell_rewritten, shell_note = _rewrite_shell_ssh(cmd_value)
+                    if shell_note:
+                        rewritten["cmd"] = shell_rewritten
+                        note = shell_note
+                        return rewritten, note
                     if _should_remote_exec(cmd_value):
                         rewritten["cmd"] = _wrap_remote_exec(cmd_value)
                         note = "Rewrote playground.exec -> bare.exec (remote ssh)"
@@ -1939,6 +2203,11 @@ def run_demo_stream(
                 if mapped_cmd != cmd_value:
                     rewritten["cmd"] = mapped_cmd
                     cmd_value = mapped_cmd
+                shell_rewritten, shell_note = _rewrite_shell_ssh(cmd_value)
+                if shell_note:
+                    rewritten["cmd"] = shell_rewritten
+                    note = shell_note
+                    return rewritten, note
                 if _should_remote_exec(cmd_value):
                     rewritten["cmd"] = _wrap_remote_exec(cmd_value)
                     note = "Rewrote bare.exec -> bare.exec (remote ssh)"
@@ -2048,6 +2317,7 @@ def run_demo_stream(
         }
         if retry_info:
             stage_trace["retry"] = retry_info
+        artifact_output_override: Optional[str] = None
         if use_playground or use_cluster or use_bare_metal:
             output_text = result.output or ""
             preflight_errors: List[str] = []
@@ -2076,6 +2346,10 @@ def run_demo_stream(
                     "errors": preflight_errors,
                     "output": preflight_output,
                 }
+                if not ok:
+                    raise RuntimeError(
+                        f"Tool schema preflight failed after {int(os.getenv('TOOL_PREFLIGHT_REPAIR_MAX', '3'))} repair attempts."
+                    )
 
             tool_requests: List[Dict[str, Any]] = []
             parse_errors: List[str] = []
@@ -2121,6 +2395,12 @@ def run_demo_stream(
                     validation_errors.append(f"Tool {tool_name} requested but bare metal is disabled.")
                 if tool_name in {"cluster.exec", "cluster.logs", "cluster.validate"} and not use_cluster:
                     validation_errors.append(f"Tool {tool_name} requested but cluster is disabled.")
+            if (
+                tool_requests
+                and not validation_errors
+                and parse_errors == ["Tool preflight failed; continuing with tool parsing."]
+            ):
+                parse_errors = []
             repair_output = ""
             if (parse_errors or validation_errors or (tool_hints and not tool_requests)) and stage_name not in tool_repair_attempted:
                 tool_repair_attempted.add(stage_name)
@@ -2178,6 +2458,8 @@ def run_demo_stream(
                     tool_requests = repaired_requests
                     parse_errors = []
                     validation_errors = []
+                    if repair_output:
+                        artifact_output_override = repair_output
                     events.append(f"{stage_name.title()} tool JSON repaired after validation errors.")
                 else:
                     if repaired_parse_errors or repaired_validation_errors:
@@ -2195,10 +2477,9 @@ def run_demo_stream(
                     ops_messages = list(base_system_messages)
                     ops_messages.append(
                         "OPS_TOOL_JSON_REPAIR: The previous agent output contained invalid tool JSON. "
-                        "Respond with a single JSON object: "
-                        "{\"message\":\"hey this isn't correct do it again correctly, here is the schema\","
-                        "\"tool_calls\":[...]} where tool_calls are valid tool requests following "
-                        "TOOL_REQUEST_SCHEMA v1. No extra text."
+                        "Return ONLY valid JSON tool requests that follow TOOL_REQUEST_SCHEMA v1. "
+                        "Allowed shapes: single object, array, or {\"tool_calls\":[...]} wrapper. "
+                        "No extra text, no Markdown."
                     )
                     ops_messages.append(TOOL_REQUEST_SCHEMA_TEXT)
                     ops_messages.append("TOOL_REQUEST_SCHEMA_JSON:\n" + json.dumps(TOOL_REQUEST_SCHEMA_JSON, indent=2))
@@ -2252,6 +2533,8 @@ def run_demo_stream(
                         tool_requests = ops_requests
                         parse_errors = []
                         validation_errors = []
+                        if ops_repair_output:
+                            artifact_output_override = ops_repair_output
                         events.append(f"Ops repaired tool JSON for {stage_name.title()}.")
                         break
                     parse_errors = ops_parse_errors or parse_errors
@@ -2263,6 +2546,14 @@ def run_demo_stream(
                         )
                         if len(events) > 500:
                             del events[:-500]
+            if artifact_output_override is None and (parse_errors or validation_errors):
+                artifact_output_override = json.dumps(
+                    {
+                        "error": "tool_json_invalid",
+                        "issues": parse_errors + validation_errors,
+                    },
+                    indent=2,
+                )
             tool_entries: List[Dict[str, Any]] = []
             wrote_file = False
             bare_permissions = _extract_bare_permissions(_load_human_messages()) if use_bare_metal else set()
@@ -2462,6 +2753,40 @@ def run_demo_stream(
                             safe_cmd = _prepend_bare_safe_dir(cmd, project_root)
                             entry = _run_bare_exec(safe_cmd, project_root, timeout_s=timeout_s)
                             entry["cmd"] = " ".join(safe_cmd)
+                            if (
+                                ssh_password
+                                and not ssh_use_password
+                                and isinstance(safe_cmd, list)
+                                and safe_cmd
+                                and safe_cmd[0] == "ssh"
+                                and _ssh_auth_failed(entry)
+                            ):
+                                retry_cmd = _strip_batchmode_args(safe_cmd)
+                                retry_cmd = [
+                                    "sshpass",
+                                    "-p",
+                                    ssh_password,
+                                    "ssh",
+                                    "-o",
+                                    "StrictHostKeyChecking=no",
+                                    "-o",
+                                    "UserKnownHostsFile=/dev/null",
+                                    "-o",
+                                    "PubkeyAuthentication=no",
+                                    "-o",
+                                    "PreferredAuthentications=password",
+                                    "-o",
+                                    "HostKeyAlgorithms=+ssh-ed25519",
+                                    "-o",
+                                    "PubkeyAcceptedAlgorithms=+ssh-ed25519",
+                                ] + retry_cmd[1:]
+                                retry_entry = _run_bare_exec(retry_cmd, project_root, timeout_s=timeout_s)
+                                retry_entry["cmd"] = " ".join(retry_cmd)
+                                retry_entry["tool"] = "bare.exec"
+                                retry_entry["agent"] = stage_name
+                                tool_context_chunks.append(_format_tool_context(retry_entry))
+                                bare_log.append(retry_entry)
+                                entry = retry_entry
                     entry["agent"] = stage_name
                     tool_context_chunks.append(_format_tool_context(entry))
                     bare_log.append(entry)
@@ -2655,7 +2980,8 @@ def run_demo_stream(
             if use_playground and not wrote_file:
                 safe_name = _safe_stage_name(stage_name)
                 container_path = f"/workspace/agent_projects/{run_id}/{AGENT_LOGS_DIRNAME}/{safe_name}.md"
-                artifact_text = f"# {stage_name.title()} Output\n\n{output_text}\n"
+                artifact_output = artifact_output_override if artifact_output_override is not None else output_text
+                artifact_text = f"# {stage_name.title()} Output\n\n{artifact_output}\n"
                 entry = playground_manager.write_file(playground_name, container_path, artifact_text)
                 entry["cmd"] = f"write_file {container_path}"
                 entry["tool"] = "playground.write_file"
@@ -2962,7 +3288,11 @@ def run_demo_stream(
                         )
                     )
                     stage_trace.setdefault("playground_commands", []).extend(skeleton_entries)
-        artifact_text = f"# {stage_name.title()} Output\n\n{result.output or ''}\n"
+        artifact_output = artifact_output_override if artifact_output_override is not None else (result.output or "")
+        if artifact_output_override is not None and artifact_output_override != (result.output or ""):
+            stage_trace["output_raw"] = result.output
+            stage_trace["output"] = artifact_output_override
+        artifact_text = f"# {stage_name.title()} Output\n\n{artifact_output}\n"
         artifact_path = _write_stage_artifact(run_id, stage_name, artifact_text)
         if artifact_path:
             events.append(f"{stage_name.title()} agent saved output to {artifact_path}.")

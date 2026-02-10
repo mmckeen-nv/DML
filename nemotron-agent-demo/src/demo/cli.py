@@ -19,27 +19,28 @@ def format_status(status: str) -> str:
 
 
 def run(goal: str, fast: bool = False, scenario: Optional[str] = None) -> None:
-    table = Table(title="Station Autonomous Agent Testing", expand=True)
-    table.add_column("Stage", style="cyan")
-    table.add_column("Status")
-    table.add_column("ms")
-    table.add_column("Approx TTFT")
-    table.add_column("Tok/s")
-    table.add_column("Tokens")
-    console.print(table)
-
     for state in run_demo_stream(goal, fast=fast, scenario=scenario):
-        table.rows.clear()
-        for stage in state["stages"]:
-            status = format_status(stage["status"])
-            table.add_row(
-                stage["name"],
-                status,
-                f"{stage['ms']:.0f}",
-                f"{stage['ttft_ms']:.0f}",
-                f"{stage['tok_s']:.1f}",
-                str(stage.get("tokens", 0)),
-            )
+        table = Table(title="Station Autonomous Agent Testing", expand=True)
+        table.add_column("Stage", style="cyan")
+        table.add_column("Status")
+        table.add_column("ms")
+        table.add_column("Approx TTFT")
+        table.add_column("Tok/s")
+        table.add_column("Tokens")
+        stages = state.get("stages") or []
+        if not stages:
+            table.add_row("Idle", format_status("queued"), "0", "0", "0.0", "0")
+        else:
+            for stage in stages:
+                status = format_status(stage["status"])
+                table.add_row(
+                    stage["name"],
+                    status,
+                    f"{stage['ms']:.0f}",
+                    f"{stage['ttft_ms']:.0f}",
+                    f"{stage['tok_s']:.1f}",
+                    str(stage.get("tokens", 0)),
+                )
         console.clear()
         console.print(table)
         metrics = state.get("metrics", {})

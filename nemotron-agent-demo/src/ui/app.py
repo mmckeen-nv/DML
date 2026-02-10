@@ -902,7 +902,7 @@ def build_ui() -> gr.Blocks:
                 create_cluster_btn = gr.Button("Create Cluster", visible=False)
                 validate_cluster_btn = gr.Button("Run Validation", visible=False)
                 destroy_cluster_btn = gr.Button("Destroy Cluster", variant="stop", visible=False)
-                run_btn = gr.Button("Run Demo", variant="primary")
+                run_btn = gr.Button("Start Task", variant="primary")
                 stop_btn = gr.Button("Stop Run", variant="stop")
                 server_status = gr.HTML("", label="Server status")
                 playground_status = gr.HTML("", label="Playground status")
