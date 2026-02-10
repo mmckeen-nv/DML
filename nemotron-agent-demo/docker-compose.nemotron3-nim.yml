@@ -1,0 +1,21 @@
+services:
+  nemotron-nim:
+    image: nvcr.io/nim/nvidia/nemotron-3-nano:1.7.0-variant
+    container_name: nemotron-nim
+    restart: unless-stopped
+    gpus: all
+    ipc: host
+    environment:
+      NGC_API_KEY: ${NGC_API_KEY:-}
+    ports:
+      - "8000:8000"
+
+  nemotron-ui:
+    environment:
+      VLLM_BASE_URL: http://nemotron-nim:8000/v1
+      VLLM_MODEL_ID: nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-NVFP4
+
+  dml-service:
+    environment:
+      VLLM_BASE_URL: http://nemotron-nim:8000/v1
+      VLLM_MODEL_ID: nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-NVFP4
