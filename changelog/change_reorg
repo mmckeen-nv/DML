@@ -1,0 +1,13 @@
+Change: reorg
+
+Summary:
+- Moved core packages/scripts/tests into dml_core and adjusted packaging/config.
+- Consolidated MCP server entrypoints into dml_mcp with a dedicated Dockerfile.
+- Grouped examples (playground, demos, chatbot, benchmarks, visualizer, NIM docs) under examples.
+- Updated Dockerfiles, docker-compose, Makefile, and README paths to match the new layout.
+- Added helper scripts for building core/CUDA images and running the playground.
+
+Notes for maintainers:
+- Use ./build_dml_core.sh or ./build_dml_cuda.sh for container builds.
+- Run the playground with ./run__dml_playground.sh (sets PYTHONPATH + storage).
+- If you change module locations again, update pyproject.toml package list and Docker COPY paths.

@@ -1,6 +1,0 @@
-[
-  "it has passwordless sudo already",
-  "create the project under /home/nvidia/ai-stack and use mkdir to create it",
-  "you don't need sudo to run commands, log in a nvidia",
-  "you can use sudo"
-]

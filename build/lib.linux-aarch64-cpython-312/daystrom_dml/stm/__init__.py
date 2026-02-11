@@ -1,0 +1,1 @@
+"""Structured STM components."""

@@ -1,0 +1,18 @@
+FROM nvcr.io/nvidia/cuda:12.4.1-runtime-ubuntu22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 python3-pip python3-venv git curl build-essential && \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /opt/dml
+COPY . /opt/dml
+RUN pip3 install --no-cache-dir -e .
+
+ENV NVIDIA_VISIBLE_DEVICES=all \
+    NVIDIA_DRIVER_CAPABILITIES=compute,utility \
+    PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/opt/dml
+
+EXPOSE 8000
+CMD ["python", "-m", "examples.demos.dml_service"]

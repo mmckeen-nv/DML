@@ -1,9 +1,0 @@
-requests
-gradio
-rich
-transformers==4.57.3
-accelerate
-huggingface_hub
-fastapi
-uvicorn[standard]
-pydantic
