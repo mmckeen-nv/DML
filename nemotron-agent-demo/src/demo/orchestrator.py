@@ -32,6 +32,48 @@ PROJECT_CODE_DIRNAME = "project_code"
 _agent_logs_migrated = False
 DEFAULT_FALLBACK_PORT = 6969
 RESERVED_PORTS = {8000}
+SSH_PREFLIGHT_ENV = "SSH_PREFLIGHT"
+SSH_PREFLIGHT_DEFAULT = "1"
+SSH_CONNECT_TIMEOUT_ENV = "SSH_CONNECT_TIMEOUT"
+SSH_CONNECT_TIMEOUT_DEFAULT = "8"
+SSH_SERVER_ALIVE_INTERVAL_ENV = "SSH_SERVER_ALIVE_INTERVAL"
+SSH_SERVER_ALIVE_INTERVAL_DEFAULT = "10"
+SSH_SERVER_ALIVE_COUNTMAX_ENV = "SSH_SERVER_ALIVE_COUNTMAX"
+SSH_SERVER_ALIVE_COUNTMAX_DEFAULT = "1"
+SSH_REMOTE_DEFAULT_ENV = "SSH_REMOTE_DEFAULT"
+SSH_REMOTE_DEFAULT_DEFAULT = "1"
+SSH_COMMON_OPTS = [
+    "-o",
+    "StrictHostKeyChecking=no",
+    "-o",
+    "UserKnownHostsFile=/dev/null",
+    "-o",
+    "LogLevel=ERROR",
+    "-o",
+    "ConnectTimeout={connect_timeout}",
+    "-o",
+    "ConnectionAttempts=1",
+    "-o",
+    "ServerAliveInterval={server_alive_interval}",
+    "-o",
+    "ServerAliveCountMax={server_alive_countmax}",
+    "-o",
+    "GSSAPIAuthentication=no",
+    "-o",
+    "KbdInteractiveAuthentication=no",
+    "-o",
+    "PasswordAuthentication=yes",
+    "-o",
+    "HostKeyAlgorithms=+ssh-ed25519",
+    "-o",
+    "PubkeyAcceptedAlgorithms=+ssh-ed25519",
+]
+SSH_PASSWORD_OPTS = [
+    "-o",
+    "PubkeyAuthentication=no",
+    "-o",
+    "PreferredAuthentications=password",
+]
 
 
 @dataclass
@@ -1018,6 +1060,16 @@ def _extract_bare_permissions(messages: List[str]) -> set[str]:
                 permissions.add("*")
             elif line.upper().startswith("ALLOW_BARE:"):
                 permissions.add(line.split(":", 1)[1].strip())
+            else:
+                lowered = line.lower()
+                if (
+                    "allow sudo" in lowered
+                    or "allow sude" in lowered
+                    or "sudo allowed" in lowered
+                    or "sudo ok" in lowered
+                    or "you can use sudo" in lowered
+                ):
+                    permissions.add("sudo")
     return permissions
 
 
@@ -1240,6 +1292,19 @@ def _update_stage(stages: List[StageState], name: str, **kwargs) -> None:
             break
 
 
+def _env_flag(name: str, default: str) -> bool:
+    value = os.getenv(name, default).strip().lower()
+    return value in {"1", "true", "yes", "y", "on"}
+
+
+def _env_int(name: str, default: int) -> int:
+    raw = os.getenv(name, str(default)).strip()
+    try:
+        return int(raw)
+    except ValueError:
+        return default
+
+
 def run_demo_stream(
     goal: str,
     fast: bool = False,
@@ -1250,6 +1315,7 @@ def run_demo_stream(
     playground_image: str = "nemotron-playground:latest",
     auto_remove_playground: bool = False,
     use_bare_metal: bool = False,
+    allow_bare_sudo: bool = False,
     use_cluster: bool = False,
     cluster_image: str = "nemotron-playground:latest",
     cluster_size: int = 3,
@@ -1322,6 +1388,57 @@ def run_demo_stream(
     ssh_key_available = _ssh_key_available()
     # If a password is provided in the prompt, prefer it unless the user explicitly requests key-based auth.
     ssh_use_password = bool(ssh_password and not ssh_key_preferred)
+    ssh_preflight_enabled = _env_flag(SSH_PREFLIGHT_ENV, SSH_PREFLIGHT_DEFAULT)
+    ssh_connect_timeout = _env_int(SSH_CONNECT_TIMEOUT_ENV, int(SSH_CONNECT_TIMEOUT_DEFAULT))
+    ssh_server_alive_interval = _env_int(
+        SSH_SERVER_ALIVE_INTERVAL_ENV, int(SSH_SERVER_ALIVE_INTERVAL_DEFAULT)
+    )
+    ssh_server_alive_countmax = _env_int(
+        SSH_SERVER_ALIVE_COUNTMAX_ENV, int(SSH_SERVER_ALIVE_COUNTMAX_DEFAULT)
+    )
+    ssh_remote_default = _env_flag(SSH_REMOTE_DEFAULT_ENV, SSH_REMOTE_DEFAULT_DEFAULT)
+    ssh_target = f"{ssh_user}@{ssh_host}" if ssh_host and ssh_user else ""
+
+    def _resolve_ssh_common_opts() -> List[str]:
+        resolved: List[str] = []
+        for item in SSH_COMMON_OPTS:
+            if isinstance(item, str) and "{" in item:
+                resolved.append(
+                    item.format(
+                        connect_timeout=ssh_connect_timeout,
+                        server_alive_interval=ssh_server_alive_interval,
+                        server_alive_countmax=ssh_server_alive_countmax,
+                    )
+                )
+            else:
+                resolved.append(item)
+        return resolved
+
+    ssh_common_opts = _resolve_ssh_common_opts()
+
+    def _ssh_mode_opts(use_password: bool) -> List[str]:
+        opts = list(ssh_common_opts)
+        if use_password:
+            opts += SSH_PASSWORD_OPTS
+        else:
+            opts += ["-o", "BatchMode=yes"]
+        return opts
+
+    def _build_ssh_cmd_tokens(remote_args: List[str], use_password: Optional[bool] = None) -> List[str]:
+        if not ssh_target:
+            return remote_args
+        use_pw = ssh_use_password if use_password is None else use_password
+        base_cmd = ["ssh", "-T"] + _ssh_mode_opts(use_pw) + [ssh_target] + remote_args
+        if use_pw and ssh_password:
+            return ["sshpass", "-p", ssh_password] + base_cmd
+        return base_cmd
+
+    def _build_scp_cmd_tokens(src: str, dest: str, use_password: Optional[bool] = None) -> List[str]:
+        use_pw = ssh_use_password if use_password is None else use_password
+        base_cmd = ["scp"] + _ssh_mode_opts(use_pw) + [src, dest]
+        if use_pw and ssh_password:
+            return ["sshpass", "-p", ssh_password] + base_cmd
+        return base_cmd
     if resuming and resume_state:
         requesting_stage = str(resume_state.get("requesting_stage") or "").strip().lower()
         saved_queue = resume_state.get("stage_queue") or []
@@ -1449,6 +1566,110 @@ def run_demo_stream(
             tool_context_chunks.append(_format_cluster_context(entry))
             cluster_log.append(entry)
 
+    ssh_preflight_ok: Optional[bool] = None
+    ssh_preflight_error: Optional[str] = None
+    ssh_preflight_ran = False
+    ssh_tmux_available: Optional[bool] = None
+    if (
+        ssh_preflight_enabled
+        and ssh_host
+        and ssh_user
+        and (use_bare_metal or use_playground or use_cluster)
+    ):
+        ssh_preflight_ran = True
+        remote_cmd = "echo __NEMO_SSH_OK__ && whoami && hostname && uname -a"
+        ssh_cmd = _build_ssh_cmd_tokens(["bash", "-lc", remote_cmd])
+        preflight_timeout = 60
+        entry: Optional[Dict[str, Any]] = None
+        if use_bare_metal:
+            entry = _run_bare_exec(ssh_cmd, project_root, timeout_s=preflight_timeout)
+            entry["cmd"] = " ".join(ssh_cmd)
+            bare_log.append(entry)
+            tool_context_chunks.append(_format_tool_context(entry))
+        elif use_playground:
+            entry = playground_manager.exec_cmd(playground_name, ssh_cmd, timeout_s=preflight_timeout)
+            entry["cmd"] = " ".join(ssh_cmd)
+            playground_log.append(entry)
+            tool_context_chunks.append(_format_tool_context(entry))
+        elif use_cluster:
+            default_container = None
+            for container in cluster_info.get("containers", []):
+                if container.get("role") == "api" and container.get("name"):
+                    default_container = str(container.get("name"))
+                    break
+            if not default_container:
+                for container in cluster_info.get("containers", []):
+                    if container.get("name"):
+                        default_container = str(container.get("name"))
+                        break
+            if default_container:
+                entry = cluster_manager.exec_in(default_container, ssh_cmd, timeout_s=preflight_timeout)
+                entry["cmd"] = " ".join(ssh_cmd)
+                cluster_log.append(entry)
+                tool_context_chunks.append(_format_cluster_context(entry))
+            else:
+                entry = {
+                    "cmd": "ssh preflight",
+                    "exit_code": 1,
+                    "stdout": "",
+                    "stderr": "No cluster containers available for SSH preflight.",
+                }
+                tool_context_chunks.append(_format_cluster_context(entry))
+        if entry:
+            stdout = entry.get("stdout") or ""
+            stderr = entry.get("stderr") or ""
+            ssh_preflight_ok = entry.get("exit_code") == 0 and "__NEMO_SSH_OK__" in stdout
+            if not ssh_preflight_ok:
+                ssh_preflight_error = stderr.strip() or stdout.strip() or "SSH preflight failed."
+                events.append(f"SSH_PREFLIGHT_FAILED: {ssh_preflight_error}")
+            else:
+                events.append(f"SSH_PREFLIGHT_OK: {ssh_target}")
+        if ssh_preflight_ok:
+            tmux_check_cmd = "command -v tmux >/dev/null 2>&1 && echo __NEMO_TMUX_OK__ || echo __NEMO_TMUX_MISSING__"
+            tmux_cmd = _build_ssh_cmd_tokens(["bash", "-lc", tmux_check_cmd])
+            tmux_entry: Optional[Dict[str, Any]] = None
+            if use_bare_metal:
+                tmux_entry = _run_bare_exec(tmux_cmd, project_root, timeout_s=preflight_timeout)
+                tmux_entry["cmd"] = " ".join(tmux_cmd)
+                bare_log.append(tmux_entry)
+                tool_context_chunks.append(_format_tool_context(tmux_entry))
+            elif use_playground:
+                tmux_entry = playground_manager.exec_cmd(playground_name, tmux_cmd, timeout_s=preflight_timeout)
+                tmux_entry["cmd"] = " ".join(tmux_cmd)
+                playground_log.append(tmux_entry)
+                tool_context_chunks.append(_format_tool_context(tmux_entry))
+            elif use_cluster:
+                default_container = None
+                for container in cluster_info.get("containers", []):
+                    if container.get("role") == "api" and container.get("name"):
+                        default_container = str(container.get("name"))
+                        break
+                if not default_container:
+                    for container in cluster_info.get("containers", []):
+                        if container.get("name"):
+                            default_container = str(container.get("name"))
+                            break
+                if default_container:
+                    tmux_entry = cluster_manager.exec_in(default_container, tmux_cmd, timeout_s=preflight_timeout)
+                    tmux_entry["cmd"] = " ".join(tmux_cmd)
+                    cluster_log.append(tmux_entry)
+                    tool_context_chunks.append(_format_cluster_context(tmux_entry))
+                else:
+                    tmux_entry = {
+                        "cmd": "tmux preflight",
+                        "exit_code": 1,
+                        "stdout": "",
+                        "stderr": "No cluster containers available for tmux preflight.",
+                    }
+                    tool_context_chunks.append(_format_cluster_context(tmux_entry))
+            if tmux_entry:
+                tmux_stdout = tmux_entry.get("stdout") or ""
+                ssh_tmux_available = "__NEMO_TMUX_OK__" in tmux_stdout
+                if ssh_tmux_available:
+                    events.append(f"SSH_TMUX_OK: {ssh_target}")
+                else:
+                    events.append(f"SSH_TMUX_MISSING: {ssh_target}")
+
     scenario_key = scenario or "general"
     if use_cluster:
         scenario_key = f"{scenario_key}-cluster-{cluster_size}"
@@ -1572,9 +1793,24 @@ def run_demo_stream(
         "human_input_requests": [],
         "handoffs": [],
     }
+    if ssh_preflight_ran:
+        trace["ssh"] = {
+            "target": ssh_target,
+            "preflight_ok": ssh_preflight_ok,
+            "preflight_error": ssh_preflight_error,
+            "tmux_available": ssh_tmux_available,
+            "mode": "bare" if use_bare_metal else "playground" if use_playground else "cluster" if use_cluster else "none",
+        }
+        bare_info["ssh_preflight_ok"] = ssh_preflight_ok
+        bare_info["ssh_tmux_available"] = ssh_tmux_available
     base_system_messages: List[str] = []
     if ssh_host and ssh_user:
         base_system_messages.append(f"SSH_TARGET: {ssh_user}@{ssh_host}.")
+    if ssh_preflight_ran:
+        if ssh_preflight_ok:
+            base_system_messages.append(f"SSH_PREFLIGHT_OK: {ssh_target}")
+        else:
+            base_system_messages.append(f"SSH_PREFLIGHT_FAILED: {ssh_preflight_error or 'SSH preflight failed.'}")
     if ssh_password:
         base_system_messages.append(
             "SSH_AUTH_POLICY: Credentials are provided in the user request. "
@@ -1584,6 +1820,122 @@ def run_demo_stream(
         if ssh_key_available:
             base_system_messages.append(
                 "SSH_FALLBACK: If key-based SSH fails, fall back to sshpass with the provided password."
+            )
+    if ssh_host and ssh_user and (use_bare_metal or use_playground or use_cluster):
+        ssh_tool = "bare.exec" if use_bare_metal else "playground.exec" if use_playground else "cluster.exec"
+        ssh_container = None
+        if use_cluster:
+            for container in cluster_info.get("containers", []):
+                if container.get("role") == "api" and container.get("name"):
+                    ssh_container = str(container.get("name"))
+                    break
+            if not ssh_container:
+                for container in cluster_info.get("containers", []):
+                    if container.get("name"):
+                        ssh_container = str(container.get("name"))
+                        break
+        ssh_cmd_template = _build_ssh_cmd_tokens(["bash", "-lc", "<REMOTE_CMD>"])
+        ssh_tool_call: Dict[str, Any] = {"tool": ssh_tool, "cmd": ssh_cmd_template, "timeout_s": 60}
+        if ssh_container:
+            ssh_tool_call["container"] = ssh_container
+        scp_cmd_template = _build_scp_cmd_tokens("<LOCAL_PATH>", f"{ssh_target}:<REMOTE_PATH>")
+        scp_tool_call: Dict[str, Any] = {"tool": ssh_tool, "cmd": scp_cmd_template, "timeout_s": 120}
+        if ssh_container:
+            scp_tool_call["container"] = ssh_container
+        base_system_messages.append(
+            "SSH_CANONICAL_TOOL_CALL:\n"
+            "Use this exact JSON template for remote SSH commands (no alternative SSH forms). "
+            "Replace <REMOTE_CMD> only.\n"
+            f"{json.dumps(ssh_tool_call)}"
+        )
+        base_system_messages.append(
+            "SSH_CANONICAL_UPLOAD_CALL:\n"
+            "Use this exact JSON template for uploads (no alternative SSH forms). "
+            "Replace <LOCAL_PATH> and <REMOTE_PATH> only.\n"
+            f"{json.dumps(scp_tool_call)}"
+        )
+        if ssh_preflight_ran and not ssh_preflight_ok:
+            base_system_messages.append(
+                "SSH_TMUX_UNAVAILABLE: SSH preflight failed; do not attempt tmux mode."
+            )
+        elif ssh_tmux_available is False:
+            base_system_messages.append(
+                "SSH_TMUX_MISSING: tmux not found on the remote host. "
+                "Avoid tmux mode and use direct SSH commands instead."
+            )
+        else:
+            base_system_messages.append(
+                "SSH_TMUX_AVAILABLE: Use tmux session helpers for remote interactive-like shells. "
+                "Do not invent alternate SSH flows; reuse the templates below."
+            )
+            tmux_tool = ssh_tool
+            tmux_env_parts = [
+                f"SSH_HOST={shlex.quote(str(ssh_host))}",
+                f"SSH_USER={shlex.quote(str(ssh_user))}",
+            ]
+            if ssh_password:
+                tmux_env_parts.append(f"SSH_PASSWORD={shlex.quote(str(ssh_password))}")
+            tmux_env_prefix = " ".join(tmux_env_parts)
+            tmux_script_prefix = f"cd {shlex.quote(str(BASE_DIR))} && {tmux_env_prefix} ./scripts/remote_tmux.sh"
+            if use_bare_metal:
+                tmux_start_cmd = ["bash", "-lc", f"{tmux_script_prefix} start"]
+                tmux_exec_cmd = ["bash", "-lc", f"{tmux_script_prefix} exec --cmd \"<REMOTE_CMD>\""]
+                tmux_wait_cmd = ["bash", "-lc", f"{tmux_script_prefix} wait --marker \"<MARKER>\""]
+            else:
+                tmux_start_remote = (
+                    "command -v tmux >/dev/null 2>&1 || { echo NO_TMUX; exit 127; }; "
+                    "tmux has-session -t nemostation 2>/dev/null || tmux new-session -d -s nemostation; "
+                    "tmux set -t nemostation remain-on-exit on; "
+                    "echo TMUX_OK session=nemostation"
+                )
+                tmux_exec_remote = (
+                    "tmux send-keys -t nemostation:0.0 "
+                    "\"bash -lc '<REMOTE_CMD>; echo <MARKER>'\" C-m; "
+                    "echo MARKER=<MARKER>"
+                )
+                tmux_wait_remote = (
+                    "i=0; while [ $i -lt 30 ]; do "
+                    "out=$(tmux capture-pane -t nemostation:0.0 -p -S -2000); "
+                    "echo \"$out\" | grep -Fq \"<MARKER>\" && { echo \"$out\"; exit 0; }; "
+                    "i=$((i+1)); sleep 1; "
+                    "done; echo \"$out\"; exit 124"
+                )
+                tmux_start_cmd = _build_ssh_cmd_tokens(["bash", "-lc", tmux_start_remote])
+                tmux_exec_cmd = _build_ssh_cmd_tokens(["bash", "-lc", tmux_exec_remote])
+                tmux_wait_cmd = _build_ssh_cmd_tokens(["bash", "-lc", tmux_wait_remote])
+            tmux_start_call: Dict[str, Any] = {"tool": tmux_tool, "cmd": tmux_start_cmd, "timeout_s": 60}
+            tmux_exec_call: Dict[str, Any] = {"tool": tmux_tool, "cmd": tmux_exec_cmd, "timeout_s": 60}
+            tmux_wait_call: Dict[str, Any] = {"tool": tmux_tool, "cmd": tmux_wait_cmd, "timeout_s": 60}
+            if ssh_container:
+                tmux_start_call["container"] = ssh_container
+                tmux_exec_call["container"] = ssh_container
+                tmux_wait_call["container"] = ssh_container
+            base_system_messages.append(
+                "SSH_TMUX_TOOL_CALL_START:\n"
+                "Start the remote tmux session using this template only.\n"
+                f"{json.dumps(tmux_start_call)}"
+            )
+            base_system_messages.append(
+                "SSH_TMUX_TOOL_CALL_EXEC:\n"
+                "Run a command in the tmux session using this template only. "
+                "Replace <REMOTE_CMD> and keep the rest unchanged. "
+                "This returns MARKER=...; pass that value to the wait call.\n"
+                f"{json.dumps(tmux_exec_call)}"
+            )
+            base_system_messages.append(
+                "SSH_TMUX_TOOL_CALL_WAIT:\n"
+                "Wait for a marker and capture output using this template only. "
+                "Replace <MARKER> and keep the rest unchanged.\n"
+                f"{json.dumps(tmux_wait_call)}"
+            )
+            if ssh_password:
+                base_system_messages.append(
+                    "SSH_SUDO_HINT: For sudo over SSH, use: echo '$SSH_PASSWORD' | sudo -S -p '' <command>"
+                )
+        if use_bare_metal:
+            base_system_messages.append(
+                "REMOTE_EXECUTION_REQUIRED: When SSH_TARGET is set, run remote commands using SSH_CANONICAL_TOOL_CALL. "
+                "Do not run commands in the playground container. Only use local bare.write_file for deliverables."
             )
     if dml_enabled and cookbook_info["found"] and cookbook_info["cookbook_text"]:
         base_system_messages.append(f"DML_COOKBOOK_GUIDANCE:\n{cookbook_info['cookbook_text']}")
@@ -1891,31 +2243,24 @@ def run_demo_stream(
             return ["bash", "-lc", script]
 
         def _maybe_wrap_ssh(cmd_value: List[str]) -> List[str]:
-            if not ssh_use_password:
-                return cmd_value
             if not cmd_value:
                 return cmd_value
-            if cmd_value[0] == "sshpass":
-                return cmd_value
             if cmd_value[0] == "ssh":
-                return [
-                    "sshpass",
-                    "-p",
-                    ssh_password,
-                    "ssh",
-                    "-o",
-                    "StrictHostKeyChecking=no",
-                    "-o",
-                    "UserKnownHostsFile=/dev/null",
-                    "-o",
-                    "PubkeyAuthentication=no",
-                    "-o",
-                    "PreferredAuthentications=password",
-                    "-o",
-                    "HostKeyAlgorithms=+ssh-ed25519",
-                    "-o",
-                    "PubkeyAcceptedAlgorithms=+ssh-ed25519",
-                ] + cmd_value[1:]
+                base_cmd = ["ssh", "-T"] + _ssh_mode_opts(ssh_use_password) + cmd_value[1:]
+                if ssh_use_password and ssh_password:
+                    return ["sshpass", "-p", ssh_password] + base_cmd
+                return base_cmd
+            if cmd_value[0] == "sshpass":
+                try:
+                    ssh_index = cmd_value.index("ssh")
+                except ValueError:
+                    return cmd_value
+                return (
+                    cmd_value[: ssh_index + 1]
+                    + ["-T"]
+                    + _ssh_mode_opts(True)
+                    + cmd_value[ssh_index + 1 :]
+                )
             return cmd_value
 
         def _remote_target_available() -> bool:
@@ -1947,22 +2292,24 @@ def run_demo_stream(
             ]
             return any(token in cmd_text for token in remote_tokens)
 
+        def _should_force_remote_exec(cmd_value: List[str]) -> bool:
+            if not _remote_target_available():
+                return False
+            if not ssh_remote_default:
+                return False
+            if not cmd_value:
+                return False
+            if cmd_value[0] in {"ssh", "sshpass", "scp", "rsync"}:
+                return False
+            cmd_text = " ".join(cmd_value)
+            if "remote_tmux.sh" in cmd_text:
+                return False
+            if str(project_root) in cmd_text or container_root in cmd_text:
+                return False
+            return True
+
         def _wrap_remote_exec(cmd_value: List[str]) -> List[str]:
-            base_cmd = [
-                "ssh",
-                "-o",
-                "StrictHostKeyChecking=no",
-                "-o",
-                "UserKnownHostsFile=/dev/null",
-                "-o",
-                "HostKeyAlgorithms=+ssh-ed25519",
-                "-o",
-                "PubkeyAcceptedAlgorithms=+ssh-ed25519",
-            ]
-            if not ssh_use_password:
-                base_cmd += ["-o", "BatchMode=yes"]
-            base_cmd += [f"{ssh_user}@{ssh_host}"] + cmd_value
-            return _maybe_wrap_ssh(base_cmd)
+            return _build_ssh_cmd_tokens(cmd_value)
 
         def _should_remote_write(path_value: Optional[str]) -> bool:
             if not _remote_target_available():
@@ -2025,29 +2372,26 @@ def run_demo_stream(
             if "sshpass" in shell_cmd:
                 return cmd_value, None
             rest = shell_cmd[len("ssh ") :].strip()
-            base_opts = (
-                "-o StrictHostKeyChecking=no "
-                "-o UserKnownHostsFile=/dev/null "
-                "-o HostKeyAlgorithms=+ssh-ed25519 "
-                "-o PubkeyAcceptedAlgorithms=+ssh-ed25519"
-            )
+            base_opts = " ".join(ssh_common_opts)
             if ssh_password:
                 pw = shlex.quote(ssh_password)
                 if ssh_key_available:
-                    ssh_try = f"ssh -o BatchMode=yes {base_opts} {rest}"
+                    ssh_try = f"ssh -T -o BatchMode=yes {base_opts} {rest}"
                     ssh_fallback = (
-                        f"sshpass -p {pw} ssh {base_opts} "
-                        "-o PubkeyAuthentication=no -o PreferredAuthentications=password "
+                        f"sshpass -p {pw} ssh -T {base_opts} "
+                        + " ".join(SSH_PASSWORD_OPTS)
+                        + " "
                         f"{rest}"
                     )
                     return [cmd_value[0], cmd_value[1], f"{ssh_try} || {ssh_fallback}"], "Injected ssh key+password fallback"
                 ssh_cmd = (
-                    f"sshpass -p {pw} ssh {base_opts} "
-                    "-o PubkeyAuthentication=no -o PreferredAuthentications=password "
+                    f"sshpass -p {pw} ssh -T {base_opts} "
+                    + " ".join(SSH_PASSWORD_OPTS)
+                    + " "
                     f"{rest}"
                 )
                 return [cmd_value[0], cmd_value[1], ssh_cmd], "Injected sshpass for shell ssh"
-            ssh_cmd = f"ssh -o BatchMode=yes {base_opts} {rest}"
+            ssh_cmd = f"ssh -T -o BatchMode=yes {base_opts} {rest}"
             return [cmd_value[0], cmd_value[1], ssh_cmd], "Injected non-interactive ssh options"
 
         def _maybe_rewrite_ssh_keyscan(cmd_value: List[str]) -> tuple[List[str], Optional[str]]:
@@ -2129,6 +2473,10 @@ def run_demo_stream(
                         rewritten["cmd"] = _wrap_remote_exec(cmd_value)
                         note = "Rewrote playground.exec -> bare.exec (remote ssh)"
                         return rewritten, note
+                    if _should_force_remote_exec(cmd_value):
+                        rewritten["cmd"] = _build_ssh_cmd_tokens(cmd_value)
+                        note = "Rewrote playground.exec -> bare.exec (forced remote ssh)"
+                        return rewritten, note
                     rewritten_cmd, rewrite_note = _maybe_rewrite_ssh_keyscan(cmd_value)
                     if rewrite_note:
                         rewritten["cmd"] = rewritten_cmd
@@ -2157,6 +2505,14 @@ def run_demo_stream(
                     return rewritten, note
                 note = f"Rewrote {tool} -> bare.write_file"
             return rewritten, note
+
+        if use_bare_metal and tool == "bare.exec":
+            rewritten = dict(req)
+            cmd_value = rewritten.get("cmd")
+            if isinstance(cmd_value, list) and _should_force_remote_exec(cmd_value):
+                rewritten["cmd"] = _build_ssh_cmd_tokens(cmd_value)
+                note = "Rewrote bare.exec -> ssh remote (forced)"
+                return rewritten, note
 
         if use_playground and not use_bare_metal and tool.startswith("bare."):
             rewritten = dict(req)
@@ -2557,6 +2913,8 @@ def run_demo_stream(
             tool_entries: List[Dict[str, Any]] = []
             wrote_file = False
             bare_permissions = _extract_bare_permissions(_load_human_messages()) if use_bare_metal else set()
+            if use_bare_metal and allow_bare_sudo:
+                bare_permissions.add("sudo")
             for request in tool_requests:
                 req_errors = _validate_tool_request(request)
                 if req_errors:
@@ -4012,6 +4370,7 @@ def run_demo(
     playground_image: str = "nemotron-playground:latest",
     auto_remove_playground: bool = False,
     use_bare_metal: bool = False,
+    allow_bare_sudo: bool = False,
     use_cluster: bool = False,
     cluster_image: str = "nemotron-playground:latest",
     cluster_size: int = 3,
@@ -4028,6 +4387,7 @@ def run_demo(
         playground_image=playground_image,
         auto_remove_playground=auto_remove_playground,
         use_bare_metal=use_bare_metal,
+        allow_bare_sudo=allow_bare_sudo,
         use_cluster=use_cluster,
         cluster_image=cluster_image,
         cluster_size=cluster_size,

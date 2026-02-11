@@ -100,6 +100,22 @@ Models are reused across all agent roles, no global cache is used, and deleting 
 - `kubectl` available inside playground when `PLAYGROUND_KUBECONFIG` is mounted.
 - `playground.docker` supports `docker compose` subcommands: `up`, `down`, `ps`, `logs`, `build`, `pull`, `restart`, `stop`, `start`.
 
+**Remote Interactive Shell (tmux)**
+Use tmux on the remote host for a persistent, automation-safe "interactive" session.
+
+Examples:
+```bash
+export SSH_HOST=192.168.50.81 SSH_USER=nvidia SSH_PASSWORD=nvidia TMUX_SESSION=nemostation
+./scripts/remote_tmux.sh start
+marker=$(./scripts/remote_tmux.sh exec "uname -a")
+./scripts/remote_tmux.sh wait "$marker"
+```
+
+Notes:
+- `tmux` must be installed on the remote host.
+- This is interactive-like (send-keys + capture-pane) but non-interactive for automation.
+- Use `capture` or `wait` to retrieve output.
+
 **Local Run Without Containers (Legacy)**
 ```bash
 cd nemotron-agent-demo
