@@ -512,6 +512,15 @@ class MemoryStore:
             return None
 
     def _cache_summary(self, item: MemoryItem, text: str) -> None:
+        meta = item.meta or {}
+        override = meta.get("summary")
+        if override is not None:
+            override_text = str(override).strip()
+            if override_text:
+                item.meta["summary"] = override_text
+                return
+        if meta.get("skip_summary"):
+            return
         summary = self.summarizer.summarize(text, max_len=256)
         if not summary:
             summary = text[:253] + "..."
@@ -691,4 +700,3 @@ class MemoryStore:
                 if random.random() > ratio:
                     continue
                 self._assess_quality(item, item.embedding, now)
-
