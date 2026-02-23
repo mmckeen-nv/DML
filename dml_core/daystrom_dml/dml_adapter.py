@@ -199,6 +199,11 @@ class DMLAdapter:
         self.stm_controller: Optional[STMController] = None
         self._stm_states: Dict[str, STMState] = {}
         self._stm_lock = RLock()
+        self._dml_queue: List[Dict[str, Any]] = []
+        self._idle_threshold = self.config.get("idle_threshold_seconds", 300)  # 5 minutes default
+        self._last_activity_time = time.time()
+        self._background_processing_enabled = self.config.get("background_processing_enabled", True)
+
         if self.enable_stm_controller:
             policy = LTMWritePolicy(
                 mode=str(self.config.get("ltm_write_policy", "balanced")),
@@ -242,6 +247,7 @@ class DMLAdapter:
     # Memory operations
     # ------------------------------------------------------------------
     def ingest(self, text: str, meta: Optional[Dict] = None) -> None:
+        """Full DML ingest - generates embeddings and adds to all systems"""
         if not text:
             return
         embedding = self.embedder.embed(text)
@@ -260,6 +266,62 @@ class DMLAdapter:
         self._persist_all()
         if self.metrics_enabled:
             update_memory_gauge(len(self.store.items()))
+
+    def ingest_fast(self, text: str, meta: Optional[Dict] = None) -> None:
+        """Fast ingest - adds to RAG only, queues for background DML processing"""
+        if not text:
+            return
+        rag_meta: Dict[str, Any] = dict(meta or {})
+        rag_meta.setdefault("source", "fast_ingest")
+        rag_meta.setdefault("queued_for_dml", True)
+        self.rag_store.add_document(text, meta=rag_meta)
+        # Queue for background DML processing
+        self._enqueue_for_dml(text, meta)
+        if self.metrics_enabled:
+            update_memory_gauge(len(self.store.items()))
+
+    def _enqueue_for_dml(self, text: str, meta: Optional[Dict] = None) -> None:
+        """Queue documents for background DML processing"""
+        self._dml_queue.append({"text": text, "meta": meta})
+        self._schedule_idle_processing()
+
+    def _schedule_idle_processing(self) -> None:
+        """Schedule background DML queue processing"""
+        if self._background_processing_enabled:
+            # Simple trigger - check next time _persist_all is called or add timer
+            if not hasattr(self, '_background_timer') or not self._background_timer.is_alive():
+                self._background_timer = threading.Timer(
+                    1.0,  # Check immediately (in real implementation, use idle detection)
+                    self._process_dml_queue
+                )
+                self._background_timer.start()
+
+    def _process_dml_queue(self) -> None:
+        """Process queued documents for DML when idle"""
+        if not self._dml_queue or not self._background_processing_enabled:
+            return
+
+        # Process a batch
+        batch_size = self.config.get("dml_batch_size", 10)
+        documents = self._dml_queue[:batch_size]
+        self._dml_queue = self._dml_queue[batch_size:]
+
+        LOGGER.info(f"Processing {len(documents)} documents from DML queue")
+
+        for doc in documents:
+            try:
+                self.ingest(doc["text"], meta=doc["meta"])
+            except Exception as e:
+                LOGGER.error(f"Failed to process DML queue document: {e}")
+
+        # Check if more to process or if we should schedule next run
+        if self._dml_queue:
+            # Reschedule
+            self._schedule_idle_processing()
+        else:
+            # Clear timer
+            if hasattr(self, '_background_timer'):
+                self._background_timer.cancel()
 
     def build_preamble(self, prompt: str, top_k: Optional[int] = None) -> str:
         items = self._retrieve_items(prompt, top_k)
