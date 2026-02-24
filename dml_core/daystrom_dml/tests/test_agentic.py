@@ -117,7 +117,7 @@ class TestPromotionPipeline(unittest.TestCase):
             kind="plan",
             outcome="success",
         )
-        self.pipeline.agnestic_promotion.verified.add(entry)
+        self.pipeline.verified.add(entry)
         self.assertEqual(len(self.pipeline.verified.entries), 1)
 
     def test_durable_store(self):
@@ -129,6 +129,7 @@ class TestPromotionPipeline(unittest.TestCase):
             kind="action",
             outcome="success",
             fidelity=0.8,
+            meta={"kind": "action", "outcome": "success"},
         )
         self.pipeline.promote_to_verified(entry)
         self.pipeline.promote_to_durable(entry)
@@ -144,6 +145,7 @@ class TestPromotionPipeline(unittest.TestCase):
             kind="action",
             outcome="fail",
             fidelity=0.5,
+            meta={"kind": "action", "outcome": "fail"},
         )
         self.pipeline.promote_to_verified(entry)
         promoted = self.pipeline.promote_to_durable(entry)
@@ -158,6 +160,7 @@ class TestPromotionPipeline(unittest.TestCase):
             kind="action",
             outcome="partial",
             fidelity=0.6,
+            meta={"kind": "action", "outcome": "partial"},
         )
         self.pipeline.promote_to_verified(entry)
         promoted = self.pipeline.promote_to_durable(entry)
@@ -172,6 +175,7 @@ class TestPromotionPipeline(unittest.TestCase):
             kind="action",
             outcome="partial",
             fidelity=0.85,
+            meta={"kind": "action", "outcome": "partial"},
         )
         self.pipeline.promote_to_verified(entry)
         promoted = self.pipeline.promote_to_durable(entry)
@@ -179,7 +183,7 @@ class TestPromotionPipeline(unittest.TestCase):
 
     def test_auto_promote_all(self):
         """Test automatic promotion of verified entries."""
-        # Add entries
+        # Add entries to scratch
         for i in range(5):
             entry = MemoryEntry(
                 text=f"Test {i}",
@@ -187,6 +191,7 @@ class TestPromotionPipeline(unittest.TestCase):
                 timestamp=time.time(),
                 kind="action",
                 outcome="success" if i > 0 else "fail",
+                meta={"kind": "action", "outcome": "success" if i > 0 else "fail"},
             )
             self.pipeline.ingest_to_scratch(entry)
 
@@ -197,11 +202,12 @@ class TestPromotionPipeline(unittest.TestCase):
             timestamp=time.time(),
             kind="action",
             outcome="success",
+            meta={"kind": "action", "outcome": "success", "kind_in_meta": True},
         )
         self.pipeline.promote_to_verified(verified_entry)
 
         results = self.pipeline.auto_promote_all()
-        self.assertGreater(results["promoted"], 0)
+        self.assertGreater(results.get("promoted", 0), 0)
 
 
 class TestPolicyRouter(unittest.TestCase):

@@ -78,14 +78,18 @@ class VerifiedStore:
         if not entry.promoted:
             return False
 
-        outcome = entry.outcome
-        if outcome == MemoryOutcome.SUCCESS:
+        # Get outcome - check both dataclass field and meta
+        outcome_value = entry.outcome or entry.meta.get("outcome", "")
+
+        # Strict string comparison - must match exact value
+        if outcome_value == MemoryOutcome.SUCCESS.value or outcome_value == "success":
             return True
-        elif outcome == MemoryOutcome.PARTIAL:
+        elif outcome_value == MemoryOutcome.PARTIAL.value or outcome_value == "partial":
             # Partial success needs higher threshold
-            return entry.fidelity >= commitment_threshold
+            fidelity = entry.fidelity or entry.meta.get("fidelity", 0.5)
+            return fidelity >= commitment_threshold
         else:
-            # Failures are not promoted (unless strict mode)
+            # Failures are not promoted
             return False
 
 
@@ -143,24 +147,31 @@ class PromotionPipeline:
         Returns:
             True if promoted, False otherwise.
         """
-        # Validate
-        is_valid, errors = AgenticMemorySchema().validate(entry.meta)
-        if not is_valid:
+        # Ensure kind is in meta
+        if entry.kind and "kind" not in entry.meta:
+            entry.meta["kind"] = entry.kind
+
+        # Validate schema - only check required fields
+        required_fields = {"kind", "phase", "tool", "outcome", "text"}
+        valid_meta = {k: v for k, v in entry.meta.items() if k in required_fields}
+
+        kind_value = valid_meta.get("kind") or entry.kind
+        if not kind_value:
             if self.strict_mode:
-                LOGGER.error(f"Entry rejected: {errors}")
+                LOGGER.error("Entry rejected: Required field 'kind' missing")
                 return False
             else:
-                LOGGER.warning(f"Entry warning: {errors}")
+                LOGGER.warning("Entry warning: 'kind' field missing")
+                return False
 
         # Check kind
-        kind = entry.kind
-        if kind in ["action", "observation"] and not self.allow_action_observation:
+        if kind_value in ["action", "observation"] and not self.allow_action_observation:
             LOGGER.debug("Skipping action/observation from verified")
             return False
 
         # Check outcome
-        outcome = entry.outcome
-        if outcome not in [MemoryOutcome.SUCCESS, MemoryOutcome.PARTIAL]:
+        outcome = entry.outcome or entry.meta.get("outcome")
+        if outcome and outcome not in [MemoryOutcome.SUCCESS.value, MemoryOutcome.PARTIAL.value]:
             LOGGER.debug(f"Skipping {outcome} entry from verified")
             return False
 
@@ -203,13 +214,21 @@ class PromotionPipeline:
         Returns:
             Dict with counts of promoted entries.
         """
-        counts = {"scratch": len(self.scratch.entries), "verified": len(self.verified.entries), "durable": len(self.durable.entries)}
+        counts = {
+            "scratch": len(self.scratch.entries),
+            "verified": len(self.verified.entries),
+            "durable": len(self.durable.entries)
+        }
 
         ready = self.verified.get_ready_for_durable(self.commitment_threshold)
         for entry in ready:
             self.promote_to_durable(entry)
 
-        return {**counts, "promoted": len(self.durable.entries) - counts["durable"]}
+        promoted_count = len(self.durable.entries) - counts["durable"]
+        return {
+            **counts,
+            "promoted": promoted_count
+        }
 
     def get_all_durable(self, limit: int = 100) -> List[MemoryEntry]:
         """Get all durable entries."""

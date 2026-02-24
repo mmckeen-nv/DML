@@ -329,6 +329,7 @@ class DMLAdapter:
 
         # Add agentic metadata
         agentic_meta = dict(meta or {})
+        agentic_meta["kind"] = kind.value
 
         # Validate schema in agentic mode
         if self.agentic_mode_enabled:
@@ -361,7 +362,7 @@ class DMLAdapter:
                 embedding=embedding,
                 timestamp=time.time(),
                 meta=agentic_meta,
-                kind=kind.value if kind else None,
+                kind=kind.value,
                 phase=agentic_meta.get("phase"),
                 tool=agentic_meta.get("tool"),
                 outcome=agentic_meta.get("outcome"),
@@ -1264,6 +1265,18 @@ class DMLAdapter:
             filtered.append(item)
         return filtered
 
+    def _format_context_items(self, items: Any, kinds: Optional[List[str]] = None) -> str:
+        """Format retrieved items into context string."""
+        if not items:
+            return ""
+        lines = ["=== Retrieved Context ==="]
+        for item in items:
+            meta = item.meta or {}
+            source = meta.get("source", "unknown")
+            summary = item.cached_summary(max_len=220)
+            lines.append(f"- [{source}] {summary[:200]}")
+        return "\n".join(lines)
+
     def retrieve_context(
         self,
         prompt: str,
@@ -1306,9 +1319,22 @@ class DMLAdapter:
         }
 
         if self.metrics_enabled:
-            record_retrieval(len(context.split()))
+            record_retrieval(len(context.split()), latency_ms=0.0)
 
         return report
+
+    def _format_context_items(self, items: List, kinds: Optional[List] = None) -> str:
+        """Format retrieved items into context string."""
+        if not items:
+            return ""
+        lines: List[str] = ["=== Retrieved Context ==="]
+        for item in items:
+            meta = item.meta or {}
+            source = meta.get("source", "unknown")
+            timestamp = time.strftime("%Y-%m-%d", time.gmtime(item.timestamp))
+            summary = item.cached_summary(max_len=220)
+            lines.append(f"- ({timestamp}) [source={source}]\n  {summary}")
+        return "\n".join(lines)
 
     def _format_ltm_entries(self, items: List[MemoryStore.MemoryItem]) -> str:
         if not items:
