@@ -1,12 +1,14 @@
 """Policy router for adaptive DML settings per task/phase."""
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
 from .agent_schema import MemoryPhase
-from .utils import LOGGER
+
+LOGGER = logging.getLogger(__name__)
 
 
 class TaskType(Enum):

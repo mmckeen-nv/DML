@@ -30,6 +30,9 @@ from .stm.controller import STMController
 from .stm.policy import LTMWritePolicy, MemoryWrite
 from .stm.schema import STMState
 from . import utils
+from .agent_schema import AgenticMemorySchema, MemoryKind
+from .promotion_pipeline import PromotionPipeline, MemoryEntry
+from .policy_router import PolicyRouter, TaskType, RouterDecision
 
 LOGGER = logging.getLogger(__name__)
 
@@ -169,6 +172,33 @@ class DMLAdapter:
                     self.persistent_rag_store.load()
         else:
             self.persistent_rag_store = None
+
+        # Initialize Agentic Mode components
+        self.agentic_mode_enabled = bool(self.config.get("dml.agentic_mode.enabled", False))
+        self.agentic_router: Optional[PolicyRouter] = None
+
+        if self.agentic_mode_enabled:
+            router_enabled = bool(self.config.get("dml.router.enabled", False))
+            router_profile = self.config.get("dml.router.profile")
+            router_log = self.config.get("dml.router.log_level", "info")
+
+            self.agentic_router = PolicyRouter(
+                enabled=router_enabled,
+                profile=router_profile,
+                log_level=router_log,
+            )
+
+            LOGGER.info("Agentic Mode enabled with router: %s", router_enabled)
+
+            # Initialize promotion pipeline
+            self.agentic_promotion = PromotionPipeline(
+                commitment_threshold=float(self.config.get("dml.commitment_threshold", 0.75)),
+                allow_action_observation=True,
+                strict_mode=True,
+            )
+
+            LOGGER.info("Agentic promotion pipeline initialized")
+
         persistent_backend = RAGBackendDescriptor(
             identifier="persistent",
             label="Persistent Index",
@@ -277,6 +307,76 @@ class DMLAdapter:
         self.rag_store.add_document(text, meta=rag_meta)
         # Queue for background DML processing
         self._enqueue_for_dml(text, meta)
+        if self.metrics_enabled:
+            update_memory_gauge(len(self.store.items()))
+
+    def ingest_agentic(
+        self,
+        text: str,
+        kind: MemoryKind,
+        meta: Optional[Dict] = None,
+    ) -> None:
+        """
+        Agentic ingest - validates schema and routes through promotion pipeline.
+
+        Args:
+            text: Memory content.
+            kind: Type of memory (action, observation, plan, error).
+            meta: Optional metadata with phase, tool, provenance, etc.
+        """
+        if not text:
+            return
+
+        # Add agentic metadata
+        agentic_meta = dict(meta or {})
+
+        # Validate schema in agentic mode
+        if self.agentic_mode_enabled:
+            schema = AgenticMemorySchema(strict=True)
+            is_valid, errors = schema.validate(agentic_meta)
+
+            if not is_valid:
+                LOGGER.warning(f"Agentic memory rejected: {errors}")
+                return
+
+        # Add to memory store (existing behavior)
+        embedding = self.embedder.embed(text)
+        salience = self._estimate_salience(text)
+        item, merged = self.store.ingest(text, embedding, salience=salience, meta=agentic_meta)
+        rag_text = item.text if merged else text
+        rag_embedding = item.embedding if merged else embedding
+        rag_meta: Dict[str, Any] = dict(agentic_meta)
+        rag_meta.setdefault("memory_id", item.id)
+
+        # Add to RAG store
+        if self.persistent_rag_store is not None:
+            with contextlib.suppress(Exception):
+                self.persistent_rag_store.add(rag_text, rag_embedding, meta=rag_meta)
+        self.rag_store.add_document(rag_text, meta=rag_meta)
+
+        # Add to promotion pipeline in agentic mode
+        if self.agentic_mode_enabled and self.agentic_router:
+            memory_entry = MemoryEntry(
+                text=text,
+                embedding=embedding,
+                timestamp=time.time(),
+                meta=agentic_meta,
+                kind=kind.value if kind else None,
+                phase=agentic_meta.get("phase"),
+                tool=agentic_meta.get("tool"),
+                outcome=agentic_meta.get("outcome"),
+            )
+
+            # Route through promotion pipeline
+            if kind in [MemoryKind.ACTION, MemoryKind.OBSERVATION, MemoryKind.ERROR]:
+                self.agentic_promotion.ingest_to_scratch(memory_entry)
+                LOGGER.debug(f"Added {kind.value} to scratch store")
+            else:
+                # Plans and artifacts go directly to verified
+                self.agentic_promotion.verified.add(memory_entry)
+                LOGGER.debug(f"Added {kind.value} to verified store")
+
+        self._persist_all()
         if self.metrics_enabled:
             update_memory_gauge(len(self.store.items()))
 
@@ -1164,6 +1264,52 @@ class DMLAdapter:
             filtered.append(item)
         return filtered
 
+    def retrieve_context(
+        self,
+        prompt: str,
+        tenant_id: Optional[str] = None,
+        client_id: Optional[str] = None,
+        session_id: Optional[str] = None,
+        instance_id: Optional[str] = None,
+        kinds: Optional[List[str]] = None,
+        top_k: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """
+        Retrieve context with agentic-aware routing.
+
+        Returns retrieval report with selected kinds, scores, and tokens.
+        """
+        if self.agentic_mode_enabled and self.agentic_router:
+            # Make routing decision
+            decision = self.agentic_router.decide(
+                meta={"prompt": prompt[:100]},  # Sample for task detection
+                token_pressure=0.0,
+            )
+
+            if decision:
+                LOGGER.debug(f"Router selected: {decision.selected_profile}")
+
+        # Use configured top_k
+        final_top_k = top_k or self.config.get("dml_top_k", DEFAULT_DML_TOP_K)
+
+        items = self._retrieve_items(prompt, final_top_k)
+
+        # Build retrieval report
+        context = self._format_context_items(items, kinds)
+
+        report = {
+            "raw_context": context,
+            "context_tokens": len(context.split()),
+            "top_k": final_top_k,
+            "kinds": kinds,
+            "items": [item.to_dict() for item in items],
+        }
+
+        if self.metrics_enabled:
+            record_retrieval(len(context.split()))
+
+        return report
+
     def _format_ltm_entries(self, items: List[MemoryStore.MemoryItem]) -> str:
         if not items:
             return ""
@@ -1281,10 +1427,39 @@ class DMLAdapter:
             return self._fallback_truncate(summary, max_len=max_len)
         return self._fallback_truncate(item.text, max_len=max_len)
 
-    def _retrieve_items(self, prompt: str, top_k: Optional[int]) -> List[MemoryStore.MemoryItem]:
+    def _retrieve_items(
+        self,
+        prompt: str,
+        top_k: Optional[int] = None,
+        phase: Optional[str] = None,
+        kinds: Optional[List[str]] = None,
+    ) -> List[MemoryStore.MemoryItem]:
+        """Retrieve items with phase-aware filtering."""
         limit = self._resolve_dml_top_k(top_k)
         prompt_embedding = self.embedder.embed(prompt)
-        return self.store.retrieve(prompt_embedding, top_k=limit)
+        items = self.store.retrieve(prompt_embedding, top_k=limit)
+
+        # Apply phase-aware filtering
+        if phase in ["execute", "debug"]:
+            filtered = []
+            for item in items:
+                meta = item.meta or {}
+                item_kind = str(meta.get("kind", "memory")).lower()
+                if item_kind in ["action", "observation", "error"]:
+                    filtered.append(item)
+            items = filtered
+
+        # Apply kind filtering
+        if kinds:
+            filtered = []
+            for item in items:
+                meta = item.meta or {}
+                item_kind = str(meta.get("kind", "memory")).lower()
+                if any(kind.lower() in item_kind for kind in kinds):
+                    filtered.append(item)
+            items = filtered
+
+        return items
 
     def _resolve_dml_top_k(self, requested: Optional[int]) -> int:
         """Resolve a safe retrieval cap.

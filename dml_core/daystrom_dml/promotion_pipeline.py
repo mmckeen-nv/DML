@@ -1,12 +1,14 @@
 """Promotion pipeline for scratch→verified→durable memory."""
 from __future__ import annotations
 
+import logging
 import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 from .agent_schema import MemoryPhase, MemoryOutcome, AgenticMemorySchema
-from .utils import LOGGER
+
+LOGGER = logging.getLogger(__name__)
 
 
 @dataclass

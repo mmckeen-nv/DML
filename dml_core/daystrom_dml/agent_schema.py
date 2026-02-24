@@ -1,11 +1,12 @@
 """Agentic memory schema and validation utilities."""
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
-from .utils import LOGGER
+LOGGER = logging.getLogger(__name__)
 
 
 class MemoryKind(Enum):

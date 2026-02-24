@@ -1,0 +1,20 @@
+mode,avg_latency_ms,avg_generation_latency_ms,avg_tokens,estimated_cost_usd,sample_output
+semantic,0,0.002,0,0.0,"=== User Prompt ===
+
+Explain concept_0 with historical context
+[Dummy completion truncated]"
+literal,0,0.003,130.7,0.000261,"Source: synthetic/doc_20.txt
+diagnostic hyperdrive synthesis fusion hyperdrive neutrino quantum plasma neutrino synthesis neutrino synthesis resonance hyperdrive warp relay plasma neutrino analysis analysis concept_20 fusion relay analysis plasma diagnosti
+[Dummy completion truncated]"
+hybrid,0,0.003,130.7,0.000261,"Source: synthetic/doc_20.txt
+diagnostic hyperdrive synthesis fusion hyperdrive neutrino quantum plasma neutrino synthesis neutrino synthesis resonance hyperdrive warp relay plasma neutrino analysis analysis concept_20 fusion relay analysis plasma diagnosti
+[Dummy completion truncated]"
+agent,0,0.001,0,0.0,"Initializing Daystrom Memory Lattice v1.0
+Semantic coherence field stabilized.
+Cognitive resonance online.
+=== Daystrom Memory Lattice ===
+
+=== User Prompt ===
+
+Explain concept_0 with historical context
+[Dummy completion truncated]"
