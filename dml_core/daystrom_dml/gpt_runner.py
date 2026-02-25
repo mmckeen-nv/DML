@@ -61,10 +61,10 @@ class GPTRunner:
             )
             LOGGER.info("Configured remote backend at %s", remote_base)
             return
-        if backend_choice not in {"auto", "transformers", "local"}:
+        if backend_choice not in {"auto", "transformers", "local", "ollama"}:
             LOGGER.warning("Unknown backend choice %s; falling back to auto.", backend_choice)
             backend_choice = "auto"
-        if backend_choice in {"auto", "transformers", "local"}:
+        if backend_choice in {"auto", "transformers", "local", "ollama"}:
             try:
                 from .llm_backends.transformers_backend import TransformersBackend
 
