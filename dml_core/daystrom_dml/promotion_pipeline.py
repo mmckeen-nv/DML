@@ -81,13 +81,20 @@ class VerifiedStore:
         # Get outcome - check both dataclass field and meta
         outcome_value = entry.outcome or entry.meta.get("outcome", "")
 
-        # Strict string comparison - must match exact value
-        if outcome_value == MemoryOutcome.SUCCESS.value or outcome_value == "success":
+        # Convert to string for comparison
+        outcome_str = str(outcome_value).lower() if outcome_value else ""
+
+        # Check outcome types
+        if outcome_str in ["success", "succeeded", "done", "complete"]:
             return True
-        elif outcome_value == MemoryOutcome.PARTIAL.value or outcome_value == "partial":
+        elif outcome_str in ["partial", "partial_success", "partial-success"]:
             # Partial success needs higher threshold
-            fidelity = entry.fidelity or entry.meta.get("fidelity", 0.5)
-            return fidelity >= commitment_threshold
+            fidelity = (entry.fidelity or entry.meta.get("fidelity", 0.5) or 0.5)
+            try:
+                fidelity_float = float(fidelity)
+            except (ValueError, TypeError):
+                fidelity_float = 0.5
+            return fidelity_float >= commitment_threshold
         else:
             # Failures are not promoted
             return False
@@ -198,8 +205,11 @@ class PromotionPipeline:
             LOGGER.warning("Entry not in verified store, cannot promote to durable")
             return False
 
-        # Check commitment threshold
-        if entry.outcome == MemoryOutcome.PARTIAL and entry.fidelity < self.commitment_threshold:
+        # Check commitment threshold - handle both string and enum values
+        outcome_value = entry.outcome or entry.meta.get("outcome", "")
+        outcome_str = str(outcome_value).lower() if outcome_value else ""
+
+        if outcome_str in ["partial", "partial_success", "partial-success"] and entry.fidelity < self.commitment_threshold:
             LOGGER.debug("Entry fidelity below commitment threshold")
             return False
 

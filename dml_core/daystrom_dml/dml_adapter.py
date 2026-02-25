@@ -329,7 +329,8 @@ class DMLAdapter:
 
         # Add agentic metadata
         agentic_meta = dict(meta or {})
-        agentic_meta["kind"] = kind.value
+        # Handle both Enum and string values for kind
+        agentic_meta["kind"] = kind.value if hasattr(kind, 'value') else kind
 
         # Validate schema in agentic mode
         if self.agentic_mode_enabled:
