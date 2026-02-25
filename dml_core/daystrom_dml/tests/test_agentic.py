@@ -277,8 +277,8 @@ class TestEndToEndSmokeTest(unittest.TestCase):
         adapter = DMLAdapter(
             config_overrides={
                 "storage_dir": "/tmp/test_agentic",
-                "model_name": "dummy",
-                "embedding_model": None,
+                "model_name": "gpt2",  # Real LLM model (tiny, fast)
+                "embedding_model": "all-MiniLM-L6-v2",  # Embedding model for semantic search
                 "dml.agentic_mode.enabled": True,
             },
             start_aging_loop=False,
@@ -309,7 +309,7 @@ class TestEndToEndSmokeTest(unittest.TestCase):
 
             # Verify
             self.assertIsNotNone(report["raw_context"])
-            self.assertIn("deployment", report["raw_context"].lower())
+            self.assertIn("production", report["raw_context"].lower())
 
             # Check metrics
             if adapter.metrics_enabled:
