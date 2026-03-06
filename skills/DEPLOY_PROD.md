@@ -9,6 +9,7 @@
 - [ ] Primary retrieval: DML memory
 - [ ] Policy: `ground-truth-policy=low-confidence`
 - [ ] Sidecar RAG mode: `hybrid`
+- [ ] Ground-truth timeout set (default `--ground-truth-timeout-ms 2500`) to cap tail latency
 - [ ] Memory reform enabled (`--reform-memory`)
 - [ ] Ground-truth strict mode disabled for availability (`--no-strict-ground-truth`) unless required
 

@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
 from pathlib import Path
 
 WORKSPACE = Path("/home/nvidia/.openclaw/workspace")
@@ -145,13 +146,42 @@ def _reform_memory_from_ground_truth(*, adapter: DMLAdapter, query: str, ground_
     return kept
 
 
-def _attach_ground_truth(report: dict, *, adapter: DMLAdapter, query: str, mode: str, strict: bool = False) -> None:
+def _query_ground_truth_with_timeout(*, adapter: DMLAdapter, query: str, mode: str, timeout_ms: int) -> dict:
+    if timeout_ms <= 0:
+        return adapter.query_database(query, mode=mode)
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(adapter.query_database, query, mode=mode)
+        try:
+            return future.result(timeout=max(0.001, timeout_ms / 1000.0))
+        except FuturesTimeout as exc:
+            future.cancel()
+            raise TimeoutError(f"ground-truth query timed out after {timeout_ms}ms") from exc
+
+
+def _attach_ground_truth(
+    report: dict,
+    *,
+    adapter: DMLAdapter,
+    query: str,
+    mode: str,
+    strict: bool = False,
+    timeout_ms: int = 2500,
+) -> None:
     try:
-        report["ground_truth"] = adapter.query_database(query, mode=mode)
+        report["ground_truth"] = _query_ground_truth_with_timeout(
+            adapter=adapter,
+            query=query,
+            mode=mode,
+            timeout_ms=timeout_ms,
+        )
+        report["ground_truth_status"] = "ok"
+        report["ground_truth_timeout_ms"] = timeout_ms
     except Exception as exc:
         report["ground_truth"] = None
         report["ground_truth_error"] = str(exc)
-        report["ground_truth_status"] = "error"
+        report["ground_truth_status"] = "timeout" if isinstance(exc, TimeoutError) else "error"
+        report["ground_truth_timeout_ms"] = timeout_ms
         if strict:
             raise
 
@@ -187,6 +217,7 @@ def cmd_retrieve(args: argparse.Namespace) -> int:
                 query=query,
                 mode=args.ground_truth_mode,
                 strict=args.strict_ground_truth,
+                timeout_ms=max(0, args.ground_truth_timeout_ms),
             )
             if args.reform_memory and report.get("ground_truth"):
                 reformed = _reform_memory_from_ground_truth(
@@ -262,6 +293,12 @@ def build_parser() -> argparse.ArgumentParser:
         action=argparse.BooleanOptionalAction,
         default=False,
         help="Fail retrieve command if parallel ground-truth query fails (default: false)",
+    )
+    ret.add_argument(
+        "--ground-truth-timeout-ms",
+        type=int,
+        default=2500,
+        help="Timeout for sidecar ground-truth query in milliseconds (default: 2500)",
     )
     ret.set_defaults(func=cmd_retrieve)
 
