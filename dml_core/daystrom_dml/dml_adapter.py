@@ -981,34 +981,43 @@ class DMLAdapter:
         items = payload.get("items") if isinstance(payload, dict) else None
         if not items:
             return
-        first = items[0] or {}
-        stored_embedding = first.get("embedding")
-        if stored_embedding is None:
-            return
-        try:
-            stored_dim = int(np.asarray(stored_embedding, dtype=np.float32).size)
-        except Exception:
-            return
         try:
             probe = self.embedder.embed("Daystrom persistence probe")
             current_dim = int(np.asarray(probe, dtype=np.float32).size)
         except Exception:
             LOGGER.debug("Unable to determine embedder dimensions for persistence compatibility check.")
             return
-        if stored_dim == current_dim or current_dim == 0:
+        if current_dim == 0:
             return
-        LOGGER.warning(
-            "Embedding dimension changed from %s to %s; re-embedding persisted memories.",
-            stored_dim,
-            current_dim,
-        )
+
+        mismatched = 0
         for entry in items:
+            if not isinstance(entry, dict):
+                continue
+            stored_embedding = entry.get("embedding")
+            try:
+                stored_dim = int(np.asarray(stored_embedding, dtype=np.float32).size)
+            except Exception:
+                stored_dim = 0
+            if stored_dim == current_dim:
+                continue
+            mismatched += 1
             text = entry.get("text") or ""
             try:
                 new_embedding = self.embedder.embed(text)
-                entry["embedding"] = utils.ensure_serializable(new_embedding)
+                new_dim = int(np.asarray(new_embedding, dtype=np.float32).size)
+                entry["embedding"] = (
+                    utils.ensure_serializable(new_embedding) if new_dim == current_dim else []
+                )
             except Exception:
                 entry["embedding"] = []
+
+        if mismatched:
+            LOGGER.warning(
+                "Re-embedded %s persisted memories with incompatible embedding dimensions (target_dim=%s).",
+                mismatched,
+                current_dim,
+            )
 
     def query_database(self, prompt: str, mode: str = "auto") -> Dict:
         """Retrieve context-aware snippets from the external corpus."""
