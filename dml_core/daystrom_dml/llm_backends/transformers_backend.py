@@ -278,6 +278,43 @@ def _build_portable_load_options(
     return options
 
 
+def portable_to_torchforge_options(options: dict[str, object]) -> dict[str, object]:
+    """Convert portable load options into a TorchForge-compatible load request.
+
+    This keeps orchestration code backend-agnostic: loaders can emit the shared
+    options contract once, then route to either Transformers or TorchForge.
+    """
+    loader = str(options.get("loader", "")).lower()
+    if loader and loader != "transformers":
+        raise ValueError(f"unsupported loader for portability bridge: {loader}")
+
+    model_name = str(options.get("model_name") or "").strip()
+    if not model_name:
+        raise ValueError("portable load options missing model_name")
+
+    torchforge_options: dict[str, object] = {
+        "model": model_name,
+        "device": str(options.get("device") or "auto").lower(),
+        "dtype": str(options.get("dtype") or "auto").lower(),
+        "trust_remote_code": bool(options.get("trust_remote_code", False)),
+        "tokenizer_fast": bool(options.get("use_fast_tokenizer", True)),
+    }
+
+    load_in_4bit = bool(options.get("load_in_4bit", False))
+    load_in_8bit = bool(options.get("load_in_8bit", False))
+    if load_in_4bit and load_in_8bit:
+        raise ValueError("portable load options set both load_in_4bit and load_in_8bit")
+    if load_in_4bit:
+        torchforge_options["quantization"] = "4bit"
+    elif load_in_8bit:
+        torchforge_options["quantization"] = "8bit"
+
+    if options.get("device_map"):
+        torchforge_options["device_map"] = options["device_map"]
+
+    return torchforge_options
+
+
 def _apply_stop_sequences(text: str, stop: Iterable[str] | None) -> str:
     if not stop:
         return text
