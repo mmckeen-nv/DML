@@ -183,6 +183,22 @@ def test_portable_to_torchforge_options_splits_model_revision_suffix() -> None:
     assert torchforge["revision"] == "refs/pr/42"
 
 
+def test_portable_to_torchforge_options_rejects_conflicting_revision_sources() -> None:
+    portable = _build_portable_load_options(
+        model_name="meta-llama/Llama-3.2-1B@main",
+        device="auto",
+        dtype="auto",
+        trust_remote_code=False,
+        use_fast_tokenizer=True,
+        load_in_4bit=False,
+        load_in_8bit=False,
+    )
+    portable["revision"] = "refs/pr/42"
+
+    with pytest.raises(ValueError, match="conflicting model revision"):
+        portable_to_torchforge_options(portable)
+
+
 def test_portable_to_torchforge_options_rejects_unknown_loader() -> None:
     with pytest.raises(ValueError, match="unsupported loader"):
         portable_to_torchforge_options(
