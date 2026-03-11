@@ -271,8 +271,8 @@ def _build_portable_load_options(
     options: dict[str, object] = {
         "loader": "transformers",
         "model_name": normalized_model_name,
-        "device": _normalize_portable_device((device or "auto").lower()),
-        "dtype": _normalize_portable_dtype((dtype or "auto").lower()),
+        "device": _normalize_portable_device((device or "auto").strip().lower()),
+        "dtype": _normalize_portable_dtype((dtype or "auto").strip().lower()),
         "trust_remote_code": bool(trust_remote_code),
         "use_fast_tokenizer": bool(use_fast_tokenizer),
         "load_in_4bit": bool(load_in_4bit),
@@ -308,8 +308,8 @@ def portable_to_torchforge_options(options: dict[str, object]) -> dict[str, obje
 
     torchforge_options: dict[str, object] = {
         "model": model,
-        "device": _normalize_portable_device(str(options.get("device") or "auto").lower()),
-        "dtype": _normalize_portable_dtype(str(options.get("dtype") or "auto").lower()),
+        "device": _normalize_portable_device(str(options.get("device") or "auto").strip().lower()),
+        "dtype": _normalize_portable_dtype(str(options.get("dtype") or "auto").strip().lower()),
         "trust_remote_code": bool(options.get("trust_remote_code", False)),
         "tokenizer_fast": bool(options.get("use_fast_tokenizer", True)),
     }
