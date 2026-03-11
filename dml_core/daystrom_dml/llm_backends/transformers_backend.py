@@ -270,7 +270,7 @@ def _build_portable_load_options(
     options: dict[str, object] = {
         "loader": "transformers",
         "model_name": normalized_model_name,
-        "device": (device or "auto").lower(),
+        "device": _normalize_portable_device((device or "auto").lower()),
         "dtype": _normalize_portable_dtype((dtype or "auto").lower()),
         "trust_remote_code": bool(trust_remote_code),
         "use_fast_tokenizer": bool(use_fast_tokenizer),
@@ -298,7 +298,7 @@ def portable_to_torchforge_options(options: dict[str, object]) -> dict[str, obje
 
     torchforge_options: dict[str, object] = {
         "model": model_name,
-        "device": str(options.get("device") or "auto").lower(),
+        "device": _normalize_portable_device(str(options.get("device") or "auto").lower()),
         "dtype": _normalize_portable_dtype(str(options.get("dtype") or "auto").lower()),
         "trust_remote_code": bool(options.get("trust_remote_code", False)),
         "tokenizer_fast": bool(options.get("use_fast_tokenizer", True)),
@@ -328,6 +328,15 @@ def _normalize_portable_dtype(dtype: str) -> str:
         "float": "float32",
     }
     return aliases.get(dtype, dtype)
+
+
+def _normalize_portable_device(device: str) -> str:
+    aliases = {
+        "gpu": "cuda",
+        "cuda:0": "cuda",
+        "cpu:0": "cpu",
+    }
+    return aliases.get(device, device)
 
 
 def _apply_stop_sequences(text: str, stop: Iterable[str] | None) -> str:
