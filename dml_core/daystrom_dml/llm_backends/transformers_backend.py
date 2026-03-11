@@ -384,9 +384,12 @@ def _normalize_portable_dtype(dtype: str) -> str:
     aliases = {
         "fp16": "float16",
         "half": "float16",
+        "torch.float16": "float16",
         "bf16": "bfloat16",
+        "torch.bfloat16": "bfloat16",
         "fp32": "float32",
         "float": "float32",
+        "torch.float32": "float32",
     }
     return aliases.get(dtype, dtype)
 

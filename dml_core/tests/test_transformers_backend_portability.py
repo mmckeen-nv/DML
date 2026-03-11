@@ -80,6 +80,18 @@ def test_torchforge_mapping_normalizes_dtype_aliases() -> None:
     assert torchforge["dtype"] == "bfloat16"
 
 
+def test_torchforge_mapping_normalizes_torch_dtype_aliases() -> None:
+    portable = {
+        "loader": "transformers",
+        "model_name": "x",
+        "dtype": "torch.float16",
+    }
+
+    torchforge = portable_to_torchforge_options(portable)
+
+    assert torchforge["dtype"] == "float16"
+
+
 def test_torchforge_mapping_normalizes_indexed_device_aliases() -> None:
     portable = {
         "loader": "transformers",
@@ -119,6 +131,20 @@ def test_portable_builder_trims_whitespace_around_device_and_dtype() -> None:
 
     assert portable["device"] == "cuda"
     assert portable["dtype"] == "float16"
+
+
+def test_portable_builder_normalizes_torch_dtype_aliases() -> None:
+    portable = _build_portable_load_options(
+        model_name="Qwen/Qwen2.5-7B-Instruct",
+        device="auto",
+        dtype="torch.bfloat16",
+        trust_remote_code=False,
+        use_fast_tokenizer=True,
+        load_in_4bit=False,
+        load_in_8bit=False,
+    )
+
+    assert portable["dtype"] == "bfloat16"
 
 
 def test_torchforge_mapping_splits_model_revision_suffix() -> None:
