@@ -55,3 +55,30 @@ def test_portable_load_options_rejects_conflicting_quantization_flags() -> None:
             load_in_4bit=True,
             load_in_8bit=True,
         )
+
+
+def test_portable_load_options_rejects_blank_model_name() -> None:
+    with pytest.raises(ValueError, match="model_name is required"):
+        _build_portable_load_options(
+            model_name="   ",
+            device="auto",
+            dtype="auto",
+            trust_remote_code=False,
+            use_fast_tokenizer=True,
+            load_in_4bit=False,
+            load_in_8bit=False,
+        )
+
+
+def test_portable_load_options_normalizes_dtype_aliases() -> None:
+    options = _build_portable_load_options(
+        model_name="sshleifer/tiny-gpt2",
+        device="cpu",
+        dtype="bf16",
+        trust_remote_code=False,
+        use_fast_tokenizer=True,
+        load_in_4bit=False,
+        load_in_8bit=False,
+    )
+
+    assert options["dtype"] == "bfloat16"

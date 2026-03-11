@@ -263,11 +263,15 @@ def _build_portable_load_options(
     if load_in_4bit and load_in_8bit:
         raise ValueError("load_in_4bit and load_in_8bit are mutually exclusive")
 
+    normalized_model_name = (model_name or "").strip()
+    if not normalized_model_name:
+        raise ValueError("model_name is required")
+
     options: dict[str, object] = {
         "loader": "transformers",
-        "model_name": model_name,
+        "model_name": normalized_model_name,
         "device": (device or "auto").lower(),
-        "dtype": (dtype or "auto").lower(),
+        "dtype": _normalize_portable_dtype((dtype or "auto").lower()),
         "trust_remote_code": bool(trust_remote_code),
         "use_fast_tokenizer": bool(use_fast_tokenizer),
         "load_in_4bit": bool(load_in_4bit),
