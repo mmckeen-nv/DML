@@ -66,3 +66,15 @@ def test_torchforge_mapping_rejects_conflicting_quantization() -> None:
     }
     with pytest.raises(ValueError, match="both load_in_4bit and load_in_8bit"):
         portable_to_torchforge_options(portable)
+
+
+def test_torchforge_mapping_normalizes_dtype_aliases() -> None:
+    portable = {
+        "loader": "transformers",
+        "model_name": "x",
+        "dtype": "bf16",
+    }
+
+    torchforge = portable_to_torchforge_options(portable)
+
+    assert torchforge["dtype"] == "bfloat16"

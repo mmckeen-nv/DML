@@ -295,7 +295,7 @@ def portable_to_torchforge_options(options: dict[str, object]) -> dict[str, obje
     torchforge_options: dict[str, object] = {
         "model": model_name,
         "device": str(options.get("device") or "auto").lower(),
-        "dtype": str(options.get("dtype") or "auto").lower(),
+        "dtype": _normalize_portable_dtype(str(options.get("dtype") or "auto").lower()),
         "trust_remote_code": bool(options.get("trust_remote_code", False)),
         "tokenizer_fast": bool(options.get("use_fast_tokenizer", True)),
     }
@@ -313,6 +313,17 @@ def portable_to_torchforge_options(options: dict[str, object]) -> dict[str, obje
         torchforge_options["device_map"] = options["device_map"]
 
     return torchforge_options
+
+
+def _normalize_portable_dtype(dtype: str) -> str:
+    aliases = {
+        "fp16": "float16",
+        "half": "float16",
+        "bf16": "bfloat16",
+        "fp32": "float32",
+        "float": "float32",
+    }
+    return aliases.get(dtype, dtype)
 
 
 def _apply_stop_sequences(text: str, stop: Iterable[str] | None) -> str:
