@@ -90,3 +90,27 @@ def test_torchforge_mapping_splits_model_revision_suffix() -> None:
 
     assert torchforge["model"] == "openai/whisper-large-v3-turbo"
     assert torchforge["revision"] == "refs/pr/7"
+
+
+def test_torchforge_mapping_uses_explicit_revision_field() -> None:
+    portable = {
+        "loader": "transformers",
+        "model_name": "openai/whisper-large-v3-turbo",
+        "revision": "refs/pr/8",
+    }
+
+    torchforge = portable_to_torchforge_options(portable)
+
+    assert torchforge["model"] == "openai/whisper-large-v3-turbo"
+    assert torchforge["revision"] == "refs/pr/8"
+
+
+def test_torchforge_mapping_rejects_conflicting_revision_sources() -> None:
+    portable = {
+        "loader": "transformers",
+        "model_name": "openai/whisper-large-v3-turbo@refs/pr/7",
+        "revision": "refs/pr/8",
+    }
+
+    with pytest.raises(ValueError, match="conflicting model revision"):
+        portable_to_torchforge_options(portable)
