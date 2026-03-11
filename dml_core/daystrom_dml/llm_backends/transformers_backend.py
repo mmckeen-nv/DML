@@ -267,10 +267,13 @@ def _build_portable_load_options(
     normalized_model_name = (model_name or "").strip()
     if not normalized_model_name:
         raise ValueError("model_name is required")
+    resolved_model_name, resolved_revision = _split_model_name_and_revision(
+        normalized_model_name
+    )
 
     options: dict[str, object] = {
         "loader": "transformers",
-        "model_name": normalized_model_name,
+        "model_name": resolved_model_name,
         "device": _normalize_portable_device((device or "auto").strip().lower()),
         "dtype": _normalize_portable_dtype((dtype or "auto").strip().lower()),
         "trust_remote_code": bool(trust_remote_code),
@@ -278,6 +281,8 @@ def _build_portable_load_options(
         "load_in_4bit": bool(load_in_4bit),
         "load_in_8bit": bool(load_in_8bit),
     }
+    if resolved_revision is not None:
+        options["revision"] = resolved_revision
     if options["load_in_4bit"] or options["load_in_8bit"]:
         options["device_map"] = "auto"
     return options

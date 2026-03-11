@@ -133,6 +133,21 @@ def test_torchforge_mapping_splits_model_revision_suffix() -> None:
     assert torchforge["revision"] == "refs/pr/7"
 
 
+def test_portable_builder_splits_model_revision_suffix() -> None:
+    portable = _build_portable_load_options(
+        model_name="openai/whisper-large-v3-turbo@refs/pr/7",
+        device="auto",
+        dtype="auto",
+        trust_remote_code=False,
+        use_fast_tokenizer=True,
+        load_in_4bit=False,
+        load_in_8bit=False,
+    )
+
+    assert portable["model_name"] == "openai/whisper-large-v3-turbo"
+    assert portable["revision"] == "refs/pr/7"
+
+
 def test_torchforge_mapping_uses_explicit_revision_field() -> None:
     portable = {
         "loader": "transformers",
