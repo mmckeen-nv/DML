@@ -23,6 +23,22 @@ class TransformersBackend(LLMBackend):
     trust_remote_code: bool = False
     use_fast_tokenizer: bool = True
 
+    def portable_load_options(self) -> dict[str, object]:
+        """Return a backend-agnostic load contract for TorchForge parity work.
+
+        The returned shape is intentionally serializable so orchestration layers can
+        pass identical model intent to either Transformers or TorchForge loaders.
+        """
+        return _build_portable_load_options(
+            model_name=self.model_name,
+            device=self.device,
+            dtype=self.dtype,
+            trust_remote_code=self.trust_remote_code,
+            use_fast_tokenizer=self.use_fast_tokenizer,
+            load_in_4bit=self.load_in_4bit,
+            load_in_8bit=self.load_in_8bit,
+        )
+
     def __post_init__(self) -> None:
         try:
             import torch
@@ -232,6 +248,31 @@ class TransformersBackend(LLMBackend):
 
     def _uses_quantization(self, model_kwargs: dict) -> bool:
         return bool(model_kwargs.get("quantization_config"))
+
+
+def _build_portable_load_options(
+    *,
+    model_name: str,
+    device: str,
+    dtype: str,
+    trust_remote_code: bool,
+    use_fast_tokenizer: bool,
+    load_in_4bit: bool,
+    load_in_8bit: bool,
+) -> dict[str, object]:
+    options: dict[str, object] = {
+        "loader": "transformers",
+        "model_name": model_name,
+        "device": (device or "auto").lower(),
+        "dtype": (dtype or "auto").lower(),
+        "trust_remote_code": bool(trust_remote_code),
+        "use_fast_tokenizer": bool(use_fast_tokenizer),
+        "load_in_4bit": bool(load_in_4bit),
+        "load_in_8bit": bool(load_in_8bit),
+    }
+    if options["load_in_4bit"] or options["load_in_8bit"]:
+        options["device_map"] = "auto"
+    return options
 
 
 def _apply_stop_sequences(text: str, stop: Iterable[str] | None) -> str:
