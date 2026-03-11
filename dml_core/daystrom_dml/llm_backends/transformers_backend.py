@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import threading
 from dataclasses import dataclass
 from typing import Iterable, Iterator, Optional
@@ -369,7 +370,12 @@ def _normalize_portable_device(device: str) -> str:
         "cuda:0": "cuda",
         "cpu:0": "cpu",
     }
-    return aliases.get(device, device)
+    normalized = aliases.get(device, device)
+    if re.fullmatch(r"cuda:\d+", normalized):
+        return "cuda"
+    if re.fullmatch(r"cpu:\d+", normalized):
+        return "cpu"
+    return normalized
 
 
 def _apply_stop_sequences(text: str, stop: Iterable[str] | None) -> str:

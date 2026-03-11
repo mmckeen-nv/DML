@@ -101,6 +101,30 @@ def test_portable_load_options_normalizes_device_aliases() -> None:
     assert options["device"] == "cuda"
 
 
+def test_portable_load_options_normalizes_indexed_devices() -> None:
+    cuda_options = _build_portable_load_options(
+        model_name="sshleifer/tiny-gpt2",
+        device="CUDA:1",
+        dtype="auto",
+        trust_remote_code=False,
+        use_fast_tokenizer=True,
+        load_in_4bit=False,
+        load_in_8bit=False,
+    )
+    cpu_options = _build_portable_load_options(
+        model_name="sshleifer/tiny-gpt2",
+        device="CPU:2",
+        dtype="auto",
+        trust_remote_code=False,
+        use_fast_tokenizer=True,
+        load_in_4bit=False,
+        load_in_8bit=False,
+    )
+
+    assert cuda_options["device"] == "cuda"
+    assert cpu_options["device"] == "cpu"
+
+
 def test_portable_to_torchforge_options_maps_quantization_and_aliases() -> None:
     portable = _build_portable_load_options(
         model_name="meta-llama/Llama-3.2-1B",
