@@ -260,6 +260,9 @@ def _build_portable_load_options(
     load_in_4bit: bool,
     load_in_8bit: bool,
 ) -> dict[str, object]:
+    if load_in_4bit and load_in_8bit:
+        raise ValueError("load_in_4bit and load_in_8bit are mutually exclusive")
+
     options: dict[str, object] = {
         "loader": "transformers",
         "model_name": model_name,
