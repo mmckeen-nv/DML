@@ -199,6 +199,36 @@ def test_portable_to_torchforge_options_rejects_conflicting_revision_sources() -
         portable_to_torchforge_options(portable)
 
 
+def test_portable_to_torchforge_options_coerces_string_booleans() -> None:
+    torchforge = portable_to_torchforge_options(
+        {
+            "loader": "transformers",
+            "model_name": "meta-llama/Llama-3.2-1B",
+            "device": "auto",
+            "dtype": "auto",
+            "trust_remote_code": "true",
+            "use_fast_tokenizer": "0",
+            "load_in_4bit": "false",
+            "load_in_8bit": "1",
+        }
+    )
+
+    assert torchforge["trust_remote_code"] is True
+    assert torchforge["tokenizer_fast"] is False
+    assert torchforge["quantization"] == "8bit"
+
+
+def test_portable_to_torchforge_options_rejects_non_boolean_flags() -> None:
+    with pytest.raises(ValueError, match="must be a boolean"):
+        portable_to_torchforge_options(
+            {
+                "loader": "transformers",
+                "model_name": "meta-llama/Llama-3.2-1B",
+                "load_in_4bit": "maybe",
+            }
+        )
+
+
 def test_portable_to_torchforge_options_rejects_unknown_loader() -> None:
     with pytest.raises(ValueError, match="unsupported loader"):
         portable_to_torchforge_options(

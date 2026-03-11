@@ -315,14 +315,22 @@ def portable_to_torchforge_options(options: dict[str, object]) -> dict[str, obje
         "model": model,
         "device": _normalize_portable_device(str(options.get("device") or "auto").strip().lower()),
         "dtype": _normalize_portable_dtype(str(options.get("dtype") or "auto").strip().lower()),
-        "trust_remote_code": bool(options.get("trust_remote_code", False)),
-        "tokenizer_fast": bool(options.get("use_fast_tokenizer", True)),
+        "trust_remote_code": _coerce_bool_option(
+            options.get("trust_remote_code", False), option_name="trust_remote_code"
+        ),
+        "tokenizer_fast": _coerce_bool_option(
+            options.get("use_fast_tokenizer", True), option_name="use_fast_tokenizer"
+        ),
     }
     if revision is not None:
         torchforge_options["revision"] = revision
 
-    load_in_4bit = bool(options.get("load_in_4bit", False))
-    load_in_8bit = bool(options.get("load_in_8bit", False))
+    load_in_4bit = _coerce_bool_option(
+        options.get("load_in_4bit", False), option_name="load_in_4bit"
+    )
+    load_in_8bit = _coerce_bool_option(
+        options.get("load_in_8bit", False), option_name="load_in_8bit"
+    )
     if load_in_4bit and load_in_8bit:
         raise ValueError("portable load options set both load_in_4bit and load_in_8bit")
     if load_in_4bit:
@@ -356,6 +364,20 @@ def _normalize_optional_revision(value: object) -> str | None:
         return None
     revision = str(value).strip()
     return revision or None
+
+
+def _coerce_bool_option(value: object, *, option_name: str) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int) and value in (0, 1):
+        return bool(value)
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"1", "true", "yes", "on"}:
+            return True
+        if normalized in {"0", "false", "no", "off", ""}:
+            return False
+    raise ValueError(f"portable load option {option_name} must be a boolean")
 
 
 def _normalize_portable_dtype(dtype: str) -> str:
