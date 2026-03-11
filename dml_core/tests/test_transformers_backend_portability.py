@@ -78,3 +78,15 @@ def test_torchforge_mapping_normalizes_dtype_aliases() -> None:
     torchforge = portable_to_torchforge_options(portable)
 
     assert torchforge["dtype"] == "bfloat16"
+
+
+def test_torchforge_mapping_splits_model_revision_suffix() -> None:
+    portable = {
+        "loader": "transformers",
+        "model_name": "openai/whisper-large-v3-turbo@refs/pr/7",
+    }
+
+    torchforge = portable_to_torchforge_options(portable)
+
+    assert torchforge["model"] == "openai/whisper-large-v3-turbo"
+    assert torchforge["revision"] == "refs/pr/7"

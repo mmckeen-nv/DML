@@ -142,6 +142,23 @@ def test_portable_to_torchforge_options_preserves_explicit_device_map() -> None:
     assert torchforge["device_map"] == {"": "cuda:0"}
 
 
+def test_portable_to_torchforge_options_splits_model_revision_suffix() -> None:
+    portable = _build_portable_load_options(
+        model_name="meta-llama/Llama-3.2-1B@refs/pr/42",
+        device="auto",
+        dtype="auto",
+        trust_remote_code=False,
+        use_fast_tokenizer=True,
+        load_in_4bit=False,
+        load_in_8bit=False,
+    )
+
+    torchforge = portable_to_torchforge_options(portable)
+
+    assert torchforge["model"] == "meta-llama/Llama-3.2-1B"
+    assert torchforge["revision"] == "refs/pr/42"
+
+
 def test_portable_to_torchforge_options_rejects_unknown_loader() -> None:
     with pytest.raises(ValueError, match="unsupported loader"):
         portable_to_torchforge_options(

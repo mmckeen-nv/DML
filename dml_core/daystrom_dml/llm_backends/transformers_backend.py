@@ -295,14 +295,17 @@ def portable_to_torchforge_options(options: dict[str, object]) -> dict[str, obje
     model_name = str(options.get("model_name") or "").strip()
     if not model_name:
         raise ValueError("portable load options missing model_name")
+    model, revision = _split_model_name_and_revision(model_name)
 
     torchforge_options: dict[str, object] = {
-        "model": model_name,
+        "model": model,
         "device": _normalize_portable_device(str(options.get("device") or "auto").lower()),
         "dtype": _normalize_portable_dtype(str(options.get("dtype") or "auto").lower()),
         "trust_remote_code": bool(options.get("trust_remote_code", False)),
         "tokenizer_fast": bool(options.get("use_fast_tokenizer", True)),
     }
+    if revision is not None:
+        torchforge_options["revision"] = revision
 
     load_in_4bit = bool(options.get("load_in_4bit", False))
     load_in_8bit = bool(options.get("load_in_8bit", False))
@@ -317,6 +320,21 @@ def portable_to_torchforge_options(options: dict[str, object]) -> dict[str, obje
         torchforge_options["device_map"] = options["device_map"]
 
     return torchforge_options
+
+
+def _split_model_name_and_revision(model_name: str) -> tuple[str, str | None]:
+    """Split HuggingFace-style model references (repo@revision)."""
+    if "@" not in model_name:
+        return model_name, None
+
+    model, revision = model_name.rsplit("@", 1)
+    normalized_model = model.strip()
+    normalized_revision = revision.strip()
+    if not normalized_model:
+        raise ValueError("portable load options missing model_name")
+    if not normalized_revision:
+        return normalized_model, None
+    return normalized_model, normalized_revision
 
 
 def _normalize_portable_dtype(dtype: str) -> str:
