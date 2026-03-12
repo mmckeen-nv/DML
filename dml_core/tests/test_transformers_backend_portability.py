@@ -196,3 +196,16 @@ def test_torchforge_mapping_rejects_conflicting_revision_sources() -> None:
 
     with pytest.raises(ValueError, match="conflicting model revision"):
         portable_to_torchforge_options(portable)
+
+
+def test_torchforge_mapping_preserves_explicit_empty_device_map() -> None:
+    portable = {
+        "loader": "transformers",
+        "model_name": "x",
+        "device_map": {},
+    }
+
+    torchforge = portable_to_torchforge_options(portable)
+
+    assert "device_map" in torchforge
+    assert torchforge["device_map"] == {}

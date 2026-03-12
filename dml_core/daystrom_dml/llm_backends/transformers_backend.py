@@ -338,7 +338,7 @@ def portable_to_torchforge_options(options: dict[str, object]) -> dict[str, obje
     elif load_in_8bit:
         torchforge_options["quantization"] = "8bit"
 
-    if options.get("device_map"):
+    if "device_map" in options and options.get("device_map") is not None:
         torchforge_options["device_map"] = options["device_map"]
 
     if "local_files_only" in options:
