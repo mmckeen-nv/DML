@@ -282,6 +282,31 @@ def test_portable_to_torchforge_options_passes_cache_dir_subfolder_and_tokenizer
     assert torchforge["token"] == "hf_token_abc123"
 
 
+def test_portable_to_torchforge_options_accepts_use_auth_token_alias() -> None:
+    torchforge = portable_to_torchforge_options(
+        {
+            "loader": "transformers",
+            "model_name": "meta-llama/Llama-3.2-1B",
+            "use_auth_token": " hf_alias_token ",
+        }
+    )
+
+    assert torchforge["token"] == "hf_alias_token"
+
+
+def test_portable_to_torchforge_options_prefers_token_over_use_auth_token_alias() -> None:
+    torchforge = portable_to_torchforge_options(
+        {
+            "loader": "transformers",
+            "model_name": "meta-llama/Llama-3.2-1B",
+            "token": " hf_primary_token ",
+            "use_auth_token": " hf_alias_token ",
+        }
+    )
+
+    assert torchforge["token"] == "hf_primary_token"
+
+
 def test_portable_to_torchforge_options_ignores_blank_cache_dir_subfolder_and_tokenizer_revision() -> None:
     torchforge = portable_to_torchforge_options(
         {
