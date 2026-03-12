@@ -346,7 +346,7 @@ def portable_to_torchforge_options(options: dict[str, object]) -> dict[str, obje
             options.get("local_files_only"), option_name="local_files_only"
         )
 
-    for passthrough_key in ("cache_dir", "subfolder"):
+    for passthrough_key in ("cache_dir", "subfolder", "tokenizer_revision"):
         normalized_value = _normalize_optional_string_option(options.get(passthrough_key))
         if normalized_value is not None:
             torchforge_options[passthrough_key] = normalized_value

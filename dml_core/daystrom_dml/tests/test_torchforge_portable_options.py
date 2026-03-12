@@ -243,32 +243,36 @@ def test_portable_to_torchforge_options_carries_local_files_only_flag() -> None:
     assert torchforge["local_files_only"] is True
 
 
-def test_portable_to_torchforge_options_passes_cache_dir_and_subfolder() -> None:
+def test_portable_to_torchforge_options_passes_cache_dir_subfolder_and_tokenizer_revision() -> None:
     torchforge = portable_to_torchforge_options(
         {
             "loader": "transformers",
             "model_name": "meta-llama/Llama-3.2-1B",
             "cache_dir": " /models/hf-cache ",
             "subfolder": " text-generation ",
+            "tokenizer_revision": " refs/pr/17 ",
         }
     )
 
     assert torchforge["cache_dir"] == "/models/hf-cache"
     assert torchforge["subfolder"] == "text-generation"
+    assert torchforge["tokenizer_revision"] == "refs/pr/17"
 
 
-def test_portable_to_torchforge_options_ignores_blank_cache_dir_and_subfolder() -> None:
+def test_portable_to_torchforge_options_ignores_blank_cache_dir_subfolder_and_tokenizer_revision() -> None:
     torchforge = portable_to_torchforge_options(
         {
             "loader": "transformers",
             "model_name": "meta-llama/Llama-3.2-1B",
             "cache_dir": "   ",
             "subfolder": "",
+            "tokenizer_revision": "  ",
         }
     )
 
     assert "cache_dir" not in torchforge
     assert "subfolder" not in torchforge
+    assert "tokenizer_revision" not in torchforge
 
 
 def test_portable_to_torchforge_options_rejects_non_boolean_flags() -> None:
