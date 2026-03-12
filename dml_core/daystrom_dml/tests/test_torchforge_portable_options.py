@@ -332,6 +332,29 @@ def test_portable_to_torchforge_options_rejects_non_boolean_local_files_only() -
         )
 
 
+def test_portable_to_torchforge_options_accepts_model_alias_when_model_name_is_missing() -> None:
+    torchforge = portable_to_torchforge_options(
+        {
+            "loader": "transformers",
+            "model": "meta-llama/Llama-3.2-1B",
+        }
+    )
+
+    assert torchforge["model"] == "meta-llama/Llama-3.2-1B"
+
+
+def test_portable_to_torchforge_options_accepts_use_fast_alias() -> None:
+    torchforge = portable_to_torchforge_options(
+        {
+            "loader": "transformers",
+            "model_name": "meta-llama/Llama-3.2-1B",
+            "use_fast": "false",
+        }
+    )
+
+    assert torchforge["tokenizer_fast"] is False
+
+
 def test_portable_to_torchforge_options_rejects_unknown_loader() -> None:
     with pytest.raises(ValueError, match="unsupported loader"):
         portable_to_torchforge_options(

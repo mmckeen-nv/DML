@@ -298,7 +298,7 @@ def portable_to_torchforge_options(options: dict[str, object]) -> dict[str, obje
     if loader and loader != "transformers":
         raise ValueError(f"unsupported loader for portability bridge: {loader}")
 
-    model_name = str(options.get("model_name") or "").strip()
+    model_name = str(options.get("model_name") or options.get("model") or "").strip()
     if not model_name:
         raise ValueError("portable load options missing model_name")
     model, revision_from_model = _split_model_name_and_revision(model_name)
@@ -319,7 +319,7 @@ def portable_to_torchforge_options(options: dict[str, object]) -> dict[str, obje
             options.get("trust_remote_code", False), option_name="trust_remote_code"
         ),
         "tokenizer_fast": _coerce_bool_option(
-            options.get("use_fast_tokenizer", True), option_name="use_fast_tokenizer"
+            _resolve_tokenizer_fast_option(options), option_name="use_fast_tokenizer"
         ),
     }
     if revision is not None:
@@ -384,6 +384,14 @@ def _normalize_optional_string_option(value: object) -> str | None:
         return None
     normalized = str(value).strip()
     return normalized or None
+
+
+def _resolve_tokenizer_fast_option(options: dict[str, object]) -> object:
+    if "use_fast_tokenizer" in options:
+        return options.get("use_fast_tokenizer")
+    if "use_fast" in options:
+        return options.get("use_fast")
+    return True
 
 
 def _coerce_bool_option(value: object, *, option_name: str) -> bool:
