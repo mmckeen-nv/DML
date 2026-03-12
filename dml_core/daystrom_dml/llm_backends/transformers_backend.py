@@ -341,6 +341,11 @@ def portable_to_torchforge_options(options: dict[str, object]) -> dict[str, obje
     if options.get("device_map"):
         torchforge_options["device_map"] = options["device_map"]
 
+    if "local_files_only" in options:
+        torchforge_options["local_files_only"] = _coerce_bool_option(
+            options.get("local_files_only"), option_name="local_files_only"
+        )
+
     return torchforge_options
 
 
