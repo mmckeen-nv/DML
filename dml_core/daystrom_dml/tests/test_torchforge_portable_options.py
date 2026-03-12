@@ -184,19 +184,27 @@ def test_portable_to_torchforge_options_splits_model_revision_suffix() -> None:
 
 
 def test_portable_to_torchforge_options_rejects_conflicting_revision_sources() -> None:
-    portable = _build_portable_load_options(
-        model_name="meta-llama/Llama-3.2-1B@main",
-        device="auto",
-        dtype="auto",
-        trust_remote_code=False,
-        use_fast_tokenizer=True,
-        load_in_4bit=False,
-        load_in_8bit=False,
-    )
-    portable["revision"] = "refs/pr/42"
+    portable = {
+        "loader": "transformers",
+        "model_name": "meta-llama/Llama-3.2-1B@main",
+        "revision": "refs/pr/42",
+    }
 
     with pytest.raises(ValueError, match="conflicting model revision"):
         portable_to_torchforge_options(portable)
+
+
+def test_portable_to_torchforge_options_accepts_matching_revision_sources() -> None:
+    portable = {
+        "loader": "transformers",
+        "model_name": "meta-llama/Llama-3.2-1B@main",
+        "revision": "main",
+    }
+
+    torchforge = portable_to_torchforge_options(portable)
+
+    assert torchforge["model"] == "meta-llama/Llama-3.2-1B"
+    assert torchforge["revision"] == "main"
 
 
 def test_portable_to_torchforge_options_coerces_string_booleans() -> None:
@@ -264,12 +272,14 @@ def test_portable_to_torchforge_options_passes_cache_dir_subfolder_and_tokenizer
             "cache_dir": " /models/hf-cache ",
             "subfolder": " text-generation ",
             "tokenizer_revision": " refs/pr/17 ",
+            "token": " hf_token_abc123 ",
         }
     )
 
     assert torchforge["cache_dir"] == "/models/hf-cache"
     assert torchforge["subfolder"] == "text-generation"
     assert torchforge["tokenizer_revision"] == "refs/pr/17"
+    assert torchforge["token"] == "hf_token_abc123"
 
 
 def test_portable_to_torchforge_options_ignores_blank_cache_dir_subfolder_and_tokenizer_revision() -> None:
