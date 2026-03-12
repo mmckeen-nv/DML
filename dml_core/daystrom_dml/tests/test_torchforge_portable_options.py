@@ -299,6 +299,18 @@ def test_portable_to_torchforge_options_rejects_non_boolean_flags() -> None:
         )
 
 
+def test_portable_to_torchforge_options_rejects_conflicting_quantization_flags() -> None:
+    with pytest.raises(ValueError, match="both load_in_4bit and load_in_8bit"):
+        portable_to_torchforge_options(
+            {
+                "loader": "transformers",
+                "model_name": "meta-llama/Llama-3.2-1B",
+                "load_in_4bit": True,
+                "load_in_8bit": True,
+            }
+        )
+
+
 def test_portable_to_torchforge_options_rejects_non_boolean_local_files_only() -> None:
     with pytest.raises(ValueError, match="must be a boolean"):
         portable_to_torchforge_options(
