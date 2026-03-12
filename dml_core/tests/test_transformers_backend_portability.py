@@ -209,3 +209,15 @@ def test_torchforge_mapping_preserves_explicit_empty_device_map() -> None:
 
     assert "device_map" in torchforge
     assert torchforge["device_map"] == {}
+
+
+def test_torchforge_mapping_passes_token_when_present() -> None:
+    portable = {
+        "loader": "transformers",
+        "model_name": "x",
+        "token": " hf_secret_token ",
+    }
+
+    torchforge = portable_to_torchforge_options(portable)
+
+    assert torchforge["token"] == "hf_secret_token"
