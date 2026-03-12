@@ -340,6 +340,9 @@ def portable_to_torchforge_options(options: dict[str, object]) -> dict[str, obje
 
     if "device_map" in options and options.get("device_map") is not None:
         torchforge_options["device_map"] = options["device_map"]
+    elif load_in_4bit or load_in_8bit:
+        # Keep parity with transformers quantized loads, which rely on auto sharding.
+        torchforge_options["device_map"] = "auto"
 
     if "local_files_only" in options:
         torchforge_options["local_files_only"] = _coerce_bool_option(

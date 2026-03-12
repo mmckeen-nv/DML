@@ -218,6 +218,19 @@ def test_portable_to_torchforge_options_coerces_string_booleans() -> None:
     assert torchforge["quantization"] == "8bit"
 
 
+def test_portable_to_torchforge_options_sets_auto_device_map_for_quantized_loads() -> None:
+    torchforge = portable_to_torchforge_options(
+        {
+            "loader": "transformers",
+            "model_name": "meta-llama/Llama-3.2-1B",
+            "load_in_4bit": True,
+        }
+    )
+
+    assert torchforge["quantization"] == "4bit"
+    assert torchforge["device_map"] == "auto"
+
+
 def test_portable_to_torchforge_options_uses_explicit_revision_when_suffix_is_empty() -> None:
     torchforge = portable_to_torchforge_options(
         {
