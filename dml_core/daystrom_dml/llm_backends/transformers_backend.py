@@ -346,6 +346,11 @@ def portable_to_torchforge_options(options: dict[str, object]) -> dict[str, obje
             options.get("local_files_only"), option_name="local_files_only"
         )
 
+    for passthrough_key in ("cache_dir", "subfolder"):
+        normalized_value = _normalize_optional_string_option(options.get(passthrough_key))
+        if normalized_value is not None:
+            torchforge_options[passthrough_key] = normalized_value
+
     return torchforge_options
 
 
@@ -369,6 +374,13 @@ def _normalize_optional_revision(value: object) -> str | None:
         return None
     revision = str(value).strip()
     return revision or None
+
+
+def _normalize_optional_string_option(value: object) -> str | None:
+    if value is None:
+        return None
+    normalized = str(value).strip()
+    return normalized or None
 
 
 def _coerce_bool_option(value: object, *, option_name: str) -> bool:
