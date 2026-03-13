@@ -410,6 +410,17 @@ def test_portable_to_torchforge_options_accepts_model_alias_when_model_name_is_m
     assert torchforge["model"] == "meta-llama/Llama-3.2-1B"
 
 
+def test_portable_to_torchforge_options_accepts_pretrained_model_name_or_path_alias() -> None:
+    torchforge = portable_to_torchforge_options(
+        {
+            "loader": "transformers",
+            "pretrained_model_name_or_path": "meta-llama/Llama-3.2-1B",
+        }
+    )
+
+    assert torchforge["model"] == "meta-llama/Llama-3.2-1B"
+
+
 def test_portable_to_torchforge_options_accepts_use_fast_alias() -> None:
     torchforge = portable_to_torchforge_options(
         {

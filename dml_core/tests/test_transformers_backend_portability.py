@@ -52,6 +52,17 @@ def test_torchforge_mapping_rejects_missing_model_name() -> None:
         portable_to_torchforge_options({"loader": "transformers"})
 
 
+def test_torchforge_mapping_accepts_pretrained_model_name_or_path_alias() -> None:
+    torchforge = portable_to_torchforge_options(
+        {
+            "loader": "transformers",
+            "pretrained_model_name_or_path": "Qwen/Qwen2.5-7B-Instruct",
+        }
+    )
+
+    assert torchforge["model"] == "Qwen/Qwen2.5-7B-Instruct"
+
+
 def test_torchforge_mapping_rejects_unknown_loader() -> None:
     with pytest.raises(ValueError, match="unsupported loader"):
         portable_to_torchforge_options({"loader": "ollama", "model_name": "x"})

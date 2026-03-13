@@ -307,7 +307,12 @@ def portable_to_torchforge_options(options: dict[str, object]) -> dict[str, obje
     if loader and loader != "transformers":
         raise ValueError(f"unsupported loader for portability bridge: {loader}")
 
-    model_name = str(options.get("model_name") or options.get("model") or "").strip()
+    model_name = str(
+        options.get("model_name")
+        or options.get("model")
+        or options.get("pretrained_model_name_or_path")
+        or ""
+    ).strip()
     if not model_name:
         raise ValueError("portable load options missing model_name")
     model, revision_from_model = _split_model_name_and_revision(model_name)
