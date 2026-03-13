@@ -276,7 +276,7 @@ def test_portable_to_torchforge_options_carries_local_files_only_flag() -> None:
     assert torchforge["local_files_only"] is True
 
 
-def test_portable_to_torchforge_options_passes_cache_dir_subfolder_and_tokenizer_revision() -> None:
+def test_portable_to_torchforge_options_passes_cache_dir_subfolder_tokenizer_revision_and_attn_implementation() -> None:
     torchforge = portable_to_torchforge_options(
         {
             "loader": "transformers",
@@ -284,6 +284,7 @@ def test_portable_to_torchforge_options_passes_cache_dir_subfolder_and_tokenizer
             "cache_dir": " /models/hf-cache ",
             "subfolder": " text-generation ",
             "tokenizer_revision": " refs/pr/17 ",
+            "attn_implementation": " flash_attention_2 ",
             "token": " hf_token_abc123 ",
         }
     )
@@ -291,6 +292,7 @@ def test_portable_to_torchforge_options_passes_cache_dir_subfolder_and_tokenizer
     assert torchforge["cache_dir"] == "/models/hf-cache"
     assert torchforge["subfolder"] == "text-generation"
     assert torchforge["tokenizer_revision"] == "refs/pr/17"
+    assert torchforge["attn_implementation"] == "flash_attention_2"
     assert torchforge["token"] == "hf_token_abc123"
 
 
@@ -319,7 +321,7 @@ def test_portable_to_torchforge_options_prefers_token_over_use_auth_token_alias(
     assert torchforge["token"] == "hf_primary_token"
 
 
-def test_portable_to_torchforge_options_ignores_blank_cache_dir_subfolder_and_tokenizer_revision() -> None:
+def test_portable_to_torchforge_options_ignores_blank_cache_dir_subfolder_tokenizer_revision_and_attn_implementation() -> None:
     torchforge = portable_to_torchforge_options(
         {
             "loader": "transformers",
@@ -327,12 +329,14 @@ def test_portable_to_torchforge_options_ignores_blank_cache_dir_subfolder_and_to
             "cache_dir": "   ",
             "subfolder": "",
             "tokenizer_revision": "  ",
+            "attn_implementation": "   ",
         }
     )
 
     assert "cache_dir" not in torchforge
     assert "subfolder" not in torchforge
     assert "tokenizer_revision" not in torchforge
+    assert "attn_implementation" not in torchforge
 
 
 def test_portable_to_torchforge_options_rejects_non_boolean_flags() -> None:
