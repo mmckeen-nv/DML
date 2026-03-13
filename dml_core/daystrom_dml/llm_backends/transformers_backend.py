@@ -461,6 +461,7 @@ def _normalize_portable_dtype(dtype: str) -> str:
         "torch.bfloat16": "bfloat16",
         "fp32": "float32",
         "float": "float32",
+        "torch.float": "float32",
         "torch.float32": "float32",
     }
     return aliases.get(dtype, dtype)
