@@ -207,6 +207,30 @@ def test_portable_to_torchforge_options_splits_model_revision_suffix() -> None:
     assert torchforge["revision"] == "refs/pr/42"
 
 
+def test_portable_to_torchforge_options_accepts_model_revision_alias() -> None:
+    portable = {
+        "loader": "transformers",
+        "model_name": "meta-llama/Llama-3.2-1B",
+        "model_revision": "refs/pr/42",
+    }
+
+    torchforge = portable_to_torchforge_options(portable)
+
+    assert torchforge["revision"] == "refs/pr/42"
+
+
+def test_portable_to_torchforge_options_rejects_conflicting_revision_aliases() -> None:
+    portable = {
+        "loader": "transformers",
+        "model_name": "meta-llama/Llama-3.2-1B",
+        "revision": "main",
+        "model_revision": "refs/pr/42",
+    }
+
+    with pytest.raises(ValueError, match="conflicting model revision"):
+        portable_to_torchforge_options(portable)
+
+
 def test_portable_to_torchforge_options_rejects_conflicting_revision_sources() -> None:
     portable = {
         "loader": "transformers",

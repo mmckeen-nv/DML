@@ -316,7 +316,7 @@ def portable_to_torchforge_options(options: dict[str, object]) -> dict[str, obje
     if not model_name:
         raise ValueError("portable load options missing model_name")
     model, revision_from_model = _split_model_name_and_revision(model_name)
-    revision_from_option = _normalize_optional_revision(options.get("revision"))
+    revision_from_option = _resolve_revision_option(options)
     if (
         revision_from_model is not None
         and revision_from_option is not None
@@ -414,6 +414,14 @@ def _normalize_optional_revision(value: object) -> str | None:
         return None
     revision = str(value).strip()
     return revision or None
+
+
+def _resolve_revision_option(options: dict[str, object]) -> str | None:
+    revision = _normalize_optional_revision(options.get("revision"))
+    model_revision = _normalize_optional_revision(options.get("model_revision"))
+    if revision is not None and model_revision is not None and revision != model_revision:
+        raise ValueError("portable load options set conflicting model revision values")
+    return revision or model_revision
 
 
 def _normalize_optional_string_option(value: object) -> str | None:
