@@ -206,6 +206,32 @@ def test_portable_to_torchforge_options_rejects_conflicting_revision_sources() -
         portable_to_torchforge_options(portable)
 
 
+def test_portable_load_options_normalizes_hf_uri_prefix() -> None:
+    options = _build_portable_load_options(
+        model_name="hf://meta-llama/Llama-3.2-1B",
+        device="auto",
+        dtype="auto",
+        trust_remote_code=False,
+        use_fast_tokenizer=True,
+        load_in_4bit=False,
+        load_in_8bit=False,
+    )
+
+    assert options["model_name"] == "meta-llama/Llama-3.2-1B"
+
+
+def test_portable_to_torchforge_options_normalizes_huggingface_uri_prefix_with_revision() -> None:
+    torchforge = portable_to_torchforge_options(
+        {
+            "loader": "transformers",
+            "model_name": "huggingface://meta-llama/Llama-3.2-1B@refs/pr/12",
+        }
+    )
+
+    assert torchforge["model"] == "meta-llama/Llama-3.2-1B"
+    assert torchforge["revision"] == "refs/pr/12"
+
+
 def test_portable_to_torchforge_options_accepts_matching_revision_sources() -> None:
     portable = {
         "loader": "transformers",

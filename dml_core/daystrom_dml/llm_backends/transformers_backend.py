@@ -381,10 +381,11 @@ def portable_to_torchforge_options(options: dict[str, object]) -> dict[str, obje
 
 def _split_model_name_and_revision(model_name: str) -> tuple[str, str | None]:
     """Split HuggingFace-style model references (repo@revision)."""
-    if "@" not in model_name:
-        return model_name, None
+    normalized_input = _normalize_hf_model_locator(model_name)
+    if "@" not in normalized_input:
+        return normalized_input, None
 
-    model, revision = model_name.rsplit("@", 1)
+    model, revision = normalized_input.rsplit("@", 1)
     normalized_model = model.strip()
     normalized_revision = revision.strip()
     if not normalized_model:
@@ -392,6 +393,15 @@ def _split_model_name_and_revision(model_name: str) -> tuple[str, str | None]:
     if not normalized_revision:
         return normalized_model, None
     return normalized_model, normalized_revision
+
+
+def _normalize_hf_model_locator(value: str) -> str:
+    """Normalize common Hugging Face URI prefixes into repo ids."""
+    normalized = (value or "").strip()
+    for prefix in ("hf://", "huggingface://"):
+        if normalized.lower().startswith(prefix):
+            return normalized[len(prefix) :].lstrip("/")
+    return normalized
 
 
 def _normalize_optional_revision(value: object) -> str | None:
