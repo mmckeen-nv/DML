@@ -311,10 +311,14 @@ def portable_to_torchforge_options(options: dict[str, object]) -> dict[str, obje
         raise ValueError("portable load options set conflicting model revision values")
     revision = revision_from_option or revision_from_model
 
+    dtype_option = options.get("dtype")
+    if dtype_option is None:
+        dtype_option = options.get("torch_dtype")
+
     torchforge_options: dict[str, object] = {
         "model": model,
         "device": _normalize_portable_device(str(options.get("device") or "auto").strip().lower()),
-        "dtype": _normalize_portable_dtype(str(options.get("dtype") or "auto").strip().lower()),
+        "dtype": _normalize_portable_dtype(str(dtype_option or "auto").strip().lower()),
         "trust_remote_code": _coerce_bool_option(
             options.get("trust_remote_code", False), option_name="trust_remote_code"
         ),

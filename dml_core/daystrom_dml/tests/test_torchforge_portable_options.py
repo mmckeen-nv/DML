@@ -149,6 +149,18 @@ def test_portable_to_torchforge_options_maps_quantization_and_aliases() -> None:
     }
 
 
+def test_portable_to_torchforge_options_accepts_torch_dtype_alias() -> None:
+    torchforge = portable_to_torchforge_options(
+        {
+            "loader": "transformers",
+            "model_name": "meta-llama/Llama-3.2-1B",
+            "torch_dtype": "torch.bfloat16",
+        }
+    )
+
+    assert torchforge["dtype"] == "bfloat16"
+
+
 def test_portable_to_torchforge_options_preserves_explicit_device_map() -> None:
     portable = _build_portable_load_options(
         model_name="meta-llama/Llama-3.2-1B",
