@@ -55,16 +55,25 @@ class TransformersBackend(LLMBackend):
             ) from exc
 
         self._torch = torch
+        resolved_model_name, resolved_revision = _split_model_name_and_revision(
+            (self.model_name or "").strip()
+        )
+        revision_kwargs: dict[str, object] = {}
+        if resolved_revision is not None:
+            revision_kwargs["revision"] = resolved_revision
+
         self._tokenizer = AutoTokenizer.from_pretrained(
-            self.model_name,
+            resolved_model_name,
             use_fast=self.use_fast_tokenizer,
             trust_remote_code=self.trust_remote_code,
+            **revision_kwargs,
         )
         model_kwargs = dict(self._resolve_model_kwargs())
-        LOGGER.info("Loading transformers model %s", self.model_name)
+        LOGGER.info("Loading transformers model %s", resolved_model_name)
         self._model = AutoModelForCausalLM.from_pretrained(
-            self.model_name,
+            resolved_model_name,
             trust_remote_code=self.trust_remote_code,
+            **revision_kwargs,
             **model_kwargs,
         )
         self._model.eval()
