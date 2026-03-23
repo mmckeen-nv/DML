@@ -74,7 +74,7 @@ A greedy knapsack packs the highest information-density memories within budget *
      ┌─────────▼──────────┐
      │ Memory Lattice     │
      │  • Decay / Merge   │
-     │  • Summarisation   │
+     │  • Summarization   │
      │  • Persistence     │
      └────────┬───────────┘
                │
@@ -92,7 +92,7 @@ A greedy knapsack packs the highest information-density memories within budget *
 ## Installation and setup
 ### Requirements
 - Python 3.10+
-- NVIDIA GPU (optional but recommended for embeddings and summarisation)
+- NVIDIA GPU (optional but recommended for embeddings and summarization)
 - CUDA-compatible drivers if running GPU workloads
 
 ### Install from source
