@@ -56,6 +56,42 @@ def format_status_line(report: Dict[str, Any], *, report_path: Path) -> str:
     )
 
 
+def format_progress_snapshot(report: Dict[str, Any], *, report_path: Path) -> Dict[str, Any]:
+    fields = _report_fields(report, report_path=report_path)
+    return {
+        "report_path": str(fields["report_path"]),
+        "migration_status": fields["status"],
+        "phase": fields["phase"],
+        "phase_detail": fields["detail"],
+        "progress": {
+            "pct": round(fields["progress_pct"], 2),
+            "checked": fields["checked"],
+            "total": fields["total"],
+            "remaining": fields["remaining"],
+        },
+        "current_item": {
+            "index": fields["current_idx"],
+            "preview": fields["current_preview"],
+        },
+        "last_completed": {
+            "index": fields["last_done_idx"],
+            "preview": fields["last_done_preview"],
+        },
+        "migration_counts": {
+            "mismatched": fields["mismatched"],
+            "reembedded": fields["reembedded"],
+            "failed": fields["failed"],
+            "target_dim": fields["target_dim"],
+        },
+        "timing": {
+            "started_at": fields["started_at"],
+            "updated_at": fields["updated_at"],
+            "elapsed_ms": round(fields["elapsed_ms"], 2),
+        },
+        "status_line": format_status_line(report, report_path=report_path),
+    }
+
+
 def format_report(report: Dict[str, Any], *, report_path: Path) -> str:
     fields = _report_fields(report, report_path=report_path)
     return "\n".join(
@@ -128,6 +164,11 @@ def main() -> int:
     parser.add_argument("--json", action="store_true", help="Print raw JSON instead of the formatted status view")
     parser.add_argument("--one-line", action="store_true", help="Print a compact single-line status summary")
     parser.add_argument(
+        "--snapshot-json",
+        action="store_true",
+        help="Print a derived progress-only JSON snapshot from the durable migration artifact",
+    )
+    parser.add_argument(
         "--write-markdown",
         nargs="?",
         const=str(DEFAULT_MARKDOWN_PATH),
@@ -145,6 +186,8 @@ def main() -> int:
         return 0
     if args.json:
         print(json.dumps(report, indent=2, sort_keys=True))
+    elif args.snapshot_json:
+        print(json.dumps(format_progress_snapshot(report, report_path=args.report), indent=2, sort_keys=True))
     elif args.one_line:
         print(format_status_line(report, report_path=args.report))
     else:

@@ -5,6 +5,7 @@ from pathlib import Path
 
 from scripts.embedding_compatibility_status import (
     format_markdown_report,
+    format_progress_snapshot,
     format_report,
     format_status_line,
     write_markdown_report,
@@ -231,6 +232,16 @@ def test_embedding_compatibility_migration_writes_report(tmp_path) -> None:
     assert "phase=done" in status_line
     assert "progress=100.00%" in status_line
     assert f"report={report_path}" in status_line
+
+    snapshot = format_progress_snapshot(written, report_path=Path(report_path))
+    assert snapshot["migration_status"] == "migrated"
+    assert snapshot["phase"] == "done"
+    assert snapshot["progress"] == {"pct": 100.0, "checked": 2, "total": 2, "remaining": 0}
+    assert snapshot["current_item"] == {"index": 2, "preview": "-"}
+    assert snapshot["last_completed"] == {"index": 2, "preview": "legacy-memory-b"}
+    assert snapshot["migration_counts"]["reembedded"] == 2
+    assert snapshot["status_line"] == status_line
+    assert snapshot["report_path"] == str(report_path)
 
     markdown = format_markdown_report(written, report_path=Path(report_path))
     assert "# DML Ollama Live-Store Migration Status" in markdown
