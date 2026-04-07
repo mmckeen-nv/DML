@@ -1013,39 +1013,53 @@ class DMLAdapter:
         report: Dict[str, Any] = {
             "status": "skipped",
             "phase": "init",
+            "phase_detail": "initializing",
             "total_items": 0,
             "checked": 0,
+            "remaining_items": 0,
             "mismatched": 0,
             "reembedded": 0,
             "failed": 0,
             "target_dim": 0,
             "last_checked_index": 0,
+            "last_completed_item_index": 0,
+            "last_completed_item_preview": None,
             "progress_pct": 0.0,
             "current_item_index": 0,
             "current_item_preview": None,
             "started_at": started_wall.isoformat(),
             "updated_at": started_wall.isoformat(),
+            "phase_started_at": started_wall.isoformat(),
             "elapsed_ms": 0.0,
             "report_path": str(self.storage_dir / "embedding_compatibility_report.json"),
         }
         started = time.perf_counter()
 
-        def _flush_report(status: Optional[str] = None, phase: Optional[str] = None) -> None:
+        def _flush_report(
+            status: Optional[str] = None,
+            phase: Optional[str] = None,
+            phase_detail: Optional[str] = None,
+        ) -> None:
+            now_iso = datetime.now(timezone.utc).isoformat()
             if status is not None:
                 report["status"] = status
-            if phase is not None:
+            if phase is not None and phase != report.get("phase"):
                 report["phase"] = phase
+                report["phase_started_at"] = now_iso
+            if phase_detail is not None:
+                report["phase_detail"] = phase_detail
             total_items = int(report.get("total_items") or 0)
             checked = int(report.get("checked") or 0)
             report["last_checked_index"] = checked
+            report["remaining_items"] = max(total_items - checked, 0)
             report["progress_pct"] = round((checked / total_items) * 100.0, 2) if total_items > 0 else 0.0
-            report["updated_at"] = datetime.now(timezone.utc).isoformat()
+            report["updated_at"] = now_iso
             report["elapsed_ms"] = round((time.perf_counter() - started) * 1000.0, 2)
             self._write_embedding_compatibility_report(report)
 
         items = payload.get("items") if isinstance(payload, dict) else None
         if not items:
-            _flush_report(status="no-items", phase="done")
+            _flush_report(status="no-items", phase="done", phase_detail="no persisted items found")
             return report
         report["total_items"] = len(items)
         try:
@@ -1053,14 +1067,14 @@ class DMLAdapter:
             current_dim = int(np.asarray(probe, dtype=np.float32).size)
         except Exception:
             LOGGER.debug("Unable to determine embedder dimensions for persistence compatibility check.")
-            _flush_report(status="probe-failed", phase="probe")
+            _flush_report(status="probe-failed", phase="probe", phase_detail="failed to determine current embedding dimension")
             return report
         if current_dim == 0:
-            _flush_report(status="zero-dimension-probe", phase="probe")
+            _flush_report(status="zero-dimension-probe", phase="probe", phase_detail="embedding probe returned zero dimensions")
             return report
 
         report["target_dim"] = current_dim
-        _flush_report(status="running", phase="scan")
+        _flush_report(status="running", phase="scan", phase_detail="scanning persisted memories for incompatible embedding dimensions")
         LOGGER.warning(
             "Starting embedding compatibility migration for %s persisted memories in %s (target_dim=%s).",
             len(items),
@@ -1084,11 +1098,21 @@ class DMLAdapter:
             except Exception:
                 stored_dim = 0
             if stored_dim == current_dim:
-                _flush_report(status="running", phase="scan")
+                report["last_completed_item_index"] = idx
+                report["last_completed_item_preview"] = text[:80] if text else None
+                _flush_report(
+                    status="running",
+                    phase="scan",
+                    phase_detail=f"scanned item {idx}/{len(items)}; embedding already compatible",
+                )
                 continue
             mismatched += 1
             report["mismatched"] = mismatched
-            _flush_report(status="running", phase="reembed")
+            _flush_report(
+                status="running",
+                phase="reembed",
+                phase_detail=f"re-embedding item {idx}/{len(items)} due to dimension mismatch ({stored_dim} -> {current_dim})",
+            )
             try:
                 new_embedding = self.embedder.embed(text)
                 new_dim = int(np.asarray(new_embedding, dtype=np.float32).size)
@@ -1096,15 +1120,35 @@ class DMLAdapter:
                     entry["embedding"] = utils.ensure_serializable(new_embedding)
                     reembedded += 1
                     report["reembedded"] = reembedded
+                    report["last_completed_item_index"] = idx
+                    report["last_completed_item_preview"] = text[:80] if text else None
+                    _flush_report(
+                        status="running",
+                        phase="reembed",
+                        phase_detail=f"re-embedded item {idx}/{len(items)} successfully",
+                    )
                 else:
                     entry["embedding"] = []
                     failed += 1
                     report["failed"] = failed
+                    report["last_completed_item_index"] = idx
+                    report["last_completed_item_preview"] = text[:80] if text else None
+                    _flush_report(
+                        status="running",
+                        phase="reembed",
+                        phase_detail=f"re-embed for item {idx}/{len(items)} returned wrong dimension ({new_dim} != {current_dim})",
+                    )
             except Exception:
                 entry["embedding"] = []
                 failed += 1
                 report["failed"] = failed
-            _flush_report(status="running", phase="reembed")
+                report["last_completed_item_index"] = idx
+                report["last_completed_item_preview"] = text[:80] if text else None
+                _flush_report(
+                    status="running",
+                    phase="reembed",
+                    phase_detail=f"re-embed for item {idx}/{len(items)} failed; stored empty embedding placeholder",
+                )
 
         report["mismatched"] = mismatched
         report["reembedded"] = reembedded
@@ -1114,6 +1158,9 @@ class DMLAdapter:
         _flush_report(
             status="ok" if mismatched == 0 else ("migrated" if failed == 0 else "partial"),
             phase="done",
+            phase_detail=(
+                f"completed compatibility migration: checked={report['checked']} mismatched={mismatched} reembedded={reembedded} failed={failed}"
+            ),
         )
 
         if mismatched:

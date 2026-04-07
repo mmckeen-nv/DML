@@ -172,14 +172,19 @@ def test_embedding_compatibility_migration_writes_report(tmp_path) -> None:
 
     assert report["status"] == "migrated"
     assert report["phase"] == "done"
+    assert report["phase_detail"].startswith("completed compatibility migration:")
     assert report["total_items"] == 2
     assert report["checked"] == 2
+    assert report["remaining_items"] == 0
     assert report["last_checked_index"] == 2
+    assert report["last_completed_item_index"] == 2
+    assert report["last_completed_item_preview"] == "legacy-memory-b"
     assert report["progress_pct"] == 100.0
     assert report["current_item_index"] == 2
     assert report["current_item_preview"] is None
     assert report["started_at"]
     assert report["updated_at"]
+    assert report["phase_started_at"]
     assert report["mismatched"] == 2
     assert report["reembedded"] == 2
     assert report["failed"] == 0
@@ -192,12 +197,17 @@ def test_embedding_compatibility_migration_writes_report(tmp_path) -> None:
     written = json.loads(report_path.read_text(encoding="utf-8"))
     assert written["status"] == "migrated"
     assert written["phase"] == "done"
+    assert written["phase_detail"].startswith("completed compatibility migration:")
     assert written["total_items"] == 2
+    assert written["remaining_items"] == 0
     assert written["last_checked_index"] == 2
+    assert written["last_completed_item_index"] == 2
+    assert written["last_completed_item_preview"] == "legacy-memory-b"
     assert written["progress_pct"] == 100.0
     assert written["current_item_index"] == 2
     assert written["current_item_preview"] is None
     assert written["started_at"]
     assert written["updated_at"]
+    assert written["phase_started_at"]
     assert written["mismatched"] == 2
     assert written["reembedded"] == 2
