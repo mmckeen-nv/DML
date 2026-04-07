@@ -78,6 +78,8 @@ class DMLAdapter:
         )
         self.metrics_enabled = bool(self.settings.metrics_enabled)
         self.llm_backend = str(self.config.get("llm_backend", "auto"))
+        strict_embedding_required = bool(self.config.get("strict_embedding_required", False))
+        strict_llm_required = bool(self.config.get("strict_llm_required", False))
         self.runner = runner or GPTRunner(
             self.config["model_name"],
             backend=self.llm_backend,
@@ -90,9 +92,14 @@ class DMLAdapter:
             temperature=float(self.config.get("llm_temperature", 0.2)),
             top_p=float(self.config.get("llm_top_p", 1.0)),
         )
+        if strict_llm_required and self.runner.is_dummy:
+            raise RuntimeError(
+                f"Failed to initialize LLM backend for model {self.config['model_name']!r}; DummyGPT fallback is disabled"
+            )
         self.embedder = embedder or create_embedder(
             self.config.get("embedding_model"),
             device=self.config.get("embedding_device"),
+            allow_random_fallback=not strict_embedding_required,
         )
         if summarizer is not None:
             self.summarizer = summarizer

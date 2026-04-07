@@ -130,11 +130,23 @@ class RandomEmbedder:
         return utils.seeded_random_vector(self.dim, seed)
 
 
-def create_embedder(model_name: str | None, *, device: str | None = None) -> Embedder:
+def create_embedder(
+    model_name: str | None,
+    *,
+    device: str | None = None,
+    allow_random_fallback: bool = True,
+) -> Embedder:
     """Factory returning the best available embedder."""
 
     if model_name:
         normalised_device = (device or "").strip() or None
-        return SentenceTransformerEmbedder(model_name, device=normalised_device)
+        embedder = SentenceTransformerEmbedder(model_name, device=normalised_device)
+        if not allow_random_fallback and getattr(embedder, "_model", None) is None:
+            raise RuntimeError(
+                f"Failed to load embedding model {model_name!r}; RandomEmbedder fallback is disabled"
+            )
+        return embedder
+    if not allow_random_fallback:
+        raise RuntimeError("Embedding model is required; RandomEmbedder fallback is disabled")
     return RandomEmbedder()
 

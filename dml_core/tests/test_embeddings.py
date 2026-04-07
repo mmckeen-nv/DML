@@ -84,3 +84,14 @@ def test_create_embedder_passes_device(monkeypatch: pytest.MonkeyPatch) -> None:
     assert isinstance(embedder, SentenceTransformerEmbedder)
     assert embedder.device == "cuda:0"
     assert embedder._model.requested_device == "cuda:0"  # type: ignore[attr-defined]
+
+
+def test_create_embedder_strict_mode_raises_when_model_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
+    def _broken_post_init(self) -> None:
+        self._model = None
+        self._dim = 384
+
+    monkeypatch.setattr(SentenceTransformerEmbedder, "__post_init__", _broken_post_init)
+
+    with pytest.raises(RuntimeError, match="RandomEmbedder fallback is disabled"):
+        create_embedder("stub-model", allow_random_fallback=False)

@@ -118,6 +118,14 @@ class DMLSettings(BaseModel):
     llm_top_p: float = Field(1.0, ge=0.0, le=1.0)
     embedding_model: str | None = "sentence-transformers/all-MiniLM-L6-v2"
     embedding_device: str | None = None
+    strict_embedding_required: bool = Field(
+        False,
+        description="Fail closed when the configured embedding model cannot be loaded instead of falling back to RandomEmbedder.",
+    )
+    strict_llm_required: bool = Field(
+        False,
+        description="Fail closed when the configured LLM backend/model cannot be loaded instead of falling back to DummyGPT.",
+    )
     enable_stm_controller: bool = Field(False, description="Enable structured STM controller loop.")
     commitment_threshold: float = Field(0.75, ge=0.0, le=1.0)
     ltm_write_policy: str = Field("balanced", description="LTM write policy: strict, balanced, off.")
