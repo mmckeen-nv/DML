@@ -7,6 +7,7 @@ import logging
 import os
 import threading
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from threading import Event, RLock
 from typing import Any, Dict, List, Optional
@@ -1008,6 +1009,7 @@ class DMLAdapter:
             LOGGER.debug("Failed to write embedding compatibility report to %s", report_path, exc_info=True)
 
     def _ensure_embedding_compatibility(self, payload: Dict) -> Dict[str, Any]:
+        started_wall = datetime.now(timezone.utc)
         report: Dict[str, Any] = {
             "status": "skipped",
             "phase": "init",
@@ -1019,6 +1021,10 @@ class DMLAdapter:
             "target_dim": 0,
             "last_checked_index": 0,
             "progress_pct": 0.0,
+            "current_item_index": 0,
+            "current_item_preview": None,
+            "started_at": started_wall.isoformat(),
+            "updated_at": started_wall.isoformat(),
             "elapsed_ms": 0.0,
             "report_path": str(self.storage_dir / "embedding_compatibility_report.json"),
         }
@@ -1033,6 +1039,7 @@ class DMLAdapter:
             checked = int(report.get("checked") or 0)
             report["last_checked_index"] = checked
             report["progress_pct"] = round((checked / total_items) * 100.0, 2) if total_items > 0 else 0.0
+            report["updated_at"] = datetime.now(timezone.utc).isoformat()
             report["elapsed_ms"] = round((time.perf_counter() - started) * 1000.0, 2)
             self._write_embedding_compatibility_report(report)
 
@@ -1064,10 +1071,13 @@ class DMLAdapter:
         mismatched = 0
         reembedded = 0
         failed = 0
-        for entry in items:
+        for idx, entry in enumerate(items, start=1):
             if not isinstance(entry, dict):
                 continue
+            text = entry.get("text") or ""
             report["checked"] += 1
+            report["current_item_index"] = idx
+            report["current_item_preview"] = text[:80] if text else None
             stored_embedding = entry.get("embedding")
             try:
                 stored_dim = int(np.asarray(stored_embedding, dtype=np.float32).size)
@@ -1078,8 +1088,7 @@ class DMLAdapter:
                 continue
             mismatched += 1
             report["mismatched"] = mismatched
-            report["phase"] = "reembed"
-            text = entry.get("text") or ""
+            _flush_report(status="running", phase="reembed")
             try:
                 new_embedding = self.embedder.embed(text)
                 new_dim = int(np.asarray(new_embedding, dtype=np.float32).size)
@@ -1100,6 +1109,8 @@ class DMLAdapter:
         report["mismatched"] = mismatched
         report["reembedded"] = reembedded
         report["failed"] = failed
+        report["current_item_index"] = report["checked"]
+        report["current_item_preview"] = None
         _flush_report(
             status="ok" if mismatched == 0 else ("migrated" if failed == 0 else "partial"),
             phase="done",

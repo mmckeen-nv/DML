@@ -176,6 +176,10 @@ def test_embedding_compatibility_migration_writes_report(tmp_path) -> None:
     assert report["checked"] == 2
     assert report["last_checked_index"] == 2
     assert report["progress_pct"] == 100.0
+    assert report["current_item_index"] == 2
+    assert report["current_item_preview"] is None
+    assert report["started_at"]
+    assert report["updated_at"]
     assert report["mismatched"] == 2
     assert report["reembedded"] == 2
     assert report["failed"] == 0
@@ -191,5 +195,9 @@ def test_embedding_compatibility_migration_writes_report(tmp_path) -> None:
     assert written["total_items"] == 2
     assert written["last_checked_index"] == 2
     assert written["progress_pct"] == 100.0
+    assert written["current_item_index"] == 2
+    assert written["current_item_preview"] is None
+    assert written["started_at"]
+    assert written["updated_at"]
     assert written["mismatched"] == 2
     assert written["reembedded"] == 2

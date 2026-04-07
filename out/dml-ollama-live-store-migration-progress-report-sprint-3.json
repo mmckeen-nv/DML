@@ -1,0 +1,26 @@
+{
+  "date": "2026-04-07",
+  "scope": "live-store migration hardening for the new Ollama embedding path only",
+  "bundle": 2,
+  "sprint": "3/4",
+  "status": "validated",
+  "changed_files": [
+    "dml_core/daystrom_dml/dml_adapter.py",
+    "dml_core/daystrom_dml/tests/test_dml.py",
+    "docs/dml-ollama-hardening-bundle-2-sprint-3-report.md"
+  ],
+  "artifact_path": "/home/nvidia/.openclaw/workspace/data/dml-gpu-prod/embedding_compatibility_report.json",
+  "new_report_fields": [
+    "current_item_index",
+    "current_item_preview",
+    "started_at",
+    "updated_at"
+  ],
+  "host_smoke_command": "timeout 90s bash /home/nvidia/.openclaw/workspace/skills/daystrom-dml/scripts/dml_ollama_smoke.sh live-store",
+  "validation": [
+    {
+      "command": "pytest -q /home/nvidia/.openclaw/workspace/dml/dml_core/daystrom_dml/tests/test_dml.py -k embedding_compatibility_migration_writes_report",
+      "result": "PASS"
+    }
+  ]
+}
