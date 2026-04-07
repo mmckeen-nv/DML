@@ -7,45 +7,97 @@ from pathlib import Path
 from typing import Any, Dict
 
 DEFAULT_REPORT_PATH = Path("/home/nvidia/.openclaw/workspace/data/dml-gpu-prod/embedding_compatibility_report.json")
+DEFAULT_MARKDOWN_PATH = Path("/home/nvidia/.openclaw/workspace/out/dml-ollama-live-store-migration-status.md")
 
 
 def load_report(path: Path) -> Dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def format_report(report: Dict[str, Any], *, report_path: Path) -> str:
-    status = report.get("status", "unknown")
-    phase = report.get("phase", "unknown")
-    detail = report.get("phase_detail") or "no detail"
+def _report_fields(report: Dict[str, Any], *, report_path: Path) -> Dict[str, Any]:
     checked = int(report.get("checked") or 0)
     total = int(report.get("total_items") or 0)
-    remaining = int(report.get("remaining_items") or max(total - checked, 0))
-    progress_pct = float(report.get("progress_pct") or 0.0)
-    mismatched = int(report.get("mismatched") or 0)
-    reembedded = int(report.get("reembedded") or 0)
-    failed = int(report.get("failed") or 0)
-    target_dim = int(report.get("target_dim") or 0)
-    current_idx = int(report.get("current_item_index") or 0)
-    current_preview = report.get("current_item_preview") or "-"
-    last_done_idx = int(report.get("last_completed_item_index") or 0)
-    last_done_preview = report.get("last_completed_item_preview") or "-"
-    started_at = report.get("started_at") or "-"
-    updated_at = report.get("updated_at") or "-"
-    elapsed_ms = float(report.get("elapsed_ms") or 0.0)
+    return {
+        "report_path": report_path,
+        "status": report.get("status", "unknown"),
+        "phase": report.get("phase", "unknown"),
+        "detail": report.get("phase_detail") or "no detail",
+        "checked": checked,
+        "total": total,
+        "remaining": int(report.get("remaining_items") or max(total - checked, 0)),
+        "progress_pct": float(report.get("progress_pct") or 0.0),
+        "mismatched": int(report.get("mismatched") or 0),
+        "reembedded": int(report.get("reembedded") or 0),
+        "failed": int(report.get("failed") or 0),
+        "target_dim": int(report.get("target_dim") or 0),
+        "current_idx": int(report.get("current_item_index") or 0),
+        "current_preview": report.get("current_item_preview") or "-",
+        "last_done_idx": int(report.get("last_completed_item_index") or 0),
+        "last_done_preview": report.get("last_completed_item_preview") or "-",
+        "started_at": report.get("started_at") or "-",
+        "updated_at": report.get("updated_at") or "-",
+        "elapsed_ms": float(report.get("elapsed_ms") or 0.0),
+    }
 
+
+def format_report(report: Dict[str, Any], *, report_path: Path) -> str:
+    fields = _report_fields(report, report_path=report_path)
     return "\n".join(
         [
-            f"report_path: {report_path}",
-            f"status: {status}",
-            f"phase: {phase}",
-            f"detail: {detail}",
-            f"progress: {progress_pct:.2f}% ({checked}/{total}, remaining={remaining})",
-            f"migration_counts: mismatched={mismatched} reembedded={reembedded} failed={failed} target_dim={target_dim}",
-            f"current_item: index={current_idx} preview={current_preview}",
-            f"last_completed: index={last_done_idx} preview={last_done_preview}",
-            f"timing: started_at={started_at} updated_at={updated_at} elapsed_ms={elapsed_ms:.2f}",
+            f"report_path: {fields['report_path']}",
+            f"status: {fields['status']}",
+            f"phase: {fields['phase']}",
+            f"detail: {fields['detail']}",
+            f"progress: {fields['progress_pct']:.2f}% ({fields['checked']}/{fields['total']}, remaining={fields['remaining']})",
+            (
+                "migration_counts: "
+                f"mismatched={fields['mismatched']} reembedded={fields['reembedded']} "
+                f"failed={fields['failed']} target_dim={fields['target_dim']}"
+            ),
+            f"current_item: index={fields['current_idx']} preview={fields['current_preview']}",
+            f"last_completed: index={fields['last_done_idx']} preview={fields['last_done_preview']}",
+            (
+                "timing: "
+                f"started_at={fields['started_at']} updated_at={fields['updated_at']} "
+                f"elapsed_ms={fields['elapsed_ms']:.2f}"
+            ),
         ]
     )
+
+
+def format_markdown_report(report: Dict[str, Any], *, report_path: Path) -> str:
+    fields = _report_fields(report, report_path=report_path)
+    return "\n".join(
+        [
+            "# DML Ollama Live-Store Migration Status",
+            "",
+            f"- report_path: `{fields['report_path']}`",
+            f"- status: `{fields['status']}`",
+            f"- phase: `{fields['phase']}`",
+            f"- detail: {fields['detail']}",
+            f"- progress: `{fields['progress_pct']:.2f}% ({fields['checked']}/{fields['total']}, remaining={fields['remaining']})`",
+            (
+                "- migration_counts: "
+                f"`mismatched={fields['mismatched']} reembedded={fields['reembedded']} "
+                f"failed={fields['failed']} target_dim={fields['target_dim']}`"
+            ),
+            f"- current_item: `index={fields['current_idx']}` preview=`{fields['current_preview']}`",
+            f"- last_completed: `index={fields['last_done_idx']}` preview=`{fields['last_done_preview']}`",
+            (
+                "- timing: "
+                f"`started_at={fields['started_at']} updated_at={fields['updated_at']} "
+                f"elapsed_ms={fields['elapsed_ms']:.2f}`"
+            ),
+            "",
+            "Generated from the durable live-store migration artifact; no separate state store is introduced.",
+        ]
+    )
+
+
+def write_markdown_report(report: Dict[str, Any], *, report_path: Path, output_path: Path) -> Path:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(format_markdown_report(report, report_path=report_path), encoding="utf-8")
+    return output_path
 
 
 def main() -> int:
@@ -57,12 +109,22 @@ def main() -> int:
         help="Path to embedding_compatibility_report.json",
     )
     parser.add_argument("--json", action="store_true", help="Print raw JSON instead of the formatted status view")
+    parser.add_argument(
+        "--write-markdown",
+        nargs="?",
+        const=str(DEFAULT_MARKDOWN_PATH),
+        help="Write a markdown status card to the given path (defaults to the workspace out/ card path)",
+    )
     args = parser.parse_args()
 
     if not args.report.exists():
         raise SystemExit(f"report not found: {args.report}")
 
     report = load_report(args.report)
+    if args.write_markdown:
+        written = write_markdown_report(report, report_path=args.report, output_path=Path(args.write_markdown))
+        print(f"wrote_markdown: {written}")
+        return 0
     if args.json:
         print(json.dumps(report, indent=2, sort_keys=True))
     else:
