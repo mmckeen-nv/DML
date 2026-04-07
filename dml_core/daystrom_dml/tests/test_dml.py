@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 import numpy as np
 
 from daystrom_dml.dml_adapter import (
@@ -147,3 +149,39 @@ def test_similarity_threshold_backfills_top_k_after_filtering():
     texts = {item.text for item in results}
     assert "Off topic but salient" not in texts
     assert {"Direct match", "Related but quieter"} == texts
+
+
+def test_embedding_compatibility_migration_writes_report(tmp_path) -> None:
+    adapter = DMLAdapter(
+        config_overrides={
+            "model_name": "dummy",
+            "embedding_model": None,
+            "storage_dir": str(tmp_path / "storage"),
+            "persistence": {"enable": False},
+        },
+        start_aging_loop=False,
+    )
+    payload = {
+        "items": [
+            {"text": "legacy-memory-a", "embedding": [1.0, 2.0]},
+            {"text": "legacy-memory-b", "embedding": [3.0, 4.0]},
+        ]
+    }
+
+    report = adapter._ensure_embedding_compatibility(payload)
+
+    assert report["status"] == "migrated"
+    assert report["checked"] == 2
+    assert report["mismatched"] == 2
+    assert report["reembedded"] == 2
+    assert report["failed"] == 0
+    assert report["target_dim"] > 0
+    for entry in payload["items"]:
+        assert len(entry["embedding"]) == report["target_dim"]
+
+    report_path = adapter.storage_dir / "embedding_compatibility_report.json"
+    assert report_path.exists()
+    written = json.loads(report_path.read_text(encoding="utf-8"))
+    assert written["status"] == "migrated"
+    assert written["mismatched"] == 2
+    assert written["reembedded"] == 2

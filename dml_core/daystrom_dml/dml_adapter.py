@@ -894,14 +894,28 @@ class DMLAdapter:
                 )
             else:
                 payload = {"items": [item.to_dict() for item in items]}
-                self._ensure_embedding_compatibility(payload)
+                report = self._ensure_embedding_compatibility(payload)
+                if report.get("status") in {"migrated", "partial"}:
+                    LOGGER.warning(
+                        "Loaded durable DML state from %s with embedding compatibility migration status=%s report=%s",
+                        self._persistence_path,
+                        report.get("status"),
+                        report.get("report_path"),
+                    )
                 self.store.import_state(payload)
                 state_loaded = True
         if not state_loaded:
             with contextlib.suppress(Exception):
                 if self.dml_state_path.exists():
                     data = json.loads(self.dml_state_path.read_text(encoding="utf-8"))
-                    self._ensure_embedding_compatibility(data)
+                    report = self._ensure_embedding_compatibility(data)
+                    if report.get("status") in {"migrated", "partial"}:
+                        LOGGER.warning(
+                            "Loaded JSON DML state from %s with embedding compatibility migration status=%s report=%s",
+                            self.dml_state_path,
+                            report.get("status"),
+                            report.get("report_path"),
+                        )
                     self.store.import_state(data)
         with contextlib.suppress(Exception):
             if self.rag_state_path.exists():
@@ -984,23 +998,62 @@ class DMLAdapter:
             except Exception:
                 LOGGER.exception("Failed to persist RAG state to %s", self.rag_state_path)
 
-    def _ensure_embedding_compatibility(self, payload: Dict) -> None:
+    def _write_embedding_compatibility_report(self, report: Dict[str, Any]) -> None:
+        report_path = self.storage_dir / "embedding_compatibility_report.json"
+        tmp_path = report_path.with_suffix(".tmp")
+        try:
+            tmp_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
+            tmp_path.replace(report_path)
+        except Exception:
+            LOGGER.debug("Failed to write embedding compatibility report to %s", report_path, exc_info=True)
+
+    def _ensure_embedding_compatibility(self, payload: Dict) -> Dict[str, Any]:
+        report: Dict[str, Any] = {
+            "status": "skipped",
+            "checked": 0,
+            "mismatched": 0,
+            "reembedded": 0,
+            "failed": 0,
+            "target_dim": 0,
+            "elapsed_ms": 0.0,
+            "report_path": str(self.storage_dir / "embedding_compatibility_report.json"),
+        }
+        started = time.perf_counter()
         items = payload.get("items") if isinstance(payload, dict) else None
         if not items:
-            return
+            report["status"] = "no-items"
+            report["elapsed_ms"] = round((time.perf_counter() - started) * 1000.0, 2)
+            return report
         try:
             probe = self.embedder.embed("Daystrom persistence probe")
             current_dim = int(np.asarray(probe, dtype=np.float32).size)
         except Exception:
             LOGGER.debug("Unable to determine embedder dimensions for persistence compatibility check.")
-            return
+            report["status"] = "probe-failed"
+            report["elapsed_ms"] = round((time.perf_counter() - started) * 1000.0, 2)
+            self._write_embedding_compatibility_report(report)
+            return report
         if current_dim == 0:
-            return
+            report["status"] = "zero-dimension-probe"
+            report["elapsed_ms"] = round((time.perf_counter() - started) * 1000.0, 2)
+            self._write_embedding_compatibility_report(report)
+            return report
+
+        report["target_dim"] = current_dim
+        LOGGER.warning(
+            "Starting embedding compatibility migration for %s persisted memories in %s (target_dim=%s).",
+            len(items),
+            self.storage_dir,
+            current_dim,
+        )
 
         mismatched = 0
+        reembedded = 0
+        failed = 0
         for entry in items:
             if not isinstance(entry, dict):
                 continue
+            report["checked"] += 1
             stored_embedding = entry.get("embedding")
             try:
                 stored_dim = int(np.asarray(stored_embedding, dtype=np.float32).size)
@@ -1013,18 +1066,44 @@ class DMLAdapter:
             try:
                 new_embedding = self.embedder.embed(text)
                 new_dim = int(np.asarray(new_embedding, dtype=np.float32).size)
-                entry["embedding"] = (
-                    utils.ensure_serializable(new_embedding) if new_dim == current_dim else []
-                )
+                if new_dim == current_dim:
+                    entry["embedding"] = utils.ensure_serializable(new_embedding)
+                    reembedded += 1
+                else:
+                    entry["embedding"] = []
+                    failed += 1
             except Exception:
                 entry["embedding"] = []
+                failed += 1
+
+        report["mismatched"] = mismatched
+        report["reembedded"] = reembedded
+        report["failed"] = failed
+        report["status"] = "ok" if mismatched == 0 else ("migrated" if failed == 0 else "partial")
+        report["elapsed_ms"] = round((time.perf_counter() - started) * 1000.0, 2)
+        self._write_embedding_compatibility_report(report)
 
         if mismatched:
             LOGGER.warning(
-                "Re-embedded %s persisted memories with incompatible embedding dimensions (target_dim=%s).",
+                "Completed embedding compatibility migration for %s persisted memories in %s: mismatched=%s reembedded=%s failed=%s target_dim=%s elapsed_ms=%s report=%s",
+                report["checked"],
+                self.storage_dir,
                 mismatched,
+                reembedded,
+                failed,
                 current_dim,
+                report["elapsed_ms"],
+                report["report_path"],
             )
+        else:
+            LOGGER.info(
+                "Embedding compatibility check found no mismatches for %s persisted memories in %s (target_dim=%s, elapsed_ms=%s).",
+                report["checked"],
+                self.storage_dir,
+                current_dim,
+                report["elapsed_ms"],
+            )
+        return report
 
     def query_database(self, prompt: str, mode: str = "auto") -> Dict:
         """Retrieve context-aware snippets from the external corpus."""
