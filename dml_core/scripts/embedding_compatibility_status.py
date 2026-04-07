@@ -8,6 +8,7 @@ from typing import Any, Dict
 
 DEFAULT_REPORT_PATH = Path("/home/nvidia/.openclaw/workspace/data/dml-gpu-prod/embedding_compatibility_report.json")
 DEFAULT_MARKDOWN_PATH = Path("/home/nvidia/.openclaw/workspace/out/dml-ollama-live-store-migration-status.md")
+DEFAULT_SNAPSHOT_PATH = Path("/home/nvidia/.openclaw/workspace/out/dml-ollama-live-store-migration-snapshot.json")
 
 
 def load_report(path: Path) -> Dict[str, Any]:
@@ -153,6 +154,15 @@ def write_markdown_report(report: Dict[str, Any], *, report_path: Path, output_p
     return output_path
 
 
+def write_progress_snapshot(report: Dict[str, Any], *, report_path: Path, output_path: Path) -> Path:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(
+        json.dumps(format_progress_snapshot(report, report_path=report_path), indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return output_path
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Print DML embedding compatibility migration status")
     parser.add_argument(
@@ -174,6 +184,12 @@ def main() -> int:
         const=str(DEFAULT_MARKDOWN_PATH),
         help="Write a markdown status card to the given path (defaults to the workspace out/ card path)",
     )
+    parser.add_argument(
+        "--write-snapshot-json",
+        nargs="?",
+        const=str(DEFAULT_SNAPSHOT_PATH),
+        help="Write the derived progress-only JSON snapshot to the given path (defaults to the workspace out/ snapshot path)",
+    )
     args = parser.parse_args()
 
     if not args.report.exists():
@@ -183,6 +199,10 @@ def main() -> int:
     if args.write_markdown:
         written = write_markdown_report(report, report_path=args.report, output_path=Path(args.write_markdown))
         print(f"wrote_markdown: {written}")
+        return 0
+    if args.write_snapshot_json:
+        written = write_progress_snapshot(report, report_path=args.report, output_path=Path(args.write_snapshot_json))
+        print(f"wrote_snapshot_json: {written}")
         return 0
     if args.json:
         print(json.dumps(report, indent=2, sort_keys=True))

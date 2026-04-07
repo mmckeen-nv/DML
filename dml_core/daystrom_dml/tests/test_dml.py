@@ -9,6 +9,7 @@ from scripts.embedding_compatibility_status import (
     format_report,
     format_status_line,
     write_markdown_report,
+    write_progress_snapshot,
 )
 
 import numpy as np
@@ -253,3 +254,9 @@ def test_embedding_compatibility_migration_writes_report(tmp_path) -> None:
     write_markdown_report(written, report_path=Path(report_path), output_path=markdown_path)
     assert markdown_path.exists()
     assert "Generated from the durable live-store migration artifact" in markdown_path.read_text(encoding="utf-8")
+
+    snapshot_path = tmp_path / "migration-snapshot.json"
+    write_progress_snapshot(written, report_path=Path(report_path), output_path=snapshot_path)
+    assert snapshot_path.exists()
+    snapshot_written = json.loads(snapshot_path.read_text(encoding="utf-8"))
+    assert snapshot_written == snapshot
