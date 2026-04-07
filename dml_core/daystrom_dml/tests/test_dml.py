@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
+
+from scripts.embedding_compatibility_status import format_report
 
 import numpy as np
 
@@ -211,3 +214,9 @@ def test_embedding_compatibility_migration_writes_report(tmp_path) -> None:
     assert written["phase_started_at"]
     assert written["mismatched"] == 2
     assert written["reembedded"] == 2
+
+    rendered = format_report(written, report_path=Path(report_path))
+    assert "status: migrated" in rendered
+    assert "phase: done" in rendered
+    assert "progress: 100.00% (2/2, remaining=0)" in rendered
+    assert "last_completed: index=2 preview=legacy-memory-b" in rendered
