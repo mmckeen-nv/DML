@@ -171,7 +171,11 @@ def test_embedding_compatibility_migration_writes_report(tmp_path) -> None:
     report = adapter._ensure_embedding_compatibility(payload)
 
     assert report["status"] == "migrated"
+    assert report["phase"] == "done"
+    assert report["total_items"] == 2
     assert report["checked"] == 2
+    assert report["last_checked_index"] == 2
+    assert report["progress_pct"] == 100.0
     assert report["mismatched"] == 2
     assert report["reembedded"] == 2
     assert report["failed"] == 0
@@ -183,5 +187,9 @@ def test_embedding_compatibility_migration_writes_report(tmp_path) -> None:
     assert report_path.exists()
     written = json.loads(report_path.read_text(encoding="utf-8"))
     assert written["status"] == "migrated"
+    assert written["phase"] == "done"
+    assert written["total_items"] == 2
+    assert written["last_checked_index"] == 2
+    assert written["progress_pct"] == 100.0
     assert written["mismatched"] == 2
     assert written["reembedded"] == 2

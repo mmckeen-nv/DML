@@ -1010,36 +1010,50 @@ class DMLAdapter:
     def _ensure_embedding_compatibility(self, payload: Dict) -> Dict[str, Any]:
         report: Dict[str, Any] = {
             "status": "skipped",
+            "phase": "init",
+            "total_items": 0,
             "checked": 0,
             "mismatched": 0,
             "reembedded": 0,
             "failed": 0,
             "target_dim": 0,
+            "last_checked_index": 0,
+            "progress_pct": 0.0,
             "elapsed_ms": 0.0,
             "report_path": str(self.storage_dir / "embedding_compatibility_report.json"),
         }
         started = time.perf_counter()
+
+        def _flush_report(status: Optional[str] = None, phase: Optional[str] = None) -> None:
+            if status is not None:
+                report["status"] = status
+            if phase is not None:
+                report["phase"] = phase
+            total_items = int(report.get("total_items") or 0)
+            checked = int(report.get("checked") or 0)
+            report["last_checked_index"] = checked
+            report["progress_pct"] = round((checked / total_items) * 100.0, 2) if total_items > 0 else 0.0
+            report["elapsed_ms"] = round((time.perf_counter() - started) * 1000.0, 2)
+            self._write_embedding_compatibility_report(report)
+
         items = payload.get("items") if isinstance(payload, dict) else None
         if not items:
-            report["status"] = "no-items"
-            report["elapsed_ms"] = round((time.perf_counter() - started) * 1000.0, 2)
+            _flush_report(status="no-items", phase="done")
             return report
+        report["total_items"] = len(items)
         try:
             probe = self.embedder.embed("Daystrom persistence probe")
             current_dim = int(np.asarray(probe, dtype=np.float32).size)
         except Exception:
             LOGGER.debug("Unable to determine embedder dimensions for persistence compatibility check.")
-            report["status"] = "probe-failed"
-            report["elapsed_ms"] = round((time.perf_counter() - started) * 1000.0, 2)
-            self._write_embedding_compatibility_report(report)
+            _flush_report(status="probe-failed", phase="probe")
             return report
         if current_dim == 0:
-            report["status"] = "zero-dimension-probe"
-            report["elapsed_ms"] = round((time.perf_counter() - started) * 1000.0, 2)
-            self._write_embedding_compatibility_report(report)
+            _flush_report(status="zero-dimension-probe", phase="probe")
             return report
 
         report["target_dim"] = current_dim
+        _flush_report(status="running", phase="scan")
         LOGGER.warning(
             "Starting embedding compatibility migration for %s persisted memories in %s (target_dim=%s).",
             len(items),
@@ -1060,8 +1074,11 @@ class DMLAdapter:
             except Exception:
                 stored_dim = 0
             if stored_dim == current_dim:
+                _flush_report(status="running", phase="scan")
                 continue
             mismatched += 1
+            report["mismatched"] = mismatched
+            report["phase"] = "reembed"
             text = entry.get("text") or ""
             try:
                 new_embedding = self.embedder.embed(text)
@@ -1069,19 +1086,24 @@ class DMLAdapter:
                 if new_dim == current_dim:
                     entry["embedding"] = utils.ensure_serializable(new_embedding)
                     reembedded += 1
+                    report["reembedded"] = reembedded
                 else:
                     entry["embedding"] = []
                     failed += 1
+                    report["failed"] = failed
             except Exception:
                 entry["embedding"] = []
                 failed += 1
+                report["failed"] = failed
+            _flush_report(status="running", phase="reembed")
 
         report["mismatched"] = mismatched
         report["reembedded"] = reembedded
         report["failed"] = failed
-        report["status"] = "ok" if mismatched == 0 else ("migrated" if failed == 0 else "partial")
-        report["elapsed_ms"] = round((time.perf_counter() - started) * 1000.0, 2)
-        self._write_embedding_compatibility_report(report)
+        _flush_report(
+            status="ok" if mismatched == 0 else ("migrated" if failed == 0 else "partial"),
+            phase="done",
+        )
 
         if mismatched:
             LOGGER.warning(
