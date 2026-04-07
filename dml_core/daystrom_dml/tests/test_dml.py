@@ -227,11 +227,14 @@ def test_embedding_compatibility_migration_writes_report(tmp_path) -> None:
     assert "phase: done" in rendered
     assert "progress: 100.00% (2/2, remaining=0)" in rendered
     assert "last_completed: index=2 preview=legacy-memory-b" in rendered
+    assert "freshness: fresh updated_age_s=" in rendered
 
     status_line = format_status_line(written, report_path=Path(report_path))
     assert "migration_status=migrated" in status_line
     assert "phase=done" in status_line
     assert "progress=100.00%" in status_line
+    assert "freshness=fresh" in status_line
+    assert "updated_age_s=" in status_line
     assert f"report={report_path}" in status_line
 
     snapshot = format_progress_snapshot(written, report_path=Path(report_path))
@@ -241,12 +244,15 @@ def test_embedding_compatibility_migration_writes_report(tmp_path) -> None:
     assert snapshot["current_item"] == {"index": 2, "preview": "-"}
     assert snapshot["last_completed"] == {"index": 2, "preview": "legacy-memory-b"}
     assert snapshot["migration_counts"]["reembedded"] == 2
+    assert snapshot["timing"]["freshness"] == "fresh"
+    assert snapshot["timing"]["updated_age_s"] is not None
     assert snapshot["status_line"] == status_line
     assert snapshot["report_path"] == str(report_path)
 
     markdown = format_markdown_report(written, report_path=Path(report_path))
     assert "# DML Ollama Live-Store Migration Status" in markdown
     assert "- status_line: `migration_status=migrated | phase=done | progress=100.00%" in markdown
+    assert "- freshness: `fresh` (updated_age_s=" in markdown
     assert "- status: `migrated`" in markdown
     assert "- progress: `100.00% (2/2, remaining=0)`" in markdown
 

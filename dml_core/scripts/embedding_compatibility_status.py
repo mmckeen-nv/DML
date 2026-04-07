@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict
 
@@ -15,9 +16,38 @@ def load_report(path: Path) -> Dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def _parse_iso8601(value: Any) -> datetime | None:
+    if not value or not isinstance(value, str):
+        return None
+    normalized = value.replace("Z", "+00:00")
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _freshness(updated_at: Any, *, now: datetime | None = None) -> Dict[str, Any]:
+    updated = _parse_iso8601(updated_at)
+    if updated is None:
+        return {"updated_age_s": None, "freshness": "unknown"}
+    now_utc = now or datetime.now(timezone.utc)
+    age_s = max((now_utc - updated).total_seconds(), 0.0)
+    if age_s <= 60:
+        freshness = "fresh"
+    elif age_s <= 300:
+        freshness = "recent"
+    else:
+        freshness = "stale"
+    return {"updated_age_s": round(age_s, 1), "freshness": freshness}
+
+
 def _report_fields(report: Dict[str, Any], *, report_path: Path) -> Dict[str, Any]:
     checked = int(report.get("checked") or 0)
     total = int(report.get("total_items") or 0)
+    freshness = _freshness(report.get("updated_at"))
     return {
         "report_path": report_path,
         "status": report.get("status", "unknown"),
@@ -38,6 +68,8 @@ def _report_fields(report: Dict[str, Any], *, report_path: Path) -> Dict[str, An
         "started_at": report.get("started_at") or "-",
         "updated_at": report.get("updated_at") or "-",
         "elapsed_ms": float(report.get("elapsed_ms") or 0.0),
+        "updated_age_s": freshness["updated_age_s"],
+        "freshness": freshness["freshness"],
     }
 
 
@@ -52,6 +84,8 @@ def format_status_line(report: Dict[str, Any], *, report_path: Path) -> str:
             f"remaining={fields['remaining']}",
             f"current={fields['current_idx']}",
             f"last_completed={fields['last_done_idx']}",
+            f"freshness={fields['freshness']}",
+            f"updated_age_s={fields['updated_age_s'] if fields['updated_age_s'] is not None else '-'}",
             f"report={fields['report_path']}",
         ]
     )
@@ -88,6 +122,8 @@ def format_progress_snapshot(report: Dict[str, Any], *, report_path: Path) -> Di
             "started_at": fields["started_at"],
             "updated_at": fields["updated_at"],
             "elapsed_ms": round(fields["elapsed_ms"], 2),
+            "updated_age_s": fields["updated_age_s"],
+            "freshness": fields["freshness"],
         },
         "status_line": format_status_line(report, report_path=report_path),
     }
@@ -109,6 +145,7 @@ def format_report(report: Dict[str, Any], *, report_path: Path) -> str:
             ),
             f"current_item: index={fields['current_idx']} preview={fields['current_preview']}",
             f"last_completed: index={fields['last_done_idx']} preview={fields['last_done_preview']}",
+            f"freshness: {fields['freshness']} updated_age_s={fields['updated_age_s'] if fields['updated_age_s'] is not None else '-'}",
             (
                 "timing: "
                 f"started_at={fields['started_at']} updated_at={fields['updated_at']} "
@@ -137,6 +174,11 @@ def format_markdown_report(report: Dict[str, Any], *, report_path: Path) -> str:
             ),
             f"- current_item: `index={fields['current_idx']}` preview=`{fields['current_preview']}`",
             f"- last_completed: `index={fields['last_done_idx']}` preview=`{fields['last_done_preview']}`",
+            (
+                "- freshness: "
+                f"`{fields['freshness']}` "
+                f"(updated_age_s={fields['updated_age_s'] if fields['updated_age_s'] is not None else '-'})"
+            ),
             (
                 "- timing: "
                 f"`started_at={fields['started_at']} updated_at={fields['updated_at']} "
