@@ -3,7 +3,12 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from scripts.embedding_compatibility_status import format_markdown_report, format_report, write_markdown_report
+from scripts.embedding_compatibility_status import (
+    format_markdown_report,
+    format_report,
+    format_status_line,
+    write_markdown_report,
+)
 
 import numpy as np
 
@@ -221,8 +226,15 @@ def test_embedding_compatibility_migration_writes_report(tmp_path) -> None:
     assert "progress: 100.00% (2/2, remaining=0)" in rendered
     assert "last_completed: index=2 preview=legacy-memory-b" in rendered
 
+    status_line = format_status_line(written, report_path=Path(report_path))
+    assert "migration_status=migrated" in status_line
+    assert "phase=done" in status_line
+    assert "progress=100.00%" in status_line
+    assert f"report={report_path}" in status_line
+
     markdown = format_markdown_report(written, report_path=Path(report_path))
     assert "# DML Ollama Live-Store Migration Status" in markdown
+    assert "- status_line: `migration_status=migrated | phase=done | progress=100.00%" in markdown
     assert "- status: `migrated`" in markdown
     assert "- progress: `100.00% (2/2, remaining=0)`" in markdown
 

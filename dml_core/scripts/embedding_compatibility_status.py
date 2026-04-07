@@ -40,6 +40,22 @@ def _report_fields(report: Dict[str, Any], *, report_path: Path) -> Dict[str, An
     }
 
 
+def format_status_line(report: Dict[str, Any], *, report_path: Path) -> str:
+    fields = _report_fields(report, report_path=report_path)
+    return " | ".join(
+        [
+            f"migration_status={fields['status']}",
+            f"phase={fields['phase']}",
+            f"progress={fields['progress_pct']:.2f}%",
+            f"checked={fields['checked']}/{fields['total']}",
+            f"remaining={fields['remaining']}",
+            f"current={fields['current_idx']}",
+            f"last_completed={fields['last_done_idx']}",
+            f"report={fields['report_path']}",
+        ]
+    )
+
+
 def format_report(report: Dict[str, Any], *, report_path: Path) -> str:
     fields = _report_fields(report, report_path=report_path)
     return "\n".join(
@@ -71,6 +87,7 @@ def format_markdown_report(report: Dict[str, Any], *, report_path: Path) -> str:
         [
             "# DML Ollama Live-Store Migration Status",
             "",
+            f"- status_line: `{format_status_line(report, report_path=report_path)}`",
             f"- report_path: `{fields['report_path']}`",
             f"- status: `{fields['status']}`",
             f"- phase: `{fields['phase']}`",
@@ -109,6 +126,7 @@ def main() -> int:
         help="Path to embedding_compatibility_report.json",
     )
     parser.add_argument("--json", action="store_true", help="Print raw JSON instead of the formatted status view")
+    parser.add_argument("--one-line", action="store_true", help="Print a compact single-line status summary")
     parser.add_argument(
         "--write-markdown",
         nargs="?",
@@ -127,6 +145,8 @@ def main() -> int:
         return 0
     if args.json:
         print(json.dumps(report, indent=2, sort_keys=True))
+    elif args.one_line:
+        print(format_status_line(report, report_path=args.report))
     else:
         print(format_report(report, report_path=args.report))
     return 0
