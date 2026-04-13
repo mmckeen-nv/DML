@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Protocol
 
 import numpy as np
+import requests
 
 from . import utils
 
@@ -118,6 +119,42 @@ class SentenceTransformerEmbedder:
 
 
 @dataclass
+class OllamaEmbedder:
+    """Embed text using Ollama's local embeddings API."""
+
+    model_name: str
+    base_url: str = "http://localhost:11434"
+    _dim: int = 1536
+
+    def __post_init__(self) -> None:
+        LOGGER.info("Initialized Ollama embedder for model %s at %s", self.model_name, self.base_url)
+
+    def embed(self, text: str) -> np.ndarray:
+        if not text:
+            return np.zeros(self._dim, dtype=np.float32)
+        url = f"{self.base_url}/api/embeddings"
+        try:
+            response = requests.post(
+                url,
+                json={"model": self.model_name, "prompt": text},
+                timeout=120,
+            )
+            response.raise_for_status()
+            data = response.json()
+            vector = data.get("embedding") or []
+            if not vector:
+                raise RuntimeError("Ollama embeddings response missing embedding vector")
+            arr = np.asarray(vector, dtype=np.float32)
+            self._dim = int(arr.shape[0])
+            norm = np.linalg.norm(arr)
+            if norm > 0:
+                arr = arr / norm
+            return arr
+        except Exception as exc:
+            raise RuntimeError(f"Ollama embedding failed for model {self.model_name!r}: {exc}") from exc
+
+
+@dataclass
 class RandomEmbedder:
     """Deterministic pseudo-random embeddings used in tests."""
 
@@ -139,6 +176,11 @@ def create_embedder(
     """Factory returning the best available embedder."""
 
     if model_name:
+        if str(model_name).startswith("ollama:"):
+            ollama_model = str(model_name).split(":", 1)[1].strip()
+            if not ollama_model:
+                raise RuntimeError("Ollama embedding model name cannot be empty")
+            return OllamaEmbedder(ollama_model)
         normalised_device = (device or "").strip() or None
         embedder = SentenceTransformerEmbedder(model_name, device=normalised_device)
         if not allow_random_fallback and getattr(embedder, "_model", None) is None:

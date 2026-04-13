@@ -57,6 +57,58 @@ def _kind(value: str) -> MemoryKind:
     return mapping.get(token, MemoryKind.ACTION)
 
 
+def _backend_proof(adapter: DMLAdapter) -> dict:
+    embedder = getattr(adapter, "embedder", None)
+    embedder_class = type(embedder).__name__ if embedder is not None else None
+    embedding_model = None
+    embedding_device_cfg = None
+    try:
+        embedding_model = adapter.config.get("embedding_model")
+        embedding_device_cfg = adapter.config.get("embedding_device")
+    except Exception:
+        pass
+
+    backend = {
+        "embedding_model": embedding_model,
+        "embedding_device_cfg": embedding_device_cfg,
+        "embedder_class": embedder_class,
+        "embedder_backend": "unknown",
+        "embedder_ready": False,
+        "embedder_target_device": None,
+        "runner_backend_class": type(getattr(adapter.runner, "_backend", None)).__name__,
+        "runner_is_dummy": bool(getattr(adapter.runner, "is_dummy", False)),
+        "llm_backend_cfg": adapter.config.get("llm_backend"),
+        "llm_model_name": adapter.config.get("model_name"),
+        "storage_dir": str(getattr(adapter, "storage_dir", "")),
+    }
+
+    model_name = str(embedding_model or "")
+    if model_name.startswith("ollama:"):
+        backend["embedder_backend"] = "ollama"
+        backend["embedder_target_device"] = "ollama-managed"
+        backend["ollama_model_name"] = model_name.split(":", 1)[1].strip() or None
+        backend["ollama_base_url"] = getattr(embedder, "base_url", None)
+        backend["ollama_dim"] = getattr(embedder, "_dim", None)
+        backend["embedder_ready"] = bool(
+            embedder is not None
+            and (
+                embedder_class == "OllamaEmbedder"
+                or embedder_class.endswith("OllamaEmbedder")
+                or backend["ollama_base_url"]
+                or backend["ollama_dim"]
+            )
+        )
+        return backend
+
+    model = getattr(embedder, "_model", None)
+    target = str(getattr(model, "device", getattr(model, "_target_device", ""))).strip() or None
+    backend["embedder_backend"] = "sentence_transformers"
+    backend["embedder_ready"] = model is not None
+    backend["embedder_target_device"] = target
+    return backend
+
+
+
 def _assert_gpu_only(adapter: DMLAdapter) -> None:
     try:
         import torch  # type: ignore
@@ -66,12 +118,20 @@ def _assert_gpu_only(adapter: DMLAdapter) -> None:
     if not torch.cuda.is_available():
         raise RuntimeError("GPU-only mode enabled, but CUDA is not available")
 
-    embedder = getattr(adapter, "embedder", None)
-    model = getattr(embedder, "_model", None)
-    if model is None:
+    backend = _backend_proof(adapter)
+    if backend.get("embedder_backend") == "ollama":
+        if not backend.get("embedder_ready"):
+            raise RuntimeError("GPU-only mode requires Ollama embedder when using ollama:* embedding_model")
+        if str(backend.get("embedding_device_cfg") or "").lower() != "cuda":
+            raise RuntimeError(
+                f"GPU-only Ollama mode requires embedding_device config to stay explicit as cuda, got: {backend.get('embedding_device_cfg') or 'unknown'}"
+            )
+        return
+
+    if not backend.get("embedder_ready"):
         raise RuntimeError("GPU-only mode requires SentenceTransformer embedder (fallback embedder detected)")
 
-    target = str(getattr(model, "device", getattr(model, "_target_device", ""))).lower()
+    target = str(backend.get("embedder_target_device") or "").lower()
     if "cuda" not in target:
         raise RuntimeError(f"GPU-only mode requires CUDA embedding device, got: {target or 'unknown'}")
 

@@ -19,8 +19,7 @@ from .embeddings import Embedder, create_embedder
 from .gpt_runner import GPTRunner
 from .memory_store import MemoryItem, MemoryStore
 from .metrics import record_retrieval, update_memory_gauge
-from .multi_rag import DEFAULT_BACKENDS, MultiRAGStore, RAGBackendDescriptor
-from .persistent_index import PersistentVectorBackend
+from .multi_rag import MultiRAGStore, RAGBackendDescriptor
 from .persistence import load_state as load_persisted_memories
 from .persistence import save_state as save_persisted_memories
 from .summarizer import DummySummarizer, LLMSummarizer, Summarizer
@@ -36,6 +35,31 @@ from .promotion_pipeline import PromotionPipeline, MemoryEntry
 from .policy_router import PolicyRouter, TaskType, RouterDecision
 
 LOGGER = logging.getLogger(__name__)
+
+
+class _PersistentRAGBackendAdapter:
+    """Adapt PersistentRAGStore to the MultiRAGStore backend protocol."""
+
+    identifier = "persistent-rag"
+    label = "Persistent RAG"
+    description = "Configured persistent RAG backend"
+
+    def __init__(self, store: PersistentRAGStore) -> None:
+        self._store = store
+
+    def add_document(self, text: str, embedding: np.ndarray, tokens: int, meta: Optional[Dict[str, Any]] = None) -> None:
+        self._store.add(text, embedding.tolist(), meta=meta)
+
+    def clear(self) -> None:
+        return
+
+    def retrieve(self, query_embedding: np.ndarray, *, top_k: int) -> List[Dict[str, Any]]:
+        results = self._store.search(query_embedding.tolist(), top_k=top_k)
+        for result in results:
+            result.setdefault("meta", {})
+            result.setdefault("tokens", utils.estimate_tokens(result.get("text", "")))
+        return results
+
 
 DEFAULT_DML_TOP_K = 8
 MAX_RETRIEVAL_TOP_K = 10
@@ -207,16 +231,16 @@ class DMLAdapter:
 
             LOGGER.info("Agentic promotion pipeline initialized")
 
-        persistent_backend = RAGBackendDescriptor(
-            identifier="persistent",
-            label="Persistent Index",
-            description="Disk-backed cosine similarity index",
-            factory=lambda: PersistentVectorBackend(
-                self.storage_dir / self.settings.vector_index_file
-            ),
-        )
-        backends = [persistent_backend]
-        backends.extend(DEFAULT_BACKENDS)
+        backends: List[RAGBackendDescriptor] = []
+        if self.persistent_rag_store is not None:
+            backends.append(
+                RAGBackendDescriptor(
+                    identifier="persistent-rag",
+                    label="Persistent RAG",
+                    description="Configured persistent RAG backend",
+                    factory=lambda store=self.persistent_rag_store: _PersistentRAGBackendAdapter(store),
+                )
+            )
         self.rag_store = MultiRAGStore(self.embedder, backends=backends)
         self.store = MemoryStore(
             self.summarizer,
@@ -999,16 +1023,90 @@ class DMLAdapter:
             except Exception:
                 LOGGER.exception("Failed to persist RAG state to %s", self.rag_state_path)
 
+    def _embedding_compatibility_report_path(self) -> Path:
+        return self.storage_dir / "embedding_compatibility_report.json"
+
+    def _read_embedding_compatibility_report(self) -> Optional[Dict[str, Any]]:
+        report_path = self._embedding_compatibility_report_path()
+        if not report_path.exists():
+            return None
+        try:
+            return json.loads(report_path.read_text(encoding="utf-8"))
+        except Exception:
+            LOGGER.debug("Failed to read embedding compatibility report from %s", report_path, exc_info=True)
+            return None
+
     def _write_embedding_compatibility_report(self, report: Dict[str, Any]) -> None:
         report_path = self.storage_dir / "embedding_compatibility_report.json"
+        out_dir = Path(os.environ.get("DAYSTROM_DML_OUT_DIR", str(self.storage_dir.parent / "out")))
+        mirror_json = out_dir / "dml-migration-progress.json"
+        mirror_md = out_dir / "dml-migration-progress.md"
         tmp_path = report_path.with_suffix(".tmp")
         try:
             tmp_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
             tmp_path.replace(report_path)
         except Exception:
             LOGGER.debug("Failed to write embedding compatibility report to %s", report_path, exc_info=True)
+        try:
+            mirror_json.parent.mkdir(parents=True, exist_ok=True)
+            mirror_tmp = mirror_json.with_suffix(".tmp")
+            mirror_tmp.write_text(json.dumps(report, indent=2), encoding="utf-8")
+            mirror_tmp.replace(mirror_json)
+        except Exception:
+            LOGGER.debug("Failed to mirror embedding compatibility report to %s", mirror_json, exc_info=True)
+        try:
+            summary = "\n".join([
+                "# DML Migration Progress",
+                "",
+                f"- status: {report.get('status')}",
+                f"- phase: {report.get('phase')}",
+                f"- detail: {report.get('phase_detail')}",
+                f"- total_items: {report.get('total_items')}",
+                f"- checked: {report.get('checked')}",
+                f"- remaining_items: {report.get('remaining_items')}",
+                f"- mismatched: {report.get('mismatched')}",
+                f"- reembedded: {report.get('reembedded')}",
+                f"- failed: {report.get('failed')}",
+                f"- target_dim: {report.get('target_dim')}",
+                f"- progress_pct: {report.get('progress_pct')}",
+                f"- current_item_index: {report.get('current_item_index')}",
+                f"- current_item_preview: {report.get('current_item_preview')}",
+                f"- last_completed_item_index: {report.get('last_completed_item_index')}",
+                f"- last_completed_item_preview: {report.get('last_completed_item_preview')}",
+                f"- started_at: {report.get('started_at')}",
+                f"- updated_at: {report.get('updated_at')}",
+                f"- elapsed_ms: {report.get('elapsed_ms')}",
+                f"- storage_report_path: {report_path}",
+            ]) + "\n"
+            mirror_md.parent.mkdir(parents=True, exist_ok=True)
+            mirror_md_tmp = mirror_md.with_suffix(".tmp")
+            mirror_md_tmp.write_text(summary, encoding="utf-8")
+            mirror_md_tmp.replace(mirror_md)
+        except Exception:
+            LOGGER.debug("Failed to mirror embedding compatibility markdown report to %s", mirror_md, exc_info=True)
 
-    def _ensure_embedding_compatibility(self, payload: Dict) -> Dict[str, Any]:
+    def _ensure_embedding_compatibility(self, payload: Dict, *, max_items: Optional[int] = None) -> Dict[str, Any]:
+        cached_report = self._read_embedding_compatibility_report()
+        items = payload.get("items") if isinstance(payload, dict) else None
+        total_items = len(items) if items else 0
+        if (
+            max_items is None
+            and cached_report
+            and cached_report.get("status") == "ok"
+            and int(cached_report.get("total_items") or 0) == total_items
+            and int(cached_report.get("remaining_items") or 0) == 0
+            and int(cached_report.get("mismatched") or 0) == 0
+            and int(cached_report.get("failed") or 0) == 0
+        ):
+            LOGGER.info(
+                "Skipping embedding compatibility scan for %s persisted memories in %s; cached report already indicates compatibility.",
+                total_items,
+                self.storage_dir,
+            )
+            cached_report["phase_detail"] = "reused cached compatibility proof; full scan skipped"
+            cached_report["updated_at"] = datetime.now(timezone.utc).isoformat()
+            self._write_embedding_compatibility_report(cached_report)
+            return cached_report
         started_wall = datetime.now(timezone.utc)
         report: Dict[str, Any] = {
             "status": "skipped",
@@ -1032,6 +1130,8 @@ class DMLAdapter:
             "phase_started_at": started_wall.isoformat(),
             "elapsed_ms": 0.0,
             "report_path": str(self.storage_dir / "embedding_compatibility_report.json"),
+            "max_items": max_items,
+            "truncated": False,
         }
         started = time.perf_counter()
 
@@ -1086,6 +1186,14 @@ class DMLAdapter:
         reembedded = 0
         failed = 0
         for idx, entry in enumerate(items, start=1):
+            if max_items is not None and report["checked"] >= max_items:
+                report["truncated"] = True
+                _flush_report(
+                    status="partial",
+                    phase="paused",
+                    phase_detail=f"paused after bounded migration chunk of {max_items} items",
+                )
+                break
             if not isinstance(entry, dict):
                 continue
             text = entry.get("text") or ""
@@ -1317,6 +1425,16 @@ class DMLAdapter:
             kinds=kinds,
             top_k=limit,
         )
+        if not candidates:
+            candidates = self.store.retrieve_filtered(
+                query_embedding,
+                tenant_id=None,
+                client_id=None,
+                session_id=None,
+                instance_id=None,
+                kinds=kinds,
+                top_k=limit,
+            )
 
         budget = int(self.config.get("token_budget", 600))
         consumed = 0

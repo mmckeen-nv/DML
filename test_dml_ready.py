@@ -1,7 +1,8 @@
 """Quick test that DML is working locally."""
 
 import sys
-sys.path.insert(0, '/home/nvidia/.openclaw/workspace/DML/dml_core')
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent / 'dml_core'))
 
 from daystrom_dml.dml_adapter import DMLAdapter
 from daystrom_dml.agent_schema import MemoryKind

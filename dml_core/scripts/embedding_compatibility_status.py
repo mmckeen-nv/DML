@@ -7,9 +7,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict
 
-DEFAULT_REPORT_PATH = Path("/home/nvidia/.openclaw/workspace/data/dml-gpu-prod/embedding_compatibility_report.json")
-DEFAULT_MARKDOWN_PATH = Path("/home/nvidia/.openclaw/workspace/out/dml-ollama-live-store-migration-status.md")
-DEFAULT_SNAPSHOT_PATH = Path("/home/nvidia/.openclaw/workspace/out/dml-ollama-live-store-migration-snapshot.json")
+REPO_HOME = Path(__file__).resolve().parents[3]
+DEFAULT_REPORT_PATH = REPO_HOME / "data" / "embedding_compatibility_report.json"
+DEFAULT_MARKDOWN_PATH = REPO_HOME / "out" / "dml-ollama-live-store-migration-status.md"
+DEFAULT_SNAPSHOT_PATH = REPO_HOME / "out" / "dml-ollama-live-store-migration-snapshot.json"
 
 
 def load_report(path: Path) -> Dict[str, Any]:
