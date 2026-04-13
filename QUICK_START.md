@@ -14,8 +14,10 @@ from dml_core.daystrom_dml.dml_adapter import DMLAdapter
 ```python
 adapter = DMLAdapter(
     config_overrides={
-        "model_name": "gpt2",
-        "embedding_model": "all-MiniLM-L6-v2",
+        "llm_backend": "ollama",
+        "model_name": "llama3:8b",
+        "embedding_model": "ollama:qwen3-embedding:0.6b",
+        "embedding_device": "cuda",
         "storage_dir": "./data/dml",
         "dml.agentic_mode.enabled": True
     }
@@ -53,8 +55,10 @@ from dml_core.daystrom_dml.dml_adapter import DMLAdapter
 
 adapter = DMLAdapter(
     config_overrides={
-        "model_name": "gpt2",
-        "embedding_model": "all-MiniLM-L6-v2",
+        "llm_backend": "ollama",
+        "model_name": "llama3:8b",
+        "embedding_model": "ollama:qwen3-embedding:0.6b",
+        "embedding_device": "cuda",
         "storage_dir": "./data/dml",
         "dml.agentic_mode.enabled": True
     }
@@ -162,10 +166,18 @@ report = adapter.retrieve_context("deployment", top_k=8, use_summary=False)
 
 ## 📈 Performance
 
-- **Embedding latency:** <50ms (GPU)
+- **Embedding latency:** depends on the active backend (Ollama is the default production path)
 - **Vector search:** <10ms (1k vectors, CPU)
-- **LLM generation:** ~500ms (CPU)
+- **LLM generation:** depends on the configured local model/runtime
 - **Token savings:** 30-50%
+
+## Optional alternate embedding backend
+
+The durable production default is:
+- embeddings: `ollama:qwen3-embedding:0.6b`
+- summarization/reform: `llama3:8b`
+
+`sentence-transformers` remains supported for alternate experiments or compatibility paths, but it is **not** the default production backend.
 
 ## 🎯 Next Steps
 
@@ -195,8 +207,10 @@ from dml_core.daystrom_dml.dml_adapter import DMLAdapter
 
 adapter = DMLAdapter(
     config_overrides={
-        "model_name": "gpt2",
-        "embedding_model": "all-MiniLM-L6-v2",
+        "llm_backend": "ollama",
+        "model_name": "llama3:8b",
+        "embedding_model": "ollama:qwen3-embedding:0.6b",
+        "embedding_device": "cuda",
         "storage_dir": "./data/dml",
         "dml.agentic_mode.enabled": True
     }
