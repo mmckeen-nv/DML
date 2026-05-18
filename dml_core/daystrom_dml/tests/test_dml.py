@@ -570,6 +570,110 @@ def test_reinforce_can_record_explicit_dpm_preference(tmp_path) -> None:
     assert graph["nodes"][0]["provenance"][0]["source_id"] == "turn:reinforce"
 
 
+def test_personality_matrix_active_write_survives_restart(tmp_path) -> None:
+    graph_path = tmp_path / "dpm-graph.json"
+    config = {
+        "model_name": "dummy",
+        "embedding_model": None,
+        "storage_dir": str(tmp_path / "storage"),
+        "persistence": {"enable": False},
+        "metrics_enabled": False,
+        "dpm": {
+            "enable": True,
+            "mode": "active-write",
+            "preference_graph_path": str(graph_path),
+        },
+    }
+    adapter = DMLAdapter(
+        config_overrides=config,
+        embedder=RandomEmbedder(dim=48),
+        summarizer=DummySummarizer(),
+        start_aging_loop=False,
+    )
+    adapter.record_personality_preference("I prefer compact status updates.", source_id="turn:restart")
+    adapter.close()
+
+    reloaded = DMLAdapter(
+        config_overrides=config,
+        embedder=RandomEmbedder(dim=48),
+        summarizer=DummySummarizer(),
+        start_aging_loop=False,
+    )
+    try:
+        overlay = reloaded.personality_overlay(prompt="status")
+    finally:
+        reloaded.close()
+
+    assert overlay["sources"][0]["kind"] == "preference_graph"
+    assert "compact status updates" in overlay["overlay"]["rendered_text"]
+
+
+def test_personality_matrix_can_suppress_and_delete_preference(tmp_path) -> None:
+    graph_path = tmp_path / "dpm-graph.json"
+    adapter = DMLAdapter(
+        config_overrides={
+            "model_name": "dummy",
+            "embedding_model": None,
+            "storage_dir": str(tmp_path / "storage"),
+            "persistence": {"enable": False},
+            "metrics_enabled": False,
+            "dpm": {
+                "enable": True,
+                "mode": "active-write",
+                "preference_graph_path": str(graph_path),
+            },
+        },
+        embedder=RandomEmbedder(dim=48),
+        summarizer=DummySummarizer(),
+        start_aging_loop=False,
+    )
+    result = adapter.record_personality_preference("I prefer compact status updates.")
+    node_id = result["node_id"]
+
+    suppressed = adapter.suppress_personality_preference(node_id, reason="test_suppression")
+    graph = adapter.personality_graph()
+    node = next(node for node in graph["nodes"] if node["id"] == node_id)
+    assert suppressed["status"] == "suppressed"
+    assert node["state"] == "suppressed"
+
+    deleted = adapter.delete_personality_preference(node_id)
+    graph = adapter.personality_graph()
+    assert deleted["status"] == "deleted"
+    assert all(node["id"] != node_id for node in graph["nodes"])
+
+
+def test_personality_matrix_overlay_respects_token_budget(tmp_path) -> None:
+    graph_path = tmp_path / "dpm-graph.json"
+    adapter = DMLAdapter(
+        config_overrides={
+            "model_name": "dummy",
+            "embedding_model": None,
+            "storage_dir": str(tmp_path / "storage"),
+            "persistence": {"enable": False},
+            "metrics_enabled": False,
+            "dpm": {
+                "enable": True,
+                "mode": "active-write",
+                "preference_graph_path": str(graph_path),
+                "token_budget": 4,
+                "max_overlay_chars": 200,
+            },
+        },
+        embedder=RandomEmbedder(dim=48),
+        summarizer=DummySummarizer(),
+        start_aging_loop=False,
+    )
+    adapter.record_personality_preference(
+        "I prefer compact status updates with careful explicit audit context and no ornamental phrasing.",
+        explicit=True,
+    )
+
+    overlay = adapter.personality_overlay(prompt="status")
+
+    assert overlay["overlay"]["rendered_text"]
+    assert len(overlay["overlay"]["rendered_text"].split()) <= 8
+
+
 def test_ingest_memory_persists_scoped_items(tmp_path) -> None:
     storage_dir = tmp_path / "storage"
     config = {

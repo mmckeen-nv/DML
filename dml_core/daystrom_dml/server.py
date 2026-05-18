@@ -298,6 +298,18 @@ class QueryPayload(BaseModel):
     session_id: Optional[str] = None
 
 
+class DPMPreferencePayload(BaseModel):
+    text: str
+    scope: str = "relationship"
+    source_id: str = "api:dpm"
+    explicit: bool = True
+    meta: Optional[dict] = None
+
+
+class DPMSuppressPayload(BaseModel):
+    reason: str = "suppressed_by_user"
+
+
 class ComparePayload(BaseModel):
     prompt: str
     top_k: Optional[int] = None
@@ -1146,6 +1158,53 @@ async def upload(
 def reinforce(payload: TextPayload) -> dict:
     adapter.reinforce("", payload.text, meta=payload.meta)
     return {"status": "ok"}
+
+
+@app.get("/dpm/overlay")
+def dpm_overlay(prompt: str = "", thread_id: Optional[str] = None, project_id: Optional[str] = None, relationship_id: Optional[str] = None) -> dict:
+    overlay = adapter.personality_overlay(
+        prompt=prompt,
+        thread_id=thread_id,
+        project_id=project_id,
+        relationship_id=relationship_id,
+    )
+    return {"status": "ok", "overlay": overlay}
+
+
+@app.get("/dpm/graph")
+def dpm_graph() -> dict:
+    graph = adapter.personality_graph()
+    return {"status": "ok" if graph is not None else "missing", "graph": graph}
+
+
+@app.post("/dpm/preference")
+def dpm_preference(payload: DPMPreferencePayload) -> dict:
+    result = adapter.record_personality_preference(
+        payload.text,
+        scope=payload.scope,
+        source_id=payload.source_id,
+        explicit=payload.explicit,
+        meta=payload.meta,
+    )
+    if result is None:
+        return {"status": "inactive", "result": None}
+    return {"status": result.get("status", "ok"), "result": result}
+
+
+@app.post("/dpm/preference/{node_id}/suppress")
+def dpm_suppress_preference(node_id: str, payload: DPMSuppressPayload) -> dict:
+    result = adapter.suppress_personality_preference(node_id, reason=payload.reason)
+    if result is None:
+        return {"status": "inactive", "result": None}
+    return {"status": result.get("status", "ok"), "result": result}
+
+
+@app.delete("/dpm/preference/{node_id}")
+def dpm_delete_preference(node_id: str) -> dict:
+    result = adapter.delete_personality_preference(node_id)
+    if result is None:
+        return {"status": "inactive", "result": None}
+    return {"status": result.get("status", "ok"), "result": result}
 
 
 @app.post("/query")

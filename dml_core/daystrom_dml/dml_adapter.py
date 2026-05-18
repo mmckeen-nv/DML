@@ -507,6 +507,23 @@ class DMLAdapter:
             meta=meta,
         )
 
+    def personality_graph(self) -> Optional[Dict[str, Any]]:
+        """Return the current DPM preference graph, if one exists."""
+
+        return self.personality_matrix.graph()
+
+    def suppress_personality_preference(
+        self, node_id: str, *, reason: str = "suppressed_by_user"
+    ) -> Optional[Dict[str, Any]]:
+        """Suppress a DPM preference node in active-write mode."""
+
+        return self.personality_matrix.suppress_preference(node_id, reason=reason)
+
+    def delete_personality_preference(self, node_id: str) -> Optional[Dict[str, Any]]:
+        """Delete a DPM preference node in active-write mode."""
+
+        return self.personality_matrix.delete_preference(node_id)
+
     def reinforce(self, prompt: str, response: str, meta: Optional[Dict] = None) -> None:
         prompt_text = (prompt or "").strip()
         response_text = (response or "").strip()

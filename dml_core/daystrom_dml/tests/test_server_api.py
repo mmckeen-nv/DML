@@ -63,6 +63,111 @@ def test_reinforce_endpoint_invokes_adapter(monkeypatch: pytest.MonkeyPatch) -> 
     assert stub.calls == [("", "keep this", {"tags": ["test"]})]
 
 
+def test_dpm_overlay_endpoint_invokes_adapter(monkeypatch: pytest.MonkeyPatch) -> None:
+    class StubAdapter:
+        def __init__(self) -> None:
+            self.calls: list[dict] = []
+
+        def personality_overlay(self, **kwargs) -> dict:
+            self.calls.append(kwargs)
+            return {"overlay": {"rendered_text": "matrix active"}}
+
+    stub = StubAdapter()
+    monkeypatch.setattr(server, "adapter", stub)
+
+    with _client(monkeypatch) as client:
+        response = client.get(
+            "/dpm/overlay",
+            params={
+                "prompt": "hello",
+                "thread_id": "thread:one",
+                "project_id": "project:one",
+                "relationship_id": "relationship:one",
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok", "overlay": {"overlay": {"rendered_text": "matrix active"}}}
+    assert stub.calls == [
+        {
+            "prompt": "hello",
+            "thread_id": "thread:one",
+            "project_id": "project:one",
+            "relationship_id": "relationship:one",
+        }
+    ]
+
+
+def test_dpm_preference_endpoint_records_and_governs_nodes(monkeypatch: pytest.MonkeyPatch) -> None:
+    class StubAdapter:
+        def __init__(self) -> None:
+            self.record_calls: list[tuple] = []
+
+        def personality_graph(self) -> dict:
+            return {"nodes": [{"id": "pref.concise"}]}
+
+        def record_personality_preference(self, text: str, **kwargs) -> dict:
+            self.record_calls.append((text, kwargs))
+            return {"status": "recorded", "node_id": "pref.concise"}
+
+        def suppress_personality_preference(self, node_id: str, *, reason: str) -> dict:
+            return {"status": "suppressed", "node_id": node_id, "reason": reason}
+
+        def delete_personality_preference(self, node_id: str) -> dict:
+            return {"status": "deleted", "node_id": node_id}
+
+    stub = StubAdapter()
+    monkeypatch.setattr(server, "adapter", stub)
+
+    with _client(monkeypatch) as client:
+        graph_response = client.get("/dpm/graph")
+        record_response = client.post(
+            "/dpm/preference",
+            json={
+                "text": "I prefer concise updates.",
+                "scope": "project",
+                "source_id": "turn:test",
+                "explicit": True,
+                "meta": {"project_id": "project:test"},
+            },
+        )
+        suppress_response = client.post(
+            "/dpm/preference/pref.concise/suppress",
+            json={"reason": "user_changed_preference"},
+        )
+        delete_response = client.delete("/dpm/preference/pref.concise")
+
+    assert graph_response.json() == {"status": "ok", "graph": {"nodes": [{"id": "pref.concise"}]}}
+    assert record_response.json()["status"] == "recorded"
+    assert suppress_response.json()["status"] == "suppressed"
+    assert delete_response.json()["status"] == "deleted"
+    assert stub.record_calls == [
+        (
+            "I prefer concise updates.",
+            {
+                "scope": "project",
+                "source_id": "turn:test",
+                "explicit": True,
+                "meta": {"project_id": "project:test"},
+            },
+        )
+    ]
+
+
+def test_dpm_preference_endpoint_reports_inactive(monkeypatch: pytest.MonkeyPatch) -> None:
+    class StubAdapter:
+        def record_personality_preference(self, text: str, **kwargs) -> None:
+            return None
+
+    monkeypatch.setattr(server, "adapter", StubAdapter())
+
+    with _client(monkeypatch) as client:
+        response = client.post("/dpm/preference", json={"text": "I prefer concise updates."})
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "inactive", "result": None}
+
+
 def test_query_endpoint_uses_context_and_records_metrics(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

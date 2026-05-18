@@ -97,6 +97,7 @@ class DPMSettings(BaseModel):
     overlay_path: Path | None = None
     preference_graph_path: Path | None = None
     max_overlay_chars: int = Field(280, ge=1)
+    token_budget: int = Field(80, ge=1)
     include_in_context: bool = True
     include_in_preamble: bool = True
     relationship_id: str | None = None

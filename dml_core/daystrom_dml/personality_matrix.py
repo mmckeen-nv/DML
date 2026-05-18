@@ -36,6 +36,7 @@ class PersonalityMatrix:
         if self.mode not in VALID_MODES:
             self.mode = "disabled"
         self.max_overlay_chars = max(1, int(getattr(settings, "max_overlay_chars", 280) or 280))
+        self.token_budget = max(1, int(getattr(settings, "token_budget", 80) or 80))
         self.overlay_path = self._resolve_path(getattr(settings, "overlay_path", None))
         self.preference_graph_path = self._resolve_path(getattr(settings, "preference_graph_path", None))
         self.relationship_id = getattr(settings, "relationship_id", None)
@@ -91,6 +92,11 @@ class PersonalityMatrix:
             return ""
         return "=== Personality Matrix ===\n" + rendered
 
+    def graph(self) -> Optional[Dict[str, Any]]:
+        """Return the current preference graph, if present."""
+
+        return self._load_json(self._graph_path())
+
     def record_preference(
         self,
         text: str,
@@ -140,6 +146,47 @@ class PersonalityMatrix:
         self._save_graph(graph)
         return {"status": "recorded", "node_id": node_id, "graph_path": str(self._graph_path())}
 
+    def suppress_preference(self, node_id: str, *, reason: str = "suppressed_by_user") -> Optional[Dict[str, Any]]:
+        if not self.write_enabled:
+            return None
+        graph = self._load_json(self._graph_path())
+        if not isinstance(graph, dict):
+            return {"status": "missing", "node_id": node_id}
+        node = self._find_node(graph.get("nodes", []), node_id)
+        if node is None:
+            return {"status": "missing", "node_id": node_id}
+        now = self._now_iso()
+        node["state"] = "suppressed"
+        node["updated_at"] = now
+        constraints = node.setdefault("constraints", {})
+        constraints["suppression_reason"] = reason
+        audit = graph.setdefault("audit", {})
+        audit.setdefault("excluded_sources", []).append({"source_id": node_id, "reason": reason})
+        audit.setdefault("notes", []).append(f"Suppressed preference node {node_id}.")
+        graph["generated_at"] = now
+        self._save_graph(graph)
+        return {"status": "suppressed", "node_id": node_id, "graph_path": str(self._graph_path())}
+
+    def delete_preference(self, node_id: str) -> Optional[Dict[str, Any]]:
+        if not self.write_enabled:
+            return None
+        graph = self._load_json(self._graph_path())
+        if not isinstance(graph, dict):
+            return {"status": "missing", "node_id": node_id}
+        nodes = [node for node in graph.get("nodes", []) if not (isinstance(node, dict) and node.get("id") == node_id)]
+        removed = len(nodes) != len(graph.get("nodes", []))
+        graph["nodes"] = nodes
+        graph["edges"] = [
+            edge for edge in graph.get("edges", [])
+            if not (isinstance(edge, dict) and (edge.get("from") == node_id or edge.get("to") == node_id))
+        ]
+        if not removed:
+            return {"status": "missing", "node_id": node_id}
+        graph["generated_at"] = self._now_iso()
+        graph.setdefault("audit", {}).setdefault("notes", []).append(f"Deleted preference node {node_id}.")
+        self._save_graph(graph)
+        return {"status": "deleted", "node_id": node_id, "graph_path": str(self._graph_path())}
+
     def _shape_overlay_payload(
         self,
         payload: Dict[str, Any],
@@ -173,7 +220,7 @@ class PersonalityMatrix:
         )
         overlay_copy = dict(overlay_payload)
         overlay_copy["max_chars"] = max_chars
-        overlay_copy["rendered_text"] = rendered[:max_chars]
+        overlay_copy["rendered_text"] = self._fit_overlay_budget(rendered[:max_chars])
         shaped["overlay"] = overlay_copy
         shaped["effective_constraints"] = self._effective_constraints()
         shaped["sources"] = self._bounded_sources(payload.get("sources") or [])
@@ -207,7 +254,7 @@ class PersonalityMatrix:
         selected = nodes[:4]
         directives = [self._node_directive(node) for node in selected]
         directives = [directive for directive in directives if directive]
-        rendered = " ".join(directives)[: self.max_overlay_chars]
+        rendered = self._fit_overlay_budget(" ".join(directives))
         if not rendered:
             rendered = "Use stable interaction preferences only when compatible with the current request."
 
@@ -274,6 +321,13 @@ class PersonalityMatrix:
         if target is not None:
             return f"Use {label.lower()} near {target}."
         return f"Respect {label.lower()}."
+
+    def _fit_overlay_budget(self, text: str) -> str:
+        chars = max(1, min(self.max_overlay_chars, self.token_budget * 4))
+        rendered = (text or "").strip()[:chars].rstrip()
+        while utils.estimate_tokens(rendered) > self.token_budget and len(rendered) > 8:
+            rendered = rendered[: max(8, int(len(rendered) * 0.85))].rstrip()
+        return rendered
 
     def _shape_scope(
         self,
