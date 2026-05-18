@@ -23,7 +23,7 @@ class PersistenceSettings(BaseModel):
     """Configuration for durable memory persistence."""
 
     enable: bool = False
-    path: Path = Path("data/dml_state.jsonl")
+    path: Path = Path("dml_state.jsonl")
     interval_sec: int = Field(300, ge=0)
 
     if field_validator is not None:  # pragma: no branch - executed on Pydantic v2

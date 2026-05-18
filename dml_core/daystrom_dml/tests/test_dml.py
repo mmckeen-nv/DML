@@ -19,6 +19,7 @@ from daystrom_dml.dml_adapter import (
     KNOWLEDGE_ENTRY_PREVIEW_CHARS,
     KNOWLEDGE_MAX_ENTRIES,
 )
+from daystrom_dml.embeddings import RandomEmbedder
 from daystrom_dml.memory_store import MemoryStore
 from daystrom_dml.summarizer import DummySummarizer
 
@@ -159,6 +160,62 @@ def test_similarity_threshold_backfills_top_k_after_filtering():
     texts = {item.text for item in results}
     assert "Off topic but salient" not in texts
     assert {"Direct match", "Related but quieter"} == texts
+
+
+def test_retrieve_context_respects_tenant_scope(tmp_path) -> None:
+    adapter = DMLAdapter(
+        config_overrides={
+            "model_name": "dummy",
+            "embedding_model": None,
+            "storage_dir": str(tmp_path / "storage"),
+            "persistence": {"enable": False},
+            "metrics_enabled": False,
+            "similarity_threshold": 0.0,
+        },
+        embedder=RandomEmbedder(dim=48),
+        summarizer=DummySummarizer(),
+        start_aging_loop=False,
+    )
+    adapter.ingest_memory(
+        "Tenant alpha deployment uses blue release lanes.",
+        tenant_id="alpha",
+        kind="note",
+    )
+    adapter.ingest_memory(
+        "Tenant beta deployment uses green release lanes.",
+        tenant_id="beta",
+        kind="note",
+    )
+
+    report = adapter.retrieve_context("deployment release lanes", tenant_id="alpha", top_k=5)
+
+    assert report["items"]
+    assert {item["meta"]["tenant_id"] for item in report["items"]} == {"alpha"}
+    assert "Tenant alpha" in report["raw_context"]
+    assert "Tenant beta" not in report["raw_context"]
+
+
+def test_retrieve_context_falls_back_to_legacy_unscoped_memories(tmp_path) -> None:
+    adapter = DMLAdapter(
+        config_overrides={
+            "model_name": "dummy",
+            "embedding_model": None,
+            "storage_dir": str(tmp_path / "storage"),
+            "persistence": {"enable": False},
+            "metrics_enabled": False,
+            "similarity_threshold": 0.0,
+        },
+        embedder=RandomEmbedder(dim=48),
+        summarizer=DummySummarizer(),
+        start_aging_loop=False,
+    )
+    adapter.ingest("Legacy unscoped memory survives tenant-aware retrieval.", meta={"kind": "note"})
+
+    report = adapter.retrieve_context("legacy memory", tenant_id="openclaw", top_k=5)
+
+    assert report["items"]
+    assert report["items"][0]["meta"].get("tenant_id") is None
+    assert "Legacy unscoped memory" in report["raw_context"]
 
 
 def test_embedding_compatibility_migration_writes_report(tmp_path) -> None:

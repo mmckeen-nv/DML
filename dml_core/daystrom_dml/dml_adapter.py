@@ -132,10 +132,7 @@ class DMLAdapter:
             self.summarizer = DummySummarizer()
         else:
             self.summarizer = LLMSummarizer(self.runner)
-        storage_dir = self.settings.storage_dir.expanduser()
-        if not storage_dir.is_absolute():
-            storage_dir = Path.cwd() / storage_dir
-        self.storage_dir = storage_dir
+        self.storage_dir = self.settings.storage_dir.expanduser()
         self.storage_dir.mkdir(parents=True, exist_ok=True)
         persistence_settings = getattr(self.settings, "persistence", None)
         persistence_path = getattr(persistence_settings, "path", None) if persistence_settings else None
@@ -143,14 +140,9 @@ class DMLAdapter:
             persistence_path = Path(persistence_path).expanduser()
         else:
             persistence_path = Path("dml_state.jsonl")
+        # Resolve persistence_path relative to storage_dir if it's relative
         if not persistence_path.is_absolute():
-            relative_path = persistence_path
-            if relative_path.parts and relative_path.parts[0] == self.storage_dir.name:
-                if len(relative_path.parts) > 1:
-                    relative_path = Path(*relative_path.parts[1:])
-                else:
-                    relative_path = Path(relative_path.name)
-            persistence_path = (self.storage_dir / relative_path).expanduser()
+            persistence_path = (self.storage_dir / persistence_path).resolve()
         self._persistence_path = persistence_path
         interval_value = getattr(persistence_settings, "interval_sec", 0) if persistence_settings else 0
         try:
@@ -1586,8 +1578,9 @@ class DMLAdapter:
 
         Returns retrieval report with selected kinds, scores, and tokens.
         """
+        start = time.perf_counter()
+        decision: Optional[RouterDecision] = None
         if self.agentic_mode_enabled and self.agentic_router:
-            # Make routing decision
             decision = self.agentic_router.decide(
                 meta={"prompt": prompt[:100]},  # Sample for task detection
                 token_pressure=0.0,
@@ -1596,24 +1589,56 @@ class DMLAdapter:
             if decision:
                 LOGGER.debug(f"Router selected: {decision.selected_profile}")
 
-        # Use configured top_k
-        final_top_k = top_k or self.config.get("dml_top_k", DEFAULT_DML_TOP_K)
+        final_top_k = top_k
+        if final_top_k is None and decision and decision.overrides.top_k:
+            final_top_k = decision.overrides.top_k
+        if final_top_k is None:
+            final_top_k = self.config.get("dml_top_k", DEFAULT_DML_TOP_K)
+        final_top_k = max(1, min(MAX_RETRIEVAL_TOP_K, self._resolve_dml_top_k(final_top_k)))
 
-        items = self._retrieve_items(prompt, final_top_k)
+        final_kinds = kinds
+        if final_kinds is None and decision and decision.overrides.allowed_kinds:
+            final_kinds = decision.overrides.allowed_kinds
 
-        # Build retrieval report
-        context = self._format_context_items(items, kinds)
+        query_embedding = self.embedder.embed(prompt)
+        scoped = any(value is not None for value in (tenant_id, client_id, session_id, instance_id))
+        if scoped:
+            items = self.store.retrieve_filtered(
+                query_embedding,
+                tenant_id=tenant_id,
+                client_id=client_id,
+                session_id=session_id,
+                instance_id=instance_id,
+                kinds=final_kinds,
+                top_k=final_top_k,
+            )
+            if not items:
+                items = self.store.retrieve_filtered(
+                    query_embedding,
+                    tenant_id=None,
+                    client_id=None,
+                    session_id=None,
+                    instance_id=None,
+                    kinds=final_kinds,
+                    top_k=final_top_k,
+                )
+        else:
+            items = self._retrieve_items(prompt, final_top_k, kinds=final_kinds)
+
+        context = self._format_context_items(items, final_kinds)
+        latency_ms = int((time.perf_counter() - start) * 1000.0)
 
         report = {
             "raw_context": context,
             "context_tokens": len(context.split()),
             "top_k": final_top_k,
-            "kinds": kinds,
+            "kinds": final_kinds,
             "items": [item.to_dict() for item in items],
+            "latency_ms": latency_ms,
         }
 
         if self.metrics_enabled:
-            record_retrieval(len(context.split()), latency_ms=0.0)
+            record_retrieval("context", latency_ms=latency_ms)
 
         return report
 
