@@ -267,6 +267,69 @@ def test_retrieve_context_falls_back_to_recent_memory_when_similarity_filters_al
     assert "Recent context" in report["raw_context"]
 
 
+def test_scoped_recent_fallback_does_not_cross_tenant_boundary(tmp_path) -> None:
+    adapter = DMLAdapter(
+        config_overrides={
+            "model_name": "dummy",
+            "embedding_model": None,
+            "storage_dir": str(tmp_path / "storage"),
+            "persistence": {"enable": False},
+            "metrics_enabled": False,
+            "similarity_threshold": 1.0,
+        },
+        embedder=RandomEmbedder(dim=48),
+        summarizer=DummySummarizer(),
+        start_aging_loop=False,
+    )
+    adapter.ingest_memory(
+        "Tenant alpha context must not leak through recent fallback.",
+        tenant_id="alpha",
+        client_id="client-a",
+        session_id="session-a",
+        instance_id="instance-a",
+        kind="observation",
+        meta={"phase": "execute"},
+    )
+
+    report = adapter.retrieve_context(
+        "unrelated query",
+        tenant_id="beta",
+        client_id="client-b",
+        session_id="session-b",
+        instance_id="instance-b",
+        phase="execute",
+        top_k=5,
+    )
+
+    assert report["items"] == []
+    assert "Tenant alpha" not in report["raw_context"]
+
+
+def test_recent_fallback_respects_phase(tmp_path) -> None:
+    adapter = DMLAdapter(
+        config_overrides={
+            "model_name": "dummy",
+            "embedding_model": None,
+            "storage_dir": str(tmp_path / "storage"),
+            "persistence": {"enable": False},
+            "metrics_enabled": False,
+            "similarity_threshold": 1.0,
+        },
+        embedder=RandomEmbedder(dim=48),
+        summarizer=DummySummarizer(),
+        start_aging_loop=False,
+    )
+    adapter.ingest("Plan fallback should stay out of execute context.", meta={"kind": "action", "phase": "plan"})
+    adapter.ingest("Execute fallback should appear in execute context.", meta={"kind": "action", "phase": "execute"})
+
+    report = adapter.retrieve_context("unrelated query", phase="execute", top_k=5)
+
+    assert report["items"]
+    assert {item["meta"]["phase"] for item in report["items"]} == {"execute"}
+    assert "Execute fallback" in report["raw_context"]
+    assert "Plan fallback" not in report["raw_context"]
+
+
 def test_ingest_memory_persists_scoped_items(tmp_path) -> None:
     storage_dir = tmp_path / "storage"
     config = {

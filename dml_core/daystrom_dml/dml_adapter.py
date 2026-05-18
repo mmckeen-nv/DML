@@ -1585,6 +1585,7 @@ class DMLAdapter:
                     kinds=final_kinds,
                     phase=phase_enum,
                     top_k=final_top_k,
+                    require_unscoped=True,
                 )
         else:
             items = self._retrieve_items(
@@ -1684,6 +1685,7 @@ class DMLAdapter:
         kinds: Optional[List[str]],
         phase: Optional[MemoryPhase],
         top_k: int,
+        require_unscoped: bool = False,
     ) -> List[MemoryItem]:
         allowed_kinds = set(kinds or [])
         if not allowed_kinds and phase in {MemoryPhase.EXECUTE, MemoryPhase.DEBUG}:
@@ -1691,6 +1693,11 @@ class DMLAdapter:
         candidates: List[MemoryItem] = []
         for item in self.store.items():
             meta = item.meta or {}
+            if require_unscoped and any(
+                meta.get(scope_key) is not None
+                for scope_key in ("tenant_id", "client_id", "session_id", "instance_id")
+            ):
+                continue
             if tenant_id is not None and meta.get("tenant_id") != tenant_id:
                 continue
             if client_id is not None and meta.get("client_id") != client_id:
@@ -1699,6 +1706,10 @@ class DMLAdapter:
                 continue
             if instance_id is not None and meta.get("instance_id") != instance_id:
                 continue
+            if phase is not None:
+                item_phase = meta.get("phase")
+                if item_phase is not None and str(item_phase).strip().lower() != phase.value:
+                    continue
             item_kind = str(meta.get("kind") or "memory").lower()
             if allowed_kinds and item_kind not in allowed_kinds:
                 continue
