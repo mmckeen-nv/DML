@@ -472,6 +472,104 @@ def test_personality_matrix_can_render_preference_graph(tmp_path) -> None:
     assert "Prefer directness." in overlay["overlay"]["rendered_text"]
 
 
+def test_personality_matrix_active_write_records_preference_graph(tmp_path) -> None:
+    graph_path = tmp_path / "dpm-graph.json"
+    adapter = DMLAdapter(
+        config_overrides={
+            "model_name": "dummy",
+            "embedding_model": None,
+            "storage_dir": str(tmp_path / "storage"),
+            "persistence": {"enable": False},
+            "metrics_enabled": False,
+            "dpm": {
+                "enable": True,
+                "mode": "active-write",
+                "preference_graph_path": str(graph_path),
+                "relationship_id": "relationship:test",
+            },
+        },
+        embedder=RandomEmbedder(dim=48),
+        summarizer=DummySummarizer(),
+        start_aging_loop=False,
+    )
+
+    result = adapter.record_personality_preference(
+        "I prefer concise direct answers.",
+        source_id="turn:test",
+    )
+
+    assert result["status"] == "recorded"
+    graph = json.loads(graph_path.read_text(encoding="utf-8"))
+    assert graph["schema_version"] == "dpm.preference-graph.v1"
+    assert graph["nodes"]
+    node = graph["nodes"][0]
+    assert node["id"].startswith("pref.")
+    assert node["state"] == "active"
+    assert node["evidence"]["support_count"] == 1
+    assert node["provenance"][0]["source_id"] == "turn:test"
+
+    overlay = adapter.personality_overlay(prompt="help")
+    assert overlay["sources"][0]["kind"] == "preference_graph"
+    assert overlay["effective_constraints"]["writes_allowed"] is True
+
+
+def test_personality_matrix_active_read_does_not_write_preference_graph(tmp_path) -> None:
+    graph_path = tmp_path / "dpm-graph.json"
+    adapter = DMLAdapter(
+        config_overrides={
+            "model_name": "dummy",
+            "embedding_model": None,
+            "storage_dir": str(tmp_path / "storage"),
+            "persistence": {"enable": False},
+            "metrics_enabled": False,
+            "dpm": {
+                "enable": True,
+                "mode": "active-read",
+                "preference_graph_path": str(graph_path),
+            },
+        },
+        embedder=RandomEmbedder(dim=48),
+        summarizer=DummySummarizer(),
+        start_aging_loop=False,
+    )
+
+    result = adapter.record_personality_preference("I prefer terse replies.")
+
+    assert result is None
+    assert not graph_path.exists()
+
+
+def test_reinforce_can_record_explicit_dpm_preference(tmp_path) -> None:
+    graph_path = tmp_path / "dpm-graph.json"
+    adapter = DMLAdapter(
+        config_overrides={
+            "model_name": "dummy",
+            "embedding_model": None,
+            "storage_dir": str(tmp_path / "storage"),
+            "persistence": {"enable": False},
+            "metrics_enabled": False,
+            "dpm": {
+                "enable": True,
+                "mode": "active-write",
+                "preference_graph_path": str(graph_path),
+            },
+        },
+        embedder=RandomEmbedder(dim=48),
+        summarizer=DummySummarizer(),
+        start_aging_loop=False,
+    )
+
+    adapter.reinforce(
+        "For this project, please use terse status updates.",
+        "Understood.",
+        meta={"dpm_preference": True, "source": "turn:reinforce"},
+    )
+
+    graph = json.loads(graph_path.read_text(encoding="utf-8"))
+    assert graph["nodes"]
+    assert graph["nodes"][0]["provenance"][0]["source_id"] == "turn:reinforce"
+
+
 def test_ingest_memory_persists_scoped_items(tmp_path) -> None:
     storage_dir = tmp_path / "storage"
     config = {

@@ -488,6 +488,25 @@ class DMLAdapter:
             relationship_id=relationship_id,
         )
 
+    def record_personality_preference(
+        self,
+        text: str,
+        *,
+        scope: str = "relationship",
+        source_id: str = "turn:current",
+        explicit: bool = True,
+        meta: Optional[Dict[str, Any]] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Record an explicit preference into the DPM graph in active-write mode."""
+
+        return self.personality_matrix.record_preference(
+            text,
+            scope=scope,
+            source_id=source_id,
+            explicit=explicit,
+            meta=meta,
+        )
+
     def reinforce(self, prompt: str, response: str, meta: Optional[Dict] = None) -> None:
         prompt_text = (prompt or "").strip()
         response_text = (response or "").strip()
@@ -511,6 +530,14 @@ class DMLAdapter:
         if response_text:
             memory_meta.setdefault("response_excerpt", response_text[:500])
         self.store.ingest(memory_text, embedding, salience=salience, meta=memory_meta)
+        explicit_dpm_preference = bool(memory_meta.get("dpm_preference"))
+        self.record_personality_preference(
+            prompt_text,
+            scope=str(memory_meta.get("dpm_scope") or "relationship"),
+            source_id=str(memory_meta.get("source") or "turn:current"),
+            explicit=explicit_dpm_preference,
+            meta=memory_meta,
+        )
         self._persist_dml_state()
         if self.metrics_enabled:
             update_memory_gauge(len(self.store.items()))

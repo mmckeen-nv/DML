@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 import time
 from pathlib import Path
 from typing import Any, Dict, Iterable, Optional
@@ -11,6 +12,12 @@ from . import utils
 
 ACTIVE_MODES = {"active-read", "active-write"}
 VALID_MODES = {"disabled", "observe-only", "active-read", "active-write"}
+PREFERENCE_PATTERNS = (
+    re.compile(r"\b(?:i|we)\s+(?:prefer|like|want|need)\s+(.+)", re.IGNORECASE),
+    re.compile(r"\bplease\s+(?:prefer|use|keep|make|be)\s+(.+)", re.IGNORECASE),
+    re.compile(r"\b(?:always|usually)\s+(.+)", re.IGNORECASE),
+    re.compile(r"\b(?:do not|don't)\s+(.+)", re.IGNORECASE),
+)
 
 
 class PersonalityMatrix:
@@ -37,6 +44,10 @@ class PersonalityMatrix:
     @property
     def active(self) -> bool:
         return self.enabled and self.mode in ACTIVE_MODES
+
+    @property
+    def write_enabled(self) -> bool:
+        return self.enabled and self.mode == "active-write"
 
     def build_overlay(
         self,
@@ -79,6 +90,55 @@ class PersonalityMatrix:
         if not rendered:
             return ""
         return "=== Personality Matrix ===\n" + rendered
+
+    def record_preference(
+        self,
+        text: str,
+        *,
+        scope: str = "relationship",
+        source_id: str = "turn:current",
+        explicit: bool = False,
+        meta: Optional[Dict[str, Any]] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Persist an explicit preference signal into the DPM graph.
+
+        Active-write mode is required. When ``explicit`` is false, only clear
+        preference-shaped text is recorded.
+        """
+
+        if not self.write_enabled:
+            return None
+        cleaned = " ".join((text or "").split())
+        if not cleaned:
+            return None
+        signal = self._extract_preference_signal(cleaned, explicit=explicit)
+        if signal is None:
+            return None
+
+        graph = self._load_or_create_graph()
+        now = self._now_iso()
+        node_id = self._preference_node_id(signal["label"])
+        nodes = graph.setdefault("nodes", [])
+        node = self._find_node(nodes, node_id)
+        if node is None:
+            node = self._new_preference_node(node_id, signal, scope=scope, now=now)
+            nodes.append(node)
+        self._reinforce_node(node, signal, source_id=source_id, now=now, meta=meta)
+
+        graph["generated_at"] = now
+        audit = graph.setdefault("audit", {})
+        audit["source_count"] = int(audit.get("source_count") or 0) + 1
+        included = audit.setdefault("included_sources", [])
+        if source_id not in included:
+            included.append(source_id)
+        audit.setdefault("excluded_sources", [])
+        audit.setdefault("conflicts_detected", [])
+        notes = audit.setdefault("notes", [])
+        notes.append(f"Recorded active-write preference signal for {node_id}.")
+        del notes[:-8]
+
+        self._save_graph(graph)
+        return {"status": "recorded", "node_id": node_id, "graph_path": str(self._graph_path())}
 
     def _shape_overlay_payload(
         self,
@@ -257,6 +317,160 @@ class PersonalityMatrix:
         state.setdefault("suppressed_source_ids", [])
         state.setdefault("effective_for_turn", [])
         return state
+
+    def _extract_preference_signal(self, text: str, *, explicit: bool) -> Optional[Dict[str, Any]]:
+        lowered = text.lower()
+        if explicit:
+            phrase = text
+        else:
+            phrase = ""
+            for pattern in PREFERENCE_PATTERNS:
+                match = pattern.search(text)
+                if match:
+                    phrase = match.group(1)
+                    break
+            if not phrase:
+                return None
+        phrase = phrase.strip(" .,:;!?")
+        if not phrase:
+            return None
+        negative = "do not" in lowered or "don't" in lowered or "avoid" in lowered
+        label = self._label_from_phrase(phrase)
+        return {
+            "label": label,
+            "phrase": phrase[:220],
+            "polarity": "prefer_low" if negative else "prefer_high",
+            "target": 0.15 if negative else 0.85,
+        }
+
+    def _label_from_phrase(self, phrase: str) -> str:
+        words = re.findall(r"[a-z0-9]+", phrase.lower())[:5]
+        if not words:
+            return "Preference"
+        return " ".join(words).title()
+
+    def _preference_node_id(self, label: str) -> str:
+        slug = "-".join(re.findall(r"[a-z0-9]+", label.lower()))[:80]
+        return f"pref.{slug or 'preference'}"
+
+    def _find_node(self, nodes: list[Any], node_id: str) -> Optional[Dict[str, Any]]:
+        for node in nodes:
+            if isinstance(node, dict) and node.get("id") == node_id:
+                return node
+        return None
+
+    def _new_preference_node(
+        self,
+        node_id: str,
+        signal: Dict[str, Any],
+        *,
+        scope: str,
+        now: str,
+    ) -> Dict[str, Any]:
+        normalized_scope = scope if scope in {"thread", "project", "relationship", "global"} else "relationship"
+        return {
+            "id": node_id,
+            "kind": "interaction_style",
+            "label": signal["label"],
+            "scope": normalized_scope,
+            "state": "active",
+            "weight": 0.55,
+            "confidence": 0.55,
+            "polarity": signal["polarity"],
+            "value_type": "scalar",
+            "value": {"target": signal["target"], "allowed_range": [0.0, 1.0]},
+            "evidence": {
+                "support_count": 0,
+                "contradiction_count": 0,
+                "last_supported_at": now,
+                "last_contradicted_at": None,
+            },
+            "provenance": [],
+            "constraints": {
+                "overridden_by_explicit_instruction": True,
+                "ttl_days": 120,
+                "requires_review_if_confidence_below": 0.55,
+            },
+            "updated_at": now,
+        }
+
+    def _reinforce_node(
+        self,
+        node: Dict[str, Any],
+        signal: Dict[str, Any],
+        *,
+        source_id: str,
+        now: str,
+        meta: Optional[Dict[str, Any]],
+    ) -> None:
+        evidence = node.setdefault("evidence", {})
+        same_polarity = str(node.get("polarity") or "") == signal["polarity"]
+        if same_polarity:
+            evidence["support_count"] = int(evidence.get("support_count") or 0) + 1
+            evidence["last_supported_at"] = now
+            node["weight"] = min(1.0, float(node.get("weight") or 0.5) + 0.05)
+            node["confidence"] = min(1.0, float(node.get("confidence") or 0.5) + 0.04)
+        else:
+            evidence["contradiction_count"] = int(evidence.get("contradiction_count") or 0) + 1
+            evidence["last_contradicted_at"] = now
+            node["state"] = "conflicted"
+            node["confidence"] = max(0.0, float(node.get("confidence") or 0.5) - 0.08)
+
+        provenance = node.setdefault("provenance", [])
+        provenance.append(
+            {
+                "type": "current_turn_preference",
+                "source_id": source_id,
+                "observed_at": now,
+                "note": signal["phrase"][:220],
+                "meta": dict(meta or {}),
+            }
+        )
+        del provenance[:-8]
+        node["updated_at"] = now
+
+    def _load_or_create_graph(self) -> Dict[str, Any]:
+        graph = self._load_json(self._graph_path())
+        if isinstance(graph, dict) and graph.get("schema_version") == "dpm.preference-graph.v1":
+            graph.setdefault("nodes", [])
+            graph.setdefault("edges", [])
+            graph.setdefault("audit", {})
+            return graph
+        now = self._now_iso()
+        relationship_id = self.relationship_id or "relationship:runtime"
+        return {
+            "schema_version": "dpm.preference-graph.v1",
+            "graph_id": f"preference-graph:{relationship_id}",
+            "subject_id": relationship_id,
+            "generated_at": now,
+            "default_policy": {
+                "explicit_instruction_precedence": "always_override",
+                "conflict_mode": "preserve_and_audit",
+                "decay_policy": "recency_weighted",
+            },
+            "nodes": [],
+            "edges": [],
+            "audit": {
+                "source_count": 0,
+                "included_sources": [],
+                "excluded_sources": [],
+                "conflicts_detected": [],
+                "notes": ["Graph created by DPM active-write runtime."],
+            },
+        }
+
+    def _graph_path(self) -> Path:
+        if self.preference_graph_path is not None:
+            return self.preference_graph_path
+        return self.storage_dir / "dpm_preference_graph.json"
+
+    def _save_graph(self, graph: Dict[str, Any]) -> None:
+        path = self._graph_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(path.suffix + ".tmp")
+        tmp.write_text(json.dumps(graph, indent=2, sort_keys=True), encoding="utf-8")
+        tmp.replace(path)
+        self.preference_graph_path = path
 
     def _audit(self, raw: Any, sources: list[Dict[str, Any]]) -> Dict[str, Any]:
         audit = dict(raw) if isinstance(raw, dict) else {}
