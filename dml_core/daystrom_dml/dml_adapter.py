@@ -30,7 +30,7 @@ from .stm.controller import STMController
 from .stm.policy import LTMWritePolicy, MemoryWrite
 from .stm.schema import STMState
 from . import utils
-from .agent_schema import AgenticMemorySchema, MemoryKind
+from .agent_schema import AgenticMemorySchema, MemoryKind, MemoryPhase
 from .promotion_pipeline import PromotionPipeline, MemoryEntry
 from .policy_router import PolicyRouter, TaskType, RouterDecision
 
@@ -300,7 +300,13 @@ class DMLAdapter:
     # ------------------------------------------------------------------
     # Memory operations
     # ------------------------------------------------------------------
-    def ingest(self, text: str, meta: Optional[Dict] = None) -> None:
+    def ingest(
+        self,
+        text: str,
+        meta: Optional[Dict] = None,
+        *,
+        persist: bool = True,
+    ) -> None:
         """Full DML ingest - generates embeddings and adds to all systems"""
         if not text:
             return
@@ -317,7 +323,8 @@ class DMLAdapter:
             with contextlib.suppress(Exception):
                 self.persistent_rag_store.add(rag_text, rag_embedding, meta=rag_meta)
         self.rag_store.add_document(rag_text, meta=rag_meta)
-        self._persist_all()
+        if persist:
+            self._persist_all()
         if self.metrics_enabled:
             update_memory_gauge(len(self.store.items()))
 
@@ -1388,76 +1395,20 @@ class DMLAdapter:
         if meta:
             enriched_meta.update(meta)
         embedding = self.embedder.embed(text)
-        return self.store.add(text=text, embedding=embedding, meta=enriched_meta)
-
-    def retrieve_context(
-        self,
-        query: str,
-        *,
-        tenant_id: str,
-        client_id: Optional[str] = None,
-        session_id: Optional[str] = None,
-        instance_id: Optional[str] = None,
-        kinds: Optional[List[str]] = None,
-        top_k: Optional[int] = None,
-    ) -> Dict[str, Any]:
-        start = time.perf_counter()
-        try:
-            limit = int(top_k) if top_k is not None else int(self.config.get("dml_top_k", DEFAULT_DML_TOP_K))
-        except (TypeError, ValueError):
-            limit = int(self.config.get("dml_top_k", DEFAULT_DML_TOP_K))
-        limit = max(1, min(MAX_RETRIEVAL_TOP_K, limit))
-        query_embedding = self.embedder.embed(query)
-        candidates = self.store.retrieve_filtered(
-            query_embedding,
-            tenant_id=tenant_id,
-            client_id=client_id,
-            session_id=session_id,
-            instance_id=instance_id,
-            kinds=kinds,
-            top_k=limit,
-        )
-        if not candidates:
-            candidates = self.store.retrieve_filtered(
-                query_embedding,
-                tenant_id=None,
-                client_id=None,
-                session_id=None,
-                instance_id=None,
-                kinds=kinds,
-                top_k=limit,
-            )
-
-        budget = int(self.config.get("token_budget", 600))
-        consumed = 0
-        lines: List[str] = [STARFLEET_BANNER, "=== Daystrom Memory Lattice ==="]
-        entries: List[Dict[str, Any]] = []
-        for item in candidates:
-            summary = item.cached_summary(max_len=180)
-            tokens = utils.estimate_tokens(summary)
-            if consumed + tokens > budget:
-                break
-            consumed += tokens
-            lines.append(f"- L{item.level} (f={item.fidelity:.2f}): {summary}")
-            entries.append(
-                {
-                    "id": str(item.id),
-                    "summary": summary,
-                    "meta": item.meta or {},
-                    "level": item.level,
-                    "fidelity": item.fidelity,
-                    "tokens": tokens,
-                }
-            )
-
-        raw_context = "\n".join(lines)
-        latency_ms = int((time.perf_counter() - start) * 1000.0)
-        return {
-            "entries": entries,
-            "context_tokens": consumed,
-            "raw_context": raw_context,
-            "latency_ms": latency_ms,
-        }
+        salience = self._estimate_salience(text)
+        item, merged = self.store.ingest(text, embedding, salience=salience, meta=enriched_meta)
+        rag_text = item.text if merged else text
+        rag_embedding = item.embedding if merged else embedding
+        rag_meta: Dict[str, Any] = dict(enriched_meta)
+        rag_meta.setdefault("memory_id", item.id)
+        if self.persistent_rag_store is not None:
+            with contextlib.suppress(Exception):
+                self.persistent_rag_store.add(rag_text, rag_embedding, meta=rag_meta)
+        self.rag_store.add_document(rag_text, meta=rag_meta)
+        self._persist_all()
+        if self.metrics_enabled:
+            update_memory_gauge(len(self.store.items()))
+        return item
 
     def collect_instance_scratch(
         self,
@@ -1551,18 +1502,6 @@ class DMLAdapter:
             filtered.append(item)
         return filtered
 
-    def _format_context_items(self, items: Any, kinds: Optional[List[str]] = None) -> str:
-        """Format retrieved items into context string."""
-        if not items:
-            return ""
-        lines = ["=== Retrieved Context ==="]
-        for item in items:
-            meta = item.meta or {}
-            source = meta.get("source", "unknown")
-            summary = item.cached_summary(max_len=220)
-            lines.append(f"- [{source}] {summary[:200]}")
-        return "\n".join(lines)
-
     def retrieve_context(
         self,
         prompt: str,
@@ -1572,6 +1511,7 @@ class DMLAdapter:
         instance_id: Optional[str] = None,
         kinds: Optional[List[str]] = None,
         top_k: Optional[int] = None,
+        phase: Optional[str | MemoryPhase] = None,
     ) -> Dict[str, Any]:
         """
         Retrieve context with agentic-aware routing.
@@ -1580,9 +1520,11 @@ class DMLAdapter:
         """
         start = time.perf_counter()
         decision: Optional[RouterDecision] = None
+        phase_enum = self._coerce_memory_phase(phase)
         if self.agentic_mode_enabled and self.agentic_router:
             decision = self.agentic_router.decide(
                 meta={"prompt": prompt[:100]},  # Sample for task detection
+                phase=phase_enum,
                 token_pressure=0.0,
             )
 
@@ -1599,6 +1541,8 @@ class DMLAdapter:
         final_kinds = kinds
         if final_kinds is None and decision and decision.overrides.allowed_kinds:
             final_kinds = decision.overrides.allowed_kinds
+        if final_kinds is None and phase_enum in {MemoryPhase.EXECUTE, MemoryPhase.DEBUG}:
+            final_kinds = ["action", "observation", "error"]
 
         query_embedding = self.embedder.embed(prompt)
         scoped = any(value is not None for value in (tenant_id, client_id, session_id, instance_id))
@@ -1613,6 +1557,16 @@ class DMLAdapter:
                 top_k=final_top_k,
             )
             if not items:
+                items = self._recent_context_items(
+                    tenant_id=tenant_id,
+                    client_id=client_id,
+                    session_id=session_id,
+                    instance_id=instance_id,
+                    kinds=final_kinds,
+                    phase=phase_enum,
+                    top_k=final_top_k,
+                )
+            if not items:
                 items = self.store.retrieve_filtered(
                     query_embedding,
                     tenant_id=None,
@@ -1622,18 +1576,44 @@ class DMLAdapter:
                     kinds=final_kinds,
                     top_k=final_top_k,
                 )
+            if not items:
+                items = self._recent_context_items(
+                    tenant_id=None,
+                    client_id=None,
+                    session_id=None,
+                    instance_id=None,
+                    kinds=final_kinds,
+                    phase=phase_enum,
+                    top_k=final_top_k,
+                )
         else:
-            items = self._retrieve_items(prompt, final_top_k, kinds=final_kinds)
+            items = self._retrieve_items(
+                prompt,
+                final_top_k,
+                phase=phase_enum.value if phase_enum else None,
+                kinds=final_kinds,
+            )
+            if not items:
+                items = self._recent_context_items(
+                    tenant_id=None,
+                    client_id=None,
+                    session_id=None,
+                    instance_id=None,
+                    kinds=final_kinds,
+                    phase=phase_enum,
+                    top_k=final_top_k,
+                )
 
-        context = self._format_context_items(items, final_kinds)
+        entries, context, tokens_used = self._compact_context_items(items)
         latency_ms = int((time.perf_counter() - start) * 1000.0)
 
         report = {
             "raw_context": context,
-            "context_tokens": len(context.split()),
+            "context_tokens": tokens_used,
             "top_k": final_top_k,
             "kinds": final_kinds,
-            "items": [item.to_dict() for item in items],
+            "phase": phase_enum.value if phase_enum else None,
+            "items": entries,
             "latency_ms": latency_ms,
         }
 
@@ -1642,18 +1622,89 @@ class DMLAdapter:
 
         return report
 
-    def _format_context_items(self, items: List, kinds: Optional[List] = None) -> str:
-        """Format retrieved items into context string."""
+    def _coerce_memory_phase(self, phase: Optional[str | MemoryPhase]) -> Optional[MemoryPhase]:
+        if phase is None:
+            return None
+        if isinstance(phase, MemoryPhase):
+            return phase
+        try:
+            return MemoryPhase(str(phase).strip().lower())
+        except ValueError:
+            LOGGER.debug("Ignoring unknown memory phase %r", phase)
+            return None
+
+    def _compact_context_items(
+        self, items: List[MemoryItem]
+    ) -> tuple[List[Dict[str, Any]], str, int]:
         if not items:
-            return ""
+            return [], "", 0
+        budget = int(self.config.get("token_budget", 600))
+        consumed = 0
         lines: List[str] = ["=== Retrieved Context ==="]
+        entries: List[Dict[str, Any]] = []
         for item in items:
+            summary = item.cached_summary(max_len=220)
+            tokens = utils.estimate_tokens(summary)
+            if consumed + tokens > budget:
+                if entries:
+                    break
+                approx_chars = max(32, budget * 4)
+                summary = summary[:approx_chars].rstrip()
+                if len(item.cached_summary(max_len=220)) > len(summary):
+                    summary = summary.rstrip() + "..."
+                tokens = min(max(1, utils.estimate_tokens(summary)), budget)
+            consumed += tokens
             meta = item.meta or {}
             source = meta.get("source", "unknown")
             timestamp = time.strftime("%Y-%m-%d", time.gmtime(item.timestamp))
-            summary = item.cached_summary(max_len=220)
             lines.append(f"- ({timestamp}) [source={source}]\n  {summary}")
-        return "\n".join(lines)
+            entries.append(
+                {
+                    "id": str(item.id),
+                    "text": summary,
+                    "summary": summary,
+                    "meta": meta,
+                    "level": item.level,
+                    "fidelity": float(item.fidelity),
+                    "salience": float(item.salience),
+                    "tokens": tokens,
+                }
+            )
+        if not entries:
+            return [], "", 0
+        return entries, "\n".join(lines), consumed
+
+    def _recent_context_items(
+        self,
+        *,
+        tenant_id: Optional[str],
+        client_id: Optional[str],
+        session_id: Optional[str],
+        instance_id: Optional[str],
+        kinds: Optional[List[str]],
+        phase: Optional[MemoryPhase],
+        top_k: int,
+    ) -> List[MemoryItem]:
+        allowed_kinds = set(kinds or [])
+        if not allowed_kinds and phase in {MemoryPhase.EXECUTE, MemoryPhase.DEBUG}:
+            allowed_kinds = {"action", "observation", "error"}
+        candidates: List[MemoryItem] = []
+        for item in self.store.items():
+            meta = item.meta or {}
+            if tenant_id is not None and meta.get("tenant_id") != tenant_id:
+                continue
+            if client_id is not None and meta.get("client_id") != client_id:
+                continue
+            if session_id is not None and meta.get("session_id") != session_id:
+                continue
+            if instance_id is not None and meta.get("instance_id") != instance_id:
+                continue
+            item_kind = str(meta.get("kind") or "memory").lower()
+            if allowed_kinds and item_kind not in allowed_kinds:
+                continue
+            candidates.append(item)
+        candidates.sort(key=lambda item: item.timestamp, reverse=True)
+        return candidates[: max(1, top_k)]
 
     def _format_ltm_entries(self, items: List[MemoryStore.MemoryItem]) -> str:
         if not items:

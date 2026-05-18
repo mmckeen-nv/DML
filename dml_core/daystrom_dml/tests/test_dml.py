@@ -191,8 +191,120 @@ def test_retrieve_context_respects_tenant_scope(tmp_path) -> None:
 
     assert report["items"]
     assert {item["meta"]["tenant_id"] for item in report["items"]} == {"alpha"}
+    assert all("embedding" not in item for item in report["items"])
     assert "Tenant alpha" in report["raw_context"]
     assert "Tenant beta" not in report["raw_context"]
+
+
+def test_retrieve_context_applies_phase_filtering(tmp_path) -> None:
+    adapter = DMLAdapter(
+        config_overrides={
+            "model_name": "dummy",
+            "embedding_model": None,
+            "storage_dir": str(tmp_path / "storage"),
+            "persistence": {"enable": False},
+            "metrics_enabled": False,
+            "similarity_threshold": 0.0,
+        },
+        embedder=RandomEmbedder(dim=48),
+        summarizer=DummySummarizer(),
+        start_aging_loop=False,
+    )
+    adapter.ingest("Plan memory should stay out of execute context.", meta={"kind": "plan"})
+    adapter.ingest("Action memory should appear in execute context.", meta={"kind": "action"})
+
+    report = adapter.retrieve_context("memory context", phase="execute", top_k=5)
+
+    assert report["items"]
+    assert {item["meta"]["kind"] for item in report["items"]} == {"action"}
+    assert "Action memory" in report["raw_context"]
+    assert "Plan memory" not in report["raw_context"]
+
+
+def test_retrieve_context_respects_token_budget_and_omits_vectors(tmp_path) -> None:
+    adapter = DMLAdapter(
+        config_overrides={
+            "model_name": "dummy",
+            "embedding_model": None,
+            "storage_dir": str(tmp_path / "storage"),
+            "persistence": {"enable": False},
+            "metrics_enabled": False,
+            "similarity_threshold": 0.0,
+            "token_budget": 8,
+        },
+        embedder=RandomEmbedder(dim=48),
+        summarizer=DummySummarizer(),
+        start_aging_loop=False,
+    )
+    adapter.ingest("Short memory one.", meta={"kind": "note"})
+    adapter.ingest("This second memory is intentionally long enough to exceed the tiny budget.", meta={"kind": "note"})
+
+    report = adapter.retrieve_context("memory", top_k=5)
+
+    assert report["context_tokens"] <= 8
+    assert all("embedding" not in item for item in report["items"])
+
+
+def test_retrieve_context_falls_back_to_recent_memory_when_similarity_filters_all(tmp_path) -> None:
+    adapter = DMLAdapter(
+        config_overrides={
+            "model_name": "dummy",
+            "embedding_model": None,
+            "storage_dir": str(tmp_path / "storage"),
+            "persistence": {"enable": False},
+            "metrics_enabled": False,
+            "similarity_threshold": 1.0,
+        },
+        embedder=RandomEmbedder(dim=48),
+        summarizer=DummySummarizer(),
+        start_aging_loop=False,
+    )
+    adapter.ingest("Recent context should remain available under strict thresholds.", meta={"kind": "note"})
+
+    report = adapter.retrieve_context("unrelated query", top_k=5)
+
+    assert report["items"]
+    assert "Recent context" in report["raw_context"]
+
+
+def test_ingest_memory_persists_scoped_items(tmp_path) -> None:
+    storage_dir = tmp_path / "storage"
+    config = {
+        "model_name": "dummy",
+        "embedding_model": None,
+        "storage_dir": str(storage_dir),
+        "persistence": {"enable": True, "path": "dml_state.jsonl"},
+        "rag_store": {"enable": False},
+        "metrics_enabled": False,
+        "similarity_threshold": 0.0,
+    }
+    adapter = DMLAdapter(
+        config_overrides=config,
+        embedder=RandomEmbedder(dim=48),
+        summarizer=DummySummarizer(),
+        start_aging_loop=False,
+    )
+    adapter.ingest_memory(
+        "Scoped durable memory survives adapter restart.",
+        tenant_id="alpha",
+        kind="note",
+    )
+    adapter.close()
+
+    reloaded = DMLAdapter(
+        config_overrides=config,
+        embedder=RandomEmbedder(dim=48),
+        summarizer=DummySummarizer(),
+        start_aging_loop=False,
+    )
+    try:
+        report = reloaded.retrieve_context("durable memory", tenant_id="alpha", top_k=5)
+    finally:
+        reloaded.close()
+
+    assert report["items"]
+    assert report["items"][0]["meta"]["tenant_id"] == "alpha"
+    assert "Scoped durable memory" in report["raw_context"]
 
 
 def test_retrieve_context_falls_back_to_legacy_unscoped_memories(tmp_path) -> None:
