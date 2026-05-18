@@ -1,0 +1,17 @@
+# Dashboard/benchmark profile aligned to the Ollama-native production path.
+embedding_model: ollama:qwen3-embedding:0.6b
+embedding_device: cuda
+llm_backend: ollama
+model_name: llama3:8b
+storage_dir: /Users/markmckeen/.openclaw/workspace/data/dml-gpu-benchmark-dashboard
+persistence:
+  enable: true
+  path: /Users/markmckeen/.openclaw/workspace/data/dml-gpu-benchmark-dashboard/dml_state.jsonl
+  interval_sec: 120
+rag_store:
+  enable: true
+  path: /Users/markmckeen/.openclaw/workspace/data/dml-gpu-benchmark-dashboard/rag_index.faiss
+  meta_path: /Users/markmckeen/.openclaw/workspace/data/dml-gpu-benchmark-dashboard/rag_meta.json
+  backend: faiss
+  dim: 384
+"dml.agentic_mode.enabled": true

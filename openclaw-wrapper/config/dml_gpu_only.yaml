@@ -1,0 +1,47 @@
+# GPU-only DML profile for OpenClaw memory substrate
+# Use with: --config-path skills/daystrom-dml/config/dml_gpu_only.yaml
+
+# Core retrieval behavior
+capacity: 4000
+dml_top_k: 8
+token_budget: 800
+
+# Use Ollama for embeddings and keep the device contract explicit at the config layer.
+# Note: device placement is managed by the local Ollama runtime for ollama:* models.
+embedding_model: ollama:qwen3-embedding:0.6b
+embedding_device: cuda
+
+# Use Ollama for local summarization so the active path does not depend on
+# gated Hugging Face model access or silently fall back to DummyGPT.
+llm_backend: ollama
+model_name: llama3:8b
+strict_embedding_required: true
+strict_llm_required: true
+
+# Persistence
+storage_dir: /Users/markmckeen/.openclaw/daystrom-dml-v2/data
+ingest_persist_mode: dml_only
+persistence:
+  enable: true
+  path: ./dml_state.jsonl
+  interval_sec: 120
+
+# Enable agentic mode for richer metadata routing
+"dml.agentic_mode.enabled": true
+
+# Keep explicit persistent RAG indexes beside lattice memory for ground truth lookups
+rag_store:
+  enable: true
+  path: ./rag_index.faiss
+  meta_path: ./rag_meta.json
+  backend: faiss
+  dim: 384
+
+# Daystrom Personality Matrix runtime loop.
+dpm:
+  enable: true
+  mode: active-write
+  preference_graph_path: ./dpm_preference_graph.json
+  relationship_id: relationship:openclaw
+  project_id: project:openclaw
+  token_budget: 80

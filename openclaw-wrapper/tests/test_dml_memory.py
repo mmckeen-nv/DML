@@ -1,0 +1,272 @@
+import importlib.util
+import io
+import json
+import sys
+import tempfile
+import time
+import types
+import unittest
+from argparse import Namespace
+from contextlib import redirect_stdout
+from pathlib import Path
+
+
+class _StubMemoryKindValue:
+    def __init__(self, value: str):
+        self.value = value
+
+
+class _StubMemoryKind:
+    ACTION = _StubMemoryKindValue("action")
+    OBSERVATION = _StubMemoryKindValue("observation")
+    NOTE = _StubMemoryKindValue("note")
+    PLAN = _StubMemoryKindValue("plan")
+    ERROR = _StubMemoryKindValue("error")
+    ARTIFACT_REF = _StubMemoryKindValue("artifact_ref")
+
+
+def _load_module():
+    module_path = Path(__file__).resolve().parents[1] / "scripts" / "dml_memory.py"
+
+    daystrom_pkg = types.ModuleType("daystrom_dml")
+    daystrom_schema = types.ModuleType("daystrom_dml.agent_schema")
+    daystrom_adapter = types.ModuleType("daystrom_dml.dml_adapter")
+
+    daystrom_schema.MemoryKind = _StubMemoryKind
+
+    class _Adapter:  # pragma: no cover - just to satisfy import
+        pass
+
+    daystrom_adapter.DMLAdapter = _Adapter
+
+    prev = {
+        "daystrom_dml": sys.modules.get("daystrom_dml"),
+        "daystrom_dml.agent_schema": sys.modules.get("daystrom_dml.agent_schema"),
+        "daystrom_dml.dml_adapter": sys.modules.get("daystrom_dml.dml_adapter"),
+    }
+    sys.modules["daystrom_dml"] = daystrom_pkg
+    sys.modules["daystrom_dml.agent_schema"] = daystrom_schema
+    sys.modules["daystrom_dml.dml_adapter"] = daystrom_adapter
+
+    try:
+        spec = importlib.util.spec_from_file_location("dml_memory", module_path)
+        mod = importlib.util.module_from_spec(spec)
+        assert spec and spec.loader
+        sys.modules["dml_memory"] = mod
+        spec.loader.exec_module(mod)
+        return mod
+    finally:
+        for k, v in prev.items():
+            if v is None:
+                sys.modules.pop(k, None)
+            else:
+                sys.modules[k] = v
+
+
+mod = _load_module()
+
+
+class _DummyAdapter:
+    def __init__(self, raise_gt: bool = False, sleep_gt_s: float = 0.0):
+        self.raise_gt = raise_gt
+        self.sleep_gt_s = sleep_gt_s
+        self.ingests: list[tuple[str, dict | None, bool]] = []
+        self.persist_calls = 0
+
+    def ingest(self, text: str, meta: dict | None = None, *, persist: bool = True) -> None:
+        self.ingests.append((text, meta, persist))
+
+    def _persist_all(self) -> None:
+        self.persist_calls += 1
+
+    def retrieve_context(self, query: str, **_: object) -> dict:
+        return {"status": "ok", "query_seen": query}
+
+    def query_database(self, query: str, mode: str = "hybrid") -> dict:
+        if self.sleep_gt_s > 0:
+            time.sleep(self.sleep_gt_s)
+        if self.raise_gt:
+            raise RuntimeError("ground truth backend unavailable")
+        return {"mode": mode, "query": query, "hits": 2}
+
+    def close(self) -> None:
+        return None
+
+
+class _FakeOllamaEmbedder:
+    def __init__(self, base_url: str = "http://localhost:11434", dim: int = 1024):
+        self.base_url = base_url
+        self._dim = dim
+
+
+class TestGpuOnlyBackendProof(unittest.TestCase):
+    def test_backend_proof_reports_ollama_embedder_surface(self):
+        adapter = types.SimpleNamespace(
+            config={
+                "embedding_model": "ollama:qwen3-embedding:0.6b",
+                "embedding_device": "cuda",
+                "llm_backend": "ollama",
+                "model_name": "llama3:8b",
+            },
+            embedder=_FakeOllamaEmbedder(),
+            runner=types.SimpleNamespace(is_dummy=False, _backend=object()),
+            storage_dir=Path("/tmp/dml-proof"),
+        )
+        report = mod._backend_proof(adapter)
+        self.assertEqual(report["embedder_backend"], "ollama")
+        self.assertEqual(report["embedder_target_device"], "ollama-managed")
+        self.assertTrue(report["embedder_ready"])
+        self.assertEqual(report["embedding_device_cfg"], "cuda")
+
+    def test_assert_gpu_only_accepts_ollama_embedder_when_cuda_config_is_explicit(self):
+        original_import = __import__
+
+        def fake_import(name, *args, **kwargs):
+            if name == "torch":
+                return types.SimpleNamespace(cuda=types.SimpleNamespace(is_available=lambda: True))
+            return original_import(name, *args, **kwargs)
+
+        adapter = types.SimpleNamespace(
+            config={"embedding_model": "ollama:qwen3-embedding:0.6b", "embedding_device": "cuda"},
+            embedder=_FakeOllamaEmbedder(),
+            runner=types.SimpleNamespace(is_dummy=False, _backend=object()),
+            storage_dir=Path("/tmp/dml-proof"),
+        )
+        import builtins
+        builtins_import = builtins.__import__
+        builtins.__import__ = fake_import
+        try:
+            mod._assert_gpu_only(adapter)
+        finally:
+            builtins.__import__ = builtins_import
+
+    def test_assert_gpu_only_rejects_ollama_embedder_without_explicit_cuda_config(self):
+        original_import = __import__
+
+        def fake_import(name, *args, **kwargs):
+            if name == "torch":
+                return types.SimpleNamespace(cuda=types.SimpleNamespace(is_available=lambda: True))
+            return original_import(name, *args, **kwargs)
+
+        adapter = types.SimpleNamespace(
+            config={"embedding_model": "ollama:qwen3-embedding:0.6b", "embedding_device": "cpu"},
+            embedder=_FakeOllamaEmbedder(),
+            runner=types.SimpleNamespace(is_dummy=False, _backend=object()),
+            storage_dir=Path("/tmp/dml-proof"),
+        )
+        import builtins
+        builtins_import = builtins.__import__
+        builtins.__import__ = fake_import
+        try:
+            with self.assertRaises(RuntimeError):
+                mod._assert_gpu_only(adapter)
+        finally:
+            builtins.__import__ = builtins_import
+
+
+class TestGroundTruthHardening(unittest.TestCase):
+    def test_attach_ground_truth_records_error_without_raise_when_not_strict(self):
+        report = {"status": "ok"}
+        mod._attach_ground_truth(report, adapter=_DummyAdapter(raise_gt=True), query="q", mode="hybrid", strict=False)
+        self.assertEqual(report["ground_truth_status"], "error")
+        self.assertIn("ground truth backend unavailable", report["ground_truth_error"])
+        self.assertIsNone(report["ground_truth"])
+
+    def test_attach_ground_truth_raises_when_strict(self):
+        with self.assertRaises(RuntimeError):
+            mod._attach_ground_truth(
+                {"status": "ok"},
+                adapter=_DummyAdapter(raise_gt=True),
+                query="q",
+                mode="hybrid",
+                strict=True,
+            )
+
+    def test_attach_ground_truth_timeout_sets_timeout_status(self):
+        report = {"status": "ok"}
+        started = time.perf_counter()
+        mod._attach_ground_truth(
+            report,
+            adapter=_DummyAdapter(sleep_gt_s=0.05),
+            query="q",
+            mode="hybrid",
+            strict=False,
+            timeout_ms=5,
+        )
+        elapsed_ms = (time.perf_counter() - started) * 1000.0
+        self.assertEqual(report["ground_truth_status"], "timeout")
+        self.assertIn("timed out", report["ground_truth_error"])
+        # Timeout handling should return promptly instead of waiting for the full slow call.
+        self.assertLess(elapsed_ms, 40.0)
+
+    def test_cmd_retrieve_emits_json_when_ground_truth_fails(self):
+        original_adapter = mod._adapter
+        try:
+            mod._adapter = lambda *_args, **_kwargs: _DummyAdapter(raise_gt=True)
+            args = Namespace(
+                storage_dir="/tmp/does-not-matter",
+                config_path=None,
+                require_gpu=False,
+                query="How do I export USD?",
+                query_expand=False,
+                tenant_id="openclaw",
+                client_id=None,
+                session_id=None,
+                instance_id=None,
+                top_k=3,
+                with_ground_truth=True,
+                ground_truth_mode="hybrid",
+                ground_truth_policy="always",
+                confidence_threshold=0.46,
+                reform_memory=True,
+                strict_ground_truth=False,
+                ground_truth_timeout_ms=1800,
+            )
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                rc = mod.cmd_retrieve(args)
+            self.assertEqual(rc, 0)
+            payload = json.loads(buf.getvalue())
+            self.assertEqual(payload["status"], "ok")
+            self.assertEqual(payload["ground_truth_status"], "error")
+            self.assertEqual(payload["ground_truth_reason"], "policy_always")
+            self.assertIn("memory_reformed_chunks", payload)
+        finally:
+            mod._adapter = original_adapter
+
+
+class TestIngestBatching(unittest.TestCase):
+    def test_cmd_ingest_defers_persistence_until_chunks_finish(self):
+        original_adapter = mod._adapter
+        adapter = _DummyAdapter()
+        try:
+            mod._adapter = lambda *_args, **_kwargs: adapter
+            storage_dir = tempfile.mkdtemp(prefix="dml-wrapper-ingest-test-")
+            args = Namespace(
+                storage_dir=storage_dir,
+                config_path=None,
+                require_gpu=False,
+                text=" ".join(f"Durable memory sentence {idx} with useful context." for idx in range(80)),
+                kind="note",
+                meta=None,
+                chunk=True,
+                chunk_chars=24,
+                chunk_overlap=0,
+                filter_noise=False,
+            )
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                rc = mod.cmd_ingest(args)
+
+            self.assertEqual(rc, 0)
+            payload = json.loads(buf.getvalue())
+            self.assertEqual(payload["status"], "ok")
+            self.assertGreater(len(adapter.ingests), 1)
+            self.assertTrue(all(call[2] is False for call in adapter.ingests))
+            self.assertEqual(adapter.persist_calls, 1)
+        finally:
+            mod._adapter = original_adapter
+
+
+if __name__ == "__main__":
+    unittest.main()
