@@ -89,6 +89,40 @@ class BudgetSettings(BaseModel):
             raise ValueError("Token budget percentages cannot exceed 1.0")
 
 
+class DPMSettings(BaseModel):
+    """Configuration for the Daystrom Personality Matrix runtime overlay."""
+
+    enable: bool = False
+    mode: str = Field("disabled", description="DPM lifecycle mode: disabled, observe-only, active-read, active-write.")
+    overlay_path: Path | None = None
+    preference_graph_path: Path | None = None
+    max_overlay_chars: int = Field(280, ge=1)
+    include_in_context: bool = True
+    include_in_preamble: bool = True
+    relationship_id: str | None = None
+    project_id: str | None = None
+
+    if field_validator is not None:  # pragma: no branch - executed on Pydantic v2
+
+        @field_validator("overlay_path", "preference_graph_path", mode="before")
+        def _coerce_optional_path(cls, value: Any) -> Path | None:
+            if value in {None, ""}:
+                return None
+            if isinstance(value, Path):
+                return value
+            return Path(str(value))
+
+    else:  # pragma: no cover - Pydantic v1 compatibility
+
+        @legacy_validator("overlay_path", "preference_graph_path", pre=True)
+        def _coerce_optional_path(cls, value: Any) -> Path | None:
+            if value in {None, ""}:
+                return None
+            if isinstance(value, Path):
+                return value
+            return Path(str(value))
+
+
 class DMLSettings(BaseModel):
     """Central configuration for the DML stack with env overrides."""
 
@@ -154,6 +188,7 @@ class DMLSettings(BaseModel):
     rag_store: RAGStoreSettings = RAGStoreSettings()
     literal: LiteralSettings = LiteralSettings()
     budgets: BudgetSettings = BudgetSettings()
+    dpm: DPMSettings = DPMSettings()
 
     if ConfigDict is not None:  # pragma: no branch - executed on Pydantic v2
         model_config = ConfigDict(extra="allow")
@@ -194,4 +229,10 @@ class DMLSettings(BaseModel):
                 rag_store["path"] = str(rag_store["path"])
             if "meta_path" in rag_store:
                 rag_store["meta_path"] = str(rag_store["meta_path"])
+        dpm = data.get("dpm")
+        if isinstance(dpm, dict):
+            if dpm.get("overlay_path") is not None:
+                dpm["overlay_path"] = str(dpm["overlay_path"])
+            if dpm.get("preference_graph_path") is not None:
+                dpm["preference_graph_path"] = str(dpm["preference_graph_path"])
         return data

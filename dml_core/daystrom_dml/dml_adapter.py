@@ -22,6 +22,7 @@ from .metrics import record_retrieval, update_memory_gauge
 from .multi_rag import MultiRAGStore, RAGBackendDescriptor
 from .persistence import load_state as load_persisted_memories
 from .persistence import save_state as save_persisted_memories
+from .personality_matrix import PersonalityMatrix, overlay_token_count
 from .summarizer import DummySummarizer, LLMSummarizer, Summarizer
 from .retrievers import LiteralRetriever
 from .router import decide_mode
@@ -134,6 +135,10 @@ class DMLAdapter:
             self.summarizer = LLMSummarizer(self.runner)
         self.storage_dir = self.settings.storage_dir.expanduser()
         self.storage_dir.mkdir(parents=True, exist_ok=True)
+        self.personality_matrix = PersonalityMatrix(
+            getattr(self.settings, "dpm", None),
+            storage_dir=self.storage_dir,
+        )
         persistence_settings = getattr(self.settings, "persistence", None)
         persistence_path = getattr(persistence_settings, "path", None) if persistence_settings else None
         if persistence_path:
@@ -459,7 +464,29 @@ class DMLAdapter:
     def build_preamble(self, prompt: str, top_k: Optional[int] = None) -> str:
         items = self._retrieve_items(prompt, top_k)
         _, preamble, _ = self._prepare_context(prompt, items)
+        if getattr(self.settings.dpm, "include_in_preamble", True):
+            overlay = self.personality_overlay(prompt=prompt)
+            block = self.personality_matrix.render_context_block(overlay) if overlay else ""
+            if block:
+                preamble = f"{block}\n\n{preamble}" if preamble else block
         return preamble
+
+    def personality_overlay(
+        self,
+        *,
+        prompt: str = "",
+        thread_id: Optional[str] = None,
+        project_id: Optional[str] = None,
+        relationship_id: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Return the active Daystrom Personality Matrix overlay, if enabled."""
+
+        return self.personality_matrix.build_overlay(
+            prompt=prompt,
+            thread_id=thread_id,
+            project_id=project_id,
+            relationship_id=relationship_id,
+        )
 
     def reinforce(self, prompt: str, response: str, meta: Optional[Dict] = None) -> None:
         prompt_text = (prompt or "").strip()
@@ -1002,6 +1029,7 @@ class DMLAdapter:
             data = self.store.export_state()
             tmp = self.dml_state_path.with_suffix(".tmp")
             try:
+                self.dml_state_path.parent.mkdir(parents=True, exist_ok=True)
                 tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
                 tmp.replace(self.dml_state_path)
             except Exception:
@@ -1017,6 +1045,7 @@ class DMLAdapter:
             data = self.rag_store.export_state()
             tmp = self.rag_state_path.with_suffix(".tmp")
             try:
+                self.rag_state_path.parent.mkdir(parents=True, exist_ok=True)
                 tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
                 tmp.replace(self.rag_state_path)
             except Exception:
@@ -1512,6 +1541,9 @@ class DMLAdapter:
         kinds: Optional[List[str]] = None,
         top_k: Optional[int] = None,
         phase: Optional[str | MemoryPhase] = None,
+        dpm_thread_id: Optional[str] = None,
+        dpm_project_id: Optional[str] = None,
+        dpm_relationship_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Retrieve context with agentic-aware routing.
@@ -1606,6 +1638,22 @@ class DMLAdapter:
                 )
 
         entries, context, tokens_used = self._compact_context_items(items)
+        personality_overlay = None
+        if getattr(self.settings.dpm, "include_in_context", True):
+            personality_overlay = self.personality_overlay(
+                prompt=prompt,
+                thread_id=dpm_thread_id or session_id,
+                project_id=dpm_project_id,
+                relationship_id=dpm_relationship_id or tenant_id,
+            )
+            personality_block = (
+                self.personality_matrix.render_context_block(personality_overlay)
+                if personality_overlay
+                else ""
+            )
+            if personality_block:
+                context = f"{personality_block}\n\n{context}" if context else personality_block
+                tokens_used += overlay_token_count(personality_overlay)
         latency_ms = int((time.perf_counter() - start) * 1000.0)
 
         report = {
@@ -1615,6 +1663,7 @@ class DMLAdapter:
             "kinds": final_kinds,
             "phase": phase_enum.value if phase_enum else None,
             "items": entries,
+            "personality_overlay": personality_overlay,
             "latency_ms": latency_ms,
         }
 

@@ -330,6 +330,148 @@ def test_recent_fallback_respects_phase(tmp_path) -> None:
     assert "Plan fallback" not in report["raw_context"]
 
 
+def test_personality_matrix_overlay_is_added_to_context(tmp_path) -> None:
+    overlay_path = tmp_path / "overlay.json"
+    overlay_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "dpm.replay-overlay.v1",
+                "overlay_id": "overlay:relationship:test:active-read",
+                "mode": "active-read",
+                "generated_at": "2026-05-18T00:00:00Z",
+                "scope": {
+                    "primary": "relationship",
+                    "thread_id": None,
+                    "project_id": "project:test",
+                    "relationship_id": "relationship:test",
+                },
+                "retrieval_order_applied": ["relationship"],
+                "overlay": {
+                    "persona_summary": "Be direct and careful.",
+                    "style_directives": ["Prefer direct answers."],
+                    "do_not_do": ["Do not override explicit instructions."],
+                    "open_questions": [],
+                    "max_chars": 120,
+                    "rendered_text": "Direct, careful, and privacy-safe.",
+                },
+                "effective_constraints": {
+                    "explicit_instruction_precedence": "always_override",
+                    "narrowest_scope_wins": True,
+                    "cross_scope_fallback_requires_compatibility": True,
+                    "writes_allowed": False,
+                },
+                "sources": [
+                    {
+                        "source_id": "relationship:test",
+                        "scope": "relationship",
+                        "kind": "relationship_summary",
+                        "included": True,
+                        "priority": 1,
+                        "confidence": 0.9,
+                        "updated_at": "2026-05-18T00:00:00Z",
+                        "summary": "Stable directness preference.",
+                    }
+                ],
+                "audit": {
+                    "included_source_ids": ["relationship:test"],
+                    "excluded_sources": [],
+                    "conflicts_detected": [],
+                    "notes": [],
+                },
+                "override_state": {
+                    "has_explicit_instruction": False,
+                    "instruction_source_id": None,
+                    "override_applied": False,
+                    "suppressed_source_ids": [],
+                    "effective_for_turn": [],
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    adapter = DMLAdapter(
+        config_overrides={
+            "model_name": "dummy",
+            "embedding_model": None,
+            "storage_dir": str(tmp_path / "storage"),
+            "persistence": {"enable": False},
+            "metrics_enabled": False,
+            "dpm": {
+                "enable": True,
+                "mode": "active-read",
+                "overlay_path": str(overlay_path),
+                "max_overlay_chars": 80,
+            },
+        },
+        embedder=RandomEmbedder(dim=48),
+        summarizer=DummySummarizer(),
+        start_aging_loop=False,
+    )
+    adapter.ingest("Runtime memory remains available beside the matrix.", meta={"kind": "note"})
+
+    report = adapter.retrieve_context("runtime memory", top_k=5)
+
+    assert report["personality_overlay"]["schema_version"] == "dpm.replay-overlay.v1"
+    assert report["personality_overlay"]["mode"] == "active-read"
+    assert "=== Personality Matrix ===" in report["raw_context"]
+    assert "Direct, careful, and privacy-safe." in report["raw_context"]
+    assert "Runtime memory" in report["raw_context"]
+
+
+def test_personality_matrix_can_render_preference_graph(tmp_path) -> None:
+    graph_path = tmp_path / "preference-graph.json"
+    graph_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "dpm.preference-graph.v1",
+                "graph_id": "preference-graph:relationship:test",
+                "subject_id": "relationship:test",
+                "generated_at": "2026-05-18T00:00:00Z",
+                "nodes": [
+                    {
+                        "id": "pref.directness",
+                        "kind": "interaction_style",
+                        "label": "Directness",
+                        "scope": "relationship",
+                        "state": "active",
+                        "weight": 0.9,
+                        "confidence": 0.8,
+                        "polarity": "prefer_high",
+                        "value": {"target": 0.9},
+                        "updated_at": "2026-05-18T00:00:00Z",
+                    }
+                ],
+                "edges": [],
+                "audit": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+    adapter = DMLAdapter(
+        config_overrides={
+            "model_name": "dummy",
+            "embedding_model": None,
+            "storage_dir": str(tmp_path / "storage"),
+            "persistence": {"enable": False},
+            "metrics_enabled": False,
+            "dpm": {
+                "enable": True,
+                "mode": "active-read",
+                "preference_graph_path": str(graph_path),
+            },
+        },
+        embedder=RandomEmbedder(dim=48),
+        summarizer=DummySummarizer(),
+        start_aging_loop=False,
+    )
+
+    overlay = adapter.personality_overlay(prompt="answer directly")
+
+    assert overlay["schema_version"] == "dpm.replay-overlay.v1"
+    assert overlay["sources"][0]["kind"] == "preference_graph"
+    assert "Prefer directness." in overlay["overlay"]["rendered_text"]
+
+
 def test_ingest_memory_persists_scoped_items(tmp_path) -> None:
     storage_dir = tmp_path / "storage"
     config = {
