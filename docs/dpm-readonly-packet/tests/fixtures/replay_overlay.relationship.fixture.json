@@ -1,0 +1,75 @@
+{
+  "schema_version": "dpm.replay-overlay.v1",
+  "overlay_id": "overlay:relationship:mark-nv:2026-04-14T10:05:00Z",
+  "mode": "active-read",
+  "generated_at": "2026-04-14T10:05:00Z",
+  "scope": {
+    "primary": "relationship",
+    "thread_id": null,
+    "project_id": "project:dpm",
+    "relationship_id": "relationship:mark-nv"
+  },
+  "retrieval_order_applied": [
+    "relationship",
+    "preference_graph"
+  ],
+  "overlay": {
+    "persona_summary": "Be direct, concise, and privacy-safe.",
+    "style_directives": [
+      "Prefer direct answers over padded phrasing.",
+      "Keep responses concise unless the user explicitly asks for detail."
+    ],
+    "do_not_do": [
+      "Do not trade privacy boundaries for speed or directness."
+    ],
+    "open_questions": [],
+    "max_chars": 220,
+    "rendered_text": "Direct, concise, privacy-safe. Prefer clear answers without padding, and keep privacy boundaries intact."
+  },
+  "effective_constraints": {
+    "explicit_instruction_precedence": "always_override",
+    "narrowest_scope_wins": true,
+    "cross_scope_fallback_requires_compatibility": true,
+    "writes_allowed": false
+  },
+  "sources": [
+    {
+      "source_id": "relationship:mark-nv",
+      "scope": "relationship",
+      "kind": "relationship_summary",
+      "included": true,
+      "priority": 1,
+      "confidence": 0.94,
+      "updated_at": "2026-04-13T18:42:00Z",
+      "summary": "Stable preference for direct, concise assistance."
+    },
+    {
+      "source_id": "preference-graph:relationship:mark-nv",
+      "scope": "relationship",
+      "kind": "preference_graph",
+      "included": true,
+      "priority": 2,
+      "confidence": 0.9,
+      "updated_at": "2026-04-14T00:00:00Z",
+      "summary": "Preference graph reinforces directness, concision, and privacy caution."
+    }
+  ],
+  "audit": {
+    "included_source_ids": [
+      "relationship:mark-nv",
+      "preference-graph:relationship:mark-nv"
+    ],
+    "excluded_sources": [],
+    "conflicts_detected": [],
+    "notes": [
+      "Relationship-scope overlay contains only stable cross-thread guidance."
+    ]
+  },
+  "override_state": {
+    "has_explicit_instruction": false,
+    "instruction_source_id": null,
+    "override_applied": false,
+    "suppressed_source_ids": [],
+    "effective_for_turn": []
+  }
+}

@@ -61,9 +61,23 @@ class GPTRunner:
             )
             LOGGER.info("Configured remote backend at %s", remote_base)
             return
-        if backend_choice not in {"auto", "transformers", "local"}:
+        if backend_choice not in {"auto", "transformers", "local", "ollama"}:
             LOGGER.warning("Unknown backend choice %s; falling back to auto.", backend_choice)
             backend_choice = "auto"
+        if backend_choice == "ollama":
+            try:
+                from .llm_backends.ollama_backend import OllamaBackend
+
+                self._backend = OllamaBackend(
+                    model_name=self.model_name,
+                    base_url=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
+                    temperature=self.temperature,
+                    top_p=self.top_p,
+                )
+                LOGGER.info("Loaded ollama backend for %s", self.model_name)
+                return
+            except Exception as exc:
+                LOGGER.warning("Ollama backend unavailable: %s", exc)
         if backend_choice in {"auto", "transformers", "local"}:
             try:
                 from .llm_backends.transformers_backend import TransformersBackend

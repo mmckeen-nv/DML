@@ -1,0 +1,169 @@
+{
+  "schema_version": "dpm.preference-graph.v1",
+  "graph_id": "relationship:mark-nv",
+  "subject_id": "user:mark-nv",
+  "generated_at": "2026-04-14T00:00:00Z",
+  "default_policy": {
+    "explicit_instruction_precedence": "always_override",
+    "conflict_mode": "preserve_and_audit",
+    "decay_policy": "recency_weighted"
+  },
+  "nodes": [
+    {
+      "id": "pref.directness",
+      "kind": "preference_dimension",
+      "label": "Directness",
+      "scope": "relationship",
+      "state": "active",
+      "weight": 0.92,
+      "confidence": 0.95,
+      "polarity": "prefer_high",
+      "value_type": "scalar",
+      "value": {"target": 0.95, "allowed_range": [0.75, 1.0]},
+      "evidence": {
+        "support_count": 11,
+        "contradiction_count": 1,
+        "last_supported_at": "2026-04-13T18:42:00Z",
+        "last_contradicted_at": "2026-03-29T09:15:00Z"
+      },
+      "provenance": [
+        {
+          "type": "relationship_summary",
+          "source_id": "relationship:mark-nv",
+          "observed_at": "2026-04-13T18:42:00Z",
+          "note": "Direct answers are consistently preferred over padded phrasing."
+        }
+      ],
+      "constraints": {
+        "overridden_by_explicit_instruction": true,
+        "ttl_days": 120,
+        "requires_review_if_confidence_below": 0.55
+      },
+      "updated_at": "2026-04-13T18:42:00Z"
+    },
+    {
+      "id": "pref.concision",
+      "kind": "interaction_style",
+      "label": "Concision",
+      "scope": "relationship",
+      "state": "active",
+      "weight": 0.89,
+      "confidence": 0.93,
+      "polarity": "prefer_high",
+      "value_type": "scalar",
+      "value": {"target": 0.88, "allowed_range": [0.65, 1.0]},
+      "evidence": {
+        "support_count": 9,
+        "contradiction_count": 1,
+        "last_supported_at": "2026-04-12T22:00:00Z",
+        "last_contradicted_at": "2026-03-18T11:00:00Z"
+      },
+      "provenance": [
+        {
+          "type": "relationship_summary",
+          "source_id": "relationship:mark-nv",
+          "observed_at": "2026-04-12T22:00:00Z",
+          "note": "Concise assistance is repeatedly reinforced."
+        }
+      ],
+      "constraints": {
+        "overridden_by_explicit_instruction": true,
+        "ttl_days": 120,
+        "requires_review_if_confidence_below": 0.55
+      },
+      "updated_at": "2026-04-12T22:00:00Z"
+    },
+    {
+      "id": "value.privacy_caution",
+      "kind": "safety_boundary",
+      "label": "Privacy Caution",
+      "scope": "relationship",
+      "state": "active",
+      "weight": 0.97,
+      "confidence": 0.98,
+      "polarity": "binary_yes",
+      "value_type": "boolean",
+      "value": {"enabled": true},
+      "evidence": {
+        "support_count": 12,
+        "contradiction_count": 0,
+        "last_supported_at": "2026-04-13T09:00:00Z",
+        "last_contradicted_at": null
+      },
+      "provenance": [
+        {
+          "type": "policy_summary",
+          "source_id": "workspace:AGENTS.md",
+          "observed_at": "2026-04-13T09:00:00Z",
+          "note": "Private data should remain private across sessions and channels."
+        }
+      ],
+      "constraints": {
+        "overridden_by_explicit_instruction": false,
+        "ttl_days": 365,
+        "requires_review_if_confidence_below": 0.7
+      },
+      "updated_at": "2026-04-13T09:00:00Z"
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge.directness.supports.concision",
+      "from": "pref.directness",
+      "to": "pref.concision",
+      "relation": "supports",
+      "weight": 0.81,
+      "confidence": 0.86,
+      "scope": "relationship",
+      "evidence": {
+        "support_count": 7,
+        "last_supported_at": "2026-04-11T17:20:00Z"
+      },
+      "provenance": [
+        {
+          "type": "project_summary",
+          "source_id": "project:dpm",
+          "observed_at": "2026-04-11T17:20:00Z",
+          "note": "Direct and concise responses are commonly reinforced together."
+        }
+      ],
+      "updated_at": "2026-04-11T17:20:00Z"
+    },
+    {
+      "id": "edge.privacy.constrains.directness",
+      "from": "value.privacy_caution",
+      "to": "pref.directness",
+      "relation": "constrains",
+      "weight": 0.72,
+      "confidence": 0.9,
+      "scope": "relationship",
+      "evidence": {
+        "support_count": 4,
+        "last_supported_at": "2026-04-10T14:00:00Z"
+      },
+      "provenance": [
+        {
+          "type": "policy_summary",
+          "source_id": "workspace:AGENTS.md",
+          "observed_at": "2026-04-10T14:00:00Z",
+          "note": "Directness is allowed, but not at the expense of privacy boundaries."
+        }
+      ],
+      "updated_at": "2026-04-10T14:00:00Z"
+    }
+  ],
+  "audit": {
+    "source_count": 4,
+    "included_sources": [
+      "relationship:mark-nv",
+      "project:dpm",
+      "workspace:AGENTS.md",
+      "workspace:USER.md"
+    ],
+    "excluded_sources": [],
+    "conflicts_detected": [],
+    "notes": [
+      "Relationship graph captures stable preferences only; current-turn overrides are not baked in here."
+    ]
+  }
+}

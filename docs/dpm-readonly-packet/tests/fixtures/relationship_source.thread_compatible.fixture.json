@@ -1,0 +1,56 @@
+{
+  "thread_source": {
+    "source_id": "thread:self-architecture-portrait",
+    "scope": "thread",
+    "summary": "Keep this thread slightly formal, concise, and implementation-focused.",
+    "constraints": [
+      "Do not broaden beyond this thread's task boundaries."
+    ],
+    "priority": 2
+  },
+  "relationship_source": {
+    "schema_version": "dpm.relationship-source.v1",
+    "source_id": "relationship:mark-nv",
+    "relationship_id": "relationship:mark-nv",
+    "scope": "relationship",
+    "label": "Mark_NV relationship continuity",
+    "summary": "Stable cross-thread preference for direct, concise, privacy-safe assistance.",
+    "directives": [
+      "Prefer concise answers over padded phrasing.",
+      "Keep continuity guidance summary-sized and audit-friendly."
+    ],
+    "constraints": [
+      "Do not override explicit current-turn instructions.",
+      "Do not override narrower thread or project constraints.",
+      "Do not inject transcript-like relationship history into runtime overlays."
+    ],
+    "priority": 4,
+    "confidence": 0.74,
+    "updated_at": "2026-04-14T10:15:00Z",
+    "boundedness": {
+      "summary_max_chars": 160,
+      "directive_max_items": 4,
+      "constraint_max_items": 4,
+      "audit_note_max_items": 3
+    },
+    "exclusion_rules": [
+      "Exclude relationship guidance when explicit current-turn instructions conflict.",
+      "Exclude relationship guidance when thread or project scope provides narrower incompatible constraints.",
+      "Exclude relationship guidance when the source violates declared boundedness."
+    ],
+    "audit_hint": "Relationship scope may provide stable cross-thread defaults only when compatible with narrower scopes."
+  },
+  "expected": {
+    "thread_scope_primary": true,
+    "relationship_included": true,
+    "relationship_effect": "compatible_refinement",
+    "audit": {
+      "consulted_relationship_id": "relationship:mark-nv",
+      "relationship_outcome": "included",
+      "notes": [
+        "Relationship directness is compatible with thread-specific slightly formal tone.",
+        "Relationship guidance remains subordinate to thread scope."
+      ]
+    }
+  }
+}

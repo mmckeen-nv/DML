@@ -1,0 +1,28 @@
+{
+  "schema_version": "dpm.project-source.v1",
+  "source_id": "project:dpm",
+  "project_id": "project:dpm",
+  "scope": "project",
+  "label": "DPM project continuity",
+  "summary": "This project source intentionally exceeds the bounded summary cap by carrying too much runtime-facing explanation and transcript-like detail for Packet A validation.",
+  "directives": [
+    "Prefer contract-first changes before runtime wiring.",
+    "Keep implementation notes concise and test-backed.",
+    "Retain only bounded project continuity guidance.",
+    "Avoid transcript-like replay.",
+    "This fifth directive should violate the declared item cap."
+  ],
+  "constraints": [
+    "Do not let project defaults override thread-specific instructions.",
+    "Do not exceed bounded runtime overlay limits."
+  ],
+  "priority": 3,
+  "confidence": 0.7,
+  "updated_at": "2026-04-14T10:00:00Z",
+  "boundedness": {
+    "summary_max_chars": 90,
+    "directive_max_items": 4,
+    "constraint_max_items": 4
+  },
+  "audit_hint": "Oversized project guidance must be excluded rather than silently truncated."
+}

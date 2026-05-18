@@ -7,6 +7,7 @@ import logging
 import os
 import threading
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from threading import Event, RLock
 from typing import Any, Dict, List, Optional
@@ -18,8 +19,7 @@ from .embeddings import Embedder, create_embedder
 from .gpt_runner import GPTRunner
 from .memory_store import MemoryItem, MemoryStore
 from .metrics import record_retrieval, update_memory_gauge
-from .multi_rag import DEFAULT_BACKENDS, MultiRAGStore, RAGBackendDescriptor
-from .persistent_index import PersistentVectorBackend
+from .multi_rag import MultiRAGStore, RAGBackendDescriptor
 from .persistence import load_state as load_persisted_memories
 from .persistence import save_state as save_persisted_memories
 from .summarizer import DummySummarizer, LLMSummarizer, Summarizer
@@ -30,8 +30,36 @@ from .stm.controller import STMController
 from .stm.policy import LTMWritePolicy, MemoryWrite
 from .stm.schema import STMState
 from . import utils
+from .agent_schema import AgenticMemorySchema, MemoryKind
+from .promotion_pipeline import PromotionPipeline, MemoryEntry
+from .policy_router import PolicyRouter, TaskType, RouterDecision
 
 LOGGER = logging.getLogger(__name__)
+
+
+class _PersistentRAGBackendAdapter:
+    """Adapt PersistentRAGStore to the MultiRAGStore backend protocol."""
+
+    identifier = "persistent-rag"
+    label = "Persistent RAG"
+    description = "Configured persistent RAG backend"
+
+    def __init__(self, store: PersistentRAGStore) -> None:
+        self._store = store
+
+    def add_document(self, text: str, embedding: np.ndarray, tokens: int, meta: Optional[Dict[str, Any]] = None) -> None:
+        self._store.add(text, embedding.tolist(), meta=meta)
+
+    def clear(self) -> None:
+        return
+
+    def retrieve(self, query_embedding: np.ndarray, *, top_k: int) -> List[Dict[str, Any]]:
+        results = self._store.search(query_embedding.tolist(), top_k=top_k)
+        for result in results:
+            result.setdefault("meta", {})
+            result.setdefault("tokens", utils.estimate_tokens(result.get("text", "")))
+        return results
+
 
 DEFAULT_DML_TOP_K = 8
 MAX_RETRIEVAL_TOP_K = 10
@@ -75,6 +103,8 @@ class DMLAdapter:
         )
         self.metrics_enabled = bool(self.settings.metrics_enabled)
         self.llm_backend = str(self.config.get("llm_backend", "auto"))
+        strict_embedding_required = bool(self.config.get("strict_embedding_required", False))
+        strict_llm_required = bool(self.config.get("strict_llm_required", False))
         self.runner = runner or GPTRunner(
             self.config["model_name"],
             backend=self.llm_backend,
@@ -87,9 +117,14 @@ class DMLAdapter:
             temperature=float(self.config.get("llm_temperature", 0.2)),
             top_p=float(self.config.get("llm_top_p", 1.0)),
         )
+        if strict_llm_required and self.runner.is_dummy:
+            raise RuntimeError(
+                f"Failed to initialize LLM backend for model {self.config['model_name']!r}; DummyGPT fallback is disabled"
+            )
         self.embedder = embedder or create_embedder(
             self.config.get("embedding_model"),
             device=self.config.get("embedding_device"),
+            allow_random_fallback=not strict_embedding_required,
         )
         if summarizer is not None:
             self.summarizer = summarizer
@@ -97,10 +132,7 @@ class DMLAdapter:
             self.summarizer = DummySummarizer()
         else:
             self.summarizer = LLMSummarizer(self.runner)
-        storage_dir = self.settings.storage_dir.expanduser()
-        if not storage_dir.is_absolute():
-            storage_dir = Path.cwd() / storage_dir
-        self.storage_dir = storage_dir
+        self.storage_dir = self.settings.storage_dir.expanduser()
         self.storage_dir.mkdir(parents=True, exist_ok=True)
         persistence_settings = getattr(self.settings, "persistence", None)
         persistence_path = getattr(persistence_settings, "path", None) if persistence_settings else None
@@ -108,14 +140,9 @@ class DMLAdapter:
             persistence_path = Path(persistence_path).expanduser()
         else:
             persistence_path = Path("dml_state.jsonl")
+        # Resolve persistence_path relative to storage_dir if it's relative
         if not persistence_path.is_absolute():
-            relative_path = persistence_path
-            if relative_path.parts and relative_path.parts[0] == self.storage_dir.name:
-                if len(relative_path.parts) > 1:
-                    relative_path = Path(*relative_path.parts[1:])
-                else:
-                    relative_path = Path(relative_path.name)
-            persistence_path = (self.storage_dir / relative_path).expanduser()
+            persistence_path = (self.storage_dir / persistence_path).resolve()
         self._persistence_path = persistence_path
         interval_value = getattr(persistence_settings, "interval_sec", 0) if persistence_settings else 0
         try:
@@ -169,16 +196,43 @@ class DMLAdapter:
                     self.persistent_rag_store.load()
         else:
             self.persistent_rag_store = None
-        persistent_backend = RAGBackendDescriptor(
-            identifier="persistent",
-            label="Persistent Index",
-            description="Disk-backed cosine similarity index",
-            factory=lambda: PersistentVectorBackend(
-                self.storage_dir / self.settings.vector_index_file
-            ),
-        )
-        backends = [persistent_backend]
-        backends.extend(DEFAULT_BACKENDS)
+
+        # Initialize Agentic Mode components
+        self.agentic_mode_enabled = bool(self.config.get("dml.agentic_mode.enabled", False))
+        self.agentic_router: Optional[PolicyRouter] = None
+
+        if self.agentic_mode_enabled:
+            router_enabled = bool(self.config.get("dml.router.enabled", False))
+            router_profile = self.config.get("dml.router.profile")
+            router_log = self.config.get("dml.router.log_level", "info")
+
+            self.agentic_router = PolicyRouter(
+                enabled=router_enabled,
+                profile=router_profile,
+                log_level=router_log,
+            )
+
+            LOGGER.info("Agentic Mode enabled with router: %s", router_enabled)
+
+            # Initialize promotion pipeline
+            self.agentic_promotion = PromotionPipeline(
+                commitment_threshold=float(self.config.get("dml.commitment_threshold", 0.75)),
+                allow_action_observation=True,
+                strict_mode=True,
+            )
+
+            LOGGER.info("Agentic promotion pipeline initialized")
+
+        backends: List[RAGBackendDescriptor] = []
+        if self.persistent_rag_store is not None:
+            backends.append(
+                RAGBackendDescriptor(
+                    identifier="persistent-rag",
+                    label="Persistent RAG",
+                    description="Configured persistent RAG backend",
+                    factory=lambda store=self.persistent_rag_store: _PersistentRAGBackendAdapter(store),
+                )
+            )
         self.rag_store = MultiRAGStore(self.embedder, backends=backends)
         self.store = MemoryStore(
             self.summarizer,
@@ -199,6 +253,11 @@ class DMLAdapter:
         self.stm_controller: Optional[STMController] = None
         self._stm_states: Dict[str, STMState] = {}
         self._stm_lock = RLock()
+        self._dml_queue: List[Dict[str, Any]] = []
+        self._idle_threshold = self.config.get("idle_threshold_seconds", 300)  # 5 minutes default
+        self._last_activity_time = time.time()
+        self._background_processing_enabled = self.config.get("background_processing_enabled", True)
+
         if self.enable_stm_controller:
             policy = LTMWritePolicy(
                 mode=str(self.config.get("ltm_write_policy", "balanced")),
@@ -242,6 +301,7 @@ class DMLAdapter:
     # Memory operations
     # ------------------------------------------------------------------
     def ingest(self, text: str, meta: Optional[Dict] = None) -> None:
+        """Full DML ingest - generates embeddings and adds to all systems"""
         if not text:
             return
         embedding = self.embedder.embed(text)
@@ -260,6 +320,134 @@ class DMLAdapter:
         self._persist_all()
         if self.metrics_enabled:
             update_memory_gauge(len(self.store.items()))
+
+    def ingest_fast(self, text: str, meta: Optional[Dict] = None) -> None:
+        """Fast ingest - adds to RAG only, queues for background DML processing"""
+        if not text:
+            return
+        rag_meta: Dict[str, Any] = dict(meta or {})
+        rag_meta.setdefault("source", "fast_ingest")
+        rag_meta.setdefault("queued_for_dml", True)
+        self.rag_store.add_document(text, meta=rag_meta)
+        # Queue for background DML processing
+        self._enqueue_for_dml(text, meta)
+        if self.metrics_enabled:
+            update_memory_gauge(len(self.store.items()))
+
+    def ingest_agentic(
+        self,
+        text: str,
+        kind: MemoryKind,
+        meta: Optional[Dict] = None,
+    ) -> None:
+        """
+        Agentic ingest - validates schema and routes through promotion pipeline.
+
+        Args:
+            text: Memory content.
+            kind: Type of memory (action, observation, plan, error).
+            meta: Optional metadata with phase, tool, provenance, etc.
+        """
+        if not text:
+            return
+
+        # Add agentic metadata
+        agentic_meta = dict(meta or {})
+        # Handle both Enum and string values for kind
+        agentic_meta["kind"] = kind.value if hasattr(kind, 'value') else kind
+
+        # Validate schema in agentic mode
+        if self.agentic_mode_enabled:
+            schema = AgenticMemorySchema(strict=True)
+            is_valid, errors = schema.validate(agentic_meta)
+
+            if not is_valid:
+                LOGGER.warning(f"Agentic memory rejected: {errors}")
+                return
+
+        # Add to memory store (existing behavior)
+        embedding = self.embedder.embed(text)
+        salience = self._estimate_salience(text)
+        item, merged = self.store.ingest(text, embedding, salience=salience, meta=agentic_meta)
+        rag_text = item.text if merged else text
+        rag_embedding = item.embedding if merged else embedding
+        rag_meta: Dict[str, Any] = dict(agentic_meta)
+        rag_meta.setdefault("memory_id", item.id)
+
+        # Add to RAG store
+        if self.persistent_rag_store is not None:
+            with contextlib.suppress(Exception):
+                self.persistent_rag_store.add(rag_text, rag_embedding, meta=rag_meta)
+        self.rag_store.add_document(rag_text, meta=rag_meta)
+
+        # Add to promotion pipeline in agentic mode
+        if self.agentic_mode_enabled and self.agentic_router:
+            memory_entry = MemoryEntry(
+                text=text,
+                embedding=embedding,
+                timestamp=time.time(),
+                meta=agentic_meta,
+                kind=kind.value,
+                phase=agentic_meta.get("phase"),
+                tool=agentic_meta.get("tool"),
+                outcome=agentic_meta.get("outcome"),
+            )
+
+            # Route through promotion pipeline
+            if kind in [MemoryKind.ACTION, MemoryKind.OBSERVATION, MemoryKind.ERROR]:
+                self.agentic_promotion.ingest_to_scratch(memory_entry)
+                LOGGER.debug(f"Added {kind.value} to scratch store")
+            else:
+                # Plans and artifacts go directly to verified
+                self.agentic_promotion.verified.add(memory_entry)
+                LOGGER.debug(f"Added {kind.value} to verified store")
+
+        self._persist_all()
+        if self.metrics_enabled:
+            update_memory_gauge(len(self.store.items()))
+
+    def _enqueue_for_dml(self, text: str, meta: Optional[Dict] = None) -> None:
+        """Queue documents for background DML processing"""
+        self._dml_queue.append({"text": text, "meta": meta})
+        self._schedule_idle_processing()
+
+    def _schedule_idle_processing(self) -> None:
+        """Schedule background DML queue processing"""
+        if self._background_processing_enabled:
+            # Simple trigger - check next time _persist_all is called or add timer
+            if not hasattr(self, '_background_timer') or not self._background_timer.is_alive():
+                self._background_timer = threading.Timer(
+                    1.0,  # Check immediately (in real implementation, use idle detection)
+                    self._process_dml_queue
+                )
+                self._background_timer.start()
+
+    def _process_dml_queue(self) -> None:
+        """Process queued documents for DML when idle"""
+        if not self._dml_queue or not self._background_processing_enabled:
+            return
+
+        # Process a batch
+        batch_size = self.config.get("dml_batch_size", 10)
+        documents = self._dml_queue[:batch_size]
+        self._dml_queue = self._dml_queue[batch_size:]
+
+        LOGGER.info(f"Processing {len(documents)} documents from DML queue")
+
+        for doc in documents:
+            try:
+                self.ingest(doc["text"], meta=doc["meta"])
+            except Exception as e:
+                LOGGER.error(f"Failed to process DML queue document: {e}")
+
+        # Check if more to process or if we should schedule next run
+        if self._dml_queue:
+            # Reschedule
+            self._schedule_idle_processing()
+        else:
+            # Clear timer
+            if hasattr(self, '_background_timer'):
+                self._background_timer.cancel()
 
     def build_preamble(self, prompt: str, top_k: Optional[int] = None) -> str:
         items = self._retrieve_items(prompt, top_k)
@@ -723,14 +911,28 @@ class DMLAdapter:
                 )
             else:
                 payload = {"items": [item.to_dict() for item in items]}
-                self._ensure_embedding_compatibility(payload)
+                report = self._ensure_embedding_compatibility(payload)
+                if report.get("status") in {"migrated", "partial"}:
+                    LOGGER.warning(
+                        "Loaded durable DML state from %s with embedding compatibility migration status=%s report=%s",
+                        self._persistence_path,
+                        report.get("status"),
+                        report.get("report_path"),
+                    )
                 self.store.import_state(payload)
                 state_loaded = True
         if not state_loaded:
             with contextlib.suppress(Exception):
                 if self.dml_state_path.exists():
                     data = json.loads(self.dml_state_path.read_text(encoding="utf-8"))
-                    self._ensure_embedding_compatibility(data)
+                    report = self._ensure_embedding_compatibility(data)
+                    if report.get("status") in {"migrated", "partial"}:
+                        LOGGER.warning(
+                            "Loaded JSON DML state from %s with embedding compatibility migration status=%s report=%s",
+                            self.dml_state_path,
+                            report.get("status"),
+                            report.get("report_path"),
+                        )
                     self.store.import_state(data)
         with contextlib.suppress(Exception):
             if self.rag_state_path.exists():
@@ -813,38 +1015,275 @@ class DMLAdapter:
             except Exception:
                 LOGGER.exception("Failed to persist RAG state to %s", self.rag_state_path)
 
-    def _ensure_embedding_compatibility(self, payload: Dict) -> None:
+    def _embedding_compatibility_report_path(self) -> Path:
+        return self.storage_dir / "embedding_compatibility_report.json"
+
+    def _read_embedding_compatibility_report(self) -> Optional[Dict[str, Any]]:
+        report_path = self._embedding_compatibility_report_path()
+        if not report_path.exists():
+            return None
+        try:
+            return json.loads(report_path.read_text(encoding="utf-8"))
+        except Exception:
+            LOGGER.debug("Failed to read embedding compatibility report from %s", report_path, exc_info=True)
+            return None
+
+    def _write_embedding_compatibility_report(self, report: Dict[str, Any]) -> None:
+        report_path = self.storage_dir / "embedding_compatibility_report.json"
+        out_dir = Path(os.environ.get("DAYSTROM_DML_OUT_DIR", str(self.storage_dir.parent / "out")))
+        mirror_json = out_dir / "dml-migration-progress.json"
+        mirror_md = out_dir / "dml-migration-progress.md"
+        tmp_path = report_path.with_suffix(".tmp")
+        try:
+            tmp_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
+            tmp_path.replace(report_path)
+        except Exception:
+            LOGGER.debug("Failed to write embedding compatibility report to %s", report_path, exc_info=True)
+        try:
+            mirror_json.parent.mkdir(parents=True, exist_ok=True)
+            mirror_tmp = mirror_json.with_suffix(".tmp")
+            mirror_tmp.write_text(json.dumps(report, indent=2), encoding="utf-8")
+            mirror_tmp.replace(mirror_json)
+        except Exception:
+            LOGGER.debug("Failed to mirror embedding compatibility report to %s", mirror_json, exc_info=True)
+        try:
+            summary = "\n".join([
+                "# DML Migration Progress",
+                "",
+                f"- status: {report.get('status')}",
+                f"- phase: {report.get('phase')}",
+                f"- detail: {report.get('phase_detail')}",
+                f"- total_items: {report.get('total_items')}",
+                f"- checked: {report.get('checked')}",
+                f"- remaining_items: {report.get('remaining_items')}",
+                f"- mismatched: {report.get('mismatched')}",
+                f"- reembedded: {report.get('reembedded')}",
+                f"- failed: {report.get('failed')}",
+                f"- target_dim: {report.get('target_dim')}",
+                f"- progress_pct: {report.get('progress_pct')}",
+                f"- current_item_index: {report.get('current_item_index')}",
+                f"- current_item_preview: {report.get('current_item_preview')}",
+                f"- last_completed_item_index: {report.get('last_completed_item_index')}",
+                f"- last_completed_item_preview: {report.get('last_completed_item_preview')}",
+                f"- started_at: {report.get('started_at')}",
+                f"- updated_at: {report.get('updated_at')}",
+                f"- elapsed_ms: {report.get('elapsed_ms')}",
+                f"- storage_report_path: {report_path}",
+            ]) + "\n"
+            mirror_md.parent.mkdir(parents=True, exist_ok=True)
+            mirror_md_tmp = mirror_md.with_suffix(".tmp")
+            mirror_md_tmp.write_text(summary, encoding="utf-8")
+            mirror_md_tmp.replace(mirror_md)
+        except Exception:
+            LOGGER.debug("Failed to mirror embedding compatibility markdown report to %s", mirror_md, exc_info=True)
+
+    def _ensure_embedding_compatibility(self, payload: Dict, *, max_items: Optional[int] = None) -> Dict[str, Any]:
+        cached_report = self._read_embedding_compatibility_report()
+        items = payload.get("items") if isinstance(payload, dict) else None
+        total_items = len(items) if items else 0
+        if (
+            max_items is None
+            and cached_report
+            and cached_report.get("status") == "ok"
+            and int(cached_report.get("total_items") or 0) == total_items
+            and int(cached_report.get("remaining_items") or 0) == 0
+            and int(cached_report.get("mismatched") or 0) == 0
+            and int(cached_report.get("failed") or 0) == 0
+        ):
+            LOGGER.info(
+                "Skipping embedding compatibility scan for %s persisted memories in %s; cached report already indicates compatibility.",
+                total_items,
+                self.storage_dir,
+            )
+            cached_report["phase_detail"] = "reused cached compatibility proof; full scan skipped"
+            cached_report["updated_at"] = datetime.now(timezone.utc).isoformat()
+            self._write_embedding_compatibility_report(cached_report)
+            return cached_report
+        started_wall = datetime.now(timezone.utc)
+        report: Dict[str, Any] = {
+            "status": "skipped",
+            "phase": "init",
+            "phase_detail": "initializing",
+            "total_items": 0,
+            "checked": 0,
+            "remaining_items": 0,
+            "mismatched": 0,
+            "reembedded": 0,
+            "failed": 0,
+            "target_dim": 0,
+            "last_checked_index": 0,
+            "last_completed_item_index": 0,
+            "last_completed_item_preview": None,
+            "progress_pct": 0.0,
+            "current_item_index": 0,
+            "current_item_preview": None,
+            "started_at": started_wall.isoformat(),
+            "updated_at": started_wall.isoformat(),
+            "phase_started_at": started_wall.isoformat(),
+            "elapsed_ms": 0.0,
+            "report_path": str(self.storage_dir / "embedding_compatibility_report.json"),
+            "max_items": max_items,
+            "truncated": False,
+        }
+        started = time.perf_counter()
+
+        def _flush_report(
+            status: Optional[str] = None,
+            phase: Optional[str] = None,
+            phase_detail: Optional[str] = None,
+        ) -> None:
+            now_iso = datetime.now(timezone.utc).isoformat()
+            if status is not None:
+                report["status"] = status
+            if phase is not None and phase != report.get("phase"):
+                report["phase"] = phase
+                report["phase_started_at"] = now_iso
+            if phase_detail is not None:
+                report["phase_detail"] = phase_detail
+            total_items = int(report.get("total_items") or 0)
+            checked = int(report.get("checked") or 0)
+            report["last_checked_index"] = checked
+            report["remaining_items"] = max(total_items - checked, 0)
+            report["progress_pct"] = round((checked / total_items) * 100.0, 2) if total_items > 0 else 0.0
+            report["updated_at"] = now_iso
+            report["elapsed_ms"] = round((time.perf_counter() - started) * 1000.0, 2)
+            self._write_embedding_compatibility_report(report)
+
         items = payload.get("items") if isinstance(payload, dict) else None
         if not items:
-            return
-        first = items[0] or {}
-        stored_embedding = first.get("embedding")
-        if stored_embedding is None:
-            return
-        try:
-            stored_dim = int(np.asarray(stored_embedding, dtype=np.float32).size)
-        except Exception:
-            return
+            _flush_report(status="no-items", phase="done", phase_detail="no persisted items found")
+            return report
+        report["total_items"] = len(items)
         try:
             probe = self.embedder.embed("Daystrom persistence probe")
             current_dim = int(np.asarray(probe, dtype=np.float32).size)
         except Exception:
             LOGGER.debug("Unable to determine embedder dimensions for persistence compatibility check.")
-            return
-        if stored_dim == current_dim or current_dim == 0:
-            return
+            _flush_report(status="probe-failed", phase="probe", phase_detail="failed to determine current embedding dimension")
+            return report
+        if current_dim == 0:
+            _flush_report(status="zero-dimension-probe", phase="probe", phase_detail="embedding probe returned zero dimensions")
+            return report
+
+        report["target_dim"] = current_dim
+        _flush_report(status="running", phase="scan", phase_detail="scanning persisted memories for incompatible embedding dimensions")
         LOGGER.warning(
-            "Embedding dimension changed from %s to %s; re-embedding persisted memories.",
-            stored_dim,
+            "Starting embedding compatibility migration for %s persisted memories in %s (target_dim=%s).",
+            len(items),
+            self.storage_dir,
             current_dim,
         )
-        for entry in items:
+
+        mismatched = 0
+        reembedded = 0
+        failed = 0
+        for idx, entry in enumerate(items, start=1):
+            if max_items is not None and report["checked"] >= max_items:
+                report["truncated"] = True
+                _flush_report(
+                    status="partial",
+                    phase="paused",
+                    phase_detail=f"paused after bounded migration chunk of {max_items} items",
+                )
+                break
+            if not isinstance(entry, dict):
+                continue
             text = entry.get("text") or ""
+            report["checked"] += 1
+            report["current_item_index"] = idx
+            report["current_item_preview"] = text[:80] if text else None
+            stored_embedding = entry.get("embedding")
+            try:
+                stored_dim = int(np.asarray(stored_embedding, dtype=np.float32).size)
+            except Exception:
+                stored_dim = 0
+            if stored_dim == current_dim:
+                report["last_completed_item_index"] = idx
+                report["last_completed_item_preview"] = text[:80] if text else None
+                _flush_report(
+                    status="running",
+                    phase="scan",
+                    phase_detail=f"scanned item {idx}/{len(items)}; embedding already compatible",
+                )
+                continue
+            mismatched += 1
+            report["mismatched"] = mismatched
+            _flush_report(
+                status="running",
+                phase="reembed",
+                phase_detail=f"re-embedding item {idx}/{len(items)} due to dimension mismatch ({stored_dim} -> {current_dim})",
+            )
             try:
                 new_embedding = self.embedder.embed(text)
-                entry["embedding"] = utils.ensure_serializable(new_embedding)
+                new_dim = int(np.asarray(new_embedding, dtype=np.float32).size)
+                if new_dim == current_dim:
+                    entry["embedding"] = utils.ensure_serializable(new_embedding)
+                    reembedded += 1
+                    report["reembedded"] = reembedded
+                    report["last_completed_item_index"] = idx
+                    report["last_completed_item_preview"] = text[:80] if text else None
+                    _flush_report(
+                        status="running",
+                        phase="reembed",
+                        phase_detail=f"re-embedded item {idx}/{len(items)} successfully",
+                    )
+                else:
+                    entry["embedding"] = []
+                    failed += 1
+                    report["failed"] = failed
+                    report["last_completed_item_index"] = idx
+                    report["last_completed_item_preview"] = text[:80] if text else None
+                    _flush_report(
+                        status="running",
+                        phase="reembed",
+                        phase_detail=f"re-embed for item {idx}/{len(items)} returned wrong dimension ({new_dim} != {current_dim})",
+                    )
             except Exception:
                 entry["embedding"] = []
+                failed += 1
+                report["failed"] = failed
+                report["last_completed_item_index"] = idx
+                report["last_completed_item_preview"] = text[:80] if text else None
+                _flush_report(
+                    status="running",
+                    phase="reembed",
+                    phase_detail=f"re-embed for item {idx}/{len(items)} failed; stored empty embedding placeholder",
+                )
+
+        report["mismatched"] = mismatched
+        report["reembedded"] = reembedded
+        report["failed"] = failed
+        report["current_item_index"] = report["checked"]
+        report["current_item_preview"] = None
+        _flush_report(
+            status="ok" if mismatched == 0 else ("migrated" if failed == 0 else "partial"),
+            phase="done",
+            phase_detail=(
+                f"completed compatibility migration: checked={report['checked']} mismatched={mismatched} reembedded={reembedded} failed={failed}"
+            ),
+        )
+
+        if mismatched:
+            LOGGER.warning(
+                "Completed embedding compatibility migration for %s persisted memories in %s: mismatched=%s reembedded=%s failed=%s target_dim=%s elapsed_ms=%s report=%s",
+                report["checked"],
+                self.storage_dir,
+                mismatched,
+                reembedded,
+                failed,
+                current_dim,
+                report["elapsed_ms"],
+                report["report_path"],
+            )
+        else:
+            LOGGER.info(
+                "Embedding compatibility check found no mismatches for %s persisted memories in %s (target_dim=%s, elapsed_ms=%s).",
+                report["checked"],
+                self.storage_dir,
+                current_dim,
+                report["elapsed_ms"],
+            )
+        return report
 
     def query_database(self, prompt: str, mode: str = "auto") -> Dict:
         """Retrieve context-aware snippets from the external corpus."""
@@ -978,6 +1417,16 @@ class DMLAdapter:
             kinds=kinds,
             top_k=limit,
         )
+        if not candidates:
+            candidates = self.store.retrieve_filtered(
+                query_embedding,
+                tenant_id=None,
+                client_id=None,
+                session_id=None,
+                instance_id=None,
+                kinds=kinds,
+                top_k=limit,
+            )
 
         budget = int(self.config.get("token_budget", 600))
         consumed = 0
@@ -1102,6 +1551,110 @@ class DMLAdapter:
             filtered.append(item)
         return filtered
 
+    def _format_context_items(self, items: Any, kinds: Optional[List[str]] = None) -> str:
+        """Format retrieved items into context string."""
+        if not items:
+            return ""
+        lines = ["=== Retrieved Context ==="]
+        for item in items:
+            meta = item.meta or {}
+            source = meta.get("source", "unknown")
+            summary = item.cached_summary(max_len=220)
+            lines.append(f"- [{source}] {summary[:200]}")
+        return "\n".join(lines)
+
+    def retrieve_context(
+        self,
+        prompt: str,
+        tenant_id: Optional[str] = None,
+        client_id: Optional[str] = None,
+        session_id: Optional[str] = None,
+        instance_id: Optional[str] = None,
+        kinds: Optional[List[str]] = None,
+        top_k: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """
+        Retrieve context with agentic-aware routing.
+
+        Returns retrieval report with selected kinds, scores, and tokens.
+        """
+        start = time.perf_counter()
+        decision: Optional[RouterDecision] = None
+        if self.agentic_mode_enabled and self.agentic_router:
+            decision = self.agentic_router.decide(
+                meta={"prompt": prompt[:100]},  # Sample for task detection
+                token_pressure=0.0,
+            )
+
+            if decision:
+                LOGGER.debug(f"Router selected: {decision.selected_profile}")
+
+        final_top_k = top_k
+        if final_top_k is None and decision and decision.overrides.top_k:
+            final_top_k = decision.overrides.top_k
+        if final_top_k is None:
+            final_top_k = self.config.get("dml_top_k", DEFAULT_DML_TOP_K)
+        final_top_k = max(1, min(MAX_RETRIEVAL_TOP_K, self._resolve_dml_top_k(final_top_k)))
+
+        final_kinds = kinds
+        if final_kinds is None and decision and decision.overrides.allowed_kinds:
+            final_kinds = decision.overrides.allowed_kinds
+
+        query_embedding = self.embedder.embed(prompt)
+        scoped = any(value is not None for value in (tenant_id, client_id, session_id, instance_id))
+        if scoped:
+            items = self.store.retrieve_filtered(
+                query_embedding,
+                tenant_id=tenant_id,
+                client_id=client_id,
+                session_id=session_id,
+                instance_id=instance_id,
+                kinds=final_kinds,
+                top_k=final_top_k,
+            )
+            if not items:
+                items = self.store.retrieve_filtered(
+                    query_embedding,
+                    tenant_id=None,
+                    client_id=None,
+                    session_id=None,
+                    instance_id=None,
+                    kinds=final_kinds,
+                    top_k=final_top_k,
+                )
+        else:
+            items = self._retrieve_items(prompt, final_top_k, kinds=final_kinds)
+
+        context = self._format_context_items(items, final_kinds)
+        latency_ms = int((time.perf_counter() - start) * 1000.0)
+
+        report = {
+            "raw_context": context,
+            "context_tokens": len(context.split()),
+            "top_k": final_top_k,
+            "kinds": final_kinds,
+            "items": [item.to_dict() for item in items],
+            "latency_ms": latency_ms,
+        }
+
+        if self.metrics_enabled:
+            record_retrieval("context", latency_ms=latency_ms)
+
+        return report
+
+    def _format_context_items(self, items: List, kinds: Optional[List] = None) -> str:
+        """Format retrieved items into context string."""
+        if not items:
+            return ""
+        lines: List[str] = ["=== Retrieved Context ==="]
+        for item in items:
+            meta = item.meta or {}
+            source = meta.get("source", "unknown")
+            timestamp = time.strftime("%Y-%m-%d", time.gmtime(item.timestamp))
+            summary = item.cached_summary(max_len=220)
+            lines.append(f"- ({timestamp}) [source={source}]\n  {summary}")
+        return "\n".join(lines)
+
     def _format_ltm_entries(self, items: List[MemoryStore.MemoryItem]) -> str:
         if not items:
             return ""
@@ -1219,10 +1772,39 @@ class DMLAdapter:
             return self._fallback_truncate(summary, max_len=max_len)
         return self._fallback_truncate(item.text, max_len=max_len)
 
-    def _retrieve_items(self, prompt: str, top_k: Optional[int]) -> List[MemoryStore.MemoryItem]:
+    def _retrieve_items(
+        self,
+        prompt: str,
+        top_k: Optional[int] = None,
+        phase: Optional[str] = None,
+        kinds: Optional[List[str]] = None,
+    ) -> List[MemoryStore.MemoryItem]:
+        """Retrieve items with phase-aware filtering."""
         limit = self._resolve_dml_top_k(top_k)
         prompt_embedding = self.embedder.embed(prompt)
-        return self.store.retrieve(prompt_embedding, top_k=limit)
+        items = self.store.retrieve(prompt_embedding, top_k=limit)
+
+        # Apply phase-aware filtering
+        if phase in ["execute", "debug"]:
+            filtered = []
+            for item in items:
+                meta = item.meta or {}
+                item_kind = str(meta.get("kind", "memory")).lower()
+                if item_kind in ["action", "observation", "error"]:
+                    filtered.append(item)
+            items = filtered
+
+        # Apply kind filtering
+        if kinds:
+            filtered = []
+            for item in items:
+                meta = item.meta or {}
+                item_kind = str(meta.get("kind", "memory")).lower()
+                if any(kind.lower() in item_kind for kind in kinds):
+                    filtered.append(item)
+            items = filtered
+
+        return items
 
     def _resolve_dml_top_k(self, requested: Optional[int]) -> int:
         """Resolve a safe retrieval cap.

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import contextlib
+import logging
 import random
 import threading
 import time
@@ -13,6 +14,9 @@ import numpy as np
 from . import utils
 from .vector_backend import get_vector_backend
 from .summarizer import Summarizer
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 @dataclass
@@ -170,8 +174,11 @@ class MemoryStore:
             if not self._items:
                 return []
             query_vec = np.asarray(query_embedding, dtype=np.float32)
-            scores, similarities = self._score_candidates(self._items, query_vec, now)
-            return self._select_top_items(self._items, query_vec, top_k, now, scores, similarities)
+            candidates = self._filter_dimension_compatible(self._items, query_vec.size)
+            if not candidates:
+                return []
+            scores, similarities = self._score_candidates(candidates, query_vec, now)
+            return self._select_top_items(candidates, query_vec, top_k, now, scores, similarities)
 
     def retrieve_filtered(
         self,
@@ -203,6 +210,9 @@ class MemoryStore:
                 return []
             now = time.time()
             query_vec = np.asarray(query_embedding, dtype=np.float32)
+            candidates = self._filter_dimension_compatible(candidates, query_vec.size)
+            if not candidates:
+                return []
             scores, similarities = self._score_candidates(candidates, query_vec, now)
             return self._select_top_items(
                 candidates, query_vec, top_k, now, scores, similarities
@@ -249,6 +259,9 @@ class MemoryStore:
                 return []
             now = time.time()
             query_vec = np.asarray(query_embedding, dtype=np.float32)
+            candidates = self._filter_dimension_compatible(candidates, query_vec.size)
+            if not candidates:
+                return []
             scores, similarities = self._score_candidates(candidates, query_vec, now)
             return self._select_top_items(
                 candidates, query_vec, top_k, now, scores, similarities
@@ -336,6 +349,32 @@ class MemoryStore:
         self._id += 1
         return value
 
+    def _embedding_dim(self, embedding: np.ndarray) -> int:
+        try:
+            return int(np.asarray(embedding, dtype=np.float32).size)
+        except Exception:
+            return 0
+
+    def _filter_dimension_compatible(
+        self, items: Sequence[MemoryItem], target_dim: int
+    ) -> List[MemoryItem]:
+        if target_dim <= 0:
+            return []
+        compatible: List[MemoryItem] = []
+        skipped = 0
+        for item in items:
+            if self._embedding_dim(item.embedding) == target_dim:
+                compatible.append(item)
+            else:
+                skipped += 1
+        if skipped:
+            LOGGER.warning(
+                "Skipping %s DML memory items with embedding shape mismatch (target_dim=%s).",
+                skipped,
+                target_dim,
+            )
+        return compatible
+
     def _best_match(self, embedding: np.ndarray) -> Tuple[Optional[MemoryItem], float]:
         """Return the most similar existing item and its similarity."""
 
@@ -343,14 +382,15 @@ class MemoryStore:
             return None, 0.0
         backend = self._vector_backend
         candidate = np.asarray(embedding, dtype=np.float32)
-        key_matrix = np.stack([item.embedding for item in self._items]).astype(
-            np.float32
-        )
+        compatible = self._filter_dimension_compatible(self._items, candidate.size)
+        if not compatible:
+            return None, 0.0
+        key_matrix = np.stack([item.embedding for item in compatible]).astype(np.float32)
         similarities = backend.cosine_sim_matrix(candidate, key_matrix)[0]
         best_idx = int(np.argmax(similarities)) if similarities.size else -1
         if best_idx < 0:
             return None, 0.0
-        return self._items[best_idx], float(similarities[best_idx])
+        return compatible[best_idx], float(similarities[best_idx])
 
     def _try_merge(
         self,
@@ -370,14 +410,14 @@ class MemoryStore:
             best_sim = 0.0
             best = None
             candidate = np.asarray(embedding, dtype=np.float32)
-            key_matrix = np.stack([item.embedding for item in self._items]).astype(
-                np.float32
-            )
-            similarities = backend.cosine_sim_matrix(candidate, key_matrix)[0]
-            best_idx = int(np.argmax(similarities)) if similarities.size else -1
-            if best_idx >= 0:
-                best = self._items[best_idx]
-                best_sim = float(similarities[best_idx])
+            compatible = self._filter_dimension_compatible(self._items, candidate.size)
+            if compatible:
+                key_matrix = np.stack([item.embedding for item in compatible]).astype(np.float32)
+                similarities = backend.cosine_sim_matrix(candidate, key_matrix)[0]
+                best_idx = int(np.argmax(similarities)) if similarities.size else -1
+                if best_idx >= 0:
+                    best = compatible[best_idx]
+                    best_sim = float(similarities[best_idx])
         if best and best_sim >= self.theta_merge:
             combined_text = f"{best.text}\n{text}".strip()
             summary = self.summarizer.summarize(combined_text, max_len=256)

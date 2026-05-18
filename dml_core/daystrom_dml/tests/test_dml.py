@@ -1,5 +1,17 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
+from scripts.embedding_compatibility_status import (
+    format_markdown_report,
+    format_progress_snapshot,
+    format_report,
+    format_status_line,
+    write_markdown_report,
+    write_progress_snapshot,
+)
+
 import numpy as np
 
 from daystrom_dml.dml_adapter import (
@@ -7,6 +19,7 @@ from daystrom_dml.dml_adapter import (
     KNOWLEDGE_ENTRY_PREVIEW_CHARS,
     KNOWLEDGE_MAX_ENTRIES,
 )
+from daystrom_dml.embeddings import RandomEmbedder
 from daystrom_dml.memory_store import MemoryStore
 from daystrom_dml.summarizer import DummySummarizer
 
@@ -147,3 +160,166 @@ def test_similarity_threshold_backfills_top_k_after_filtering():
     texts = {item.text for item in results}
     assert "Off topic but salient" not in texts
     assert {"Direct match", "Related but quieter"} == texts
+
+
+def test_retrieve_context_respects_tenant_scope(tmp_path) -> None:
+    adapter = DMLAdapter(
+        config_overrides={
+            "model_name": "dummy",
+            "embedding_model": None,
+            "storage_dir": str(tmp_path / "storage"),
+            "persistence": {"enable": False},
+            "metrics_enabled": False,
+            "similarity_threshold": 0.0,
+        },
+        embedder=RandomEmbedder(dim=48),
+        summarizer=DummySummarizer(),
+        start_aging_loop=False,
+    )
+    adapter.ingest_memory(
+        "Tenant alpha deployment uses blue release lanes.",
+        tenant_id="alpha",
+        kind="note",
+    )
+    adapter.ingest_memory(
+        "Tenant beta deployment uses green release lanes.",
+        tenant_id="beta",
+        kind="note",
+    )
+
+    report = adapter.retrieve_context("deployment release lanes", tenant_id="alpha", top_k=5)
+
+    assert report["items"]
+    assert {item["meta"]["tenant_id"] for item in report["items"]} == {"alpha"}
+    assert "Tenant alpha" in report["raw_context"]
+    assert "Tenant beta" not in report["raw_context"]
+
+
+def test_retrieve_context_falls_back_to_legacy_unscoped_memories(tmp_path) -> None:
+    adapter = DMLAdapter(
+        config_overrides={
+            "model_name": "dummy",
+            "embedding_model": None,
+            "storage_dir": str(tmp_path / "storage"),
+            "persistence": {"enable": False},
+            "metrics_enabled": False,
+            "similarity_threshold": 0.0,
+        },
+        embedder=RandomEmbedder(dim=48),
+        summarizer=DummySummarizer(),
+        start_aging_loop=False,
+    )
+    adapter.ingest("Legacy unscoped memory survives tenant-aware retrieval.", meta={"kind": "note"})
+
+    report = adapter.retrieve_context("legacy memory", tenant_id="openclaw", top_k=5)
+
+    assert report["items"]
+    assert report["items"][0]["meta"].get("tenant_id") is None
+    assert "Legacy unscoped memory" in report["raw_context"]
+
+
+def test_embedding_compatibility_migration_writes_report(tmp_path) -> None:
+    adapter = DMLAdapter(
+        config_overrides={
+            "model_name": "dummy",
+            "embedding_model": None,
+            "storage_dir": str(tmp_path / "storage"),
+            "persistence": {"enable": False},
+        },
+        start_aging_loop=False,
+    )
+    payload = {
+        "items": [
+            {"text": "legacy-memory-a", "embedding": [1.0, 2.0]},
+            {"text": "legacy-memory-b", "embedding": [3.0, 4.0]},
+        ]
+    }
+
+    report = adapter._ensure_embedding_compatibility(payload)
+
+    assert report["status"] == "migrated"
+    assert report["phase"] == "done"
+    assert report["phase_detail"].startswith("completed compatibility migration:")
+    assert report["total_items"] == 2
+    assert report["checked"] == 2
+    assert report["remaining_items"] == 0
+    assert report["last_checked_index"] == 2
+    assert report["last_completed_item_index"] == 2
+    assert report["last_completed_item_preview"] == "legacy-memory-b"
+    assert report["progress_pct"] == 100.0
+    assert report["current_item_index"] == 2
+    assert report["current_item_preview"] is None
+    assert report["started_at"]
+    assert report["updated_at"]
+    assert report["phase_started_at"]
+    assert report["mismatched"] == 2
+    assert report["reembedded"] == 2
+    assert report["failed"] == 0
+    assert report["target_dim"] > 0
+    for entry in payload["items"]:
+        assert len(entry["embedding"]) == report["target_dim"]
+
+    report_path = adapter.storage_dir / "embedding_compatibility_report.json"
+    assert report_path.exists()
+    written = json.loads(report_path.read_text(encoding="utf-8"))
+    assert written["status"] == "migrated"
+    assert written["phase"] == "done"
+    assert written["phase_detail"].startswith("completed compatibility migration:")
+    assert written["total_items"] == 2
+    assert written["remaining_items"] == 0
+    assert written["last_checked_index"] == 2
+    assert written["last_completed_item_index"] == 2
+    assert written["last_completed_item_preview"] == "legacy-memory-b"
+    assert written["progress_pct"] == 100.0
+    assert written["current_item_index"] == 2
+    assert written["current_item_preview"] is None
+    assert written["started_at"]
+    assert written["updated_at"]
+    assert written["phase_started_at"]
+    assert written["mismatched"] == 2
+    assert written["reembedded"] == 2
+
+    rendered = format_report(written, report_path=Path(report_path))
+    assert "status: migrated" in rendered
+    assert "phase: done" in rendered
+    assert "progress: 100.00% (2/2, remaining=0)" in rendered
+    assert "last_completed: index=2 preview=legacy-memory-b" in rendered
+    assert "freshness: fresh updated_age_s=" in rendered
+
+    status_line = format_status_line(written, report_path=Path(report_path))
+    assert "migration_status=migrated" in status_line
+    assert "phase=done" in status_line
+    assert "progress=100.00%" in status_line
+    assert "freshness=fresh" in status_line
+    assert "updated_age_s=" in status_line
+    assert f"report={report_path}" in status_line
+
+    snapshot = format_progress_snapshot(written, report_path=Path(report_path))
+    assert snapshot["migration_status"] == "migrated"
+    assert snapshot["phase"] == "done"
+    assert snapshot["progress"] == {"pct": 100.0, "checked": 2, "total": 2, "remaining": 0}
+    assert snapshot["current_item"] == {"index": 2, "preview": "-"}
+    assert snapshot["last_completed"] == {"index": 2, "preview": "legacy-memory-b"}
+    assert snapshot["migration_counts"]["reembedded"] == 2
+    assert snapshot["timing"]["freshness"] == "fresh"
+    assert snapshot["timing"]["updated_age_s"] is not None
+    assert snapshot["status_line"] == status_line
+    assert snapshot["report_path"] == str(report_path)
+
+    markdown = format_markdown_report(written, report_path=Path(report_path))
+    assert "# DML Ollama Live-Store Migration Status" in markdown
+    assert "- status_line: `migration_status=migrated | phase=done | progress=100.00%" in markdown
+    assert "- freshness: `fresh` (updated_age_s=" in markdown
+    assert "- status: `migrated`" in markdown
+    assert "- progress: `100.00% (2/2, remaining=0)`" in markdown
+
+    markdown_path = tmp_path / "migration-status.md"
+    write_markdown_report(written, report_path=Path(report_path), output_path=markdown_path)
+    assert markdown_path.exists()
+    assert "Generated from the durable live-store migration artifact" in markdown_path.read_text(encoding="utf-8")
+
+    snapshot_path = tmp_path / "migration-snapshot.json"
+    write_progress_snapshot(written, report_path=Path(report_path), output_path=snapshot_path)
+    assert snapshot_path.exists()
+    snapshot_written = json.loads(snapshot_path.read_text(encoding="utf-8"))
+    assert snapshot_written == snapshot

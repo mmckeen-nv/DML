@@ -1,0 +1,18 @@
+{
+  "loops": [
+    {
+      "id": "loop-demo-thread",
+      "thread": "demo-thread",
+      "title": "Milestone 5 Bundle 2 smoke",
+      "goal": "Validate continuity smoke path",
+      "next_action": "inspect operator loop report"
+    },
+    {
+      "id": "loop-claw-code",
+      "thread": "claw-code",
+      "title": "Bundle 4 host smoke",
+      "goal": "validate host smoke",
+      "next_action": "rerun host smoke"
+    }
+  ]
+}

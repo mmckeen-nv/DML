@@ -1,0 +1,97 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.local/dpm/specs/config/dpm-config.schema.json",
+  "title": "DPM Lifecycle Config",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "plugin", "mode", "read", "write", "audit", "safety"],
+  "properties": {
+    "version": { "type": "integer", "const": 1 },
+    "plugin": { "type": "string", "const": "dpm" },
+    "mode": {
+      "type": "string",
+      "enum": ["disabled", "observe-only", "active-read", "active-write"]
+    },
+    "read": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["allow_thread", "allow_project", "allow_relationship", "allow_preference_graph"],
+      "properties": {
+        "allow_thread": { "type": "boolean" },
+        "allow_project": { "type": "boolean" },
+        "allow_relationship": { "type": "boolean" },
+        "allow_preference_graph": { "type": "boolean" }
+      }
+    },
+    "write": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "require_explicit_runtime_support", "allowed_scopes"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "require_explicit_runtime_support": { "type": "boolean" },
+        "allowed_scopes": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["thread", "project", "relationship", "preference-graph"]
+          },
+          "uniqueItems": true
+        }
+      }
+    },
+    "audit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "include_excluded_sources", "max_sources", "max_overlay_chars"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "include_excluded_sources": { "type": "boolean" },
+        "max_sources": { "type": "integer", "minimum": 1 },
+        "max_overlay_chars": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "safety": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "explicit_user_override",
+        "fail_closed_on_invalid_mode",
+        "cross_scope_fallback_requires_compatibility"
+      ],
+      "properties": {
+        "explicit_user_override": { "type": "boolean", "const": true },
+        "fail_closed_on_invalid_mode": { "type": "boolean", "const": true },
+        "cross_scope_fallback_requires_compatibility": { "type": "boolean", "const": true }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "mode": { "const": "active-write" }
+        },
+        "required": ["mode"]
+      },
+      "then": {
+        "properties": {
+          "write": {
+            "properties": {
+              "allowed_scopes": { "minItems": 1 }
+            }
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "write": {
+            "properties": {
+              "allowed_scopes": { "maxItems": 0 }
+            }
+          }
+        }
+      }
+    }
+  ]
+}
