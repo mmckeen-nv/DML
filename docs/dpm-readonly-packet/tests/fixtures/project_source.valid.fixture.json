@@ -1,0 +1,25 @@
+{
+  "schema_version": "dpm.project-source.v1",
+  "source_id": "project:dpm",
+  "project_id": "project:dpm",
+  "scope": "project",
+  "label": "DPM project continuity",
+  "summary": "Project context favors concise implementation-focused communication and contract-first changes.",
+  "directives": [
+    "Prefer contract-first changes before runtime wiring.",
+    "Keep implementation notes concise and test-backed."
+  ],
+  "constraints": [
+    "Do not let project defaults override thread-specific instructions.",
+    "Do not exceed bounded runtime overlay limits."
+  ],
+  "priority": 3,
+  "confidence": 0.7,
+  "updated_at": "2026-04-14T10:00:00Z",
+  "boundedness": {
+    "summary_max_chars": 160,
+    "directive_max_items": 4,
+    "constraint_max_items": 4
+  },
+  "audit_hint": "Project scope may refine thread continuity when compatible, but thread scope stays primary."
+}

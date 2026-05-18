@@ -1,0 +1,50 @@
+{
+  "thread_source": {
+    "source_id": "thread:self-architecture-portrait",
+    "scope": "thread",
+    "summary": "Keep this thread slightly formal and avoid humor or casual shorthand.",
+    "directives": [
+      "Keep a slightly formal tone.",
+      "Answer directly."
+    ],
+    "constraints": [
+      "Avoid humor.",
+      "Avoid casual shorthand."
+    ],
+    "priority": 2,
+    "confidence": 0.81,
+    "updated_at": "2026-04-14T09:58:00Z"
+  },
+  "project_source": {
+    "schema_version": "dpm.project-source.v1",
+    "source_id": "project:dpm",
+    "project_id": "project:dpm",
+    "scope": "project",
+    "label": "DPM project continuity",
+    "summary": "Project context favors concise implementation-focused communication and casual shorthand defaults.",
+    "directives": [
+      "Prefer contract-first changes before runtime wiring.",
+      "Use casual shorthand when moving quickly."
+    ],
+    "constraints": [
+      "Do not let project defaults override thread-specific instructions."
+    ],
+    "priority": 3,
+    "confidence": 0.67,
+    "updated_at": "2026-04-14T10:00:00Z",
+    "boundedness": {
+      "summary_max_chars": 160,
+      "directive_max_items": 4,
+      "constraint_max_items": 4
+    },
+    "audit_hint": "Project scope may refine thread continuity when compatible, but thread scope stays primary."
+  },
+  "expected": {
+    "thread_scope_primary": true,
+    "project_included": false,
+    "project_effect": "excluded_for_conflict",
+    "excluded_reasons": [
+      "conflicts_with_thread_scope"
+    ]
+  }
+}

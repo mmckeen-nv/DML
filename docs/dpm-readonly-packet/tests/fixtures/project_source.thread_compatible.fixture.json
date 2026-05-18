@@ -1,0 +1,47 @@
+{
+  "thread_source": {
+    "source_id": "thread:self-architecture-portrait",
+    "scope": "thread",
+    "summary": "Keep a slightly formal tone for this thread and preserve directness.",
+    "directives": [
+      "Keep a slightly formal tone.",
+      "Answer directly."
+    ],
+    "constraints": [
+      "Do not broaden beyond thread-specific context."
+    ],
+    "priority": 2,
+    "confidence": 0.78,
+    "updated_at": "2026-04-14T09:55:00Z"
+  },
+  "project_source": {
+    "schema_version": "dpm.project-source.v1",
+    "source_id": "project:dpm",
+    "project_id": "project:dpm",
+    "scope": "project",
+    "label": "DPM project continuity",
+    "summary": "Project context favors concise implementation-focused communication and contract-first changes.",
+    "directives": [
+      "Prefer contract-first changes before runtime wiring.",
+      "Keep implementation notes concise and test-backed."
+    ],
+    "constraints": [
+      "Do not let project defaults override thread-specific instructions."
+    ],
+    "priority": 3,
+    "confidence": 0.7,
+    "updated_at": "2026-04-14T10:00:00Z",
+    "boundedness": {
+      "summary_max_chars": 160,
+      "directive_max_items": 4,
+      "constraint_max_items": 4
+    },
+    "audit_hint": "Project scope may refine thread continuity when compatible, but thread scope stays primary."
+  },
+  "expected": {
+    "thread_scope_primary": true,
+    "project_included": true,
+    "project_effect": "compatible_refinement",
+    "excluded_reasons": []
+  }
+}

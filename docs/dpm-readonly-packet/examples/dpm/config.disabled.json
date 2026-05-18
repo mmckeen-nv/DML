@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "plugin": "dpm",
+  "mode": "disabled",
+  "read": {
+    "allow_thread": true,
+    "allow_project": true,
+    "allow_relationship": true,
+    "allow_preference_graph": true
+  },
+  "write": {
+    "enabled": false,
+    "require_explicit_runtime_support": true,
+    "allowed_scopes": []
+  },
+  "audit": {
+    "enabled": true,
+    "include_excluded_sources": true,
+    "max_sources": 20,
+    "max_overlay_chars": 2000
+  },
+  "safety": {
+    "explicit_user_override": true,
+    "fail_closed_on_invalid_mode": true,
+    "cross_scope_fallback_requires_compatibility": true
+  }
+}

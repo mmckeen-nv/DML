@@ -1,0 +1,132 @@
+{
+  "schema_version": "dpm.replay-overlay.v1",
+  "overlay_id": "overlay:thread:self-architecture-portrait:2026-04-14T10:08:00Z",
+  "mode": "active-read",
+  "generated_at": "2026-04-14T10:08:00Z",
+  "scope": {
+    "primary": "thread",
+    "thread_id": "thread:self-architecture-portrait",
+    "project_id": "project:dpm",
+    "relationship_id": "relationship:mark-nv"
+  },
+  "retrieval_order_applied": [
+    "explicit_current_turn",
+    "thread",
+    "project",
+    "relationship",
+    "preference_graph"
+  ],
+  "overlay": {
+    "persona_summary": "Be direct, concise, privacy-safe, and slightly formal in this thread when compatible with the current request.",
+    "style_directives": [
+      "Answer directly and keep wording lean.",
+      "Respect the thread's slightly more formal tone.",
+      "Let current-turn instructions outrank remembered style defaults."
+    ],
+    "do_not_do": [
+      "Do not let broader relationship humor override a brief/formal turn.",
+      "Do not broaden beyond thread-compatible context."
+    ],
+    "open_questions": [],
+    "max_chars": 260,
+    "rendered_text": "Direct, concise, privacy-safe. In this thread, keep a slightly formal tone when it fits the request, and suppress humor or broader defaults that conflict with the user's current-turn instruction."
+  },
+  "effective_constraints": {
+    "explicit_instruction_precedence": "always_override",
+    "narrowest_scope_wins": true,
+    "cross_scope_fallback_requires_compatibility": true,
+    "writes_allowed": false
+  },
+  "sources": [
+    {
+      "source_id": "turn:current",
+      "scope": "thread",
+      "kind": "current_turn_instruction",
+      "included": true,
+      "priority": 1,
+      "confidence": 1.0,
+      "updated_at": "2026-04-14T09:58:00Z",
+      "summary": "Current-turn instruction requests brief output and suppresses conflicting style shaping."
+    },
+    {
+      "source_id": "thread:self-architecture-portrait",
+      "scope": "thread",
+      "kind": "thread_summary",
+      "included": true,
+      "priority": 2,
+      "confidence": 0.78,
+      "updated_at": "2026-04-14T09:55:00Z",
+      "summary": "Thread-specific preference for slightly more formal phrasing."
+    },
+    {
+      "source_id": "project:dpm",
+      "scope": "project",
+      "kind": "project_summary",
+      "included": true,
+      "priority": 3,
+      "confidence": 0.7,
+      "updated_at": "2026-04-14T09:40:00Z",
+      "summary": "Project context favors concise implementation-focused communication."
+    },
+    {
+      "source_id": "relationship:mark-nv",
+      "scope": "relationship",
+      "kind": "relationship_summary",
+      "included": true,
+      "priority": 4,
+      "confidence": 0.94,
+      "updated_at": "2026-04-13T18:42:00Z",
+      "summary": "Stable relationship preference for direct, concise assistance."
+    },
+    {
+      "source_id": "preference-graph:thread:self-architecture-portrait",
+      "scope": "thread",
+      "kind": "preference_graph",
+      "included": true,
+      "priority": 5,
+      "confidence": 0.84,
+      "updated_at": "2026-04-14T00:00:00Z",
+      "summary": "Preference graph captures thread formality refinement and explicit override suppression paths."
+    }
+  ],
+  "audit": {
+    "included_source_ids": [
+      "turn:current",
+      "thread:self-architecture-portrait",
+      "project:dpm",
+      "relationship:mark-nv",
+      "preference-graph:thread:self-architecture-portrait"
+    ],
+    "excluded_sources": [
+      {
+        "source_id": "relationship:humor-default",
+        "reason": "overridden_by_explicit_instruction"
+      },
+      {
+        "source_id": "global:generic-style",
+        "reason": "narrower_scope_conflict"
+      }
+    ],
+    "conflicts_detected": [
+      "Relationship humor preference conflicts with the current-turn brief/formal instruction.",
+      "Thread-specific formality refines but does not erase broader directness defaults."
+    ],
+    "notes": [
+      "Thread scope remained primary throughout assembly.",
+      "Rendered overlay keeps only turn-relevant guidance."
+    ]
+  },
+  "override_state": {
+    "has_explicit_instruction": true,
+    "instruction_source_id": "turn:current",
+    "override_applied": true,
+    "suppressed_source_ids": [
+      "relationship:humor-default",
+      "pref.humor"
+    ],
+    "effective_for_turn": [
+      "be brief",
+      "keep slightly formal tone for this thread when compatible"
+    ]
+  }
+}

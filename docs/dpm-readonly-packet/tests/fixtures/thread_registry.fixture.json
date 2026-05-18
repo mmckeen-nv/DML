@@ -1,0 +1,61 @@
+{
+  "schema_version": "v1",
+  "threads": {
+    "1488668819655495782": {
+      "key": "self-architecture-portrait",
+      "provider": "discord",
+      "channel": "discord",
+      "chat_id": "1488668819655495782",
+      "topic_id": "topic-self-1",
+      "thread_label": "Citizen Snips architecture portrait / continuity substrate",
+      "session_scope": "thread",
+      "topic": "Citizen Snips architecture portrait / continuity substrate",
+      "status": "active",
+      "latest_checkpoint": "/tmp/older.md",
+      "last_summary_at": "2026-04-01T00:46:18Z",
+      "updated_at": "2026-04-01T00:46:18Z"
+    },
+    "thread:claw-code": {
+      "key": "claw-code",
+      "provider": "discord",
+      "channel": "discord",
+      "chat_id": "thread:claw-code",
+      "topic_id": "topic-claw",
+      "thread_label": "Bundle 4 host smoke",
+      "session_scope": "thread",
+      "topic": "Bundle 4 host smoke",
+      "status": "active",
+      "updated_at": "2026-04-12T17:31:00Z",
+      "latest_checkpoint": "/tmp/claw.md",
+      "last_summary_at": "2026-04-05T18:06:12Z"
+    },
+    "thread:self-architecture-portrait": {
+      "key": "self-architecture-portrait",
+      "provider": "discord",
+      "channel": "discord",
+      "chat_id": "thread:self-architecture-portrait",
+      "topic_id": "topic-self-2",
+      "thread_label": "continuity substrate drill",
+      "session_scope": "thread",
+      "topic": "continuity substrate drill",
+      "status": "active",
+      "latest_checkpoint": "/tmp/newer.md",
+      "last_summary_at": "2026-04-04T03:41:47Z",
+      "updated_at": "2026-04-04T03:41:47Z"
+    },
+    "thread:demo-thread": {
+      "key": "demo-thread",
+      "provider": "discord",
+      "channel": "discord",
+      "chat_id": "thread:demo-thread",
+      "topic_id": "topic-demo",
+      "thread_label": "Milestone 5 Bundle 2 smoke",
+      "session_scope": "thread",
+      "topic": "Milestone 5 Bundle 2 smoke",
+      "status": "active",
+      "latest_checkpoint": "/tmp/demo.md",
+      "last_summary_at": "2026-04-06T03:35:59Z",
+      "updated_at": "2026-04-06T03:35:59Z"
+    }
+  }
+}
