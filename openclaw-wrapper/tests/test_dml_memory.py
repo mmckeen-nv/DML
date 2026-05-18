@@ -71,10 +71,15 @@ class _DummyAdapter:
         self.raise_gt = raise_gt
         self.sleep_gt_s = sleep_gt_s
         self.ingests: list[tuple[str, dict | None, bool]] = []
+        self.preferences: list[tuple[str, dict]] = []
         self.persist_calls = 0
 
     def ingest(self, text: str, meta: dict | None = None, *, persist: bool = True) -> None:
         self.ingests.append((text, meta, persist))
+
+    def record_personality_preference(self, text: str, **kwargs: object) -> dict:
+        self.preferences.append((text, kwargs))
+        return {"status": "recorded", "node_id": "pref.test"}
 
     def _persist_all(self) -> None:
         self.persist_calls += 1
@@ -264,6 +269,37 @@ class TestIngestBatching(unittest.TestCase):
             self.assertGreater(len(adapter.ingests), 1)
             self.assertTrue(all(call[2] is False for call in adapter.ingests))
             self.assertEqual(adapter.persist_calls, 1)
+        finally:
+            mod._adapter = original_adapter
+
+    def test_cmd_ingest_records_dpm_preference_when_marked_explicit(self):
+        original_adapter = mod._adapter
+        adapter = _DummyAdapter()
+        try:
+            mod._adapter = lambda *_args, **_kwargs: adapter
+            storage_dir = tempfile.mkdtemp(prefix="dml-wrapper-dpm-test-")
+            args = Namespace(
+                storage_dir=storage_dir,
+                config_path=None,
+                require_gpu=False,
+                text="I prefer wrapper smoke status updates to be concise.",
+                kind="note",
+                meta=json.dumps({"source": "wrapper-smoke", "dpm_preference": True}),
+                chunk=False,
+                chunk_chars=620,
+                chunk_overlap=90,
+                filter_noise=False,
+            )
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                rc = mod.cmd_ingest(args)
+
+            self.assertEqual(rc, 0)
+            self.assertEqual(len(adapter.preferences), 1)
+            text, kwargs = adapter.preferences[0]
+            self.assertIn("wrapper smoke status", text)
+            self.assertEqual(kwargs["source_id"], "wrapper-smoke")
+            self.assertTrue(kwargs["explicit"])
         finally:
             mod._adapter = original_adapter
 

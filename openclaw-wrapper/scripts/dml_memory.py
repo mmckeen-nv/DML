@@ -272,6 +272,14 @@ def cmd_ingest(args: argparse.Namespace) -> int:
                 skipped_duplicate += 1
                 continue
             adapter.ingest(chunk, meta=payload_meta, persist=False)
+            if payload_meta.get("dpm_preference"):
+                adapter.record_personality_preference(
+                    chunk,
+                    scope=str(payload_meta.get("dpm_scope") or "relationship"),
+                    source_id=str(payload_meta.get("source") or "wrapper:ingest"),
+                    explicit=True,
+                    meta=payload_meta,
+                )
             _append_dedup_digest(args.storage_dir, digest)
             seen.add(digest)
             kept += 1
