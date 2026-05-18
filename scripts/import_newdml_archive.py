@@ -183,12 +183,35 @@ def _short_summary(text: str, max_len: int = 256) -> str:
     return normalized[: max_len - 3].rstrip() + "..."
 
 
-def _legacy_meta(item: dict[str, Any], archive: Path, text: str) -> dict[str, Any]:
+def _quality_score(item: dict[str, Any], text: str) -> float:
+    normalized = _normalize_text(text)
+    if not normalized:
+        return 0.0
+    meta = item.get("meta") or {}
+    score = 1.0
+    if _looks_like_metadata_noise(item, normalized):
+        score -= 0.55
+    if str(meta.get("doc_path") or "").lower().endswith(".csv"):
+        score -= 0.25
+    hex_hits = len(HEXISH_RE.findall(normalized))
+    if hex_hits:
+        score -= min(0.35, hex_hits * 0.08)
+    raw_tokens = normalized.split()
+    glued = sum(1 for token in raw_tokens if len(token) > 18 and re.search(r"[A-Za-z]", token))
+    if raw_tokens:
+        score -= min(0.25, (glued / len(raw_tokens)) * 0.8)
+    return max(0.0, min(1.0, round(score, 4)))
+
+
+def _legacy_meta(item: dict[str, Any], archive: Path, text: str, *, target_state: str) -> dict[str, Any]:
     legacy_meta = dict(item.get("meta") or {})
     meta: dict[str, Any] = {
         "kind": "note",
+        "namespace": "legacy_archive",
+        "memory_state": target_state,
         "source": "old_openclaw_newdml_archive",
         "archive": archive.name,
+        "quality_score": _quality_score(item, text),
         "legacy_id": item.get("id"),
         "legacy_timestamp": item.get("timestamp"),
         "legacy_level": item.get("level"),
@@ -264,6 +287,7 @@ def _dry_run(args: argparse.Namespace, items: list[dict[str, Any]], existing_dig
         "storage_dir": str(args.storage_dir),
         "legacy_items": len(items),
         "noise_filter_enabled": bool(args.filter_noise),
+        "target_state": args.target_state,
         "skipped_by_noise_filter": len(raw_unique) - len(importable),
         "importable_unique_texts": len(importable),
         "duplicates_in_target": duplicates,
@@ -306,7 +330,7 @@ def _apply(args: argparse.Namespace, items: list[dict[str, Any]], existing_diges
     try:
         for item, text, digest in selected:
             try:
-                meta = _legacy_meta(item, Path(args.archive), text)
+                meta = _legacy_meta(item, Path(args.archive), text, target_state=args.target_state)
                 adapter.ingest(text, meta=meta, persist=False)
             except Exception:
                 failed += 1
@@ -333,6 +357,7 @@ def _apply(args: argparse.Namespace, items: list[dict[str, Any]], existing_diges
         "failed": failed,
         "failure_legacy_ids": failure_samples[:20],
         "noise_filter_enabled": bool(args.filter_noise),
+        "target_state": args.target_state,
         "elapsed_sec": round(elapsed, 3),
         "avg_sec_per_import": round(elapsed / imported, 4) if imported else None,
     }
@@ -347,6 +372,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--progress-every", type=int, default=25)
     parser.add_argument("--stop-on-error", action="store_true")
     parser.add_argument("--filter-noise", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument(
+        "--target-state",
+        choices=("quarantined", "active"),
+        default="quarantined",
+        help="Lifecycle state assigned to imported memories (default: quarantined)",
+    )
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--dry-run", action="store_true")
     mode.add_argument("--apply", action="store_true")

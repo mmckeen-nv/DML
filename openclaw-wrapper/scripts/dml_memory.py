@@ -504,6 +504,7 @@ def cmd_retrieve(args: argparse.Namespace) -> int:
             session_id=args.session_id,
             instance_id=args.instance_id,
             top_k=args.top_k,
+            include_quarantined=bool(getattr(args, "include_quarantined", False)),
         )
         items = report.get("items") or []
         raw_lines = ["=== Retrieved Context ==="]
@@ -625,6 +626,12 @@ def build_parser() -> argparse.ArgumentParser:
     ret.add_argument("--client-id")
     ret.add_argument("--session-id")
     ret.add_argument("--instance-id")
+    ret.add_argument(
+        "--include-quarantined",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Include quarantined/suppressed memories in retrieval results (default: false)",
+    )
     ret.add_argument("--query-expand", action=argparse.BooleanOptionalAction, default=True)
     ret.add_argument("--with-ground-truth", action=argparse.BooleanOptionalAction, default=True)
     ret.add_argument("--ground-truth-mode", default="hybrid", choices=["auto", "semantic", "literal", "hybrid"])

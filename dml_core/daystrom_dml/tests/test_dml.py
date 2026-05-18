@@ -267,6 +267,67 @@ def test_retrieve_context_falls_back_to_recent_memory_when_similarity_filters_al
     assert "Recent context" in report["raw_context"]
 
 
+def test_retrieve_context_excludes_quarantined_memories_by_default(tmp_path) -> None:
+    adapter = DMLAdapter(
+        config_overrides={
+            "model_name": "dummy",
+            "embedding_model": None,
+            "storage_dir": str(tmp_path / "storage"),
+            "persistence": {"enable": False},
+            "metrics_enabled": False,
+            "similarity_threshold": 0.0,
+        },
+        embedder=RandomEmbedder(dim=48),
+        summarizer=DummySummarizer(),
+        start_aging_loop=False,
+    )
+    adapter.ingest(
+        "Quarantined legacy archive memory should stay out of normal retrieval.",
+        meta={"kind": "note", "source": "legacy", "memory_state": "quarantined"},
+    )
+    adapter.ingest(
+        "Active continuity memory should retrieve normally.",
+        meta={"kind": "note", "source": "active", "memory_state": "active"},
+    )
+
+    report = adapter.retrieve_context("legacy archive continuity memory", top_k=5)
+
+    assert report["items"]
+    assert all(item["meta"].get("memory_state") != "quarantined" for item in report["items"])
+    assert "Active continuity" in report["raw_context"]
+    assert "Quarantined legacy" not in report["raw_context"]
+
+
+def test_retrieve_context_can_include_quarantined_memories_when_requested(tmp_path) -> None:
+    adapter = DMLAdapter(
+        config_overrides={
+            "model_name": "dummy",
+            "embedding_model": None,
+            "storage_dir": str(tmp_path / "storage"),
+            "persistence": {"enable": False},
+            "metrics_enabled": False,
+            "similarity_threshold": 0.0,
+        },
+        embedder=RandomEmbedder(dim=48),
+        summarizer=DummySummarizer(),
+        start_aging_loop=False,
+    )
+    adapter.ingest(
+        "Quarantined legacy archive memory can be inspected on demand.",
+        meta={"kind": "note", "source": "legacy", "memory_state": "quarantined"},
+    )
+
+    report = adapter.retrieve_context(
+        "legacy archive memory",
+        top_k=5,
+        include_quarantined=True,
+    )
+
+    assert report["include_quarantined"] is True
+    assert any(item["meta"].get("memory_state") == "quarantined" for item in report["items"])
+    assert "Quarantined legacy" in report["raw_context"]
+
+
 def test_scoped_recent_fallback_does_not_cross_tenant_boundary(tmp_path) -> None:
     adapter = DMLAdapter(
         config_overrides={

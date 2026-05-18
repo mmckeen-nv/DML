@@ -1588,6 +1588,7 @@ class DMLAdapter:
         dpm_thread_id: Optional[str] = None,
         dpm_project_id: Optional[str] = None,
         dpm_relationship_id: Optional[str] = None,
+        include_quarantined: bool = False,
     ) -> Dict[str, Any]:
         """
         Retrieve context with agentic-aware routing.
@@ -1632,6 +1633,7 @@ class DMLAdapter:
                 kinds=final_kinds,
                 top_k=final_top_k,
             )
+            items = self._filter_retrievable_items(items, include_quarantined=include_quarantined)
             if not items:
                 items = self._recent_context_items(
                     tenant_id=tenant_id,
@@ -1641,6 +1643,7 @@ class DMLAdapter:
                     kinds=final_kinds,
                     phase=phase_enum,
                     top_k=final_top_k,
+                    include_quarantined=include_quarantined,
                 )
             if not items:
                 items = self.store.retrieve_filtered(
@@ -1652,6 +1655,7 @@ class DMLAdapter:
                     kinds=final_kinds,
                     top_k=final_top_k,
                 )
+                items = self._filter_retrievable_items(items, include_quarantined=include_quarantined)
             if not items:
                 items = self._recent_context_items(
                     tenant_id=None,
@@ -1662,6 +1666,7 @@ class DMLAdapter:
                     phase=phase_enum,
                     top_k=final_top_k,
                     require_unscoped=True,
+                    include_quarantined=include_quarantined,
                 )
         else:
             items = self._retrieve_items(
@@ -1669,6 +1674,7 @@ class DMLAdapter:
                 final_top_k,
                 phase=phase_enum.value if phase_enum else None,
                 kinds=final_kinds,
+                include_quarantined=include_quarantined,
             )
             if not items:
                 items = self._recent_context_items(
@@ -1679,6 +1685,7 @@ class DMLAdapter:
                     kinds=final_kinds,
                     phase=phase_enum,
                     top_k=final_top_k,
+                    include_quarantined=include_quarantined,
                 )
 
         entries, context, tokens_used = self._compact_context_items(items)
@@ -1706,6 +1713,7 @@ class DMLAdapter:
             "top_k": final_top_k,
             "kinds": final_kinds,
             "phase": phase_enum.value if phase_enum else None,
+            "include_quarantined": include_quarantined,
             "items": entries,
             "personality_overlay": personality_overlay,
             "latency_ms": latency_ms,
@@ -1768,6 +1776,22 @@ class DMLAdapter:
             return [], "", 0
         return entries, "\n".join(lines), consumed
 
+    @staticmethod
+    def _is_quarantined_or_suppressed(item: MemoryItem) -> bool:
+        meta = item.meta or {}
+        state = str(meta.get("memory_state") or meta.get("lifecycle_state") or "").strip().lower()
+        namespace = str(meta.get("namespace") or "").strip().lower()
+        if state in {"quarantine", "quarantined", "suppressed", "deleted"}:
+            return True
+        return namespace in {"quarantine", "quarantined"}
+
+    def _filter_retrievable_items(
+        self, items: List[MemoryItem], *, include_quarantined: bool = False
+    ) -> List[MemoryItem]:
+        if include_quarantined:
+            return list(items)
+        return [item for item in items if not self._is_quarantined_or_suppressed(item)]
+
     def _recent_context_items(
         self,
         *,
@@ -1779,12 +1803,15 @@ class DMLAdapter:
         phase: Optional[MemoryPhase],
         top_k: int,
         require_unscoped: bool = False,
+        include_quarantined: bool = False,
     ) -> List[MemoryItem]:
         allowed_kinds = set(kinds or [])
         if not allowed_kinds and phase in {MemoryPhase.EXECUTE, MemoryPhase.DEBUG}:
             allowed_kinds = {"action", "observation", "error"}
         candidates: List[MemoryItem] = []
         for item in self.store.items():
+            if not include_quarantined and self._is_quarantined_or_suppressed(item):
+                continue
             meta = item.meta or {}
             if require_unscoped and any(
                 meta.get(scope_key) is not None
@@ -1933,11 +1960,13 @@ class DMLAdapter:
         top_k: Optional[int] = None,
         phase: Optional[str] = None,
         kinds: Optional[List[str]] = None,
+        include_quarantined: bool = False,
     ) -> List[MemoryStore.MemoryItem]:
         """Retrieve items with phase-aware filtering."""
         limit = self._resolve_dml_top_k(top_k)
         prompt_embedding = self.embedder.embed(prompt)
         items = self.store.retrieve(prompt_embedding, top_k=limit)
+        items = self._filter_retrievable_items(items, include_quarantined=include_quarantined)
 
         # Apply phase-aware filtering
         if phase in ["execute", "debug"]:
