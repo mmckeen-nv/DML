@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-WORKSPACE="/home/nvidia/.openclaw/workspace"
-QUEUE_PATH="$WORKSPACE/out/dml_ingest_queue.jsonl"
-LOG_PATH="$WORKSPACE/out/dml_ingest_worker.log"
-LOCK_PATH="$WORKSPACE/out/dml_ingest_worker.lock"
-STATUS_PATH="$WORKSPACE/out/continuity-ingest-status.json"
-PROCESS_SCRIPT="$WORKSPACE/scripts/process_dml_ingest_queue.sh"
-KEEP_WARM_SCRIPT="$WORKSPACE/scripts/keep_dml_models_warm.sh"
+OPENCLAW_HOME="${OPENCLAW_HOME:-/Users/markmckeen/.openclaw}"
+WORKSPACE="${OPENCLAW_WORKSPACE:-$OPENCLAW_HOME/workspace}"
+QUEUE_PATH="${QUEUE_PATH:-$WORKSPACE/out/dml_ingest_queue.jsonl}"
+LOG_PATH="${LOG_PATH:-$WORKSPACE/out/dml_ingest_worker.log}"
+LOCK_PATH="${LOCK_PATH:-$WORKSPACE/out/dml_ingest_worker.lock}"
+STATUS_PATH="${STATUS_PATH:-$WORKSPACE/out/continuity-ingest-status.json}"
+PROCESS_SCRIPT="${PROCESS_SCRIPT:-$WORKSPACE/skills/daystrom-dml/scripts/process_dml_ingest_queue.sh}"
+KEEP_WARM_SCRIPT="${KEEP_WARM_SCRIPT:-$WORKSPACE/skills/daystrom-dml/scripts/keep_dml_models_warm.sh}"
+STORAGE_DIR="${STORAGE_DIR:-${DML_STORE:-$OPENCLAW_HOME/dml-store}}"
 
 count_status() {
   local wanted="$1"
@@ -152,7 +154,7 @@ if [ ! -f "$QUEUE_PATH" ]; then
   RUN_OUTCOME_CLASS="degraded"
   ERROR_STAGE="queue-check"
 else
-  if ! "$PROCESS_SCRIPT" "$QUEUE_PATH" >> "$LOG_PATH" 2>&1; then
+  if ! "$PROCESS_SCRIPT" "$QUEUE_PATH" "$STORAGE_DIR" >> "$LOG_PATH" 2>&1; then
     RUN_STATE="error"
     RUN_MESSAGE="queue processor failed"
     RUN_OUTCOME_CLASS="error"

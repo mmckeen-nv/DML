@@ -580,6 +580,113 @@ def cmd_retrieve(args: argparse.Namespace) -> int:
     return 0
 
 
+CONTINUITY_SOURCES = {
+    "rolling_thread_checkpoint",
+    "continuity_checkpoint",
+    "dpm_continuity_checkpoint",
+}
+
+
+def _is_active_continuity_item(item: dict) -> bool:
+    meta = item.get("meta") or {}
+    if not isinstance(meta, dict):
+        meta = {}
+    source = str(meta.get("source") or "").strip()
+    namespace = str(meta.get("namespace") or "").strip()
+    memory_state = str(meta.get("memory_state") or "active").strip().lower()
+    if memory_state in {"quarantined", "suppressed", "deleted"}:
+        return False
+    return namespace == "active_continuity" or source in CONTINUITY_SOURCES
+
+
+def _line_value(text: str, key: str) -> str | None:
+    prefix = f"{key}:"
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith(prefix):
+            value = stripped[len(prefix) :].strip()
+            return value or None
+    return None
+
+
+def _continuity_resume_context(items: list[dict]) -> tuple[str, dict]:
+    raw_lines = ["=== Active Continuity Resume ==="]
+    latest: dict[str, str] = {}
+    for item in items:
+        text = str(item.get("text") or item.get("summary") or "")
+        meta = item.get("meta") or {}
+        if not isinstance(meta, dict):
+            meta = {}
+        source = str(meta.get("source") or "unknown")
+        summary = continuity_handoff_summary(text) or str(meta.get("summary") or "").strip() or text.strip()
+        thread = _line_value(text, "thread") or str(meta.get("thread") or "").strip() or None
+        state = _line_value(text, "state") or str(meta.get("state") or "").strip() or None
+        task = _line_value(text, "task") or str(meta.get("task") or "").strip() or None
+        next_action = _line_value(text, "next_action") or str(meta.get("next_action") or "").strip() or None
+        updated_at = (
+            _line_value(text, "updated_at")
+            or _line_value(text, "captured_at")
+            or str(meta.get("updated_at") or meta.get("captured_at") or "").strip()
+            or None
+        )
+        if not latest and any([thread, state, task, next_action, updated_at]):
+            latest = {
+                k: v
+                for k, v in {
+                    "thread": thread,
+                    "state": state,
+                    "task": task,
+                    "next_action": next_action,
+                    "updated_at": updated_at,
+                }.items()
+                if v
+            }
+        label = source
+        if thread:
+            label = f"{label}:{thread}"
+        raw_lines.append(f"- [{label}] {summary[:260]}")
+    return "\n".join(raw_lines), latest
+
+
+def cmd_resume(args: argparse.Namespace) -> int:
+    adapter = _adapter(args.storage_dir, args.config_path, args.require_gpu)
+    started = time.perf_counter()
+    try:
+        report = adapter.retrieve_context(
+            args.query,
+            tenant_id=args.tenant_id,
+            client_id=args.client_id,
+            session_id=args.session_id,
+            instance_id=args.instance_id,
+            top_k=args.top_k,
+            include_quarantined=False,
+        )
+    finally:
+        adapter.close()
+
+    items = [item for item in (report.get("items") or []) if isinstance(item, dict)]
+    continuity_items = [item for item in items if _is_active_continuity_item(item)]
+    context_items = continuity_items or items[: max(0, args.fallback_items)]
+    raw_context, latest = _continuity_resume_context(context_items)
+
+    report.update(
+        {
+            "status": report.get("status", "ok"),
+            "action": "resume",
+            "query_original": args.query,
+            "items_seen": len(items),
+            "continuity_items": len(continuity_items),
+            "fallback_used": not bool(continuity_items),
+            "latest_checkpoint": latest,
+            "raw_context": raw_context,
+            "context_tokens": max(1, len(raw_context.split())),
+            "resume_total_latency_ms": round((time.perf_counter() - started) * 1000.0, 2),
+        }
+    )
+    print(json.dumps(report, indent=2, default=str))
+    return 0
+
+
 def cmd_backend_proof(args: argparse.Namespace) -> int:
     adapter = _adapter(args.storage_dir, args.config_path, args.require_gpu)
     try:
@@ -666,6 +773,25 @@ def build_parser() -> argparse.ArgumentParser:
         help="Timeout budget for sidecar ground-truth retrieval (default: 1800ms)",
     )
     ret.set_defaults(func=cmd_retrieve)
+
+    resume = sub.add_parser("resume")
+    resume.add_argument(
+        "--query",
+        default="active continuity checkpoint compaction handoff resume next action",
+        help="Continuity-focused retrieval query",
+    )
+    resume.add_argument("--top-k", type=int, default=12)
+    resume.add_argument("--tenant-id", default="openclaw")
+    resume.add_argument("--client-id")
+    resume.add_argument("--session-id")
+    resume.add_argument("--instance-id")
+    resume.add_argument(
+        "--fallback-items",
+        type=int,
+        default=3,
+        help="Generic retrieved items to return if no active continuity checkpoint is found",
+    )
+    resume.set_defaults(func=cmd_resume)
 
     proof = sub.add_parser("backend-proof")
     proof.set_defaults(func=cmd_backend_proof)

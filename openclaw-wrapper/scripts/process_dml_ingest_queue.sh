@@ -1,13 +1,33 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-QUEUE_PATH="${1:-/home/nvidia/.openclaw/workspace/out/dml_ingest_queue.jsonl}"
-DAYSTROM_DML_HOME="${DAYSTROM_DML_HOME:-/home/nvidia/.openclaw/daystrom-dml-v2}"
-STORAGE_DIR="${2:-$DAYSTROM_DML_HOME/data}"
-DML_SCRIPT="/home/nvidia/.openclaw/workspace/skills/daystrom-dml/scripts/dml_memory.py"
-DML_CONFIG_PATH="${DML_CONFIG_PATH:-$DAYSTROM_DML_HOME/openclaw-wrapper/config/dml_gpu_only.yaml}"
-PYTHON_BIN="${PYTHON_BIN:-python3}"
+OPENCLAW_HOME="${OPENCLAW_HOME:-/Users/markmckeen/.openclaw}"
+OPENCLAW_WORKSPACE="${OPENCLAW_WORKSPACE:-$OPENCLAW_HOME/workspace}"
+QUEUE_PATH="${1:-$OPENCLAW_WORKSPACE/out/dml_ingest_queue.jsonl}"
+DAYSTROM_DML_HOME="${DAYSTROM_DML_HOME:-$OPENCLAW_HOME/daystrom-dml-v2}"
+STORAGE_DIR="${2:-${DML_STORE:-$OPENCLAW_HOME/dml-store}}"
+DML_SCRIPT="${DML_SCRIPT:-$OPENCLAW_WORKSPACE/skills/daystrom-dml/scripts/dml_memory.py}"
+DML_CONFIG_PATH="${DML_CONFIG_PATH:-$OPENCLAW_WORKSPACE/skills/daystrom-dml/config/dml_portable_linux.yaml}"
+PYTHON_BIN="${PYTHON_BIN:-$DAYSTROM_DML_HOME/.venv-dml/bin/python}"
 INGEST_TIMEOUT_SECONDS="${INGEST_TIMEOUT_SECONDS:-180}"
+DML_REQUIRE_GPU="${DML_REQUIRE_GPU:-0}"
+
+require_gpu_arg() {
+  local normalized
+  normalized="$(printf '%s' "$DML_REQUIRE_GPU" | tr '[:upper:]' '[:lower:]')"
+  case "$normalized" in
+    1|true|yes|on) printf '%s\n' "--require-gpu" ;;
+    *) printf '%s\n' "--no-require-gpu" ;;
+  esac
+}
+
+run_with_optional_timeout() {
+  if command -v timeout >/dev/null 2>&1; then
+    timeout "${INGEST_TIMEOUT_SECONDS}s" "$@"
+  else
+    "$@"
+  fi
+}
 
 summarize_checkpoint() {
   local checkpoint_path="$1"
@@ -39,6 +59,18 @@ captured_at: ${captured_at:-unknown}
 capture_mode: ${capture_mode:-rolling_thread_stash}
 capture_contract: ${capture_contract:-default_everything_should_be_stashed}
 EOF
+}
+
+checkpoint_field() {
+  local checkpoint_path="$1"
+  local field="$2"
+  if [ "$field" = "thread" ]; then
+    grep -m1 '^- thread:' "$checkpoint_path" | sed 's/^- thread: //' || true
+  elif [ "$field" = "updated_at" ]; then
+    grep -m1 '^- updated_at:' "$checkpoint_path" | sed 's/^- updated_at: //' || true
+  else
+    grep -m1 "^$field:" "$checkpoint_path" | sed "s/^$field: //" || true
+  fi
 }
 
 summarize_missing_checkpoint_tombstone() {
@@ -110,9 +142,42 @@ while IFS= read -r line; do
   fi
 
   textContent="$(summarize_checkpoint "$checkpointPath")"
+  thread="$(checkpoint_field "$checkpointPath" thread)"
+  updatedAt="$(checkpoint_field "$checkpointPath" updated_at)"
+  state="$(checkpoint_field "$checkpointPath" state)"
+  task="$(checkpoint_field "$checkpointPath" task)"
+  nextAction="$(checkpoint_field "$checkpointPath" next_action)"
+  capturedAt="$(checkpoint_field "$checkpointPath" captured_at)"
+  metaJson="$(jq -nc \
+    --arg source "rolling_thread_checkpoint" \
+    --arg namespace "active_continuity" \
+    --arg memory_state "active" \
+    --arg scope "thread" \
+    --arg checkpoint_path "$checkpointPath" \
+    --arg continuity_signal "resume_checkpoint" \
+    --arg thread "${thread:-unknown}" \
+    --arg updated_at "${updatedAt:-unknown}" \
+    --arg state "${state:-unknown}" \
+    --arg task "${task:-unknown}" \
+    --arg next_action "${nextAction:-none}" \
+    --arg captured_at "${capturedAt:-unknown}" \
+    '{
+      source: $source,
+      namespace: $namespace,
+      memory_state: $memory_state,
+      scope: $scope,
+      checkpoint_path: $checkpoint_path,
+      continuity_signal: $continuity_signal,
+      thread: $thread,
+      updated_at: $updated_at,
+      state: $state,
+      task: $task,
+      next_action: $next_action,
+      captured_at: $captured_at
+    }')"
   itemResult="ok"
   itemMessage="processed"
-  if timeout "${INGEST_TIMEOUT_SECONDS}s" "$PYTHON_BIN" "$DML_SCRIPT" --config-path "$DML_CONFIG_PATH" --require-gpu --storage-dir "$STORAGE_DIR" ingest --text "$textContent"; then
+  if run_with_optional_timeout "$PYTHON_BIN" "$DML_SCRIPT" --config-path "$DML_CONFIG_PATH" "$(require_gpu_arg)" --storage-dir "$STORAGE_DIR" ingest --kind plan --meta "$metaJson" --text "$textContent"; then
     itemResult="done"
     itemMessage="processed_summary"
   else

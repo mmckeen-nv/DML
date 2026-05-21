@@ -67,9 +67,10 @@ mod = _load_module()
 
 
 class _DummyAdapter:
-    def __init__(self, raise_gt: bool = False, sleep_gt_s: float = 0.0):
+    def __init__(self, raise_gt: bool = False, sleep_gt_s: float = 0.0, retrieval_report: dict | None = None):
         self.raise_gt = raise_gt
         self.sleep_gt_s = sleep_gt_s
+        self.retrieval_report = retrieval_report
         self.ingests: list[tuple[str, dict | None, bool]] = []
         self.preferences: list[tuple[str, dict]] = []
         self.persist_calls = 0
@@ -85,6 +86,10 @@ class _DummyAdapter:
         self.persist_calls += 1
 
     def retrieve_context(self, query: str, **_: object) -> dict:
+        if self.retrieval_report is not None:
+            report = dict(self.retrieval_report)
+            report["query_seen"] = query
+            return report
         return {"status": "ok", "query_seen": query}
 
     def query_database(self, query: str, mode: str = "hybrid") -> dict:
@@ -236,6 +241,76 @@ class TestGroundTruthHardening(unittest.TestCase):
             self.assertEqual(payload["ground_truth_status"], "error")
             self.assertEqual(payload["ground_truth_reason"], "policy_always")
             self.assertIn("memory_reformed_chunks", payload)
+        finally:
+            mod._adapter = original_adapter
+
+
+class TestContinuityResume(unittest.TestCase):
+    def test_cmd_resume_filters_active_continuity_and_emits_compact_checkpoint(self):
+        original_adapter = mod._adapter
+        adapter = _DummyAdapter(
+            retrieval_report={
+                "status": "ok",
+                "items": [
+                    {
+                        "text": "Unrelated imported manual text.",
+                        "meta": {"source": "archive_import", "namespace": "old_import"},
+                    },
+                    {
+                        "text": "\n".join(
+                            [
+                                "[source:rolling_thread_checkpoint]",
+                                "thread: main",
+                                "updated_at: 2026-05-21T12:00:00Z",
+                                "state: executing",
+                                "task: activate continuity loop",
+                                "next_action: run smoke tests",
+                            ]
+                        ),
+                        "meta": {
+                            "source": "rolling_thread_checkpoint",
+                            "namespace": "active_continuity",
+                            "memory_state": "active",
+                        },
+                    },
+                    {
+                        "text": "thread: old\nnext_action: ignore",
+                        "meta": {
+                            "source": "rolling_thread_checkpoint",
+                            "namespace": "active_continuity",
+                            "memory_state": "quarantined",
+                        },
+                    },
+                ],
+            }
+        )
+        try:
+            mod._adapter = lambda *_args, **_kwargs: adapter
+            args = Namespace(
+                storage_dir="/tmp/does-not-matter",
+                config_path=None,
+                require_gpu=False,
+                query="resume continuity",
+                tenant_id="openclaw",
+                client_id=None,
+                session_id=None,
+                instance_id=None,
+                top_k=12,
+                fallback_items=3,
+            )
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                rc = mod.cmd_resume(args)
+
+            self.assertEqual(rc, 0)
+            payload = json.loads(buf.getvalue())
+            self.assertEqual(payload["action"], "resume")
+            self.assertEqual(payload["continuity_items"], 1)
+            self.assertFalse(payload["fallback_used"])
+            self.assertEqual(payload["latest_checkpoint"]["next_action"], "run smoke tests")
+            self.assertIn("=== Active Continuity Resume ===", payload["raw_context"])
+            self.assertIn("activate continuity loop", payload["raw_context"])
+            self.assertNotIn("archive_import", payload["raw_context"])
         finally:
             mod._adapter = original_adapter
 
