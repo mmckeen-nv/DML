@@ -315,6 +315,75 @@ class TestContinuityResume(unittest.TestCase):
             mod._adapter = original_adapter
 
 
+class TestHealthCommand(unittest.TestCase):
+    def test_cmd_health_reports_valid_state_without_backend_probe(self):
+        with tempfile.TemporaryDirectory(prefix="dml-wrapper-health-test-") as tmp:
+            state_path = Path(tmp) / "dml_state.jsonl"
+            record = {
+                "id": 0,
+                "text": "checkpoint",
+                "embedding": [0.1, 0.2, 0.3],
+                "timestamp": 1.0,
+                "salience": 0.5,
+                "fidelity": 1.0,
+                "level": 0,
+                "summary_of": [0],
+                "meta": {
+                    "source": "rolling_thread_checkpoint",
+                    "namespace": "active_continuity",
+                    "summary": "thread: main | next: run tests",
+                },
+            }
+            payload_line = json.dumps(record, separators=(",", ":"), sort_keys=True)
+            checksum = mod.hashlib.sha256(payload_line.encode("utf-8")).hexdigest()
+            header = {
+                "type": "daystrom_dml.memory",
+                "version": 1,
+                "created_at": "2026-05-21T00:00:00+00:00",
+                "count": 1,
+                "checksum": checksum,
+            }
+            state_path.write_text(
+                json.dumps(header, separators=(",", ":"), sort_keys=True) + "\n" + payload_line,
+                encoding="utf-8",
+            )
+            args = Namespace(
+                storage_dir=tmp,
+                config_path=None,
+                require_gpu=False,
+                probe_backend=False,
+            )
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                rc = mod.cmd_health(args)
+
+            self.assertEqual(rc, 0)
+            payload = json.loads(buf.getvalue())
+            self.assertEqual(payload["status"], "ok")
+            self.assertEqual(payload["contract_version"], "dml-agent-memory-v1")
+            self.assertTrue(payload["state"]["checksum_ok"])
+            self.assertTrue(payload["state"]["count_ok"])
+            self.assertEqual(payload["state"]["embedding_dimensions"], [3])
+            self.assertEqual(payload["state"]["active_continuity_count"], 1)
+
+    def test_cmd_health_fails_missing_state_file(self):
+        with tempfile.TemporaryDirectory(prefix="dml-wrapper-health-missing-") as tmp:
+            args = Namespace(
+                storage_dir=tmp,
+                config_path=None,
+                require_gpu=False,
+                probe_backend=False,
+            )
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                rc = mod.cmd_health(args)
+
+            self.assertEqual(rc, 1)
+            payload = json.loads(buf.getvalue())
+            self.assertEqual(payload["status"], "fail")
+            self.assertIn("state_file_missing", payload["errors"])
+
+
 class TestIngestBatching(unittest.TestCase):
     def test_cmd_ingest_defers_persistence_until_chunks_finish(self):
         original_adapter = mod._adapter

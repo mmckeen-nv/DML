@@ -52,8 +52,12 @@ Optional flags:
 - `retrieve`: `--query-expand/--no-query-expand` (expands blocker terms like USD/export/fallback)
 
 ## Integration contract
+- Stable beta contract: `dml-agent-memory-v1`
+- See `ADAPTER_CONTRACT.md` for the harness-facing command/metadata contract.
+- `health`: validates store checksum/count/dimensions and reports readiness.
 - `ingest`: stores memory with kind + metadata.
 - `retrieve`: returns JSON report including `raw_context` + items.
+- `resume`: returns active continuity handoff and latest checkpoint fields.
 - Proven local baseline is GPU-first for current OpenClaw runtime work.
 - Portable installability on Linux must remain path-parameterized and not assume `/home/nvidia/...`.
 

@@ -288,6 +288,91 @@ def _dedup_index_path(storage_dir: str) -> Path:
     return Path(storage_dir) / ".ingest_dedup_sha256.txt"
 
 
+def _state_file_path(storage_dir: str) -> Path:
+    return Path(storage_dir) / "dml_state.jsonl"
+
+
+def _read_state_health(storage_dir: str) -> dict:
+    path = _state_file_path(storage_dir)
+    report = {
+        "path": str(path),
+        "exists": path.exists(),
+        "readable": False,
+        "checksum_ok": False,
+        "header_count": 0,
+        "record_count": 0,
+        "count_ok": False,
+        "embedding_dimensions": [],
+        "active_continuity_count": 0,
+        "quarantined_count": 0,
+        "summary_count": 0,
+        "errors": [],
+    }
+    if not path.exists():
+        report["errors"].append("state_file_missing")
+        return report
+    try:
+        lines = path.read_text(encoding="utf-8", errors="ignore").splitlines()
+        report["readable"] = True
+    except Exception as exc:
+        report["errors"].append(f"state_file_unreadable: {exc}")
+        return report
+    if not lines:
+        report["errors"].append("state_file_empty")
+        return report
+    try:
+        header = json.loads(lines[0])
+    except json.JSONDecodeError as exc:
+        report["errors"].append(f"invalid_header_json: {exc}")
+        return report
+
+    report["type"] = header.get("type")
+    report["version"] = header.get("version")
+    report["created_at"] = header.get("created_at")
+    report["header_count"] = int(header.get("count") or 0)
+    payload_lines = lines[1:]
+    expected_checksum = str(header.get("checksum") or "")
+    actual_checksum = hashlib.sha256("\n".join(payload_lines).encode("utf-8")).hexdigest()
+    report["checksum"] = {"expected": expected_checksum, "actual": actual_checksum}
+    report["checksum_ok"] = bool(expected_checksum and expected_checksum == actual_checksum)
+    if not report["checksum_ok"]:
+        report["errors"].append("checksum_mismatch")
+
+    dims: set[int] = set()
+    record_count = 0
+    for index, raw in enumerate(payload_lines, start=2):
+        if not raw:
+            continue
+        try:
+            record = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            report["errors"].append(f"invalid_record_json_line_{index}: {exc}")
+            continue
+        record_count += 1
+        embedding = record.get("embedding") or []
+        if isinstance(embedding, list):
+            dims.add(len(embedding))
+        meta = record.get("meta") or {}
+        if not isinstance(meta, dict):
+            meta = {}
+        if meta.get("namespace") == "active_continuity" or meta.get("source") in CONTINUITY_SOURCES:
+            report["active_continuity_count"] += 1
+        if str(meta.get("memory_state") or "").lower() in {"quarantined", "suppressed", "deleted"}:
+            report["quarantined_count"] += 1
+        if str(meta.get("summary") or "").strip():
+            report["summary_count"] += 1
+
+    report["record_count"] = record_count
+    report["count_ok"] = report["header_count"] == record_count
+    if not report["count_ok"]:
+        report["errors"].append("record_count_mismatch")
+    report["embedding_dimensions"] = sorted(dims)
+    if len(dims) > 1:
+        report["errors"].append("mixed_embedding_dimensions")
+    report["summary_ratio"] = round(report["summary_count"] / record_count, 4) if record_count else 1.0
+    return report
+
+
 def _load_dedup_index(storage_dir: str) -> set[str]:
     path = _dedup_index_path(storage_dir)
     if not path.exists():
@@ -784,6 +869,59 @@ def cmd_backend_proof(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_health(args: argparse.Namespace) -> int:
+    started = time.perf_counter()
+    state = _read_state_health(args.storage_dir)
+    dedup_path = _dedup_index_path(args.storage_dir)
+    migration_report = Path(args.storage_dir) / "embedding_compatibility_report.json"
+    queue_status_path = WORKSPACE / "out" / "continuity-ingest-status.json"
+    report = {
+        "status": "ok",
+        "action": "health",
+        "contract_version": "dml-agent-memory-v1",
+        "storage_dir": args.storage_dir,
+        "config_path": args.config_path,
+        "state": state,
+        "dedup_index": {
+            "path": str(dedup_path),
+            "exists": dedup_path.exists(),
+        },
+        "migration_report": {
+            "path": str(migration_report),
+            "exists": migration_report.exists(),
+        },
+        "continuity_worker": {
+            "status_path": str(queue_status_path),
+            "status_exists": queue_status_path.exists(),
+        },
+        "backend": None,
+        "latency_ms": 0.0,
+    }
+    errors = list(state.get("errors") or [])
+    if args.probe_backend:
+        adapter = _adapter(args.storage_dir, args.config_path, args.require_gpu)
+        try:
+            backend = _backend_proof(adapter)
+            backend["status"] = "ok"
+            report["backend"] = backend
+        except Exception as exc:
+            errors.append(f"backend_probe_failed: {exc}")
+            report["backend"] = {"status": "error", "error": str(exc)}
+        finally:
+            adapter.close()
+
+    if state.get("exists") and not errors:
+        report["status"] = "ok"
+    elif state.get("exists") and state.get("readable"):
+        report["status"] = "degraded"
+    else:
+        report["status"] = "fail"
+    report["errors"] = errors
+    report["latency_ms"] = round((time.perf_counter() - started) * 1000.0, 2)
+    print(json.dumps(report, indent=2, default=str))
+    return 0 if report["status"] in {"ok", "degraded"} else 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
     parser.add_argument("--storage-dir", default=str(DAYSTROM_DML_HOME / "data"))
@@ -892,6 +1030,15 @@ def build_parser() -> argparse.ArgumentParser:
 
     proof = sub.add_parser("backend-proof")
     proof.set_defaults(func=cmd_backend_proof)
+
+    health = sub.add_parser("health")
+    health.add_argument(
+        "--probe-backend",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Instantiate the adapter and verify embedding/LLM backend surfaces",
+    )
+    health.set_defaults(func=cmd_health)
 
     mig = sub.add_parser("migration-status")
     mig.set_defaults(func=cmd_migration_status)
