@@ -80,6 +80,7 @@ dev = [
 ]
 
 [project.scripts]
+dml = "daystrom_dml.provider_cli:main"
 cma = "cma.cli:app"
 dml-server = "daystrom_dml.server:main"
 dml-provider = "daystrom_dml.provider_server:main"

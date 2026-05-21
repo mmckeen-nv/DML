@@ -129,13 +129,25 @@ Use `--reload` during development for hot reloading. The server honours `DML_HOS
 ### Provider mode
 ```bash
 pip install .[server,mcp]
-dml-provider --storage-dir ./data --host 127.0.0.1 --port 8765
+dml serve --storage-dir ./data --host 127.0.0.1 --port 8765
 ```
 Provider mode serves a local UI at `http://127.0.0.1:8765`, health at
 `/health`, and DML memory APIs under `/api/*` for recall, remember, resume,
-search, and fetch. Use `scripts/install_daystrom_dml.sh` for an OpenClaw-ready
-local install that creates the venv, syncs the skill wrapper, and prints MCP/UI
-commands.
+search, and fetch. It also exposes simple Ollama-shaped endpoints:
+`/api/tags`, `/api/show`, and `/api/generate`.
+
+Ollama-style client commands:
+```bash
+dml status
+dml remember --text "The active branch is provider-hardening." --meta '{"source":"cli"}'
+dml recall --query "active branch" --context-only
+dml search --query "provider"
+dml fetch 1
+```
+
+Use `scripts/install_daystrom_dml.sh --profile openclaw` or
+`--profile hermes` for an agent-app-ready local install that creates the venv,
+syncs the skill wrapper, writes a JSON app profile, and prints MCP/UI commands.
 
 ### Docker
 ```bash

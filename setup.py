@@ -125,6 +125,7 @@ setup(
     package_data={"daystrom_dml": ["web/*", "web/**/*", "provider_web/*"]},
     entry_points={
         "console_scripts": [
+            "dml=daystrom_dml.provider_cli:main",
             "cma=cma.cli:app",
             "dml-server=daystrom_dml.server:main",
             "dml-provider=daystrom_dml.provider_server:main",

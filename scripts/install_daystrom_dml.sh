@@ -11,14 +11,24 @@ STORE="${DML_STORE:-$OPENCLAW_HOME/dml-store}"
 EXTRAS="${DML_INSTALL_EXTRAS:-server,mcp}"
 DRY_RUN=0
 RUN_SMOKE=1
+PROFILE="openclaw"
+PROFILE_OUTPUT=""
 
-for arg in "$@"; do
-  case "$arg" in
+while [ "$#" -gt 0 ]; do
+  case "$1" in
     --dry-run) DRY_RUN=1 ;;
     --skip-smoke) RUN_SMOKE=0 ;;
+    --profile)
+      PROFILE="${2:-}"
+      shift
+      ;;
+    --profile-output)
+      PROFILE_OUTPUT="${2:-}"
+      shift
+      ;;
     --help)
       cat <<EOF
-Usage: scripts/install_daystrom_dml.sh [--dry-run] [--skip-smoke]
+Usage: scripts/install_daystrom_dml.sh [--dry-run] [--skip-smoke] [--profile openclaw|hermes|generic] [--profile-output path]
 
 Environment:
   OPENCLAW_HOME         default: $HOME/.openclaw
@@ -30,7 +40,13 @@ EOF
       exit 0
       ;;
   esac
+  shift
 done
+
+case "$PROFILE" in
+  openclaw|hermes|generic) ;;
+  *) echo "unsupported --profile: $PROFILE" >&2; exit 1 ;;
+esac
 
 run() {
   printf '+'
@@ -55,6 +71,15 @@ run "$VENV/bin/python" -m pip install --upgrade pip setuptools wheel
 run "$VENV/bin/python" -m pip install -e "$REPO_ROOT[$EXTRAS]"
 run rsync -a --exclude='__pycache__/' --exclude='.pytest_cache/' "$REPO_ROOT/openclaw-wrapper/" "$SKILL_TARGET/"
 
+if [ -z "$PROFILE_OUTPUT" ]; then
+  PROFILE_OUTPUT="$DAYSTROM_DML_HOME/${PROFILE}-dml-profile.json"
+fi
+run "$VENV/bin/python" -m daystrom_dml.provider_cli install-app \
+  --app "$PROFILE" \
+  --storage-dir "$STORE" \
+  --base-url "http://127.0.0.1:8765" \
+  --output "$PROFILE_OUTPUT"
+
 if [ "$RUN_SMOKE" = "1" ]; then
   run "$VENV/bin/python" "$SKILL_TARGET/scripts/dml_memory.py" \
     --storage-dir "$STORE" \
@@ -75,4 +100,7 @@ MCP:
 
 OpenClaw wrapper:
   $VENV/bin/python "$SKILL_TARGET/scripts/dml_memory.py" --storage-dir "$STORE" --no-require-gpu resume
+
+Agent profile:
+  $PROFILE_OUTPUT
 EOF

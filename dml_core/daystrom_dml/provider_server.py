@@ -99,6 +99,31 @@ def create_app(
     def stats() -> dict[str, Any]:
         return app.state.adapter.stats()
 
+    @app.get("/api/tags")
+    def ollama_tags() -> dict[str, Any]:
+        stats_payload = app.state.adapter.stats()
+        return {
+            "models": [
+                {
+                    "name": "daystrom-dml:memory",
+                    "model": "daystrom-dml:memory",
+                    "modified_at": "",
+                    "size": int(stats_payload.get("count") or 0),
+                    "details": {"family": "memory-provider", "parameter_size": "local", "quantization_level": "n/a"},
+                }
+            ]
+        }
+
+    @app.post("/api/show")
+    def ollama_show(payload: dict[str, Any] | None = None) -> dict[str, Any]:
+        return {
+            "license": "MIT",
+            "modelfile": "FROM daystrom-dml:memory",
+            "parameters": "memory_provider true",
+            "template": "{{ .Prompt }}",
+            "details": {"family": "memory-provider", "format": "dml", "parameter_size": "local"},
+        }
+
     @app.post("/api/remember")
     def remember(payload: RememberRequest) -> dict[str, Any]:
         meta = {
@@ -135,6 +160,24 @@ def create_app(
         )
         report["action"] = "resume"
         return report
+
+    @app.post("/api/generate")
+    def ollama_generate(payload: dict[str, Any]) -> dict[str, Any]:
+        prompt = str(payload.get("prompt") or "")
+        tenant_id = str(payload.get("tenant_id") or "openclaw")
+        session_id = payload.get("session_id")
+        report = app.state.adapter.retrieve_context(prompt, tenant_id=tenant_id, session_id=session_id, top_k=int(payload.get("top_k") or 6))
+        return {
+            "model": payload.get("model") or "daystrom-dml:memory",
+            "created_at": "",
+            "response": report.get("raw_context") or "",
+            "done": True,
+            "context": [],
+            "total_duration": int(float(report.get("latency_ms") or 0) * 1_000_000),
+            "load_duration": 0,
+            "prompt_eval_count": len(prompt.split()),
+            "eval_count": int(report.get("context_tokens") or 0),
+        }
 
     @app.get("/api/search")
     def search(q: str, tenant_id: str = "openclaw", session_id: str | None = None, top_k: int = 6) -> dict[str, Any]:

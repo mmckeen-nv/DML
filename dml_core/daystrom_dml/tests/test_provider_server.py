@@ -84,3 +84,16 @@ def test_provider_server_remember() -> None:
     assert response.status_code == 200
     assert adapter.ingested[0][0] == "Remember this"
     assert adapter.ingested[0][1]["session_id"] == "s1"
+
+
+def test_provider_server_ollama_style_endpoints() -> None:
+    app = create_app(adapter_factory=DummyAdapter)
+    client = TestClient(app)
+
+    tags = client.get("/api/tags").json()
+    assert tags["models"][0]["name"] == "daystrom-dml:memory"
+    show = client.post("/api/show", json={"model": "daystrom-dml:memory"}).json()
+    assert show["details"]["family"] == "memory-provider"
+    generated = client.post("/api/generate", json={"prompt": "provider memory", "model": "daystrom-dml:memory"}).json()
+    assert generated["done"] is True
+    assert "Provider memory text" in generated["response"]

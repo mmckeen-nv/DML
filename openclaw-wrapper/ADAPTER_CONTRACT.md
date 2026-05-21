@@ -248,11 +248,25 @@ Writes several session handoffs to a disposable store and verifies tenant-wide
 ### Provider Server
 
 ```bash
-dml-provider --storage-dir "$DML_STORE" --host 127.0.0.1 --port 8765
+dml serve --storage-dir "$DML_STORE" --host 127.0.0.1 --port 8765
 ```
 
 Serves a local UI at `/`, health at `/health`, DML-native API endpoints under
-`/api/*`, and search/fetch compatible surfaces for provider-style integrations.
+`/api/*`, search/fetch compatible surfaces for provider-style integrations, and
+Ollama-shaped `/api/tags`, `/api/show`, and `/api/generate` endpoints.
+
+### CLI Client
+
+```bash
+dml status
+dml remember --text "..." --meta '{"source":"agent"}'
+dml recall --query "current task" --context-only
+dml resume --context-only
+dml install-app --app openclaw --output ~/.openclaw/daystrom-dml-profile.json
+```
+
+Use `dml install-app --app hermes` for Hermes-style harnesses. The generated
+profile includes provider URL, tenant, storage, MCP command, and CLI examples.
 
 ### Background Worker
 
