@@ -105,6 +105,15 @@ It emits JSON to stdout plus `recall_eval_report.json` and
 `recall_eval_report.md` in the chosen output directory. Add `--storage-dir` to
 run against a specific disposable store, not the production memory store.
 
+## Beta readiness gate
+Run before shipping or switching a harness to a store:
+
+- `python3 /Users/markmckeen/.openclaw/daystrom-dml-v2/openclaw-wrapper/scripts/beta_readiness.py --storage-dir "$DML_STORE" --tenant-id openclaw --output-dir /tmp/dml-beta-readiness`
+
+The gate runs `health`, `verify`, `conflicts`, `audit-tail`, and the isolated
+recall eval, then emits JSON plus optional Markdown. Use
+`--skip-recall-eval` for a faster store-only preflight.
+
 ## Notes
 - This is a substrate skill: keep usage deterministic and tool-friendly (JSON output only).
 - Canonical runtime is the durable Daystrom env, not an ad-hoc workspace venv.

@@ -126,6 +126,26 @@ When `--output-dir` is set, it also writes `recall_eval_report.json` and
 `recall_eval_report.md`. Use `--storage-dir` only with a disposable test store;
 the eval intentionally writes fixture memories.
 
+### Beta Readiness
+
+```bash
+python scripts/beta_readiness.py \
+  --storage-dir "$DML_STORE" \
+  --tenant-id openclaw \
+  --output-dir /tmp/dml-beta-readiness
+```
+
+Runs the portable beta gate:
+
+- `health`
+- `verify`
+- `conflicts`
+- `audit-tail`
+- isolated `recall_eval.py`
+
+The command exits `0` only when required checks pass and unresolved conflicts
+are within budget. Add `--skip-recall-eval` for a fast store-only preflight.
+
 ### Ingest
 
 ```bash
