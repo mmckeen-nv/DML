@@ -10,6 +10,12 @@ only needs to write structured memories and read compact context packets.
 
 All commands emit JSON and should be safe for another process to parse.
 
+Mutating commands acquire a shared store write lock at
+`$DML_STORE/.dml_store.lock`. The default is fail-fast. Set
+`--lock-timeout-ms <ms>` before the subcommand when a harness should wait for
+another writer. A blocked writer returns JSON with `status: "blocked"`,
+`error: "store_write_lock_held"`, and lock holder metadata.
+
 ### Health
 
 ```bash
@@ -33,6 +39,7 @@ Expected top-level fields:
 - `state.record_count`
 - `state.embedding_dimensions`
 - `state.active_continuity_count`
+- `store_lock.path`, `store_lock.metadata`
 - `errors`
 
 ### Backup

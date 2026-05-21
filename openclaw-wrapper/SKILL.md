@@ -54,6 +54,7 @@ Optional flags:
 ## Integration contract
 - Stable beta contract: `dml-agent-memory-v1`
 - See `ADAPTER_CONTRACT.md` for the harness-facing command/metadata contract.
+- Mutating commands use `$DML_STORE/.dml_store.lock`; use `--lock-timeout-ms` for multi-agent wait behavior.
 - `health`: validates store checksum/count/dimensions and reports readiness.
 - `backup`: creates checksum-manifested backups before risky operations.
 - `verify`: loads durable state through the persistence layer and reports recovery suggestions.

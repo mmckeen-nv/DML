@@ -10,7 +10,10 @@ import os
 import shutil
 import sys
 import time
+import errno
+import fcntl
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -294,6 +297,91 @@ def _state_file_path(storage_dir: str) -> Path:
     return Path(storage_dir) / "dml_state.jsonl"
 
 
+def _lock_file_path(storage_dir: str) -> Path:
+    return Path(storage_dir) / ".dml_store.lock"
+
+
+def _lock_metadata_path(storage_dir: str) -> Path:
+    return Path(storage_dir) / ".dml_store.lock.json"
+
+
+def _read_lock_metadata(storage_dir: str) -> dict | None:
+    path = _lock_metadata_path(storage_dir)
+    if not path.exists():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8", errors="ignore"))
+        return data if isinstance(data, dict) else None
+    except Exception:
+        return None
+
+
+@contextmanager
+def _store_write_lock(storage_dir: str, *, operation: str, timeout_ms: int = 0):
+    lock_path = _lock_file_path(storage_dir)
+    lock_meta_path = _lock_metadata_path(storage_dir)
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    started = time.perf_counter()
+    handle = lock_path.open("a+", encoding="utf-8")
+    acquired = False
+    try:
+        while True:
+            try:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                acquired = True
+                break
+            except OSError as exc:
+                if exc.errno not in {errno.EACCES, errno.EAGAIN}:
+                    raise
+                waited_ms = (time.perf_counter() - started) * 1000.0
+                if timeout_ms <= 0 or waited_ms >= timeout_ms:
+                    holder = _read_lock_metadata(storage_dir) or {}
+                    raise TimeoutError(
+                        json.dumps(
+                            {
+                                "lock_path": str(lock_path),
+                                "operation": operation,
+                                "waited_ms": round(waited_ms, 2),
+                                "holder": holder,
+                            },
+                            sort_keys=True,
+                        )
+                    )
+                time.sleep(min(0.05, max(0.005, (timeout_ms - waited_ms) / 1000.0)))
+        meta = {
+            "operation": operation,
+            "pid": os.getpid(),
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "lock_path": str(lock_path),
+        }
+        lock_meta_path.write_text(json.dumps(meta, indent=2, sort_keys=True), encoding="utf-8")
+        yield {"path": str(lock_path), "metadata_path": str(lock_meta_path), **meta}
+    finally:
+        if acquired:
+            try:
+                if _read_lock_metadata(storage_dir) and lock_meta_path.exists():
+                    lock_meta_path.unlink()
+            except Exception:
+                pass
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        handle.close()
+
+
+def _lock_failure_report(action: str, exc: TimeoutError, started: float) -> dict:
+    details: dict = {}
+    try:
+        details = json.loads(str(exc))
+    except Exception:
+        details = {"error": str(exc)}
+    return {
+        "status": "blocked",
+        "action": action,
+        "error": "store_write_lock_held",
+        "lock": details,
+        "latency_ms": round((time.perf_counter() - started) * 1000.0, 2),
+    }
+
+
 def _backup_root(storage_dir: str, backup_dir: str | None = None) -> Path:
     return Path(backup_dir).expanduser() if backup_dir else Path(storage_dir) / "backups"
 
@@ -492,10 +580,18 @@ def _adapter(storage_dir: str, config_path: str | None, require_gpu: bool) -> DM
 
 
 def cmd_ingest(args: argparse.Namespace) -> int:
+    started = time.perf_counter()
     meta = _parse_meta(args.meta)
-    adapter = _adapter(args.storage_dir, args.config_path, args.require_gpu)
-    seen = _load_dedup_index(args.storage_dir)
     try:
+        lock_ctx = _store_write_lock(args.storage_dir, operation="ingest", timeout_ms=args.lock_timeout_ms)
+        lock = lock_ctx.__enter__()
+    except TimeoutError as exc:
+        print(json.dumps(_lock_failure_report("ingest", exc, started), indent=2, default=str))
+        return 2
+    adapter = None
+    try:
+        adapter = _adapter(args.storage_dir, args.config_path, args.require_gpu)
+        seen = _load_dedup_index(args.storage_dir)
         payload_meta = {**meta, "kind": _kind(args.kind).value}
         chunks = smart_chunks(args.text, chunk_chars=max(180, args.chunk_chars), overlap=max(0, args.chunk_overlap)) if args.chunk else [args.text]
         kept = 0
@@ -536,7 +632,9 @@ def cmd_ingest(args: argparse.Namespace) -> int:
             kept += 1
         adapter._persist_all()
     finally:
-        adapter.close()
+        if adapter is not None:
+            adapter.close()
+        lock_ctx.__exit__(None, None, None)
     print(
         json.dumps(
             {
@@ -549,6 +647,7 @@ def cmd_ingest(args: argparse.Namespace) -> int:
                 "cheap_summaries": cheap_summaries,
                 "skipped_summaries": skipped_summaries,
                 "llm_summaries_allowed": llm_summaries_allowed,
+                "lock": lock,
             },
             indent=2,
         )
@@ -581,34 +680,46 @@ def cmd_migration_status(args: argparse.Namespace) -> int:
 
 
 def cmd_migrate_embeddings(args: argparse.Namespace) -> int:
+    started = time.perf_counter()
+    try:
+        lock_ctx = _store_write_lock(args.storage_dir, operation="migrate-embeddings", timeout_ms=args.lock_timeout_ms)
+        lock = lock_ctx.__enter__()
+    except TimeoutError as exc:
+        print(json.dumps(_lock_failure_report("migrate-embeddings", exc, started), indent=2, default=str))
+        return 2
     storage_dir = Path(args.storage_dir)
     persistence_path = storage_dir / "dml_state.jsonl"
-    if not persistence_path.exists():
-        print(
-            json.dumps(
-                {
-                    "status": "missing",
-                    "action": "migrate-embeddings",
-                    "storage_dir": str(storage_dir),
-                    "message": "no persisted dml_state.jsonl found",
-                },
-                indent=2,
-            )
-        )
-        return 0
-    from daystrom_dml.persistence import load_state, save_state  # type: ignore
-
-    items = load_state(persistence_path)
-    adapter = _adapter(args.storage_dir, args.config_path, args.require_gpu)
+    adapter = None
     try:
+        if not persistence_path.exists():
+            print(
+                json.dumps(
+                    {
+                        "status": "missing",
+                        "action": "migrate-embeddings",
+                        "storage_dir": str(storage_dir),
+                        "message": "no persisted dml_state.jsonl found",
+                        "lock": lock,
+                    },
+                    indent=2,
+                )
+            )
+            return 0
+        from daystrom_dml.persistence import load_state, save_state  # type: ignore
+
+        items = load_state(persistence_path)
+        adapter = _adapter(args.storage_dir, args.config_path, args.require_gpu)
         payload = {"items": [item.to_dict() for item in items]}
         report = adapter._ensure_embedding_compatibility(payload, max_items=args.max_items)
         adapter.store.import_state(payload)
         save_state(adapter.store.items(), persistence_path)
     finally:
-        adapter.close()
+        if adapter is not None:
+            adapter.close()
+        lock_ctx.__exit__(None, None, None)
     report["action"] = "migrate-embeddings"
     report["storage_dir"] = str(storage_dir)
+    report["lock"] = lock
     print(json.dumps(report, indent=2, default=str))
     return 0
 
@@ -969,6 +1080,11 @@ def cmd_health(args: argparse.Namespace) -> int:
             "status_path": str(queue_status_path),
             "status_exists": queue_status_path.exists(),
         },
+        "store_lock": {
+            "path": str(_lock_file_path(args.storage_dir)),
+            "metadata_path": str(_lock_metadata_path(args.storage_dir)),
+            "metadata": _read_lock_metadata(args.storage_dir),
+        },
         "backend": None,
         "latency_ms": 0.0,
     }
@@ -1000,21 +1116,26 @@ def cmd_health(args: argparse.Namespace) -> int:
 def cmd_backup(args: argparse.Namespace) -> int:
     started = time.perf_counter()
     try:
-        manifest = _create_backup(
-            args.storage_dir,
-            backup_dir=args.backup_dir,
-            label=args.label,
-            keep=args.keep,
-        )
+        with _store_write_lock(args.storage_dir, operation="backup", timeout_ms=args.lock_timeout_ms) as lock:
+            manifest = _create_backup(
+                args.storage_dir,
+                backup_dir=args.backup_dir,
+                label=args.label,
+                keep=args.keep,
+            )
         report = {
             "status": "ok",
             "action": "backup",
             "contract_version": "dml-agent-memory-v1",
             "backup": manifest,
+            "lock": lock,
             "latency_ms": round((time.perf_counter() - started) * 1000.0, 2),
         }
         print(json.dumps(report, indent=2, default=str))
         return 0
+    except TimeoutError as exc:
+        print(json.dumps(_lock_failure_report("backup", exc, started), indent=2, default=str))
+        return 2
     except Exception as exc:
         report = {
             "status": "fail",
@@ -1086,50 +1207,51 @@ def _manifest_file(manifest: dict, name: str) -> dict | None:
 def cmd_restore(args: argparse.Namespace) -> int:
     started = time.perf_counter()
     try:
-        backup_path, manifest = _load_backup_manifest(args.backup)
-        state_entry = _manifest_file(manifest, "dml_state.jsonl")
-        if not state_entry:
-            raise FileNotFoundError("backup manifest does not include dml_state.jsonl")
-        source_state = Path(str(state_entry["path"])).expanduser()
-        if not source_state.is_absolute():
-            source_state = backup_path / source_state
-        if not source_state.exists():
-            raise FileNotFoundError(f"backup state missing: {source_state}")
-        actual = _sha256_file(source_state)
-        expected = str(state_entry.get("sha256") or "")
-        if expected and actual != expected:
-            raise ValueError("backup state checksum mismatch")
+        with _store_write_lock(args.storage_dir, operation="restore", timeout_ms=args.lock_timeout_ms) as lock:
+            backup_path, manifest = _load_backup_manifest(args.backup)
+            state_entry = _manifest_file(manifest, "dml_state.jsonl")
+            if not state_entry:
+                raise FileNotFoundError("backup manifest does not include dml_state.jsonl")
+            source_state = Path(str(state_entry["path"])).expanduser()
+            if not source_state.is_absolute():
+                source_state = backup_path / source_state
+            if not source_state.exists():
+                raise FileNotFoundError(f"backup state missing: {source_state}")
+            actual = _sha256_file(source_state)
+            expected = str(state_entry.get("sha256") or "")
+            if expected and actual != expected:
+                raise ValueError("backup state checksum mismatch")
 
-        pre_restore = None
-        if _state_file_path(args.storage_dir).exists() and not args.no_pre_restore_backup:
-            pre_restore = _create_backup(
-                args.storage_dir,
-                backup_dir=args.backup_dir,
-                label="pre-restore",
-                keep=args.keep,
-            )
+            pre_restore = None
+            if _state_file_path(args.storage_dir).exists() and not args.no_pre_restore_backup:
+                pre_restore = _create_backup(
+                    args.storage_dir,
+                    backup_dir=args.backup_dir,
+                    label="pre-restore",
+                    keep=args.keep,
+                )
 
-        target = _state_file_path(args.storage_dir)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        tmp = target.with_suffix(target.suffix + ".restore-tmp")
-        shutil.copy2(source_state, tmp)
-        tmp.replace(target)
+            target = _state_file_path(args.storage_dir)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            tmp = target.with_suffix(target.suffix + ".restore-tmp")
+            shutil.copy2(source_state, tmp)
+            tmp.replace(target)
 
-        for optional_name in [".ingest_dedup_sha256.txt", "embedding_compatibility_report.json", "dpm_preference_graph.json"]:
-            entry = _manifest_file(manifest, optional_name)
-            if not entry:
-                continue
-            source = Path(str(entry["path"])).expanduser()
-            if not source.is_absolute():
-                source = backup_path / source
-            if not source.exists():
-                continue
-            dest = Path(args.storage_dir) / optional_name
-            tmp_optional = dest.with_suffix(dest.suffix + ".restore-tmp") if dest.suffix else dest.with_name(dest.name + ".restore-tmp")
-            shutil.copy2(source, tmp_optional)
-            tmp_optional.replace(dest)
+            for optional_name in [".ingest_dedup_sha256.txt", "embedding_compatibility_report.json", "dpm_preference_graph.json"]:
+                entry = _manifest_file(manifest, optional_name)
+                if not entry:
+                    continue
+                source = Path(str(entry["path"])).expanduser()
+                if not source.is_absolute():
+                    source = backup_path / source
+                if not source.exists():
+                    continue
+                dest = Path(args.storage_dir) / optional_name
+                tmp_optional = dest.with_suffix(dest.suffix + ".restore-tmp") if dest.suffix else dest.with_name(dest.name + ".restore-tmp")
+                shutil.copy2(source, tmp_optional)
+                tmp_optional.replace(dest)
 
-        verify = _read_state_health(args.storage_dir)
+            verify = _read_state_health(args.storage_dir)
         status = "ok" if not verify.get("errors") else "degraded"
         report = {
             "status": status,
@@ -1138,10 +1260,14 @@ def cmd_restore(args: argparse.Namespace) -> int:
             "restored_from": str(source_state),
             "pre_restore_backup": pre_restore,
             "state": verify,
+            "lock": lock,
             "latency_ms": round((time.perf_counter() - started) * 1000.0, 2),
         }
         print(json.dumps(report, indent=2, default=str))
         return 0 if status == "ok" else 1
+    except TimeoutError as exc:
+        print(json.dumps(_lock_failure_report("restore", exc, started), indent=2, default=str))
+        return 2
     except Exception as exc:
         report = {
             "status": "fail",
@@ -1166,6 +1292,12 @@ def build_parser() -> argparse.ArgumentParser:
         action=argparse.BooleanOptionalAction,
         default=True,
         help="Fail fast if CUDA embedding path is not active (default: true)",
+    )
+    parser.add_argument(
+        "--lock-timeout-ms",
+        type=int,
+        default=0,
+        help="Milliseconds to wait for the shared store write lock before returning blocked (default: 0)",
     )
 
     sub = parser.add_subparsers(dest="cmd", required=True)

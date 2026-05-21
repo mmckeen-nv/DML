@@ -1,6 +1,8 @@
 import importlib.util
 import io
+import fcntl
 import json
+import os
 import sys
 import tempfile
 import time
@@ -394,7 +396,13 @@ class TestHealthCommand(unittest.TestCase):
             storage.mkdir()
             state_path = self._write_state(str(storage), text="original memory")
 
-            backup_args = Namespace(storage_dir=str(storage), backup_dir=str(backup_dir), label="unit", keep=20)
+            backup_args = Namespace(
+                storage_dir=str(storage),
+                backup_dir=str(backup_dir),
+                label="unit",
+                keep=20,
+                lock_timeout_ms=0,
+            )
             buf = io.StringIO()
             with redirect_stdout(buf):
                 self.assertEqual(mod.cmd_backup(backup_args), 0)
@@ -415,6 +423,7 @@ class TestHealthCommand(unittest.TestCase):
                 backup=str(backup_path),
                 backup_dir=str(backup_dir),
                 keep=20,
+                lock_timeout_ms=0,
                 no_pre_restore_backup=False,
             )
             buf = io.StringIO()
@@ -430,6 +439,40 @@ class TestHealthCommand(unittest.TestCase):
                 self.assertEqual(mod.cmd_verify(verify_args), 0)
             self.assertEqual(json.loads(buf.getvalue())["status"], "ok")
 
+    def test_backup_reports_blocked_when_store_write_lock_is_held(self):
+        with tempfile.TemporaryDirectory(prefix="dml-wrapper-lock-test-") as tmp:
+            storage = Path(tmp) / "store"
+            backup_dir = Path(tmp) / "backups"
+            storage.mkdir()
+            self._write_state(str(storage), text="locked memory")
+            lock_path = mod._lock_file_path(str(storage))
+            lock_path.parent.mkdir(parents=True, exist_ok=True)
+            with lock_path.open("a+", encoding="utf-8") as handle:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                try:
+                    mod._lock_metadata_path(str(storage)).write_text(
+                        json.dumps({"operation": "unit-test", "pid": os.getpid()}),
+                        encoding="utf-8",
+                    )
+                    args = Namespace(
+                        storage_dir=str(storage),
+                        backup_dir=str(backup_dir),
+                        label="blocked",
+                        keep=20,
+                        lock_timeout_ms=0,
+                    )
+                    buf = io.StringIO()
+                    with redirect_stdout(buf):
+                        rc = mod.cmd_backup(args)
+                finally:
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+            self.assertEqual(rc, 2)
+            payload = json.loads(buf.getvalue())
+            self.assertEqual(payload["status"], "blocked")
+            self.assertEqual(payload["error"], "store_write_lock_held")
+            self.assertEqual(payload["lock"]["holder"]["operation"], "unit-test")
+
 
 class TestIngestBatching(unittest.TestCase):
     def test_cmd_ingest_defers_persistence_until_chunks_finish(self):
@@ -442,6 +485,7 @@ class TestIngestBatching(unittest.TestCase):
                 storage_dir=storage_dir,
                 config_path=None,
                 require_gpu=False,
+                lock_timeout_ms=0,
                 text=" ".join(f"Durable memory sentence {idx} with useful context." for idx in range(80)),
                 kind="note",
                 meta=None,
@@ -476,6 +520,7 @@ class TestIngestBatching(unittest.TestCase):
                 storage_dir=storage_dir,
                 config_path=None,
                 require_gpu=False,
+                lock_timeout_ms=0,
                 text="I prefer wrapper smoke status updates to be concise.",
                 kind="note",
                 meta=json.dumps({"source": "wrapper-smoke", "dpm_preference": True}),
@@ -509,6 +554,7 @@ class TestIngestBatching(unittest.TestCase):
                 storage_dir=storage_dir,
                 config_path=None,
                 require_gpu=False,
+                lock_timeout_ms=0,
                 text="\n".join(
                     [
                         "[source:rolling_thread_checkpoint]",
