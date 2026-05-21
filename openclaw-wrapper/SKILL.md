@@ -54,7 +54,8 @@ Optional flags:
 ## Integration contract
 - Stable beta contract: `dml-agent-memory-v1`
 - See `ADAPTER_CONTRACT.md` for the harness-facing command/metadata contract.
-- Mutating commands use `$DML_STORE/.dml_store.lock`; use `--lock-timeout-ms` for multi-agent wait behavior.
+- Mutating commands use `$DML_STORE/.dml_store.lock`; default wait is 30000ms,
+  and `--lock-timeout-ms` can tune multi-session wait behavior.
 - New writes default to `tenant_id=openclaw`; multi-user harnesses should pass `--tenant-id` explicitly.
 - Mutating commands append compact events to `$DML_STORE/dml_audit.jsonl`; use `--audit-actor` and `audit-tail`.
 - `health`: validates store checksum/count/dimensions and reports readiness.
@@ -78,6 +79,12 @@ Optional flags:
 - Use `curate` as a dry-run first to find old low-fidelity memories. Add
   `--apply` only after review; active continuity memories are protected unless
   `--include-continuity` is set.
+- Single-user multi-session contract: keep `tenant_id=openclaw`, pass a unique
+  `--session-id` per concurrent OpenClaw session for session-local recall, and
+  omit `--session-id` only for intentional tenant-wide recall.
+- Continuity checkpoints should carry `updated_at` or `captured_at`; `resume`
+  selects the newest active checkpoint after retrieval, not the first retrieval
+  hit.
 - Proven local baseline is GPU-first for current OpenClaw runtime work.
 - Portable installability on Linux must remain path-parameterized and not assume `/home/nvidia/...`.
 
@@ -122,6 +129,8 @@ parallel `ingest` subprocesses, verifies durable marker persistence, runs
 tenant/session retrieval isolation checks, and checks `verify` plus
 `audit-tail`. Add `--storage-dir` only for a disposable test store; the harness
 writes probe memories.
+Use `--tenants 1 --sessions 4` to smoke one OpenClaw user with multiple
+concurrent sessions.
 
 ## Beta readiness gate
 Run before shipping or switching a harness to a store:

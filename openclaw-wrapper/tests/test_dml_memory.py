@@ -395,6 +395,78 @@ class TestContinuityResume(unittest.TestCase):
         finally:
             mod._adapter = original_adapter
 
+    def test_cmd_resume_uses_newest_active_checkpoint_not_retrieval_order(self):
+        original_adapter = mod._adapter
+        adapter = _DummyAdapter(
+            retrieval_report={
+                "status": "ok",
+                "items": [
+                    {
+                        "text": "\n".join(
+                            [
+                                "thread: old-session",
+                                "updated_at: 2026-05-21T12:00:00Z",
+                                "state: stale",
+                                "task: old work",
+                                "next_action: ignore old checkpoint",
+                            ]
+                        ),
+                        "timestamp": 1.0,
+                        "meta": {
+                            "source": "rolling_thread_checkpoint",
+                            "namespace": "active_continuity",
+                            "memory_state": "active",
+                        },
+                    },
+                    {
+                        "text": "\n".join(
+                            [
+                                "thread: current-session",
+                                "updated_at: 2026-05-21T13:00:00Z",
+                                "state: executing",
+                                "task: multi-session hardening",
+                                "next_action: run multi-session smoke",
+                            ]
+                        ),
+                        "timestamp": 2.0,
+                        "meta": {
+                            "source": "rolling_thread_checkpoint",
+                            "namespace": "active_continuity",
+                            "memory_state": "active",
+                        },
+                    },
+                ],
+            }
+        )
+        try:
+            mod._adapter = lambda *_args, **_kwargs: adapter
+            args = Namespace(
+                storage_dir="/tmp/does-not-matter",
+                config_path=None,
+                require_gpu=False,
+                query="resume continuity",
+                tenant_id="openclaw",
+                client_id=None,
+                session_id=None,
+                instance_id=None,
+                top_k=12,
+                fallback_items=3,
+            )
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                rc = mod.cmd_resume(args)
+
+            self.assertEqual(rc, 0)
+            payload = json.loads(buf.getvalue())
+            self.assertEqual(payload["latest_checkpoint"]["thread"], "current-session")
+            self.assertEqual(payload["latest_checkpoint"]["next_action"], "run multi-session smoke")
+            self.assertLess(
+                payload["raw_context"].find("current-session"),
+                payload["raw_context"].find("old-session"),
+            )
+        finally:
+            mod._adapter = original_adapter
+
 
 class TestHealthCommand(unittest.TestCase):
     def _write_state(self, storage_dir: str, *, text: str = "checkpoint", tenant_id: str | None = None) -> Path:

@@ -242,6 +242,55 @@ def test_retrieve_context_respects_tenant_scope(tmp_path) -> None:
     assert "Tenant beta" not in report["raw_context"]
 
 
+def test_retrieve_context_respects_single_user_session_scope(tmp_path) -> None:
+    adapter = DMLAdapter(
+        config_overrides={
+            "model_name": "dummy",
+            "embedding_model": None,
+            "theta_merge": 2.0,
+            "storage_dir": str(tmp_path / "storage"),
+            "persistence": {"enable": False},
+            "metrics_enabled": False,
+            "similarity_threshold": 0.0,
+        },
+        embedder=FixedEmbedder(),
+        summarizer=DummySummarizer(),
+        start_aging_loop=False,
+    )
+    adapter.ingest_memory(
+        "OPENCLAW-SESSION-A builds the installer plan.",
+        tenant_id="openclaw",
+        session_id="session-a",
+        kind="note",
+    )
+    adapter.ingest_memory(
+        "OPENCLAW-SESSION-B debugs the provider UI.",
+        tenant_id="openclaw",
+        session_id="session-b",
+        kind="note",
+    )
+
+    session_report = adapter.retrieve_context(
+        "openclaw sessions",
+        tenant_id="openclaw",
+        session_id="session-a",
+        top_k=5,
+    )
+    assert session_report["items"]
+    assert {item["meta"]["session_id"] for item in session_report["items"]} == {"session-a"}
+    assert "OPENCLAW-SESSION-A" in session_report["raw_context"]
+    assert "OPENCLAW-SESSION-B" not in session_report["raw_context"]
+
+    tenant_report = adapter.retrieve_context(
+        "openclaw sessions",
+        tenant_id="openclaw",
+        top_k=5,
+    )
+    assert {item["meta"]["session_id"] for item in tenant_report["items"]} == {"session-a", "session-b"}
+    assert "OPENCLAW-SESSION-A" in tenant_report["raw_context"]
+    assert "OPENCLAW-SESSION-B" in tenant_report["raw_context"]
+
+
 def test_retrieve_context_applies_phase_filtering(tmp_path) -> None:
     adapter = DMLAdapter(
         config_overrides={

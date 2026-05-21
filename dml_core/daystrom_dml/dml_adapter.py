@@ -1774,6 +1774,7 @@ class DMLAdapter:
                     "text": summary,
                     "summary": summary,
                     "meta": meta,
+                    "timestamp": float(item.timestamp),
                     "level": item.level,
                     "fidelity": float(item.fidelity),
                     "salience": float(item.salience),

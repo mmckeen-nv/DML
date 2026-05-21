@@ -11,10 +11,11 @@ only needs to write structured memories and read compact context packets.
 All commands emit JSON and should be safe for another process to parse.
 
 Mutating commands acquire a shared store write lock at
-`$DML_STORE/.dml_store.lock`. The default is fail-fast. Set
-`--lock-timeout-ms <ms>` before the subcommand when a harness should wait for
-another writer. A blocked writer returns JSON with `status: "blocked"`,
-`error: "store_write_lock_held"`, and lock holder metadata.
+`$DML_STORE/.dml_store.lock`. The default wait is 30000ms. Set
+`--lock-timeout-ms <ms>` before the subcommand to tune wait behavior for
+fail-fast probes or slower CPU-only migration-heavy starts. A blocked writer
+returns JSON with `status: "blocked"`, `error: "store_write_lock_held"`, and
+lock holder metadata.
 
 Mutating commands also append compact events to `$DML_STORE/dml_audit.jsonl`.
 Use global `--audit-actor <label>` to identify the harness or user-facing
@@ -232,6 +233,8 @@ The command exits `0` only when all writes succeed, every writer marker remains
 persisted, isolation checks do not leak forbidden markers, and store/audit
 checks pass. Add `--storage-dir` only for a disposable test store; the harness
 writes probe memories.
+Use `--tenants 1 --sessions 4` for the single-user, multi-session OpenClaw
+smoke path.
 
 ### Ingest
 
@@ -382,6 +385,22 @@ The command prioritizes `active_continuity` memories and returns:
 - `latest_checkpoint`: structured `thread`, `state`, `task`, `next_action`
 - `continuity_items`
 - `fallback_used`
+
+### Single-User Multi-Session Scope
+
+For one OpenClaw user running several sessions, keep `tenant_id` stable and make
+`session_id` explicit:
+
+- Use `tenant_id=openclaw` for the local human/operator.
+- Use a unique `session_id` for each concurrent OpenClaw thread, tab, or agent
+  harness session.
+- Pass both `tenant_id` and `session_id` for session-local recall and resume.
+  This must not return sibling session memories.
+- Omit `session_id` only when the harness intentionally wants tenant-wide
+  recall across that user's sessions.
+- Continuity checkpoints should include `updated_at` or `captured_at`; `resume`
+  sorts active checkpoints by checkpoint time before selecting
+  `latest_checkpoint`.
 
 ## Harness Loop
 

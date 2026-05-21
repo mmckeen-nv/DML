@@ -1584,6 +1584,34 @@ def _continuity_resume_context(items: list[dict]) -> tuple[str, dict]:
     return "\n".join(raw_lines), latest
 
 
+def _parse_checkpoint_time(value: object) -> float:
+    if isinstance(value, (int, float)):
+        return float(value)
+    text = str(value or "").strip()
+    if not text:
+        return 0.0
+    try:
+        return float(text)
+    except ValueError:
+        pass
+    try:
+        return datetime.fromisoformat(text.replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return 0.0
+
+
+def _continuity_item_sort_key(item: dict) -> float:
+    meta = item.get("meta") or {}
+    if not isinstance(meta, dict):
+        meta = {}
+    text = str(item.get("text") or item.get("summary") or "")
+    for key in ("updated_at", "captured_at", "created_at"):
+        ts = _parse_checkpoint_time(meta.get(key) or _line_value(text, key))
+        if ts:
+            return ts
+    return _parse_checkpoint_time(item.get("timestamp"))
+
+
 def cmd_resume(args: argparse.Namespace) -> int:
     adapter = _adapter(args.storage_dir, args.config_path, args.require_gpu)
     started = time.perf_counter()
@@ -1601,7 +1629,11 @@ def cmd_resume(args: argparse.Namespace) -> int:
         adapter.close()
 
     items = [item for item in (report.get("items") or []) if isinstance(item, dict)]
-    continuity_items = [item for item in items if _is_active_continuity_item(item)]
+    continuity_items = sorted(
+        [item for item in items if _is_active_continuity_item(item)],
+        key=_continuity_item_sort_key,
+        reverse=True,
+    )
     context_items = continuity_items or items[: max(0, args.fallback_items)]
     raw_context, latest = _continuity_resume_context(context_items)
 
@@ -2488,8 +2520,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--lock-timeout-ms",
         type=int,
-        default=0,
-        help="Milliseconds to wait for the shared store write lock before returning blocked (default: 0)",
+        default=30000,
+        help="Milliseconds to wait for the shared store write lock before returning blocked (default: 30000)",
     )
     parser.add_argument(
         "--audit-actor",

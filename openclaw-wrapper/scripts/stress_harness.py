@@ -301,7 +301,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--sessions", type=int, default=2)
     parser.add_argument("--top-k", type=int, default=6)
     parser.add_argument("--timeout-s", type=float, default=45.0)
-    parser.add_argument("--lock-timeout-ms", type=int, default=5000)
+    parser.add_argument("--lock-timeout-ms", type=int, default=30000)
     parser.add_argument("--audit-actor", default="stress-harness")
     parser.add_argument("--require-gpu", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--keep-store", action="store_true")
