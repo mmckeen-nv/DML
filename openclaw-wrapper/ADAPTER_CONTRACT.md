@@ -205,6 +205,37 @@ If retrieved items carry `conflict_state: "conflicted"`, the response includes
 agents can ask for confirmation instead of silently blending contradictory
 claims.
 
+### Conflicts
+
+```bash
+python scripts/dml_memory.py \
+  --storage-dir "$DML_STORE" \
+  conflicts \
+  --tenant-id openclaw \
+  --namespace ops \
+  --conflict-key active_branch
+```
+
+Lists unresolved scoped claim groups from persisted memory. Values include
+record IDs, sources, memory states, conflict states, and text hashes.
+
+### Resolve Conflict
+
+```bash
+python scripts/dml_memory.py \
+  --storage-dir "$DML_STORE" \
+  --audit-actor openclaw \
+  resolve-conflict \
+  --tenant-id openclaw \
+  --namespace ops \
+  --conflict-key active_branch \
+  --accept-value dml-continuity-cleanup-2026-04-12
+```
+
+Accepts the chosen claim value and suppresses competing values in the same
+scope. The command acquires the shared write lock, rewrites `dml_state.jsonl`
+through the persistence layer, and appends an audit event.
+
 ### Resume
 
 ```bash

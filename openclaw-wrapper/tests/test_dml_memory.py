@@ -587,6 +587,141 @@ class TestHealthCommand(unittest.TestCase):
             self.assertEqual(payload["events"][0]["operation"], "ingest")
             self.assertEqual(payload["events"][0]["details"]["scope"]["tenant_id"], "alpha")
 
+    def test_conflicts_command_lists_scoped_claim_groups(self):
+        with tempfile.TemporaryDirectory(prefix="dml-wrapper-conflict-list-") as tmp:
+            _write_state_records(
+                tmp,
+                [
+                    {
+                        "id": 1,
+                        "text": "Deploy mode is automatic.",
+                        "embedding": [0.1, 0.2],
+                        "timestamp": 1.0,
+                        "salience": 0.5,
+                        "fidelity": 1.0,
+                        "level": 0,
+                        "summary_of": [1],
+                        "meta": {
+                            "tenant_id": "alpha",
+                            "namespace": "ops",
+                            "source": "agent-a",
+                            "conflict_key": "deploy_mode",
+                            "claim_value": "automatic",
+                        },
+                    },
+                    {
+                        "id": 2,
+                        "text": "Deploy mode is manual.",
+                        "embedding": [0.2, 0.3],
+                        "timestamp": 2.0,
+                        "salience": 0.5,
+                        "fidelity": 1.0,
+                        "level": 0,
+                        "summary_of": [2],
+                        "meta": {
+                            "tenant_id": "alpha",
+                            "namespace": "ops",
+                            "source": "agent-b",
+                            "conflict_key": "deploy_mode",
+                            "claim_value": "manual",
+                            "conflict_state": "conflicted",
+                        },
+                    },
+                ],
+            )
+            args = Namespace(
+                storage_dir=tmp,
+                tenant_id="alpha",
+                client_id=None,
+                session_id=None,
+                instance_id=None,
+                namespace="ops",
+                conflict_key="deploy_mode",
+                limit=10,
+            )
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                self.assertEqual(mod.cmd_conflicts(args), 0)
+
+            payload = json.loads(buf.getvalue())
+            self.assertEqual(payload["conflict_group_count"], 1)
+            values = payload["conflicts"][0]["values"]
+            self.assertIn("automatic", values)
+            self.assertIn("manual", values)
+
+    def test_resolve_conflict_accepts_one_value_and_suppresses_others(self):
+        with tempfile.TemporaryDirectory(prefix="dml-wrapper-conflict-resolve-") as tmp:
+            _write_state_records(
+                tmp,
+                [
+                    {
+                        "id": 1,
+                        "text": "Deploy mode is automatic.",
+                        "embedding": [0.1, 0.2],
+                        "timestamp": 1.0,
+                        "salience": 0.5,
+                        "fidelity": 1.0,
+                        "level": 0,
+                        "summary_of": [1],
+                        "meta": {
+                            "tenant_id": "alpha",
+                            "namespace": "ops",
+                            "source": "agent-a",
+                            "conflict_key": "deploy_mode",
+                            "claim_value": "automatic",
+                        },
+                    },
+                    {
+                        "id": 2,
+                        "text": "Deploy mode is manual.",
+                        "embedding": [0.2, 0.3],
+                        "timestamp": 2.0,
+                        "salience": 0.5,
+                        "fidelity": 1.0,
+                        "level": 0,
+                        "summary_of": [2],
+                        "meta": {
+                            "tenant_id": "alpha",
+                            "namespace": "ops",
+                            "source": "agent-b",
+                            "conflict_key": "deploy_mode",
+                            "claim_value": "manual",
+                            "conflict_state": "conflicted",
+                            "conflicts_with": [{"id": 1, "claim_value": "automatic"}],
+                        },
+                    },
+                ],
+            )
+            args = Namespace(
+                storage_dir=tmp,
+                tenant_id="alpha",
+                client_id=None,
+                session_id=None,
+                instance_id=None,
+                namespace="ops",
+                conflict_key="deploy_mode",
+                accept_value="manual",
+                lock_timeout_ms=0,
+                audit_actor="unit-test",
+            )
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                self.assertEqual(mod.cmd_resolve_conflict(args), 0)
+
+            payload = json.loads(buf.getvalue())
+            self.assertEqual(payload["status"], "ok")
+            self.assertEqual(payload["accepted"], 1)
+            self.assertEqual(payload["suppressed"], 1)
+            records = mod._iter_state_records(tmp)
+            by_value = {record["meta"]["claim_value"]: record["meta"] for record in records}
+            self.assertEqual(by_value["manual"]["memory_state"], "active")
+            self.assertNotIn("conflict_state", by_value["manual"])
+            self.assertEqual(by_value["automatic"]["memory_state"], "suppressed")
+            self.assertEqual(by_value["automatic"]["conflict_resolution"]["accepted_value"], "manual")
+            audit_events = mod._tail_audit_events(tmp, limit=1)
+            self.assertEqual(audit_events[0]["operation"], "resolve-conflict")
+            self.assertEqual(audit_events[0]["status"], "ok")
+
 
 class TestIngestBatching(unittest.TestCase):
     def test_cmd_ingest_defers_persistence_until_chunks_finish(self):

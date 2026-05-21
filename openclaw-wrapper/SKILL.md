@@ -68,6 +68,9 @@ Optional flags:
   for scoped facts that should not silently diverge. Conflicted memories remain
   retrievable and retrieval returns `conflict_count`, `conflicts`, and a
   `=== Memory Conflicts ===` context block.
+- Use `conflicts` to list unresolved scoped claim groups, and
+  `resolve-conflict --accept-value <value>` to accept one value and suppress
+  competing values under the same tenant/client/session/instance/namespace key.
 - Proven local baseline is GPU-first for current OpenClaw runtime work.
 - Portable installability on Linux must remain path-parameterized and not assume `/home/nvidia/...`.
 

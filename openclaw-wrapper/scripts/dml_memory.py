@@ -786,6 +786,63 @@ def _conflict_report_from_items(items: list[dict]) -> list[dict]:
     return conflicts
 
 
+def _matches_conflict_resolution_scope(meta: dict, args: argparse.Namespace) -> bool:
+    if _conflict_key(meta) != args.conflict_key:
+        return False
+    for field in ("tenant_id", "client_id", "session_id", "instance_id", "namespace"):
+        expected = getattr(args, field, None)
+        if expected is not None and meta.get(field) != expected:
+            return False
+    return True
+
+
+def _state_conflict_groups(records: list[dict]) -> list[dict]:
+    groups: dict[tuple, dict] = {}
+    for record in records:
+        meta = record.get("meta") or {}
+        if not isinstance(meta, dict):
+            continue
+        key = _conflict_key(meta)
+        value = _conflict_value(meta)
+        if not key or not value:
+            continue
+        scope = _conflict_scope(meta)
+        group_key = tuple((name, scope.get(name)) for name in sorted(scope))
+        group = groups.setdefault(
+            group_key,
+            {
+                "scope": scope,
+                "values": {},
+                "conflicted_count": 0,
+                "record_count": 0,
+            },
+        )
+        state = str(meta.get("memory_state") or meta.get("lifecycle_state") or "active").strip().lower()
+        entry = {
+            "id": record.get("id"),
+            "source": meta.get("source"),
+            "claim_value": value,
+            "memory_state": state,
+            "conflict_state": meta.get("conflict_state"),
+            "text_sha256": _text_digest(str(record.get("text") or "")),
+        }
+        group["values"].setdefault(value, []).append(entry)
+        group["record_count"] += 1
+        if str(meta.get("conflict_state") or "").strip().lower() == "conflicted":
+            group["conflicted_count"] += 1
+    result = []
+    for group in groups.values():
+        active_values = [
+            value
+            for value, entries in group["values"].items()
+            if any(str(entry.get("memory_state") or "active").lower() not in CONFLICT_DELETED_STATES for entry in entries)
+        ]
+        if len(active_values) > 1 or group["conflicted_count"]:
+            result.append(group)
+    result.sort(key=lambda group: (str(group["scope"].get("tenant_id") or ""), str(group["scope"].get("conflict_key") or "")))
+    return result
+
+
 def _adapter(storage_dir: str, config_path: str | None, require_gpu: bool) -> DMLAdapter:
     graph_path = os.environ.get("DAYSTROM_DPM_GRAPH_PATH") or str(Path(storage_dir) / "dpm_preference_graph.json")
     dpm_mode = os.environ.get("DAYSTROM_DPM_MODE", "active-write")
@@ -1674,6 +1731,149 @@ def cmd_audit_tail(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_conflicts(args: argparse.Namespace) -> int:
+    records = _iter_state_records(args.storage_dir)
+    groups = _state_conflict_groups(records)
+    if args.tenant_id is not None:
+        groups = [group for group in groups if group["scope"].get("tenant_id") == args.tenant_id]
+    if args.client_id is not None:
+        groups = [group for group in groups if group["scope"].get("client_id") == args.client_id]
+    if args.session_id is not None:
+        groups = [group for group in groups if group["scope"].get("session_id") == args.session_id]
+    if args.instance_id is not None:
+        groups = [group for group in groups if group["scope"].get("instance_id") == args.instance_id]
+    if args.namespace is not None:
+        groups = [group for group in groups if group["scope"].get("namespace") == args.namespace]
+    if args.conflict_key is not None:
+        groups = [group for group in groups if group["scope"].get("conflict_key") == args.conflict_key]
+    report = {
+        "status": "ok",
+        "action": "conflicts",
+        "contract_version": "dml-agent-memory-v1",
+        "storage_dir": args.storage_dir,
+        "conflict_group_count": len(groups),
+        "conflicts": groups[: max(0, args.limit)],
+        "limit": args.limit,
+    }
+    print(json.dumps(report, indent=2, default=str))
+    return 0
+
+
+def cmd_resolve_conflict(args: argparse.Namespace) -> int:
+    started = time.perf_counter()
+    try:
+        with _store_write_lock(args.storage_dir, operation="resolve-conflict", timeout_ms=args.lock_timeout_ms) as lock:
+            from daystrom_dml.persistence import load_state, save_state  # type: ignore
+
+            state_path = _state_file_path(args.storage_dir)
+            items = load_state(state_path)
+            accepted = 0
+            suppressed = 0
+            matched = 0
+            now = datetime.now(timezone.utc).isoformat()
+            accepted_norm = _norm_conflict_value(args.accept_value)
+            for item in items:
+                meta = item.meta or {}
+                if not isinstance(meta, dict) or not _matches_conflict_resolution_scope(meta, args):
+                    continue
+                value_norm = _norm_conflict_value(_conflict_value(meta))
+                if not value_norm:
+                    continue
+                matched += 1
+                if value_norm == accepted_norm:
+                    meta.pop("conflict_state", None)
+                    meta.pop("conflicts_with", None)
+                    meta["memory_state"] = "active"
+                    meta["conflict_resolution"] = {
+                        "status": "accepted",
+                        "accepted_value": args.accept_value,
+                        "resolved_at": now,
+                        "resolved_by": _audit_actor(args),
+                    }
+                    accepted += 1
+                else:
+                    meta["memory_state"] = "suppressed"
+                    meta["conflict_resolution"] = {
+                        "status": "suppressed",
+                        "accepted_value": args.accept_value,
+                        "suppressed_value": _conflict_value(meta),
+                        "resolved_at": now,
+                        "resolved_by": _audit_actor(args),
+                    }
+                    suppressed += 1
+                item.meta = meta
+            if matched == 0:
+                status = "missing"
+            elif accepted == 0:
+                status = "fail"
+            else:
+                save_state(items, state_path)
+                status = "ok"
+        report = {
+            "status": status,
+            "action": "resolve-conflict",
+            "contract_version": "dml-agent-memory-v1",
+            "matched": matched,
+            "accepted": accepted,
+            "suppressed": suppressed,
+            "accepted_value": args.accept_value,
+            "scope": {
+                "tenant_id": args.tenant_id,
+                "client_id": args.client_id,
+                "session_id": args.session_id,
+                "instance_id": args.instance_id,
+                "namespace": args.namespace,
+                "conflict_key": args.conflict_key,
+            },
+            "lock": lock,
+            "latency_ms": round((time.perf_counter() - started) * 1000.0, 2),
+        }
+        audit = _append_audit_event(
+            args.storage_dir,
+            operation="resolve-conflict",
+            status=status,
+            actor=_audit_actor(args),
+            details={
+                "scope": report["scope"],
+                "accepted_value": args.accept_value,
+                "matched": matched,
+                "accepted": accepted,
+                "suppressed": suppressed,
+            },
+        )
+        report["audit"] = {"path": audit["path"], "event_ts": audit["event"]["ts"]}
+        print(json.dumps(report, indent=2, default=str))
+        return 0 if status == "ok" else 1
+    except TimeoutError as exc:
+        blocked = _lock_failure_report("resolve-conflict", exc, started)
+        _append_audit_event(
+            args.storage_dir,
+            operation="resolve-conflict",
+            status="blocked",
+            actor=_audit_actor(args),
+            details={"conflict_key": args.conflict_key, "lock": blocked.get("lock")},
+        )
+        print(json.dumps(blocked, indent=2, default=str))
+        return 2
+    except Exception as exc:
+        report = {
+            "status": "fail",
+            "action": "resolve-conflict",
+            "error": str(exc),
+            "latency_ms": round((time.perf_counter() - started) * 1000.0, 2),
+        }
+        audit = _append_audit_event(
+            args.storage_dir,
+            operation="resolve-conflict",
+            status="fail",
+            actor=_audit_actor(args),
+            details={"conflict_key": args.conflict_key, "error": str(exc)},
+        )
+        report["audit"] = {"path": audit["path"], "event_ts": audit["event"]["ts"]}
+        print(json.dumps(report, indent=2, default=str))
+        return 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
     parser.add_argument("--storage-dir", default=str(DAYSTROM_DML_HOME / "data"))
@@ -1826,6 +2026,26 @@ def build_parser() -> argparse.ArgumentParser:
     audit = sub.add_parser("audit-tail")
     audit.add_argument("--limit", type=int, default=20)
     audit.set_defaults(func=cmd_audit_tail)
+
+    conflicts = sub.add_parser("conflicts")
+    conflicts.add_argument("--tenant-id")
+    conflicts.add_argument("--client-id")
+    conflicts.add_argument("--session-id")
+    conflicts.add_argument("--instance-id")
+    conflicts.add_argument("--namespace")
+    conflicts.add_argument("--conflict-key")
+    conflicts.add_argument("--limit", type=int, default=20)
+    conflicts.set_defaults(func=cmd_conflicts)
+
+    resolve = sub.add_parser("resolve-conflict")
+    resolve.add_argument("--tenant-id", required=True)
+    resolve.add_argument("--client-id")
+    resolve.add_argument("--session-id")
+    resolve.add_argument("--instance-id")
+    resolve.add_argument("--namespace", required=True)
+    resolve.add_argument("--conflict-key", required=True)
+    resolve.add_argument("--accept-value", required=True)
+    resolve.set_defaults(func=cmd_resolve_conflict)
 
     mig = sub.add_parser("migration-status")
     mig.set_defaults(func=cmd_migration_status)
