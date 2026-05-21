@@ -318,6 +318,14 @@ class DMLAdapter:
         embedding = self.embedder.embed(text)
         salience = self._estimate_salience(text)
         item, merged = self.store.ingest(text, embedding, salience=salience, meta=meta)
+        if merged and meta and str(meta.get("conflict_state") or "").strip():
+            item.meta.update(
+                {
+                    key: value
+                    for key, value in meta.items()
+                    if key.startswith("conflict") or key in {"claim_key", "claim_value"}
+                }
+            )
         rag_text = item.text if merged else text
         rag_embedding = item.embedding if merged else embedding
         rag_meta: Dict[str, Any] = dict(meta or {})

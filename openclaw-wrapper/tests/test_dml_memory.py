@@ -68,6 +68,25 @@ def _load_module():
 mod = _load_module()
 
 
+def _write_state_records(storage_dir: str, records: list[dict]) -> Path:
+    state_path = Path(storage_dir) / "dml_state.jsonl"
+    payload_lines = [json.dumps(record, separators=(",", ":"), sort_keys=True) for record in records]
+    checksum = mod.hashlib.sha256("\n".join(payload_lines).encode("utf-8")).hexdigest()
+    header = {
+        "type": "daystrom_dml.memory",
+        "version": 1,
+        "created_at": "2026-05-21T00:00:00+00:00",
+        "count": len(payload_lines),
+        "checksum": checksum,
+    }
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    state_path.write_text(
+        json.dumps(header, separators=(",", ":"), sort_keys=True) + "\n" + "\n".join(payload_lines),
+        encoding="utf-8",
+    )
+    return state_path
+
+
 class _DummyAdapter:
     def __init__(self, raise_gt: bool = False, sleep_gt_s: float = 0.0, retrieval_report: dict | None = None):
         self.raise_gt = raise_gt
@@ -243,6 +262,66 @@ class TestGroundTruthHardening(unittest.TestCase):
             self.assertEqual(payload["ground_truth_status"], "error")
             self.assertEqual(payload["ground_truth_reason"], "policy_always")
             self.assertIn("memory_reformed_chunks", payload)
+        finally:
+            mod._adapter = original_adapter
+
+    def test_cmd_retrieve_surfaces_conflicted_items(self):
+        original_adapter = mod._adapter
+        adapter = _DummyAdapter(
+            retrieval_report={
+                "status": "ok",
+                "items": [
+                    {
+                        "id": "7",
+                        "text": "Current claim says deploy_mode is manual.",
+                        "meta": {
+                            "tenant_id": "openclaw",
+                            "namespace": "ops",
+                            "conflict_key": "deploy_mode",
+                            "claim_value": "manual",
+                            "conflict_state": "conflicted",
+                            "conflict_scope": {
+                                "tenant_id": "openclaw",
+                                "namespace": "ops",
+                                "conflict_key": "deploy_mode",
+                            },
+                            "conflicts_with": [{"id": 3, "claim_value": "automatic"}],
+                        },
+                    }
+                ],
+            }
+        )
+        try:
+            mod._adapter = lambda *_args, **_kwargs: adapter
+            args = Namespace(
+                storage_dir="/tmp/does-not-matter",
+                config_path=None,
+                require_gpu=False,
+                query="deploy mode",
+                query_expand=False,
+                tenant_id="openclaw",
+                client_id=None,
+                session_id=None,
+                instance_id=None,
+                top_k=3,
+                include_quarantined=False,
+                with_ground_truth=False,
+                ground_truth_mode="hybrid",
+                ground_truth_policy="never",
+                confidence_threshold=0.46,
+                reform_memory=False,
+                strict_ground_truth=False,
+                ground_truth_timeout_ms=1800,
+            )
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                rc = mod.cmd_retrieve(args)
+
+            self.assertEqual(rc, 0)
+            payload = json.loads(buf.getvalue())
+            self.assertEqual(payload["conflict_count"], 1)
+            self.assertIn("=== Memory Conflicts ===", payload["raw_context"])
+            self.assertEqual(payload["conflicts"][0]["scope"]["conflict_key"], "deploy_mode")
         finally:
             mod._adapter = original_adapter
 
@@ -552,6 +631,76 @@ class TestIngestBatching(unittest.TestCase):
             self.assertEqual(first_meta["client_id"], "client-ingest")
             self.assertEqual(first_meta["session_id"], "session-ingest")
             self.assertEqual(first_meta["instance_id"], "instance-ingest")
+        finally:
+            mod._adapter = original_adapter
+
+    def test_cmd_ingest_marks_scoped_claim_conflict(self):
+        original_adapter = mod._adapter
+        adapter = _DummyAdapter()
+        try:
+            mod._adapter = lambda *_args, **_kwargs: adapter
+            storage_dir = tempfile.mkdtemp(prefix="dml-wrapper-conflict-test-")
+            _write_state_records(
+                storage_dir,
+                [
+                    {
+                        "id": 42,
+                        "text": "Deploy mode is automatic.",
+                        "embedding": [0.1, 0.2, 0.3],
+                        "timestamp": 1.0,
+                        "salience": 0.5,
+                        "fidelity": 1.0,
+                        "level": 0,
+                        "summary_of": [42],
+                        "meta": {
+                            "tenant_id": "tenant-conflict",
+                            "session_id": "session-conflict",
+                            "namespace": "ops",
+                            "source": "agent-a",
+                            "conflict_key": "deploy_mode",
+                            "claim_value": "automatic",
+                        },
+                    }
+                ],
+            )
+            args = Namespace(
+                storage_dir=storage_dir,
+                config_path=None,
+                require_gpu=False,
+                lock_timeout_ms=0,
+                audit_actor="unit-test",
+                tenant_id="tenant-conflict",
+                client_id=None,
+                session_id="session-conflict",
+                instance_id=None,
+                text="Deploy mode is manual.",
+                kind="note",
+                meta=json.dumps(
+                    {
+                        "source": "agent-b",
+                        "namespace": "ops",
+                        "conflict_key": "deploy_mode",
+                        "claim_value": "manual",
+                    }
+                ),
+                chunk=False,
+                chunk_chars=620,
+                chunk_overlap=90,
+                filter_noise=False,
+                summary_policy="skip",
+                summary_max_chars=220,
+            )
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                rc = mod.cmd_ingest(args)
+
+            self.assertEqual(rc, 0)
+            payload = json.loads(buf.getvalue())
+            self.assertEqual(payload["conflicts_detected"], 1)
+            _, meta, _ = adapter.ingests[0]
+            self.assertEqual(meta["conflict_state"], "conflicted")
+            self.assertEqual(meta["conflicts_with"][0]["id"], 42)
+            self.assertEqual(meta["conflicts_with"][0]["claim_value"], "automatic")
         finally:
             mod._adapter = original_adapter
 

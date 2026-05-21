@@ -24,6 +24,11 @@ from daystrom_dml.memory_store import MemoryStore
 from daystrom_dml.summarizer import DummySummarizer
 
 
+class FixedEmbedder:
+    def embed(self, _text: str) -> np.ndarray:
+        return np.ones(16, dtype=np.float32)
+
+
 def make_store(**kwargs) -> MemoryStore:
     defaults = dict(
         summarizer=DummySummarizer(),
@@ -90,6 +95,47 @@ def test_merging_stabilises_memory_count():
     assert len(store.items()) == 1
     item = store.items()[0]
     assert item.meta.get("merges", 0) >= 1
+
+
+def test_adapter_merge_preserves_incoming_conflict_metadata(tmp_path) -> None:
+    adapter = DMLAdapter(
+        config_overrides={
+            "model_name": "dummy",
+            "embedding_model": None,
+            "theta_merge": 0.5,
+            "storage_dir": str(tmp_path / "storage"),
+            "persistence": {"enable": False},
+            "metrics_enabled": False,
+        },
+        embedder=FixedEmbedder(),
+        summarizer=DummySummarizer(),
+        start_aging_loop=False,
+    )
+    adapter.ingest(
+        "Deploy mode is automatic.",
+        meta={
+            "tenant_id": "alpha",
+            "namespace": "ops",
+            "conflict_key": "deploy_mode",
+            "claim_value": "automatic",
+        },
+    )
+    adapter.ingest(
+        "Deploy mode is manual.",
+        meta={
+            "tenant_id": "alpha",
+            "namespace": "ops",
+            "conflict_key": "deploy_mode",
+            "claim_value": "manual",
+            "conflict_state": "conflicted",
+            "conflicts_with": [{"id": 0, "claim_value": "automatic"}],
+        },
+    )
+
+    item = adapter.store.items()[0]
+    assert item.meta["conflict_state"] == "conflicted"
+    assert item.meta["claim_value"] == "manual"
+    assert item.meta["conflicts_with"][0]["claim_value"] == "automatic"
 
 
 def test_capacity_eviction_prefers_stale_items() -> None:

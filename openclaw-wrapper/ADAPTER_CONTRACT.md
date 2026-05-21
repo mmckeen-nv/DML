@@ -147,6 +147,19 @@ Required metadata for beta integrations:
   `error`, `artifact`
 - `namespace`: logical memory lane, such as `active_continuity`
 
+Optional claim-conflict metadata:
+
+- `conflict_key` or `claim_key`: stable key for a fact/decision that should be
+  unique within the scoped lane, such as `deploy_mode` or `active_branch`
+- `claim_value` or `conflict_value`: current value for that key
+
+When a new write has the same tenant/client/session/instance/namespace and
+claim key as an existing active memory but a different claim value, ingest keeps
+the memory retrievable and annotates it with `conflict_state: "conflicted"`,
+`conflict_scope`, and compact `conflicts_with` references. The conflict record
+uses metadata, IDs, values, and text hashes; it does not duplicate raw prior
+memory text.
+
 Scope metadata:
 
 - New writes default to `tenant_id=openclaw`.
@@ -187,6 +200,10 @@ python scripts/dml_memory.py \
 ```
 
 Use `raw_context` as the prompt-facing block. Use `items` for audit and UI.
+If retrieved items carry `conflict_state: "conflicted"`, the response includes
+`conflict_count`, `conflicts`, and a leading `=== Memory Conflicts ===` block so
+agents can ask for confirmation instead of silently blending contradictory
+claims.
 
 ### Resume
 

@@ -552,6 +552,27 @@ def _read_state_health(storage_dir: str) -> dict:
     return report
 
 
+def _iter_state_records(storage_dir: str) -> list[dict]:
+    path = _state_file_path(storage_dir)
+    if not path.exists():
+        return []
+    records: list[dict] = []
+    try:
+        lines = path.read_text(encoding="utf-8", errors="ignore").splitlines()
+    except Exception:
+        return []
+    for raw in lines[1:]:
+        if not raw.strip():
+            continue
+        try:
+            record = json.loads(raw)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(record, dict):
+            records.append(record)
+    return records
+
+
 def _load_dedup_index(storage_dir: str) -> set[str]:
     path = _dedup_index_path(storage_dir)
     if not path.exists():
@@ -638,6 +659,133 @@ def _tail_audit_events(storage_dir: str, *, limit: int) -> list[dict]:
     return events
 
 
+CONFLICT_DELETED_STATES = {"quarantine", "quarantined", "suppressed", "deleted"}
+
+
+def _norm_conflict_value(value: object) -> str:
+    return " ".join(str(value or "").strip().lower().split())
+
+
+def _conflict_key(meta: dict) -> str:
+    return str(meta.get("conflict_key") or meta.get("claim_key") or "").strip()
+
+
+def _conflict_value(meta: dict) -> str:
+    return str(meta.get("claim_value") or meta.get("conflict_value") or "").strip()
+
+
+def _conflict_scope(meta: dict) -> dict:
+    return {
+        "tenant_id": meta.get("tenant_id"),
+        "client_id": meta.get("client_id"),
+        "session_id": meta.get("session_id"),
+        "instance_id": meta.get("instance_id"),
+        "namespace": meta.get("namespace"),
+        "conflict_key": _conflict_key(meta),
+    }
+
+
+def _same_conflict_scope(left: dict, right: dict) -> bool:
+    left_scope = _conflict_scope(left)
+    right_scope = _conflict_scope(right)
+    return all(left_scope.get(key) == right_scope.get(key) for key in left_scope)
+
+
+def _record_conflict_entry(record: dict) -> dict:
+    meta = record.get("meta") or {}
+    if not isinstance(meta, dict):
+        meta = {}
+    return {
+        "id": record.get("id"),
+        "source": meta.get("source"),
+        "claim_value": _conflict_value(meta),
+        "text_sha256": _text_digest(str(record.get("text") or "")),
+    }
+
+
+def _items_as_state_records(items: object) -> list[dict]:
+    records: list[dict] = []
+    for item in list(items or []):
+        if hasattr(item, "to_dict"):
+            try:
+                record = item.to_dict()
+            except Exception:
+                continue
+        elif isinstance(item, dict):
+            record = item
+        else:
+            record = {
+                "id": getattr(item, "id", None),
+                "text": getattr(item, "text", ""),
+                "meta": getattr(item, "meta", {}) or {},
+            }
+        if isinstance(record, dict):
+            records.append(record)
+    return records
+
+
+def _detect_conflicts(storage_dir: str, incoming_meta: dict, *, existing_records: list[dict] | None = None) -> list[dict]:
+    key = _conflict_key(incoming_meta)
+    value = _conflict_value(incoming_meta)
+    if not key or not value:
+        return []
+    incoming_norm = _norm_conflict_value(value)
+    conflicts: list[dict] = []
+    records = existing_records if existing_records is not None else _iter_state_records(storage_dir)
+    for record in records:
+        meta = record.get("meta") or {}
+        if not isinstance(meta, dict):
+            continue
+        state = str(meta.get("memory_state") or meta.get("lifecycle_state") or "").strip().lower()
+        if state in CONFLICT_DELETED_STATES:
+            continue
+        if not _same_conflict_scope(incoming_meta, meta):
+            continue
+        existing_value = _conflict_value(meta)
+        if not existing_value:
+            continue
+        if _norm_conflict_value(existing_value) == incoming_norm:
+            continue
+        conflicts.append(_record_conflict_entry(record))
+    return conflicts
+
+
+def _apply_conflict_metadata(
+    storage_dir: str,
+    meta: dict,
+    *,
+    existing_records: list[dict] | None = None,
+) -> tuple[dict, list[dict]]:
+    conflicts = _detect_conflicts(storage_dir, meta, existing_records=existing_records)
+    if not conflicts:
+        return meta, []
+    enriched = dict(meta)
+    enriched["conflict_state"] = "conflicted"
+    enriched["conflict_detected_at"] = datetime.now(timezone.utc).isoformat()
+    enriched["conflict_scope"] = _conflict_scope(enriched)
+    enriched["conflicts_with"] = conflicts[:8]
+    return enriched, conflicts
+
+
+def _conflict_report_from_items(items: list[dict]) -> list[dict]:
+    conflicts: list[dict] = []
+    for item in items:
+        meta = item.get("meta") or {}
+        if not isinstance(meta, dict):
+            continue
+        if str(meta.get("conflict_state") or "").strip().lower() != "conflicted":
+            continue
+        conflicts.append(
+            {
+                "item_id": item.get("id"),
+                "scope": meta.get("conflict_scope") or _conflict_scope(meta),
+                "claim_value": _conflict_value(meta),
+                "conflicts_with": meta.get("conflicts_with") or [],
+            }
+        )
+    return conflicts
+
+
 def _adapter(storage_dir: str, config_path: str | None, require_gpu: bool) -> DMLAdapter:
     graph_path = os.environ.get("DAYSTROM_DPM_GRAPH_PATH") or str(Path(storage_dir) / "dpm_preference_graph.json")
     dpm_mode = os.environ.get("DAYSTROM_DPM_MODE", "active-write")
@@ -693,6 +841,11 @@ def cmd_ingest(args: argparse.Namespace) -> int:
             **meta,
             "kind": _kind(args.kind).value,
         }
+        try:
+            existing_records = _items_as_state_records(adapter.store.items())
+        except Exception:
+            existing_records = None
+        payload_meta, conflicts = _apply_conflict_metadata(args.storage_dir, payload_meta, existing_records=existing_records)
         chunks = smart_chunks(args.text, chunk_chars=max(180, args.chunk_chars), overlap=max(0, args.chunk_overlap)) if args.chunk else [args.text]
         kept = 0
         skipped_duplicate = 0
@@ -749,6 +902,7 @@ def cmd_ingest(args: argparse.Namespace) -> int:
             "chunks_ingested": kept,
             "chunks_skipped_duplicate": skipped_duplicate,
             "summary_policy": args.summary_policy,
+            "conflicts_detected": len(conflicts),
         },
     )
     print(
@@ -763,6 +917,8 @@ def cmd_ingest(args: argparse.Namespace) -> int:
                 "cheap_summaries": cheap_summaries,
                 "skipped_summaries": skipped_summaries,
                 "llm_summaries_allowed": llm_summaries_allowed,
+                "conflicts_detected": len(conflicts),
+                "conflicts": conflicts,
                 "lock": lock,
                 "audit": {"path": audit["path"], "event_ts": audit["event"]["ts"]},
             },
@@ -1031,6 +1187,29 @@ def cmd_retrieve(args: argparse.Namespace) -> int:
             compact_context = "\n".join(raw_lines)
             report["raw_context"] = f"{matrix_block}\n\n{compact_context}".strip() if matrix_block else compact_context
             report["context_tokens"] = max(1, len(report["raw_context"].split()))
+
+        conflicts = _conflict_report_from_items(items)
+        report["conflicts"] = conflicts
+        report["conflict_count"] = len(conflicts)
+        if conflicts:
+            conflict_lines = ["=== Memory Conflicts ==="]
+            for conflict in conflicts[:5]:
+                scope = conflict.get("scope") or {}
+                conflict_lines.append(
+                    "- "
+                    + " | ".join(
+                        str(value)
+                        for value in [
+                            scope.get("tenant_id"),
+                            scope.get("namespace"),
+                            scope.get("conflict_key"),
+                            conflict.get("claim_value"),
+                        ]
+                        if value
+                    )
+                )
+            report["raw_context"] = "\n".join(conflict_lines) + "\n\n" + str(report.get("raw_context") or "")
+            report["context_tokens"] = max(1, len(str(report["raw_context"]).split()))
 
         report["query_original"] = args.query
         report["query_effective"] = query
