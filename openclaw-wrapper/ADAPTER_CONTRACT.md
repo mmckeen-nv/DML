@@ -104,6 +104,28 @@ python scripts/dml_memory.py \
 Returns recent append-only audit events. Use this to debug multi-agent write
 activity without exposing raw memory text.
 
+### Recall Eval
+
+```bash
+python scripts/recall_eval.py \
+  --output-dir /tmp/dml-recall-eval
+```
+
+Runs a low-cost recall regression suite through the wrapper CLI. By default it
+uses a temporary isolated store, writes deterministic fixture memories, and
+scores:
+
+- expected marker recall
+- tenant isolation
+- session isolation
+- active continuity resume
+- ingest/retrieve/resume latency
+
+The command exits `0` when all cases pass and emits a JSON report to stdout.
+When `--output-dir` is set, it also writes `recall_eval_report.json` and
+`recall_eval_report.md`. Use `--storage-dir` only with a disposable test store;
+the eval intentionally writes fixture memories.
+
 ### Ingest
 
 ```bash

@@ -81,6 +81,23 @@ Outputs JSON with:
 - retrieval quality proxies: `avg_precision_at_k`, `avg_ndcg_at_k`, and `avg_retrieval_noise_score`
 - ingestion filtering stats (`corpus_filtering.raw_chunks/kept_chunks/dropped_chunks`)
 
+## Recall quality eval
+Run before beta-facing changes that touch ingest, retrieve, resume, scoping, or
+compaction-continuity behavior:
+
+- `python3 /Users/markmckeen/.openclaw/daystrom-dml-v2/openclaw-wrapper/scripts/recall_eval.py --output-dir /tmp/dml-recall-eval`
+
+The eval writes a small isolated fixture store by default, then scores:
+
+- tenant recall and cross-tenant isolation
+- session isolation
+- active continuity checkpoint resume
+- ingest/retrieve/resume latency
+
+It emits JSON to stdout plus `recall_eval_report.json` and
+`recall_eval_report.md` in the chosen output directory. Add `--storage-dir` to
+run against a specific disposable store, not the production memory store.
+
 ## Notes
 - This is a substrate skill: keep usage deterministic and tool-friendly (JSON output only).
 - Canonical runtime is the durable Daystrom env, not an ad-hoc workspace venv.
