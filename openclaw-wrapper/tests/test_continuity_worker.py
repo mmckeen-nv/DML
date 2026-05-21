@@ -62,6 +62,10 @@ class TestContinuityQueueWorker(unittest.TestCase):
                     "PYTHON_BIN": sys.executable,
                     "DML_CONFIG_PATH": str(tmp_path / "config.yaml"),
                     "DML_REQUIRE_GPU": "0",
+                    "DML_TENANT_ID": "tenant-worker",
+                    "DML_CLIENT_ID": "client-worker",
+                    "DML_SESSION_ID": "session-worker",
+                    "DML_INSTANCE_ID": "instance-worker",
                     "CALLS_PATH": str(calls_path),
                 }
             )
@@ -80,10 +84,22 @@ class TestContinuityQueueWorker(unittest.TestCase):
             self.assertIn("--no-require-gpu", args)
             self.assertIn("--kind", args)
             self.assertEqual(args[args.index("--kind") + 1], "plan")
+            self.assertIn("--tenant-id", args)
+            self.assertEqual(args[args.index("--tenant-id") + 1], "tenant-worker")
+            self.assertIn("--client-id", args)
+            self.assertEqual(args[args.index("--client-id") + 1], "client-worker")
+            self.assertIn("--session-id", args)
+            self.assertEqual(args[args.index("--session-id") + 1], "session-worker")
+            self.assertIn("--instance-id", args)
+            self.assertEqual(args[args.index("--instance-id") + 1], "instance-worker")
             meta = json.loads(args[args.index("--meta") + 1])
             self.assertEqual(meta["source"], "rolling_thread_checkpoint")
             self.assertEqual(meta["namespace"], "active_continuity")
             self.assertEqual(meta["memory_state"], "active")
+            self.assertEqual(meta["tenant_id"], "tenant-worker")
+            self.assertEqual(meta["client_id"], "client-worker")
+            self.assertEqual(meta["session_id"], "session-worker")
+            self.assertEqual(meta["instance_id"], "instance-worker")
             self.assertEqual(meta["checkpoint_path"], str(checkpoint))
             self.assertEqual(meta["thread"], "main")
             self.assertEqual(meta["state"], "executing")

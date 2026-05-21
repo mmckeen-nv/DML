@@ -469,6 +469,9 @@ def _read_state_health(storage_dir: str) -> dict:
         "active_continuity_count": 0,
         "quarantined_count": 0,
         "summary_count": 0,
+        "unscoped_count": 0,
+        "records_by_tenant": {},
+        "active_continuity_by_tenant": {},
         "errors": [],
     }
     if not path.exists():
@@ -520,6 +523,15 @@ def _read_state_health(storage_dir: str) -> dict:
             meta = {}
         if meta.get("namespace") == "active_continuity" or meta.get("source") in CONTINUITY_SOURCES:
             report["active_continuity_count"] += 1
+            tenant_key = str(meta.get("tenant_id") or "__unscoped__")
+            report["active_continuity_by_tenant"][tenant_key] = report["active_continuity_by_tenant"].get(tenant_key, 0) + 1
+        tenant_id = meta.get("tenant_id")
+        if tenant_id is None:
+            report["unscoped_count"] += 1
+            tenant_key = "__unscoped__"
+        else:
+            tenant_key = str(tenant_id)
+        report["records_by_tenant"][tenant_key] = report["records_by_tenant"].get(tenant_key, 0) + 1
         if str(meta.get("memory_state") or "").lower() in {"quarantined", "suppressed", "deleted"}:
             report["quarantined_count"] += 1
         if str(meta.get("summary") or "").strip():
@@ -592,7 +604,14 @@ def cmd_ingest(args: argparse.Namespace) -> int:
     try:
         adapter = _adapter(args.storage_dir, args.config_path, args.require_gpu)
         seen = _load_dedup_index(args.storage_dir)
-        payload_meta = {**meta, "kind": _kind(args.kind).value}
+        payload_meta = {
+            "tenant_id": args.tenant_id,
+            "client_id": args.client_id,
+            "session_id": args.session_id,
+            "instance_id": args.instance_id,
+            **meta,
+            "kind": _kind(args.kind).value,
+        }
         chunks = smart_chunks(args.text, chunk_chars=max(180, args.chunk_chars), overlap=max(0, args.chunk_overlap)) if args.chunk else [args.text]
         kept = 0
         skipped_duplicate = 0
@@ -1306,6 +1325,10 @@ def build_parser() -> argparse.ArgumentParser:
     ing.add_argument("--text", required=True)
     ing.add_argument("--kind", default="action")
     ing.add_argument("--meta", help="JSON object")
+    ing.add_argument("--tenant-id", default="openclaw")
+    ing.add_argument("--client-id")
+    ing.add_argument("--session-id")
+    ing.add_argument("--instance-id")
     ing.add_argument("--chunk", action=argparse.BooleanOptionalAction, default=True)
     ing.add_argument("--chunk-chars", type=int, default=620)
     ing.add_argument("--chunk-overlap", type=int, default=90)

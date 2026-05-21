@@ -11,6 +11,10 @@ DML_CONFIG_PATH="${DML_CONFIG_PATH:-$OPENCLAW_WORKSPACE/skills/daystrom-dml/conf
 PYTHON_BIN="${PYTHON_BIN:-$DAYSTROM_DML_HOME/.venv-dml/bin/python}"
 INGEST_TIMEOUT_SECONDS="${INGEST_TIMEOUT_SECONDS:-180}"
 DML_REQUIRE_GPU="${DML_REQUIRE_GPU:-0}"
+DML_TENANT_ID="${DML_TENANT_ID:-openclaw}"
+DML_CLIENT_ID="${DML_CLIENT_ID:-}"
+DML_SESSION_ID="${DML_SESSION_ID:-}"
+DML_INSTANCE_ID="${DML_INSTANCE_ID:-}"
 
 require_gpu_arg() {
   local normalized
@@ -153,6 +157,10 @@ while IFS= read -r line; do
     --arg source "rolling_thread_checkpoint" \
     --arg namespace "active_continuity" \
     --arg memory_state "active" \
+    --arg tenant_id "$DML_TENANT_ID" \
+    --arg client_id "$DML_CLIENT_ID" \
+    --arg session_id "$DML_SESSION_ID" \
+    --arg instance_id "$DML_INSTANCE_ID" \
     --arg scope "thread" \
     --arg checkpoint_path "$checkpointPath" \
     --arg continuity_signal "resume_checkpoint" \
@@ -167,6 +175,10 @@ while IFS= read -r line; do
       source: $source,
       namespace: $namespace,
       memory_state: $memory_state,
+      tenant_id: $tenant_id,
+      client_id: (if $client_id == "" then null else $client_id end),
+      session_id: (if $session_id == "" then null else $session_id end),
+      instance_id: (if $instance_id == "" then null else $instance_id end),
       scope: $scope,
       checkpoint_path: $checkpoint_path,
       continuity_signal: $continuity_signal,
@@ -181,7 +193,21 @@ while IFS= read -r line; do
     }')"
   itemResult="ok"
   itemMessage="processed"
-  if run_with_optional_timeout "$PYTHON_BIN" "$DML_SCRIPT" --config-path "$DML_CONFIG_PATH" "$(require_gpu_arg)" --storage-dir "$STORAGE_DIR" ingest --kind plan --meta "$metaJson" --text "$textContent"; then
+  cmd=(
+    "$PYTHON_BIN" "$DML_SCRIPT"
+    --config-path "$DML_CONFIG_PATH"
+    "$(require_gpu_arg)"
+    --storage-dir "$STORAGE_DIR"
+    ingest
+    --tenant-id "$DML_TENANT_ID"
+    --kind plan
+    --meta "$metaJson"
+    --text "$textContent"
+  )
+  [ -z "$DML_CLIENT_ID" ] || cmd+=(--client-id "$DML_CLIENT_ID")
+  [ -z "$DML_SESSION_ID" ] || cmd+=(--session-id "$DML_SESSION_ID")
+  [ -z "$DML_INSTANCE_ID" ] || cmd+=(--instance-id "$DML_INSTANCE_ID")
+  if run_with_optional_timeout "${cmd[@]}"; then
     itemResult="done"
     itemMessage="processed_summary"
   else

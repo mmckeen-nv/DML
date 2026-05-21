@@ -318,8 +318,15 @@ class TestContinuityResume(unittest.TestCase):
 
 
 class TestHealthCommand(unittest.TestCase):
-    def _write_state(self, storage_dir: str, *, text: str = "checkpoint") -> Path:
+    def _write_state(self, storage_dir: str, *, text: str = "checkpoint", tenant_id: str | None = None) -> Path:
         state_path = Path(storage_dir) / "dml_state.jsonl"
+        meta = {
+            "source": "rolling_thread_checkpoint",
+            "namespace": "active_continuity",
+            "summary": "thread: main | next: run tests",
+        }
+        if tenant_id is not None:
+            meta["tenant_id"] = tenant_id
         record = {
             "id": 0,
             "text": text,
@@ -329,11 +336,7 @@ class TestHealthCommand(unittest.TestCase):
             "fidelity": 1.0,
             "level": 0,
             "summary_of": [0],
-            "meta": {
-                "source": "rolling_thread_checkpoint",
-                "namespace": "active_continuity",
-                "summary": "thread: main | next: run tests",
-            },
+            "meta": meta,
         }
         payload_line = json.dumps(record, separators=(",", ":"), sort_keys=True)
         checksum = mod.hashlib.sha256(payload_line.encode("utf-8")).hexdigest()
@@ -352,7 +355,7 @@ class TestHealthCommand(unittest.TestCase):
 
     def test_cmd_health_reports_valid_state_without_backend_probe(self):
         with tempfile.TemporaryDirectory(prefix="dml-wrapper-health-test-") as tmp:
-            self._write_state(tmp)
+            self._write_state(tmp, tenant_id="openclaw")
             args = Namespace(
                 storage_dir=tmp,
                 config_path=None,
@@ -371,6 +374,9 @@ class TestHealthCommand(unittest.TestCase):
             self.assertTrue(payload["state"]["count_ok"])
             self.assertEqual(payload["state"]["embedding_dimensions"], [3])
             self.assertEqual(payload["state"]["active_continuity_count"], 1)
+            self.assertEqual(payload["state"]["unscoped_count"], 0)
+            self.assertEqual(payload["state"]["records_by_tenant"], {"openclaw": 1})
+            self.assertEqual(payload["state"]["active_continuity_by_tenant"], {"openclaw": 1})
 
     def test_cmd_health_fails_missing_state_file(self):
         with tempfile.TemporaryDirectory(prefix="dml-wrapper-health-missing-") as tmp:
@@ -486,6 +492,10 @@ class TestIngestBatching(unittest.TestCase):
                 config_path=None,
                 require_gpu=False,
                 lock_timeout_ms=0,
+                tenant_id="tenant-ingest",
+                client_id="client-ingest",
+                session_id="session-ingest",
+                instance_id="instance-ingest",
                 text=" ".join(f"Durable memory sentence {idx} with useful context." for idx in range(80)),
                 kind="note",
                 meta=None,
@@ -507,6 +517,11 @@ class TestIngestBatching(unittest.TestCase):
             self.assertTrue(all(call[2] is False for call in adapter.ingests))
             self.assertEqual(adapter.persist_calls, 1)
             self.assertGreater(payload["llm_summaries_allowed"], 0)
+            _, first_meta, _ = adapter.ingests[0]
+            self.assertEqual(first_meta["tenant_id"], "tenant-ingest")
+            self.assertEqual(first_meta["client_id"], "client-ingest")
+            self.assertEqual(first_meta["session_id"], "session-ingest")
+            self.assertEqual(first_meta["instance_id"], "instance-ingest")
         finally:
             mod._adapter = original_adapter
 
@@ -521,6 +536,10 @@ class TestIngestBatching(unittest.TestCase):
                 config_path=None,
                 require_gpu=False,
                 lock_timeout_ms=0,
+                tenant_id="openclaw",
+                client_id=None,
+                session_id=None,
+                instance_id=None,
                 text="I prefer wrapper smoke status updates to be concise.",
                 kind="note",
                 meta=json.dumps({"source": "wrapper-smoke", "dpm_preference": True}),
@@ -555,6 +574,10 @@ class TestIngestBatching(unittest.TestCase):
                 config_path=None,
                 require_gpu=False,
                 lock_timeout_ms=0,
+                tenant_id="openclaw",
+                client_id=None,
+                session_id=None,
+                instance_id=None,
                 text="\n".join(
                     [
                         "[source:rolling_thread_checkpoint]",
@@ -592,6 +615,7 @@ class TestIngestBatching(unittest.TestCase):
             self.assertEqual(payload["llm_summaries_allowed"], 0)
             _, meta, _ = adapter.ingests[0]
             self.assertEqual(meta["summary_source"], "deterministic")
+            self.assertEqual(meta["tenant_id"], "openclaw")
             self.assertIn("task: reduce intake summarization cost", meta["summary"])
             self.assertIn("next: run smoke tests", meta["summary"])
         finally:

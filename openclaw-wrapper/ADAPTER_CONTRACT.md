@@ -39,6 +39,9 @@ Expected top-level fields:
 - `state.record_count`
 - `state.embedding_dimensions`
 - `state.active_continuity_count`
+- `state.unscoped_count`
+- `state.records_by_tenant`
+- `state.active_continuity_by_tenant`
 - `store_lock.path`, `store_lock.metadata`
 - `errors`
 
@@ -91,6 +94,7 @@ python scripts/dml_memory.py \
   --config-path config/dml_portable_linux.yaml \
   --no-require-gpu \
   ingest \
+  --tenant-id openclaw \
   --kind note \
   --meta '{"source":"harness","namespace":"active_continuity"}' \
   --text "..."
@@ -102,6 +106,15 @@ Required metadata for beta integrations:
 - `kind`: set by `--kind`; one of `action`, `observation`, `note`, `plan`,
   `error`, `artifact`
 - `namespace`: logical memory lane, such as `active_continuity`
+
+Scope metadata:
+
+- New writes default to `tenant_id=openclaw`.
+- Harnesses should pass `--tenant-id` explicitly for multi-user deployments.
+- Use `--client-id`, `--session-id`, and `--instance-id` when a memory should
+  be isolated below the tenant level.
+- Legacy unscoped memories can still be used through the compatibility fallback,
+  but new multi-user harnesses should not create unscoped records.
 
 Recommended continuity metadata:
 
