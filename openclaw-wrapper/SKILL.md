@@ -112,6 +112,17 @@ It emits JSON to stdout plus `recall_eval_report.json` and
 `recall_eval_report.md` in the chosen output directory. Add `--storage-dir` to
 run against a specific disposable store, not the production memory store.
 
+## Concurrency stress
+Run this before beta releases or multi-agent harness changes:
+
+- `python3 /Users/markmckeen/.openclaw/daystrom-dml-v2/openclaw-wrapper/scripts/stress_harness.py --writes 6 --workers 3 --tenants 2 --sessions 2`
+
+The stress harness uses an isolated temporary store by default, launches
+parallel `ingest` subprocesses, verifies durable marker persistence, runs
+tenant/session retrieval isolation checks, and checks `verify` plus
+`audit-tail`. Add `--storage-dir` only for a disposable test store; the harness
+writes probe memories.
+
 ## Beta readiness gate
 Run before shipping or switching a harness to a store:
 

@@ -211,6 +211,28 @@ Runs the portable beta gate:
 The command exits `0` only when required checks pass and unresolved conflicts
 are within budget. Add `--skip-recall-eval` for a fast store-only preflight.
 
+### Concurrency Stress
+
+```bash
+python scripts/stress_harness.py \
+  --writes 6 \
+  --workers 3 \
+  --tenants 2 \
+  --sessions 2
+```
+
+Runs a disposable multi-writer probe by default:
+
+- parallel `ingest` subprocesses using the persistence lock
+- durable marker checks against `dml_state.jsonl`
+- tenant/session retrieval isolation checks
+- `verify` and `audit-tail` post-write checks
+
+The command exits `0` only when all writes succeed, every writer marker remains
+persisted, isolation checks do not leak forbidden markers, and store/audit
+checks pass. Add `--storage-dir` only for a disposable test store; the harness
+writes probe memories.
+
 ### Ingest
 
 ```bash
