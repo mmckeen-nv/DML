@@ -78,6 +78,31 @@ Runs the health checks and then loads the state through the real persistence
 loader. Use this before migrations, after restores, and when health reports a
 degraded store.
 
+### Schema
+
+```bash
+python scripts/dml_memory.py \
+  --storage-dir "$DML_STORE" \
+  schema
+```
+
+Reports the persisted state schema type/version, supported state versions, and
+whether a migration is required. Health also flags unsupported state types or
+versions as degraded.
+
+### Report
+
+```bash
+python scripts/dml_memory.py \
+  --storage-dir "$DML_STORE" \
+  report \
+  --tenant-id openclaw
+```
+
+Emits a compact operational report for dashboards and preflight checks:
+schema, state counts, tenants, continuity count, audit health, unresolved
+conflicts, and dry-run curation candidates.
+
 ### Restore
 
 ```bash
@@ -91,6 +116,46 @@ Restore validates the backup manifest checksum, makes a pre-restore backup of
 the current store by default, and replaces state atomically. Add
 `--no-pre-restore-backup` only when the current store is intentionally
 discardable.
+
+### Export
+
+```bash
+python scripts/dml_memory.py \
+  --storage-dir "$DML_STORE" \
+  export \
+  --output-dir /tmp/dml-exports \
+  --label before-machine-move
+```
+
+Creates a portable `.dml-export.tar.gz` archive with
+`dml_export_manifest.json`, `dml_state.jsonl`, and present sidecars such as the
+dedup index, audit log, embedding migration report, and DPM graph. The manifest
+stores per-file SHA-256 checksums and the bundle report includes the archive
+SHA-256.
+
+### Verify Export
+
+```bash
+python scripts/dml_memory.py \
+  verify-export \
+  --bundle /tmp/dml-exports/20260521T000000Z-before-machine-move.dml-export.tar.gz
+```
+
+Validates manifest schema and all per-file checksums without importing.
+
+### Import
+
+```bash
+python scripts/dml_memory.py \
+  --storage-dir "$DML_STORE" \
+  import \
+  --bundle /tmp/dml-exports/20260521T000000Z-before-machine-move.dml-export.tar.gz
+```
+
+Verifies the export bundle, makes a pre-import backup when the target already
+has state, writes files atomically into the target store, runs health checks,
+and appends an audit event. Add `--no-pre-import-backup` only when the target
+store is disposable.
 
 ### Audit Tail
 

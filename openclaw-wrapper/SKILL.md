@@ -60,7 +60,11 @@ Optional flags:
 - `health`: validates store checksum/count/dimensions and reports readiness.
 - `backup`: creates checksum-manifested backups before risky operations.
 - `verify`: loads durable state through the persistence layer and reports recovery suggestions.
+- `schema`: reports state schema support and migration requirement.
+- `report`: emits the compact operational dashboard payload.
 - `restore`: validates a backup, creates a pre-restore backup, then restores atomically.
+- `export` / `verify-export` / `import`: move a portable checksum-manifested
+  `.dml-export.tar.gz` bundle between stores or machines.
 - `ingest`: stores memory with kind + metadata.
 - `retrieve`: returns JSON report including `raw_context` + items.
 - `resume`: returns active continuity handoff and latest checkpoint fields.

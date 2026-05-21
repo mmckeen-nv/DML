@@ -457,6 +457,118 @@ class TestHealthCommand(unittest.TestCase):
             self.assertEqual(payload["state"]["records_by_tenant"], {"openclaw": 1})
             self.assertEqual(payload["state"]["active_continuity_by_tenant"], {"openclaw": 1})
 
+    def test_schema_command_reports_supported_state_version(self):
+        with tempfile.TemporaryDirectory(prefix="dml-wrapper-schema-test-") as tmp:
+            self._write_state(tmp, tenant_id="openclaw")
+            args = Namespace(storage_dir=tmp)
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                rc = mod.cmd_schema(args)
+
+            self.assertEqual(rc, 0)
+            payload = json.loads(buf.getvalue())
+            self.assertEqual(payload["status"], "ok")
+            self.assertEqual(payload["state_schema"]["version"], 1)
+            self.assertFalse(payload["state_schema"]["migration_required"])
+
+    def test_health_flags_unsupported_state_version(self):
+        with tempfile.TemporaryDirectory(prefix="dml-wrapper-schema-bad-") as tmp:
+            state_path = self._write_state(tmp, tenant_id="openclaw")
+            lines = state_path.read_text(encoding="utf-8").splitlines()
+            header = json.loads(lines[0])
+            header["version"] = 999
+            state_path.write_text(
+                json.dumps(header, separators=(",", ":"), sort_keys=True) + "\n" + "\n".join(lines[1:]),
+                encoding="utf-8",
+            )
+            args = Namespace(
+                storage_dir=tmp,
+                config_path=None,
+                require_gpu=False,
+                probe_backend=False,
+            )
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                rc = mod.cmd_health(args)
+
+            self.assertEqual(rc, 0)
+            payload = json.loads(buf.getvalue())
+            self.assertEqual(payload["status"], "degraded")
+            self.assertIn("unsupported_state_version: 999", payload["errors"])
+
+    def test_report_summarizes_health_conflicts_and_curation(self):
+        with tempfile.TemporaryDirectory(prefix="dml-wrapper-report-") as tmp:
+            old_ts = time.time() - 90 * 86400
+            _write_state_records(
+                tmp,
+                [
+                    {
+                        "id": 1,
+                        "text": "old low fidelity memory",
+                        "embedding": [0.1, 0.2],
+                        "timestamp": old_ts,
+                        "salience": 0.1,
+                        "fidelity": 0.2,
+                        "level": 0,
+                        "summary_of": [1],
+                        "meta": {"tenant_id": "alpha", "source": "unit", "namespace": "scratch", "memory_state": "active"},
+                    },
+                    {
+                        "id": 2,
+                        "text": "claim one",
+                        "embedding": [0.2, 0.3],
+                        "timestamp": time.time(),
+                        "salience": 0.8,
+                        "fidelity": 0.9,
+                        "level": 0,
+                        "summary_of": [2],
+                        "meta": {
+                            "tenant_id": "alpha",
+                            "source": "agent-a",
+                            "namespace": "ops",
+                            "conflict_key": "deploy_mode",
+                            "claim_value": "manual",
+                        },
+                    },
+                    {
+                        "id": 3,
+                        "text": "claim two",
+                        "embedding": [0.3, 0.4],
+                        "timestamp": time.time(),
+                        "salience": 0.8,
+                        "fidelity": 0.9,
+                        "level": 0,
+                        "summary_of": [3],
+                        "meta": {
+                            "tenant_id": "alpha",
+                            "source": "agent-b",
+                            "namespace": "ops",
+                            "conflict_key": "deploy_mode",
+                            "claim_value": "automatic",
+                            "conflict_state": "conflicted",
+                        },
+                    },
+                ],
+            )
+            args = Namespace(
+                storage_dir=tmp,
+                tenant_id="alpha",
+                conflict_limit=10,
+                curation_min_age_days=30.0,
+                curation_max_fidelity=0.35,
+                curation_limit=10,
+            )
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                self.assertEqual(mod.cmd_report(args), 0)
+
+            payload = json.loads(buf.getvalue())
+            self.assertEqual(payload["status"], "ok")
+            self.assertEqual(payload["state"]["record_count"], 3)
+            self.assertEqual(payload["conflicts"]["count"], 1)
+            self.assertEqual(payload["curation"]["candidate_count"], 1)
+            self.assertIn("unresolved_conflicts=1", payload["warnings"])
+
     def test_cmd_health_fails_missing_state_file(self):
         with tempfile.TemporaryDirectory(prefix="dml-wrapper-health-missing-") as tmp:
             args = Namespace(
@@ -521,6 +633,66 @@ class TestHealthCommand(unittest.TestCase):
             self.assertIsNotNone(restored["pre_restore_backup"])
             self.assertIn("original memory", state_path.read_text(encoding="utf-8"))
 
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                self.assertEqual(mod.cmd_verify(verify_args), 0)
+            self.assertEqual(json.loads(buf.getvalue())["status"], "ok")
+
+    def test_export_verify_and_import_round_trip(self):
+        with tempfile.TemporaryDirectory(prefix="dml-wrapper-export-test-") as tmp:
+            source = Path(tmp) / "source"
+            target = Path(tmp) / "target"
+            exports = Path(tmp) / "exports"
+            source.mkdir()
+            target.mkdir()
+            self._write_state(str(source), text="portable exported memory", tenant_id="openclaw")
+            mod._append_audit_event(
+                str(source),
+                operation="unit",
+                status="ok",
+                actor="unit-test",
+                details={"case": "export"},
+            )
+
+            export_args = Namespace(
+                storage_dir=str(source),
+                output_dir=str(exports),
+                label="unit",
+                audit_actor="unit-test",
+            )
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                self.assertEqual(mod.cmd_export(export_args), 0)
+            export_payload = json.loads(buf.getvalue())
+            bundle = Path(export_payload["export"]["bundle_path"])
+            self.assertTrue(bundle.exists())
+            self.assertTrue(export_payload["export"]["bundle_sha256"])
+
+            verify_export_args = Namespace(bundle=str(bundle))
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                self.assertEqual(mod.cmd_verify_export(verify_export_args), 0)
+            self.assertEqual(json.loads(buf.getvalue())["status"], "ok")
+
+            import_args = Namespace(
+                storage_dir=str(target),
+                bundle=str(bundle),
+                backup_dir=str(Path(tmp) / "target-backups"),
+                keep=20,
+                no_pre_import_backup=False,
+                lock_timeout_ms=0,
+                audit_actor="unit-test",
+            )
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                self.assertEqual(mod.cmd_import_bundle(import_args), 0)
+            import_payload = json.loads(buf.getvalue())
+            self.assertEqual(import_payload["status"], "ok")
+            self.assertTrue((target / "dml_state.jsonl").exists())
+            self.assertTrue((target / "dml_audit.jsonl").exists())
+            self.assertIn("portable exported memory", (target / "dml_state.jsonl").read_text(encoding="utf-8"))
+
+            verify_args = Namespace(storage_dir=str(target))
             buf = io.StringIO()
             with redirect_stdout(buf):
                 self.assertEqual(mod.cmd_verify(verify_args), 0)

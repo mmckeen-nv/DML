@@ -5,10 +5,12 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import io
 import json
 import os
 import shutil
 import sys
+import tarfile
 import time
 import errno
 import fcntl
@@ -24,6 +26,9 @@ WRAPPER_HOME = DAYSTROM_DML_HOME / "openclaw-wrapper"
 DML_PROJECT = DAYSTROM_DML_HOME / "dml"
 LEGACY_DML_PROJECT = WORKSPACE / "projects" / "dml"
 OLDER_DML_PROJECT = WORKSPACE / "dml"
+STATE_SCHEMA_TYPE = "daystrom_dml.memory"
+SUPPORTED_STATE_SCHEMA_VERSIONS = {1}
+EXPORT_SCHEMA_VERSION = "dml.export-manifest.v1"
 
 
 def _resolve_existing(*candidates: Path | None) -> Path | None:
@@ -411,6 +416,17 @@ def _copy_if_exists(src: Path, dest: Path) -> dict | None:
     }
 
 
+def _portable_sidecar_files(storage_dir: str) -> list[tuple[Path, str]]:
+    root = Path(storage_dir)
+    return [
+        (_state_file_path(storage_dir), "dml_state.jsonl"),
+        (_dedup_index_path(storage_dir), ".ingest_dedup_sha256.txt"),
+        (root / "embedding_compatibility_report.json", "embedding_compatibility_report.json"),
+        (root / "dpm_preference_graph.json", "dpm_preference_graph.json"),
+        (_audit_log_path(storage_dir), "dml_audit.jsonl"),
+    ]
+
+
 def _prune_backups(root: Path, *, keep: int) -> list[str]:
     if keep <= 0 or not root.exists():
         return []
@@ -434,12 +450,7 @@ def _create_backup(storage_dir: str, *, backup_dir: str | None = None, label: st
     target.mkdir(parents=True, exist_ok=False)
 
     files = []
-    for src, name in [
-        (state_path, "dml_state.jsonl"),
-        (_dedup_index_path(storage_dir), ".ingest_dedup_sha256.txt"),
-        (Path(storage_dir) / "embedding_compatibility_report.json", "embedding_compatibility_report.json"),
-        (Path(storage_dir) / "dpm_preference_graph.json", "dpm_preference_graph.json"),
-    ]:
+    for src, name in _portable_sidecar_files(storage_dir):
         copied = _copy_if_exists(src, target / name)
         if copied:
             files.append(copied)
@@ -457,6 +468,120 @@ def _create_backup(storage_dir: str, *, backup_dir: str | None = None, label: st
     manifest["manifest_path"] = str(manifest_path)
     manifest["pruned_backups"] = _prune_backups(root, keep=keep)
     return manifest
+
+
+def _safe_label(value: str) -> str:
+    return "".join(ch if ch.isalnum() or ch in {"-", "_"} else "-" for ch in value).strip("-") or "manual"
+
+
+def _create_export_bundle(storage_dir: str, *, output_dir: str | None, label: str) -> dict:
+    state_path = _state_file_path(storage_dir)
+    if not state_path.exists():
+        raise FileNotFoundError(f"state file missing: {state_path}")
+    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    safe_label = _safe_label(label)
+    root = Path(output_dir).expanduser() if output_dir else Path(storage_dir) / "exports"
+    root.mkdir(parents=True, exist_ok=True)
+    bundle_path = root / f"{ts}-{safe_label}.dml-export.tar.gz"
+    files = []
+    with tarfile.open(bundle_path, "w:gz") as tar:
+        for src, name in _portable_sidecar_files(storage_dir):
+            if not src.exists():
+                continue
+            file_report = {
+                "name": name,
+                "bytes": src.stat().st_size,
+                "sha256": _sha256_file(src),
+            }
+            files.append(file_report)
+            tar.add(src, arcname=name)
+        manifest = {
+            "schema_version": EXPORT_SCHEMA_VERSION,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "contract_version": "dml-agent-memory-v1",
+            "label": safe_label,
+            "source_storage_dir": str(storage_dir),
+            "files": files,
+        }
+        manifest_bytes = json.dumps(manifest, indent=2, sort_keys=True).encode("utf-8")
+        info = tarfile.TarInfo("dml_export_manifest.json")
+        info.size = len(manifest_bytes)
+        info.mtime = time.time()
+        tar.addfile(info, io.BytesIO(manifest_bytes))
+    manifest["bundle_path"] = str(bundle_path)
+    manifest["bundle_sha256"] = _sha256_file(bundle_path)
+    return manifest
+
+
+def _read_export_bundle_manifest(bundle: str) -> tuple[Path, dict]:
+    bundle_path = Path(bundle).expanduser()
+    if not bundle_path.exists():
+        raise FileNotFoundError(f"export bundle missing: {bundle_path}")
+    with tarfile.open(bundle_path, "r:gz") as tar:
+        try:
+            member = tar.getmember("dml_export_manifest.json")
+        except KeyError as exc:
+            raise ValueError("export bundle missing dml_export_manifest.json") from exc
+        handle = tar.extractfile(member)
+        if handle is None:
+            raise ValueError("export manifest unreadable")
+        manifest = json.loads(handle.read().decode("utf-8"))
+    return bundle_path, manifest
+
+
+def _verify_export_bundle(bundle: str) -> dict:
+    bundle_path, manifest = _read_export_bundle_manifest(bundle)
+    errors: list[str] = []
+    if manifest.get("schema_version") != EXPORT_SCHEMA_VERSION:
+        errors.append(f"unsupported_manifest_schema: {manifest.get('schema_version')}")
+    seen_names: set[str] = set()
+    with tarfile.open(bundle_path, "r:gz") as tar:
+        members = {member.name: member for member in tar.getmembers() if member.isfile()}
+        for file_report in manifest.get("files") or []:
+            name = str(file_report.get("name") or "")
+            seen_names.add(name)
+            member = members.get(name)
+            if member is None:
+                errors.append(f"missing_file: {name}")
+                continue
+            handle = tar.extractfile(member)
+            if handle is None:
+                errors.append(f"unreadable_file: {name}")
+                continue
+            actual = hashlib.sha256(handle.read()).hexdigest()
+            expected = str(file_report.get("sha256") or "")
+            if expected and actual != expected:
+                errors.append(f"checksum_mismatch: {name}")
+        if "dml_state.jsonl" not in seen_names:
+            errors.append("missing_file: dml_state.jsonl")
+    return {
+        "status": "ok" if not errors else "fail",
+        "bundle_path": str(bundle_path),
+        "bundle_sha256": _sha256_file(bundle_path),
+        "manifest": manifest,
+        "errors": errors,
+    }
+
+
+def _bundle_file_bytes(bundle_path: Path, name: str) -> bytes | None:
+    with tarfile.open(bundle_path, "r:gz") as tar:
+        try:
+            member = tar.getmember(name)
+        except KeyError:
+            return None
+        if not member.isfile():
+            return None
+        handle = tar.extractfile(member)
+        if handle is None:
+            return None
+        return handle.read()
+
+
+def _write_atomic_bytes(path: Path, data: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".import-tmp") if path.suffix else path.with_name(path.name + ".import-tmp")
+    tmp.write_bytes(data)
+    tmp.replace(path)
 
 
 def _read_state_health(storage_dir: str) -> dict:
@@ -499,6 +624,10 @@ def _read_state_health(storage_dir: str) -> dict:
     report["type"] = header.get("type")
     report["version"] = header.get("version")
     report["created_at"] = header.get("created_at")
+    if report["type"] != STATE_SCHEMA_TYPE:
+        report["errors"].append(f"unsupported_state_type: {report['type']}")
+    if report["version"] not in SUPPORTED_STATE_SCHEMA_VERSIONS:
+        report["errors"].append(f"unsupported_state_version: {report['version']}")
     report["header_count"] = int(header.get("count") or 0)
     payload_lines = lines[1:]
     expected_checksum = str(header.get("checksum") or "")
@@ -1667,6 +1796,104 @@ def cmd_verify(args: argparse.Namespace) -> int:
     return 0 if report["status"] == "ok" else 1
 
 
+def cmd_schema(args: argparse.Namespace) -> int:
+    state = _read_state_health(args.storage_dir)
+    state_version = state.get("version")
+    supported = state_version in SUPPORTED_STATE_SCHEMA_VERSIONS and state.get("type") == STATE_SCHEMA_TYPE
+    report = {
+        "status": "ok" if supported else "fail",
+        "action": "schema",
+        "contract_version": "dml-agent-memory-v1",
+        "storage_dir": args.storage_dir,
+        "state_schema": {
+            "type": state.get("type"),
+            "version": state_version,
+            "supported_type": STATE_SCHEMA_TYPE,
+            "supported_versions": sorted(SUPPORTED_STATE_SCHEMA_VERSIONS),
+            "supported": supported,
+            "migration_required": bool(state.get("exists") and not supported),
+        },
+        "export_schema": {
+            "schema_version": EXPORT_SCHEMA_VERSION,
+        },
+        "errors": list(state.get("errors") or []),
+    }
+    print(json.dumps(report, indent=2, default=str))
+    return 0 if report["status"] == "ok" else 1
+
+
+def cmd_report(args: argparse.Namespace) -> int:
+    started = time.perf_counter()
+    state = _read_state_health(args.storage_dir)
+    records = _iter_state_records(args.storage_dir)
+    conflicts = _state_conflict_groups(records)
+    if args.tenant_id is not None:
+        conflicts = [group for group in conflicts if group["scope"].get("tenant_id") == args.tenant_id]
+    curate_args = argparse.Namespace(
+        tenant_id=args.tenant_id,
+        namespace=None,
+        source=None,
+        state=None,
+        min_age_days=args.curation_min_age_days,
+        max_fidelity=args.curation_max_fidelity,
+        limit=args.curation_limit,
+        include_continuity=False,
+    )
+    curation_candidates = _curation_candidates(records, curate_args)
+    status = "ok"
+    warnings = []
+    if state.get("errors"):
+        status = "degraded"
+    if conflicts:
+        warnings.append(f"unresolved_conflicts={len(conflicts)}")
+    if curation_candidates:
+        warnings.append(f"curation_candidates={len(curation_candidates)}")
+    report = {
+        "status": status,
+        "action": "report",
+        "contract_version": "dml-agent-memory-v1",
+        "storage_dir": args.storage_dir,
+        "schema": {
+            "type": state.get("type"),
+            "version": state.get("version"),
+            "supported_versions": sorted(SUPPORTED_STATE_SCHEMA_VERSIONS),
+            "migration_required": bool(state.get("exists") and state.get("version") not in SUPPORTED_STATE_SCHEMA_VERSIONS),
+        },
+        "state": {
+            "exists": state.get("exists"),
+            "record_count": state.get("record_count"),
+            "checksum_ok": state.get("checksum_ok"),
+            "count_ok": state.get("count_ok"),
+            "embedding_dimensions": state.get("embedding_dimensions"),
+            "summary_ratio": state.get("summary_ratio"),
+            "active_continuity_count": state.get("active_continuity_count"),
+            "quarantined_count": state.get("quarantined_count"),
+            "records_by_tenant": state.get("records_by_tenant"),
+            "active_continuity_by_tenant": state.get("active_continuity_by_tenant"),
+            "errors": state.get("errors"),
+        },
+        "audit": _audit_health(args.storage_dir),
+        "conflicts": {
+            "count": len(conflicts),
+            "groups": conflicts[: max(0, args.conflict_limit)],
+        },
+        "curation": {
+            "candidate_count": len(curation_candidates),
+            "candidates": curation_candidates,
+            "filters": {
+                "tenant_id": args.tenant_id,
+                "min_age_days": args.curation_min_age_days,
+                "max_fidelity": args.curation_max_fidelity,
+                "limit": args.curation_limit,
+            },
+        },
+        "warnings": warnings,
+        "latency_ms": round((time.perf_counter() - started) * 1000.0, 2),
+    }
+    print(json.dumps(report, indent=2, default=str))
+    return 0 if report["status"] in {"ok", "degraded"} else 1
+
+
 def _load_backup_manifest(path: str) -> tuple[Path, dict]:
     p = Path(path).expanduser()
     if p.is_dir():
@@ -1783,6 +2010,180 @@ def cmd_restore(args: argparse.Namespace) -> int:
             details={"backup": args.backup, "error": str(exc)},
         )
         report["audit"] = {"path": audit["path"], "event_ts": audit["event"]["ts"]}
+        print(json.dumps(report, indent=2, default=str))
+        return 1
+
+
+def cmd_export(args: argparse.Namespace) -> int:
+    started = time.perf_counter()
+    try:
+        manifest = _create_export_bundle(args.storage_dir, output_dir=args.output_dir, label=args.label)
+        report = {
+            "status": "ok",
+            "action": "export",
+            "contract_version": "dml-agent-memory-v1",
+            "export": manifest,
+            "latency_ms": round((time.perf_counter() - started) * 1000.0, 2),
+        }
+        audit = _append_audit_event(
+            args.storage_dir,
+            operation="export",
+            status="ok",
+            actor=_audit_actor(args),
+            details={
+                "bundle_path": manifest.get("bundle_path"),
+                "bundle_sha256": manifest.get("bundle_sha256"),
+                "file_count": len(manifest.get("files") or []),
+                "label": manifest.get("label"),
+            },
+        )
+        report["audit"] = {"path": audit["path"], "event_ts": audit["event"]["ts"]}
+        print(json.dumps(report, indent=2, default=str))
+        return 0
+    except Exception as exc:
+        report = {
+            "status": "fail",
+            "action": "export",
+            "error": str(exc),
+            "latency_ms": round((time.perf_counter() - started) * 1000.0, 2),
+        }
+        try:
+            audit = _append_audit_event(
+                args.storage_dir,
+                operation="export",
+                status="fail",
+                actor=_audit_actor(args),
+                details={"label": args.label, "error": str(exc)},
+            )
+            report["audit"] = {"path": audit["path"], "event_ts": audit["event"]["ts"]}
+        except Exception:
+            pass
+        print(json.dumps(report, indent=2, default=str))
+        return 1
+
+
+def cmd_verify_export(args: argparse.Namespace) -> int:
+    started = time.perf_counter()
+    try:
+        report = _verify_export_bundle(args.bundle)
+        report.update(
+            {
+                "action": "verify-export",
+                "contract_version": "dml-agent-memory-v1",
+                "latency_ms": round((time.perf_counter() - started) * 1000.0, 2),
+            }
+        )
+        print(json.dumps(report, indent=2, default=str))
+        return 0 if report["status"] == "ok" else 1
+    except Exception as exc:
+        print(
+            json.dumps(
+                {
+                    "status": "fail",
+                    "action": "verify-export",
+                    "error": str(exc),
+                    "latency_ms": round((time.perf_counter() - started) * 1000.0, 2),
+                },
+                indent=2,
+                default=str,
+            )
+        )
+        return 1
+
+
+def cmd_import_bundle(args: argparse.Namespace) -> int:
+    started = time.perf_counter()
+    try:
+        verification = _verify_export_bundle(args.bundle)
+        if verification["status"] != "ok":
+            raise ValueError("; ".join(verification.get("errors") or ["export bundle verification failed"]))
+        bundle_path = Path(verification["bundle_path"])
+        manifest = verification["manifest"]
+        with _store_write_lock(args.storage_dir, operation="import", timeout_ms=args.lock_timeout_ms) as lock:
+            pre_import = None
+            if _state_file_path(args.storage_dir).exists() and not args.no_pre_import_backup:
+                pre_import = _create_backup(
+                    args.storage_dir,
+                    backup_dir=args.backup_dir,
+                    label="pre-import",
+                    keep=args.keep,
+                )
+            imported_files: list[dict] = []
+            for file_report in manifest.get("files") or []:
+                name = str(file_report.get("name") or "")
+                allowed = {sidecar_name for _path, sidecar_name in _portable_sidecar_files(args.storage_dir)}
+                if name not in allowed:
+                    continue
+                data = _bundle_file_bytes(bundle_path, name)
+                if data is None:
+                    raise FileNotFoundError(f"bundle file missing: {name}")
+                dest = Path(args.storage_dir) / name
+                _write_atomic_bytes(dest, data)
+                imported_files.append(
+                    {
+                        "name": name,
+                        "path": str(dest),
+                        "bytes": dest.stat().st_size,
+                        "sha256": _sha256_file(dest),
+                    }
+                )
+            health = _read_state_health(args.storage_dir)
+            status = "ok" if not health.get("errors") else "degraded"
+        report = {
+            "status": status,
+            "action": "import",
+            "contract_version": "dml-agent-memory-v1",
+            "bundle_path": str(bundle_path),
+            "bundle_sha256": verification.get("bundle_sha256"),
+            "imported_files": imported_files,
+            "pre_import_backup": pre_import,
+            "state": health,
+            "lock": lock,
+            "latency_ms": round((time.perf_counter() - started) * 1000.0, 2),
+        }
+        audit = _append_audit_event(
+            args.storage_dir,
+            operation="import",
+            status=status,
+            actor=_audit_actor(args),
+            details={
+                "bundle_sha256": verification.get("bundle_sha256"),
+                "file_count": len(imported_files),
+                "pre_import_backup_dir": (pre_import or {}).get("backup_dir") if isinstance(pre_import, dict) else None,
+            },
+        )
+        report["audit"] = {"path": audit["path"], "event_ts": audit["event"]["ts"]}
+        print(json.dumps(report, indent=2, default=str))
+        return 0 if status in {"ok", "degraded"} else 1
+    except TimeoutError as exc:
+        blocked = _lock_failure_report("import", exc, started)
+        _append_audit_event(
+            args.storage_dir,
+            operation="import",
+            status="blocked",
+            actor=_audit_actor(args),
+            details={"bundle": args.bundle, "lock": blocked.get("lock")},
+        )
+        print(json.dumps(blocked, indent=2, default=str))
+        return 2
+    except Exception as exc:
+        report = {
+            "status": "fail",
+            "action": "import",
+            "error": str(exc),
+            "latency_ms": round((time.perf_counter() - started) * 1000.0, 2),
+        }
+        try:
+            audit = _append_audit_event(
+                args.storage_dir,
+                operation="import",
+                status="fail",
+                actor=_audit_actor(args),
+                details={"bundle": args.bundle, "error": str(exc)},
+            )
+            report["audit"] = {"path": audit["path"], "event_ts": audit["event"]["ts"]}
+        except Exception:
+            pass
         print(json.dumps(report, indent=2, default=str))
         return 1
 
@@ -2212,12 +2613,39 @@ def build_parser() -> argparse.ArgumentParser:
     verify = sub.add_parser("verify")
     verify.set_defaults(func=cmd_verify)
 
+    schema = sub.add_parser("schema")
+    schema.set_defaults(func=cmd_schema)
+
+    report = sub.add_parser("report")
+    report.add_argument("--tenant-id")
+    report.add_argument("--conflict-limit", type=int, default=10)
+    report.add_argument("--curation-min-age-days", type=float, default=30.0)
+    report.add_argument("--curation-max-fidelity", type=float, default=0.35)
+    report.add_argument("--curation-limit", type=int, default=10)
+    report.set_defaults(func=cmd_report)
+
     restore = sub.add_parser("restore")
     restore.add_argument("--backup", required=True, help="Backup directory or backup_manifest.json path")
     restore.add_argument("--backup-dir", help="Where to place the pre-restore backup")
     restore.add_argument("--keep", type=int, default=20)
     restore.add_argument("--no-pre-restore-backup", dest="no_pre_restore_backup", action="store_true")
     restore.set_defaults(no_pre_restore_backup=False, func=cmd_restore)
+
+    export = sub.add_parser("export")
+    export.add_argument("--output-dir")
+    export.add_argument("--label", default="manual")
+    export.set_defaults(func=cmd_export)
+
+    verify_export = sub.add_parser("verify-export")
+    verify_export.add_argument("--bundle", required=True)
+    verify_export.set_defaults(func=cmd_verify_export)
+
+    import_bundle = sub.add_parser("import")
+    import_bundle.add_argument("--bundle", required=True)
+    import_bundle.add_argument("--backup-dir", help="Where to place the pre-import backup")
+    import_bundle.add_argument("--keep", type=int, default=20)
+    import_bundle.add_argument("--no-pre-import-backup", dest="no_pre_import_backup", action="store_true")
+    import_bundle.set_defaults(no_pre_import_backup=False, func=cmd_import_bundle)
 
     audit = sub.add_parser("audit-tail")
     audit.add_argument("--limit", type=int, default=20)
