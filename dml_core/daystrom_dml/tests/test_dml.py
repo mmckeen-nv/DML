@@ -138,6 +138,36 @@ def test_adapter_merge_preserves_incoming_conflict_metadata(tmp_path) -> None:
     assert item.meta["conflicts_with"][0]["claim_value"] == "automatic"
 
 
+def test_no_merge_metadata_keeps_continuity_checkpoints_distinct(tmp_path) -> None:
+    adapter = DMLAdapter(
+        config_overrides={
+            "model_name": "dummy",
+            "embedding_model": None,
+            "theta_merge": 0.5,
+            "storage_dir": str(tmp_path / "storage"),
+            "persistence": {"enable": False},
+            "metrics_enabled": False,
+        },
+        embedder=FixedEmbedder(),
+        summarizer=DummySummarizer(),
+        start_aging_loop=False,
+    )
+    for idx in range(2):
+        adapter.ingest(
+            f"thread: session-{idx}\nnext_action: run {idx}",
+            meta={
+                "tenant_id": "openclaw",
+                "session_id": f"session-{idx}",
+                "namespace": "active_continuity",
+                "merge_policy": "never",
+                "no_merge": True,
+            },
+        )
+
+    assert len(adapter.store.items()) == 2
+    assert {item.meta["session_id"] for item in adapter.store.items()} == {"session-0", "session-1"}
+
+
 def test_capacity_eviction_prefers_stale_items() -> None:
     store = make_store(capacity=2, theta_merge=2.0)
     vec = np.ones(8, dtype=np.float32)

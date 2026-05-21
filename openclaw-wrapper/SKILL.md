@@ -67,6 +67,8 @@ Optional flags:
 - `export` / `verify-export` / `import`: move a portable checksum-manifested
   `.dml-export.tar.gz` bundle between stores or machines.
 - `ingest`: stores memory with kind + metadata.
+- `session`: creates/reuses a stable session id for a local OpenClaw thread.
+- `handoff`: writes a structured active continuity checkpoint for compaction or shutdown recovery.
 - `retrieve`: returns JSON report including `raw_context` + items.
 - `resume`: returns active continuity handoff and latest checkpoint fields.
 - Claim conflicts are opt-in: pass `conflict_key`/`claim_value` in `--meta`
@@ -131,6 +133,19 @@ tenant/session retrieval isolation checks, and checks `verify` plus
 writes probe memories.
 Use `--tenants 1 --sessions 4` to smoke one OpenClaw user with multiple
 concurrent sessions.
+
+## Resume quality smoke
+Run after continuity changes:
+
+- `python3 /Users/markmckeen/.openclaw/daystrom-dml-v2/openclaw-wrapper/scripts/resume_quality_smoke.py --sessions 3`
+
+The smoke writes several session handoffs to an isolated store, then verifies
+tenant-wide `resume` selects the newest active checkpoint.
+
+## Provider and worker
+- Provider UI/API: `dml-provider --storage-dir "$DML_STORE" --host 127.0.0.1 --port 8765`
+- Background queue worker: `python3 skills/daystrom-dml/scripts/dml_background_worker.py --once`
+- Installer: `scripts/install_daystrom_dml.sh`
 
 ## Beta readiness gate
 Run before shipping or switching a harness to a store:

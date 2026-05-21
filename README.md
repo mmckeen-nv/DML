@@ -126,6 +126,17 @@ dml-server --host 0.0.0.0 --port 8000
 ```
 Use `--reload` during development for hot reloading. The server honours `DML_HOST` and `DML_PORT` when set.
 
+### Provider mode
+```bash
+pip install .[server,mcp]
+dml-provider --storage-dir ./data --host 127.0.0.1 --port 8765
+```
+Provider mode serves a local UI at `http://127.0.0.1:8765`, health at
+`/health`, and DML memory APIs under `/api/*` for recall, remember, resume,
+search, and fetch. Use `scripts/install_daystrom_dml.sh` for an OpenClaw-ready
+local install that creates the venv, syncs the skill wrapper, and prints MCP/UI
+commands.
+
 ### Docker
 ```bash
 docker build -f dml_core/Dockerfile -t daystrom-dml .

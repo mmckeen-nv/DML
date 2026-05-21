@@ -135,18 +135,26 @@ class MemoryStore:
     ) -> Tuple[MemoryItem, bool]:
         now = time.time()
         enriched_meta = dict(meta or {})
+        no_merge_value = enriched_meta.get("no_merge")
+        no_merge = (
+            no_merge_value is True
+            or str(no_merge_value).strip().lower() in {"1", "true", "yes", "on"}
+            or str(enriched_meta.get("merge_policy") or "").strip().lower() == "never"
+        )
 
         with self._lock:
-            best_match, best_sim = self._best_match(embedding)
+            best_match, best_sim = (None, 0.0) if no_merge else self._best_match(embedding)
 
         with self._lock:
-            merged = self._try_merge(
-                text,
-                embedding,
-                salience,
-                meta=meta,
-                precomputed_match=(best_match, best_sim),
-            )
+            merged = None
+            if not no_merge:
+                merged = self._try_merge(
+                    text,
+                    embedding,
+                    salience,
+                    meta=meta,
+                    precomputed_match=(best_match, best_sim),
+                )
             if merged:
                 return merged, True
             item = MemoryItem(

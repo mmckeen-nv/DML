@@ -468,6 +468,79 @@ class TestContinuityResume(unittest.TestCase):
             mod._adapter = original_adapter
 
 
+class TestSessionAndHandoffCommands(unittest.TestCase):
+    def test_cmd_session_reuses_stable_session_id_for_label(self):
+        with tempfile.TemporaryDirectory(prefix="dml-session-test-") as tmp:
+            args = Namespace(
+                storage_dir=tmp,
+                lock_timeout_ms=0,
+                label="openclaw-main",
+                tenant_id="openclaw",
+                session_id=None,
+                rotate=False,
+            )
+            first = io.StringIO()
+            with redirect_stdout(first):
+                self.assertEqual(mod.cmd_session(args), 0)
+            first_payload = json.loads(first.getvalue())
+
+            second = io.StringIO()
+            with redirect_stdout(second):
+                self.assertEqual(mod.cmd_session(args), 0)
+            second_payload = json.loads(second.getvalue())
+
+            self.assertTrue(first_payload["created"])
+            self.assertFalse(second_payload["created"])
+            self.assertEqual(first_payload["session_id"], second_payload["session_id"])
+            self.assertTrue(Path(first_payload["registry_path"]).exists())
+
+    def test_cmd_handoff_emits_structured_continuity_ingest(self):
+        original_cmd_ingest = mod.cmd_ingest
+        captured = {}
+
+        def fake_ingest(args):
+            captured["args"] = args
+            return 0
+
+        try:
+            mod.cmd_ingest = fake_ingest
+            args = Namespace(
+                storage_dir="/tmp/does-not-matter",
+                config_path=None,
+                require_gpu=False,
+                lock_timeout_ms=0,
+                audit_actor="unit",
+                tenant_id="openclaw",
+                client_id=None,
+                session_id="session-a",
+                instance_id=None,
+                thread="session-a",
+                state="executing",
+                task="build handoff",
+                next_action="run smoke",
+                note="checkpoint note",
+                intent=None,
+                selected_path=None,
+                updated_at="2026-05-21T20:00:00Z",
+            )
+
+            self.assertEqual(mod.cmd_handoff(args), 0)
+            ingest_args = captured["args"]
+            meta = json.loads(ingest_args.meta)
+
+            self.assertIn("[source:rolling_thread_checkpoint]", ingest_args.text)
+            self.assertIn("next_action: run smoke", ingest_args.text)
+            self.assertEqual(ingest_args.kind, "plan")
+            self.assertFalse(ingest_args.chunk)
+            self.assertEqual(meta["namespace"], "active_continuity")
+            self.assertEqual(meta["session_id"], "session-a")
+            self.assertEqual(meta["next_action"], "run smoke")
+            self.assertTrue(meta["no_merge"])
+            self.assertEqual(meta["merge_policy"], "never")
+        finally:
+            mod.cmd_ingest = original_cmd_ingest
+
+
 class TestHealthCommand(unittest.TestCase):
     def _write_state(self, storage_dir: str, *, text: str = "checkpoint", tenant_id: str | None = None) -> Path:
         state_path = Path(storage_dir) / "dml_state.jsonl"

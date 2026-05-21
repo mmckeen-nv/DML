@@ -97,6 +97,35 @@ def create_server(
             "sources": report.get("source_docs", []),
         }
 
+    @server.tool(name="search", description="Search DML memory and return result handles")
+    async def search(query: str, tenant_id: str = "openclaw", session_id: str | None = None, top_k: int = 6) -> dict[str, Any]:
+        report = adapter.retrieve_context(query, tenant_id=tenant_id, session_id=session_id, top_k=top_k)
+        results = []
+        for item in report.get("items", []):
+            meta = item.get("meta") or {}
+            results.append(
+                {
+                    "id": str(item.get("id") or ""),
+                    "title": meta.get("source") or f"memory:{item.get('id')}",
+                    "snippet": item.get("summary") or item.get("text") or "",
+                    "metadata": meta,
+                }
+            )
+        return {"query": query, "results": results}
+
+    @server.tool(name="fetch", description="Fetch one DML memory by id")
+    async def fetch(memory_id: str) -> dict[str, Any]:
+        for item in adapter.store.items():
+            if str(item.id) == str(memory_id):
+                return {
+                    "id": str(item.id),
+                    "text": item.text,
+                    "summary": item.cached_summary(max_len=400),
+                    "metadata": item.meta or {},
+                    "timestamp": float(item.timestamp),
+                }
+        raise ValueError(f"Memory not found: {memory_id}")
+
     @server.tool(name="stats", description="Return basic adapter statistics")
     async def stats() -> dict[str, Any]:
         return adapter.stats()

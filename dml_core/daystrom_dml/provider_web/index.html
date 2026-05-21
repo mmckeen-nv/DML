@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>DML Provider</title>
+    <link rel="stylesheet" href="/assets/styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div>
+          <h1>DML Provider</h1>
+          <p id="status-line">Checking local memory provider...</p>
+        </div>
+        <button id="refresh">Refresh</button>
+      </header>
+
+      <section class="metrics" id="metrics"></section>
+
+      <section class="workspace">
+        <form id="recall-form" class="panel">
+          <h2>Recall</h2>
+          <label>
+            Query
+            <textarea id="query" rows="5">active continuity checkpoint next action</textarea>
+          </label>
+          <div class="row">
+            <label>Tenant <input id="tenant" value="openclaw" /></label>
+            <label>Session <input id="session" placeholder="optional" /></label>
+            <label>Top K <input id="topk" type="number" min="1" max="20" value="6" /></label>
+          </div>
+          <button type="submit">Recall</button>
+        </form>
+
+        <form id="remember-form" class="panel">
+          <h2>Remember</h2>
+          <label>
+            Memory
+            <textarea id="memory-text" rows="5" placeholder="Write a memory..."></textarea>
+          </label>
+          <div class="row">
+            <label>Kind <input id="kind" value="note" /></label>
+            <label>Source <input id="source" value="provider-ui" /></label>
+          </div>
+          <button type="submit">Remember</button>
+        </form>
+      </section>
+
+      <section class="panel">
+        <h2>Results</h2>
+        <pre id="results"></pre>
+      </section>
+    </main>
+    <script src="/assets/provider.js"></script>
+  </body>
+</html>

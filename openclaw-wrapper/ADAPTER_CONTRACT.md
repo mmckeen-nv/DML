@@ -236,6 +236,33 @@ writes probe memories.
 Use `--tenants 1 --sessions 4` for the single-user, multi-session OpenClaw
 smoke path.
 
+### Resume Quality Smoke
+
+```bash
+python scripts/resume_quality_smoke.py --sessions 3
+```
+
+Writes several session handoffs to a disposable store and verifies tenant-wide
+`resume` selects the newest active checkpoint.
+
+### Provider Server
+
+```bash
+dml-provider --storage-dir "$DML_STORE" --host 127.0.0.1 --port 8765
+```
+
+Serves a local UI at `/`, health at `/health`, DML-native API endpoints under
+`/api/*`, and search/fetch compatible surfaces for provider-style integrations.
+
+### Background Worker
+
+```bash
+python scripts/dml_background_worker.py --once
+```
+
+Runs the existing queue processor once, or omit `--once` to poll. Use this to
+move checkpoint ingestion out of the foreground agent turn.
+
 ### Ingest
 
 ```bash
@@ -296,6 +323,40 @@ Summary policy:
 - Use `--summary-policy llm` for large, ambiguous natural-language chunks.
 - Use `--summary-policy skip` for raw audit records that should not be cached
   into prompt-facing summaries.
+
+### Session
+
+```bash
+python scripts/dml_memory.py \
+  --storage-dir "$DML_STORE" \
+  --no-require-gpu \
+  session \
+  --label openclaw-main \
+  --tenant-id openclaw
+```
+
+Creates or reuses a stable session id in `dml_sessions.json`. Use `--rotate`
+when a harness intentionally starts a fresh logical session under the same
+label.
+
+### Handoff
+
+```bash
+python scripts/dml_memory.py \
+  --storage-dir "$DML_STORE" \
+  --no-require-gpu \
+  handoff \
+  --tenant-id openclaw \
+  --session-id "$SESSION_ID" \
+  --thread "$SESSION_ID" \
+  --state executing \
+  --task "provider hardening" \
+  --next-action "run resume smoke"
+```
+
+Writes a structured `active_continuity` checkpoint using the same metadata
+shape consumed by `resume`. Use before compaction, shutdown, handoff between
+sessions, or any long pause.
 
 ### Retrieve
 

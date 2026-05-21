@@ -175,6 +175,8 @@ while IFS= read -r line; do
       source: $source,
       namespace: $namespace,
       memory_state: $memory_state,
+      merge_policy: "never",
+      no_merge: true,
       tenant_id: $tenant_id,
       client_id: (if $client_id == "" then null else $client_id end),
       session_id: (if $session_id == "" then null else $session_id end),

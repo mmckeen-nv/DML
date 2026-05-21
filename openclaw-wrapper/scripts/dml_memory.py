@@ -14,6 +14,7 @@ import tarfile
 import time
 import errno
 import fcntl
+import uuid
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -732,6 +733,34 @@ def _audit_scope_from_args(args: argparse.Namespace) -> dict:
     }
 
 
+def _session_registry_path(storage_dir: str) -> Path:
+    return Path(storage_dir).expanduser() / "dml_sessions.json"
+
+
+def _load_session_registry(storage_dir: str) -> dict:
+    path = _session_registry_path(storage_dir)
+    if not path.exists():
+        return {"schema_version": "dml.sessions.v1", "sessions": {}}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        payload = {}
+    if not isinstance(payload, dict):
+        payload = {}
+    sessions = payload.get("sessions")
+    if not isinstance(sessions, dict):
+        sessions = {}
+    return {"schema_version": "dml.sessions.v1", "sessions": sessions}
+
+
+def _save_session_registry(storage_dir: str, payload: dict) -> None:
+    path = _session_registry_path(storage_dir)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+    tmp.replace(path)
+
+
 def _append_audit_event(storage_dir: str, *, operation: str, status: str, actor: str, details: dict | None = None) -> dict:
     path = _audit_log_path(storage_dir)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -1182,6 +1211,126 @@ def cmd_ingest(args: argparse.Namespace) -> int:
         )
     )
     return 0
+
+
+def cmd_session(args: argparse.Namespace) -> int:
+    started = time.perf_counter()
+    label = str(args.label or "default").strip() or "default"
+    try:
+        lock_ctx = _store_write_lock(args.storage_dir, operation="session", timeout_ms=args.lock_timeout_ms)
+        lock = lock_ctx.__enter__()
+    except TimeoutError as exc:
+        blocked = _lock_failure_report("session", exc, started)
+        print(json.dumps(blocked, indent=2, default=str))
+        return 2
+    try:
+        registry = _load_session_registry(args.storage_dir)
+        sessions = registry.setdefault("sessions", {})
+        existing = sessions.get(label)
+        created = False
+        if args.rotate or not isinstance(existing, dict):
+            now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+            existing = {
+                "session_id": args.session_id or f"openclaw-{uuid.uuid4().hex[:12]}",
+                "label": label,
+                "tenant_id": args.tenant_id,
+                "created_at": now,
+                "updated_at": now,
+            }
+            sessions[label] = existing
+            created = True
+        else:
+            existing["updated_at"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+            existing.setdefault("tenant_id", args.tenant_id)
+        _save_session_registry(args.storage_dir, registry)
+    finally:
+        lock_ctx.__exit__(None, None, None)
+    print(
+        json.dumps(
+            {
+                "status": "ok",
+                "action": "session",
+                "created": created,
+                "label": label,
+                "tenant_id": existing.get("tenant_id"),
+                "session_id": existing.get("session_id"),
+                "registry_path": str(_session_registry_path(args.storage_dir)),
+                "lock": lock,
+                "latency_ms": round((time.perf_counter() - started) * 1000.0, 2),
+            },
+            indent=2,
+        )
+    )
+    return 0
+
+
+def _handoff_text(args: argparse.Namespace, *, captured_at: str) -> str:
+    lines = [
+        "[source:rolling_thread_checkpoint]",
+        f"thread: {args.thread}",
+        f"updated_at: {args.updated_at or captured_at}",
+        f"state: {args.state}",
+        f"task: {args.task}",
+        f"next_action: {args.next_action}",
+        f"captured_at: {captured_at}",
+        "capture_mode: dml_handoff",
+        "capture_contract: dml-agent-memory-v1",
+    ]
+    if args.note:
+        lines.append(f"note: {args.note}")
+    if args.intent:
+        lines.append(f"intent: {args.intent}")
+    if args.selected_path:
+        lines.append(f"selected_path: {args.selected_path}")
+    return "\n".join(lines)
+
+
+def cmd_handoff(args: argparse.Namespace) -> int:
+    captured_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    text = _handoff_text(args, captured_at=captured_at)
+    summary = f"thread: {args.thread} | state: {args.state} | task: {args.task} | next: {args.next_action}"
+    meta = {
+        "source": "rolling_thread_checkpoint",
+        "namespace": "active_continuity",
+        "memory_state": "active",
+        "merge_policy": "never",
+        "no_merge": True,
+        "tenant_id": args.tenant_id,
+        "client_id": args.client_id,
+        "session_id": args.session_id,
+        "instance_id": args.instance_id,
+        "scope": "thread",
+        "continuity_signal": "resume_checkpoint",
+        "thread": args.thread,
+        "updated_at": args.updated_at or captured_at,
+        "state": args.state,
+        "task": args.task,
+        "next_action": args.next_action,
+        "captured_at": captured_at,
+        "summary": summary,
+        "summary_source": "deterministic",
+    }
+    ingest_args = argparse.Namespace(
+        storage_dir=args.storage_dir,
+        config_path=args.config_path,
+        require_gpu=args.require_gpu,
+        lock_timeout_ms=args.lock_timeout_ms,
+        audit_actor=args.audit_actor,
+        tenant_id=args.tenant_id,
+        client_id=args.client_id,
+        session_id=args.session_id,
+        instance_id=args.instance_id,
+        kind="plan",
+        meta=json.dumps(meta, separators=(",", ":"), sort_keys=True),
+        text=text,
+        chunk=False,
+        chunk_chars=620,
+        chunk_overlap=90,
+        filter_noise=False,
+        summary_policy="cheap",
+        summary_max_chars=260,
+    )
+    return cmd_ingest(ingest_args)
 
 
 def cmd_migration_status(args: argparse.Namespace) -> int:
@@ -2556,6 +2705,28 @@ def build_parser() -> argparse.ArgumentParser:
         help="Maximum deterministic summary length for auto/cheap policies",
     )
     ing.set_defaults(func=cmd_ingest)
+
+    session = sub.add_parser("session")
+    session.add_argument("--label", default="default")
+    session.add_argument("--tenant-id", default="openclaw")
+    session.add_argument("--session-id", help="Use an explicit session id instead of generating one")
+    session.add_argument("--rotate", action="store_true", help="Create a fresh id even if the label exists")
+    session.set_defaults(func=cmd_session)
+
+    handoff = sub.add_parser("handoff")
+    handoff.add_argument("--thread", required=True)
+    handoff.add_argument("--state", required=True)
+    handoff.add_argument("--task", required=True)
+    handoff.add_argument("--next-action", required=True)
+    handoff.add_argument("--note")
+    handoff.add_argument("--intent")
+    handoff.add_argument("--selected-path")
+    handoff.add_argument("--updated-at")
+    handoff.add_argument("--tenant-id", default="openclaw")
+    handoff.add_argument("--client-id")
+    handoff.add_argument("--session-id")
+    handoff.add_argument("--instance-id")
+    handoff.set_defaults(func=cmd_handoff)
 
     ret = sub.add_parser("retrieve")
     ret.add_argument("--query", required=True)
