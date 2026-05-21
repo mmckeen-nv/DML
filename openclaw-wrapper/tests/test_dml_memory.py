@@ -333,6 +333,8 @@ class TestIngestBatching(unittest.TestCase):
                 chunk_chars=24,
                 chunk_overlap=0,
                 filter_noise=False,
+                summary_policy="llm",
+                summary_max_chars=220,
             )
             buf = io.StringIO()
             with redirect_stdout(buf):
@@ -344,6 +346,7 @@ class TestIngestBatching(unittest.TestCase):
             self.assertGreater(len(adapter.ingests), 1)
             self.assertTrue(all(call[2] is False for call in adapter.ingests))
             self.assertEqual(adapter.persist_calls, 1)
+            self.assertGreater(payload["llm_summaries_allowed"], 0)
         finally:
             mod._adapter = original_adapter
 
@@ -364,6 +367,8 @@ class TestIngestBatching(unittest.TestCase):
                 chunk_chars=620,
                 chunk_overlap=90,
                 filter_noise=False,
+                summary_policy="auto",
+                summary_max_chars=220,
             )
             buf = io.StringIO()
             with redirect_stdout(buf):
@@ -375,6 +380,58 @@ class TestIngestBatching(unittest.TestCase):
             self.assertIn("wrapper smoke status", text)
             self.assertEqual(kwargs["source_id"], "wrapper-smoke")
             self.assertTrue(kwargs["explicit"])
+        finally:
+            mod._adapter = original_adapter
+
+    def test_cmd_ingest_auto_summary_uses_deterministic_continuity_summary(self):
+        original_adapter = mod._adapter
+        adapter = _DummyAdapter()
+        try:
+            mod._adapter = lambda *_args, **_kwargs: adapter
+            storage_dir = tempfile.mkdtemp(prefix="dml-wrapper-summary-test-")
+            args = Namespace(
+                storage_dir=storage_dir,
+                config_path=None,
+                require_gpu=False,
+                text="\n".join(
+                    [
+                        "[source:rolling_thread_checkpoint]",
+                        "thread: main",
+                        "state: executing",
+                        "task: reduce intake summarization cost",
+                        "next_action: run smoke tests",
+                    ]
+                ),
+                kind="plan",
+                meta=json.dumps(
+                    {
+                        "source": "rolling_thread_checkpoint",
+                        "namespace": "active_continuity",
+                        "thread": "main",
+                        "state": "executing",
+                        "task": "reduce intake summarization cost",
+                        "next_action": "run smoke tests",
+                    }
+                ),
+                chunk=False,
+                chunk_chars=620,
+                chunk_overlap=90,
+                filter_noise=False,
+                summary_policy="auto",
+                summary_max_chars=220,
+            )
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                rc = mod.cmd_ingest(args)
+
+            self.assertEqual(rc, 0)
+            payload = json.loads(buf.getvalue())
+            self.assertEqual(payload["cheap_summaries"], 1)
+            self.assertEqual(payload["llm_summaries_allowed"], 0)
+            _, meta, _ = adapter.ingests[0]
+            self.assertEqual(meta["summary_source"], "deterministic")
+            self.assertIn("task: reduce intake summarization cost", meta["summary"])
+            self.assertIn("next: run smoke tests", meta["summary"])
         finally:
             mod._adapter = original_adapter
 

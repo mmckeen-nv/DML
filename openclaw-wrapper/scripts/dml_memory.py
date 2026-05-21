@@ -203,6 +203,82 @@ def _normalize_text_for_dedup(text: str) -> str:
     return " ".join((text or "").strip().split())
 
 
+def _compact_value(value: str, *, limit: int) -> str:
+    clean = " ".join(value.split()).strip()
+    if len(clean) <= limit:
+        return clean
+    shortened = clean[: max(0, limit - 3)].rstrip()
+    cut = max(shortened.rfind(". "), shortened.rfind("; "), shortened.rfind(", "), shortened.rfind(" "))
+    if cut >= max(12, limit // 2):
+        shortened = shortened[:cut].rstrip()
+    return shortened.rstrip(" ,;:.") + "..."
+
+
+def _cheap_summary(text: str, *, max_chars: int) -> str:
+    clean = _normalize_text_for_dedup(text)
+    if len(clean) <= max_chars:
+        return clean
+    return _compact_value(clean, limit=max_chars)
+
+
+def _line_value(text: str, key: str) -> str | None:
+    prefix = f"{key}:"
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith(prefix):
+            value = stripped[len(prefix) :].strip()
+            return value or None
+    return None
+
+
+def _structured_summary_from_meta_or_text(meta: dict, text: str, *, max_chars: int) -> str | None:
+    continuity_summary = continuity_handoff_summary(text, max_len=max_chars)
+    if continuity_summary:
+        return continuity_summary
+
+    fields = {
+        "thread": str(meta.get("thread") or _line_value(text, "thread") or "").strip(),
+        "state": str(meta.get("state") or _line_value(text, "state") or "").strip(),
+        "task": str(meta.get("task") or _line_value(text, "task") or "").strip(),
+        "next": str(meta.get("next_action") or _line_value(text, "next_action") or "").strip(),
+    }
+    if not any(fields.values()):
+        return None
+    parts = []
+    for label, value in fields.items():
+        if value and value.lower() not in {"unknown", "none", "null"}:
+            parts.append(f"{label}: {_compact_value(value, limit=64)}")
+    if not parts:
+        return None
+    return _compact_value(" | ".join(parts), limit=max_chars)
+
+
+def _apply_summary_policy(base_meta: dict, text: str, *, policy: str, max_chars: int) -> tuple[dict, str]:
+    meta = dict(base_meta)
+    if str(meta.get("summary") or "").strip():
+        return meta, "cheap"
+    if meta.get("skip_summary"):
+        return meta, "skip"
+    if policy == "llm":
+        return meta, "llm"
+    if policy == "skip":
+        meta["skip_summary"] = True
+        return meta, "skip"
+
+    structured = _structured_summary_from_meta_or_text(meta, text, max_chars=max_chars)
+    if structured:
+        meta["summary"] = structured
+        meta.setdefault("summary_source", "deterministic")
+        return meta, "cheap"
+
+    if policy == "cheap" or len(_normalize_text_for_dedup(text)) <= max_chars:
+        meta["summary"] = _cheap_summary(text, max_chars=max_chars)
+        meta.setdefault("summary_source", "deterministic")
+        return meta, "cheap"
+
+    return meta, "llm"
+
+
 def _text_digest(text: str) -> str:
     normalized = _normalize_text_for_dedup(text)
     return hashlib.sha256(normalized.encode("utf-8", errors="ignore")).hexdigest()
@@ -264,6 +340,9 @@ def cmd_ingest(args: argparse.Namespace) -> int:
         chunks = smart_chunks(args.text, chunk_chars=max(180, args.chunk_chars), overlap=max(0, args.chunk_overlap)) if args.chunk else [args.text]
         kept = 0
         skipped_duplicate = 0
+        cheap_summaries = 0
+        skipped_summaries = 0
+        llm_summaries_allowed = 0
         for chunk in chunks:
             if args.filter_noise and not should_keep_chunk(chunk):
                 continue
@@ -271,14 +350,26 @@ def cmd_ingest(args: argparse.Namespace) -> int:
             if digest in seen:
                 skipped_duplicate += 1
                 continue
-            adapter.ingest(chunk, meta=payload_meta, persist=False)
-            if payload_meta.get("dpm_preference"):
+            chunk_meta, summary_mode = _apply_summary_policy(
+                payload_meta,
+                chunk,
+                policy=args.summary_policy,
+                max_chars=args.summary_max_chars,
+            )
+            if summary_mode == "cheap":
+                cheap_summaries += 1
+            elif summary_mode == "skip":
+                skipped_summaries += 1
+            else:
+                llm_summaries_allowed += 1
+            adapter.ingest(chunk, meta=chunk_meta, persist=False)
+            if chunk_meta.get("dpm_preference"):
                 adapter.record_personality_preference(
                     chunk,
-                    scope=str(payload_meta.get("dpm_scope") or "relationship"),
-                    source_id=str(payload_meta.get("source") or "wrapper:ingest"),
+                    scope=str(chunk_meta.get("dpm_scope") or "relationship"),
+                    source_id=str(chunk_meta.get("source") or "wrapper:ingest"),
                     explicit=True,
-                    meta=payload_meta,
+                    meta=chunk_meta,
                 )
             _append_dedup_digest(args.storage_dir, digest)
             seen.add(digest)
@@ -294,6 +385,10 @@ def cmd_ingest(args: argparse.Namespace) -> int:
                 "kind": args.kind,
                 "chunks_ingested": kept,
                 "chunks_skipped_duplicate": skipped_duplicate,
+                "summary_policy": args.summary_policy,
+                "cheap_summaries": cheap_summaries,
+                "skipped_summaries": skipped_summaries,
+                "llm_summaries_allowed": llm_summaries_allowed,
             },
             indent=2,
         )
@@ -599,16 +694,6 @@ def _is_active_continuity_item(item: dict) -> bool:
     return namespace == "active_continuity" or source in CONTINUITY_SOURCES
 
 
-def _line_value(text: str, key: str) -> str | None:
-    prefix = f"{key}:"
-    for line in text.splitlines():
-        stripped = line.strip()
-        if stripped.startswith(prefix):
-            value = stripped[len(prefix) :].strip()
-            return value or None
-    return None
-
-
 def _continuity_resume_context(items: list[dict]) -> tuple[str, dict]:
     raw_lines = ["=== Active Continuity Resume ==="]
     latest: dict[str, str] = {}
@@ -619,14 +704,14 @@ def _continuity_resume_context(items: list[dict]) -> tuple[str, dict]:
             meta = {}
         source = str(meta.get("source") or "unknown")
         summary = continuity_handoff_summary(text) or str(meta.get("summary") or "").strip() or text.strip()
-        thread = _line_value(text, "thread") or str(meta.get("thread") or "").strip() or None
-        state = _line_value(text, "state") or str(meta.get("state") or "").strip() or None
-        task = _line_value(text, "task") or str(meta.get("task") or "").strip() or None
-        next_action = _line_value(text, "next_action") or str(meta.get("next_action") or "").strip() or None
+        thread = str(meta.get("thread") or "").strip() or _line_value(text, "thread")
+        state = str(meta.get("state") or "").strip() or _line_value(text, "state")
+        task = str(meta.get("task") or "").strip() or _line_value(text, "task")
+        next_action = str(meta.get("next_action") or "").strip() or _line_value(text, "next_action")
         updated_at = (
-            _line_value(text, "updated_at")
+            str(meta.get("updated_at") or meta.get("captured_at") or "").strip()
+            or _line_value(text, "updated_at")
             or _line_value(text, "captured_at")
-            or str(meta.get("updated_at") or meta.get("captured_at") or "").strip()
             or None
         )
         if not latest and any([thread, state, task, next_action, updated_at]):
@@ -724,6 +809,18 @@ def build_parser() -> argparse.ArgumentParser:
     ing.add_argument("--chunk-chars", type=int, default=620)
     ing.add_argument("--chunk-overlap", type=int, default=90)
     ing.add_argument("--filter-noise", action=argparse.BooleanOptionalAction, default=True)
+    ing.add_argument(
+        "--summary-policy",
+        default="auto",
+        choices=["auto", "llm", "cheap", "skip"],
+        help="How ingest populates cached summaries before storage (default: auto)",
+    )
+    ing.add_argument(
+        "--summary-max-chars",
+        type=int,
+        default=220,
+        help="Maximum deterministic summary length for auto/cheap policies",
+    )
     ing.set_defaults(func=cmd_ingest)
 
     ret = sub.add_parser("retrieve")

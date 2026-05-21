@@ -148,6 +148,7 @@ while IFS= read -r line; do
   task="$(checkpoint_field "$checkpointPath" task)"
   nextAction="$(checkpoint_field "$checkpointPath" next_action)"
   capturedAt="$(checkpoint_field "$checkpointPath" captured_at)"
+  summaryText="thread: ${thread:-unknown} | state: ${state:-unknown} | task: ${task:-unknown} | next: ${nextAction:-none}"
   metaJson="$(jq -nc \
     --arg source "rolling_thread_checkpoint" \
     --arg namespace "active_continuity" \
@@ -161,6 +162,7 @@ while IFS= read -r line; do
     --arg task "${task:-unknown}" \
     --arg next_action "${nextAction:-none}" \
     --arg captured_at "${capturedAt:-unknown}" \
+    --arg summary "$summaryText" \
     '{
       source: $source,
       namespace: $namespace,
@@ -173,7 +175,9 @@ while IFS= read -r line; do
       state: $state,
       task: $task,
       next_action: $next_action,
-      captured_at: $captured_at
+      captured_at: $captured_at,
+      summary: $summary,
+      summary_source: "deterministic"
     }')"
   itemResult="ok"
   itemMessage="processed"

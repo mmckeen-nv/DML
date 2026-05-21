@@ -89,6 +89,9 @@ class TestContinuityQueueWorker(unittest.TestCase):
             self.assertEqual(meta["state"], "executing")
             self.assertEqual(meta["task"], "activate continuity loop")
             self.assertEqual(meta["next_action"], "run smoke tests")
+            self.assertEqual(meta["summary_source"], "deterministic")
+            self.assertIn("task: activate continuity loop", meta["summary"])
+            self.assertIn("next: run smoke tests", meta["summary"])
 
 
 if __name__ == "__main__":
