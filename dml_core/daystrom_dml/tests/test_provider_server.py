@@ -126,4 +126,4 @@ def test_provider_server_root_supports_browser_ui_and_ollama_probe() -> None:
     client = TestClient(app)
 
     assert client.get("/", headers={"accept": "application/json"}).text == "Ollama is running"
-    assert "DML Provider" in client.get("/", headers={"accept": "text/html"}).text
+    assert "local memory provider" in client.get("/", headers={"accept": "text/html"}).text
