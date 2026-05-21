@@ -56,6 +56,7 @@ Optional flags:
 - See `ADAPTER_CONTRACT.md` for the harness-facing command/metadata contract.
 - Mutating commands use `$DML_STORE/.dml_store.lock`; use `--lock-timeout-ms` for multi-agent wait behavior.
 - New writes default to `tenant_id=openclaw`; multi-user harnesses should pass `--tenant-id` explicitly.
+- Mutating commands append compact events to `$DML_STORE/dml_audit.jsonl`; use `--audit-actor` and `audit-tail`.
 - `health`: validates store checksum/count/dimensions and reports readiness.
 - `backup`: creates checksum-manifested backups before risky operations.
 - `verify`: loads durable state through the persistence layer and reports recovery suggestions.

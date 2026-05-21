@@ -408,6 +408,7 @@ class TestHealthCommand(unittest.TestCase):
                 label="unit",
                 keep=20,
                 lock_timeout_ms=0,
+                audit_actor="unit-test",
             )
             buf = io.StringIO()
             with redirect_stdout(buf):
@@ -430,6 +431,7 @@ class TestHealthCommand(unittest.TestCase):
                 backup_dir=str(backup_dir),
                 keep=20,
                 lock_timeout_ms=0,
+                audit_actor="unit-test",
                 no_pre_restore_backup=False,
             )
             buf = io.StringIO()
@@ -466,6 +468,7 @@ class TestHealthCommand(unittest.TestCase):
                         label="blocked",
                         keep=20,
                         lock_timeout_ms=0,
+                        audit_actor="unit-test",
                     )
                     buf = io.StringIO()
                     with redirect_stdout(buf):
@@ -478,6 +481,32 @@ class TestHealthCommand(unittest.TestCase):
             self.assertEqual(payload["status"], "blocked")
             self.assertEqual(payload["error"], "store_write_lock_held")
             self.assertEqual(payload["lock"]["holder"]["operation"], "unit-test")
+            audit_events = mod._tail_audit_events(str(storage), limit=1)
+            self.assertEqual(audit_events[0]["operation"], "backup")
+            self.assertEqual(audit_events[0]["status"], "blocked")
+
+    def test_audit_tail_reports_events_without_raw_text(self):
+        with tempfile.TemporaryDirectory(prefix="dml-wrapper-audit-test-") as tmp:
+            secret_text = "secret raw memory text should not appear in audit"
+            event = mod._append_audit_event(
+                tmp,
+                operation="ingest",
+                status="ok",
+                actor="unit-test",
+                details={"text_sha256": mod._text_digest(secret_text), "scope": {"tenant_id": "alpha"}},
+            )
+            self.assertTrue(Path(event["path"]).exists())
+            buf = io.StringIO()
+            args = Namespace(storage_dir=tmp, limit=5)
+            with redirect_stdout(buf):
+                self.assertEqual(mod.cmd_audit_tail(args), 0)
+
+            payload_text = buf.getvalue()
+            self.assertNotIn(secret_text, payload_text)
+            payload = json.loads(payload_text)
+            self.assertEqual(payload["audit"]["event_count"], 1)
+            self.assertEqual(payload["events"][0]["operation"], "ingest")
+            self.assertEqual(payload["events"][0]["details"]["scope"]["tenant_id"], "alpha")
 
 
 class TestIngestBatching(unittest.TestCase):
@@ -492,6 +521,7 @@ class TestIngestBatching(unittest.TestCase):
                 config_path=None,
                 require_gpu=False,
                 lock_timeout_ms=0,
+                audit_actor="unit-test",
                 tenant_id="tenant-ingest",
                 client_id="client-ingest",
                 session_id="session-ingest",
@@ -536,6 +566,7 @@ class TestIngestBatching(unittest.TestCase):
                 config_path=None,
                 require_gpu=False,
                 lock_timeout_ms=0,
+                audit_actor="unit-test",
                 tenant_id="openclaw",
                 client_id=None,
                 session_id=None,
@@ -574,6 +605,7 @@ class TestIngestBatching(unittest.TestCase):
                 config_path=None,
                 require_gpu=False,
                 lock_timeout_ms=0,
+                audit_actor="unit-test",
                 tenant_id="openclaw",
                 client_id=None,
                 session_id=None,

@@ -293,6 +293,10 @@ def _dedup_index_path(storage_dir: str) -> Path:
     return Path(storage_dir) / ".ingest_dedup_sha256.txt"
 
 
+def _audit_log_path(storage_dir: str) -> Path:
+    return Path(storage_dir) / "dml_audit.jsonl"
+
+
 def _state_file_path(storage_dir: str) -> Path:
     return Path(storage_dir) / "dml_state.jsonl"
 
@@ -565,6 +569,75 @@ def _append_dedup_digest(storage_dir: str, digest: str) -> None:
         f.write(digest + "\n")
 
 
+def _audit_actor(args: argparse.Namespace) -> str:
+    return str(getattr(args, "audit_actor", None) or os.environ.get("DML_AUDIT_ACTOR") or "wrapper")
+
+
+def _audit_scope_from_args(args: argparse.Namespace) -> dict:
+    return {
+        "tenant_id": getattr(args, "tenant_id", None),
+        "client_id": getattr(args, "client_id", None),
+        "session_id": getattr(args, "session_id", None),
+        "instance_id": getattr(args, "instance_id", None),
+    }
+
+
+def _append_audit_event(storage_dir: str, *, operation: str, status: str, actor: str, details: dict | None = None) -> dict:
+    path = _audit_log_path(storage_dir)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    event = {
+        "schema_version": "dml.audit-event.v1",
+        "ts": datetime.now(timezone.utc).isoformat(),
+        "operation": operation,
+        "status": status,
+        "actor": actor,
+        "pid": os.getpid(),
+        "details": details or {},
+    }
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(event, separators=(",", ":"), sort_keys=True, default=str) + "\n")
+    return {"path": str(path), "event": event}
+
+
+def _audit_health(storage_dir: str) -> dict:
+    path = _audit_log_path(storage_dir)
+    report = {"path": str(path), "exists": path.exists(), "event_count": 0, "latest_ts": None}
+    if not path.exists():
+        return report
+    latest = None
+    count = 0
+    try:
+        for raw in path.read_text(encoding="utf-8", errors="ignore").splitlines():
+            if not raw.strip():
+                continue
+            count += 1
+            try:
+                event = json.loads(raw)
+            except json.JSONDecodeError:
+                continue
+            latest = event.get("ts") or latest
+    except Exception as exc:
+        report["error"] = str(exc)
+    report["event_count"] = count
+    report["latest_ts"] = latest
+    return report
+
+
+def _tail_audit_events(storage_dir: str, *, limit: int) -> list[dict]:
+    path = _audit_log_path(storage_dir)
+    if not path.exists():
+        return []
+    lines = [line for line in path.read_text(encoding="utf-8", errors="ignore").splitlines() if line.strip()]
+    events = []
+    for raw in lines[-max(0, limit):]:
+        try:
+            event = json.loads(raw)
+        except json.JSONDecodeError:
+            event = {"schema_version": "dml.audit-event.v1", "status": "invalid", "raw_len": len(raw)}
+        events.append(event)
+    return events
+
+
 def _adapter(storage_dir: str, config_path: str | None, require_gpu: bool) -> DMLAdapter:
     graph_path = os.environ.get("DAYSTROM_DPM_GRAPH_PATH") or str(Path(storage_dir) / "dpm_preference_graph.json")
     dpm_mode = os.environ.get("DAYSTROM_DPM_MODE", "active-write")
@@ -598,7 +671,15 @@ def cmd_ingest(args: argparse.Namespace) -> int:
         lock_ctx = _store_write_lock(args.storage_dir, operation="ingest", timeout_ms=args.lock_timeout_ms)
         lock = lock_ctx.__enter__()
     except TimeoutError as exc:
-        print(json.dumps(_lock_failure_report("ingest", exc, started), indent=2, default=str))
+        blocked = _lock_failure_report("ingest", exc, started)
+        _append_audit_event(
+            args.storage_dir,
+            operation="ingest",
+            status="blocked",
+            actor=_audit_actor(args),
+            details={"scope": _audit_scope_from_args(args), "lock": blocked.get("lock"), "text_sha256": _text_digest(args.text)},
+        )
+        print(json.dumps(blocked, indent=2, default=str))
         return 2
     adapter = None
     try:
@@ -654,6 +735,22 @@ def cmd_ingest(args: argparse.Namespace) -> int:
         if adapter is not None:
             adapter.close()
         lock_ctx.__exit__(None, None, None)
+    audit = _append_audit_event(
+        args.storage_dir,
+        operation="ingest",
+        status="ok",
+        actor=_audit_actor(args),
+        details={
+            "scope": _audit_scope_from_args(args),
+            "source": payload_meta.get("source"),
+            "namespace": payload_meta.get("namespace"),
+            "kind": args.kind,
+            "text_sha256": _text_digest(args.text),
+            "chunks_ingested": kept,
+            "chunks_skipped_duplicate": skipped_duplicate,
+            "summary_policy": args.summary_policy,
+        },
+    )
     print(
         json.dumps(
             {
@@ -667,6 +764,7 @@ def cmd_ingest(args: argparse.Namespace) -> int:
                 "skipped_summaries": skipped_summaries,
                 "llm_summaries_allowed": llm_summaries_allowed,
                 "lock": lock,
+                "audit": {"path": audit["path"], "event_ts": audit["event"]["ts"]},
             },
             indent=2,
         )
@@ -704,7 +802,15 @@ def cmd_migrate_embeddings(args: argparse.Namespace) -> int:
         lock_ctx = _store_write_lock(args.storage_dir, operation="migrate-embeddings", timeout_ms=args.lock_timeout_ms)
         lock = lock_ctx.__enter__()
     except TimeoutError as exc:
-        print(json.dumps(_lock_failure_report("migrate-embeddings", exc, started), indent=2, default=str))
+        blocked = _lock_failure_report("migrate-embeddings", exc, started)
+        _append_audit_event(
+            args.storage_dir,
+            operation="migrate-embeddings",
+            status="blocked",
+            actor=_audit_actor(args),
+            details={"lock": blocked.get("lock")},
+        )
+        print(json.dumps(blocked, indent=2, default=str))
         return 2
     storage_dir = Path(args.storage_dir)
     persistence_path = storage_dir / "dml_state.jsonl"
@@ -723,6 +829,13 @@ def cmd_migrate_embeddings(args: argparse.Namespace) -> int:
                     indent=2,
                 )
             )
+            _append_audit_event(
+                args.storage_dir,
+                operation="migrate-embeddings",
+                status="missing",
+                actor=_audit_actor(args),
+                details={"state_path": str(persistence_path)},
+            )
             return 0
         from daystrom_dml.persistence import load_state, save_state  # type: ignore
 
@@ -739,6 +852,19 @@ def cmd_migrate_embeddings(args: argparse.Namespace) -> int:
     report["action"] = "migrate-embeddings"
     report["storage_dir"] = str(storage_dir)
     report["lock"] = lock
+    audit = _append_audit_event(
+        args.storage_dir,
+        operation="migrate-embeddings",
+        status=str(report.get("status") or "ok"),
+        actor=_audit_actor(args),
+        details={
+            "max_items": args.max_items,
+            "mismatched": report.get("mismatched"),
+            "migrated": report.get("migrated"),
+            "failed": report.get("failed"),
+        },
+    )
+    report["audit"] = {"path": audit["path"], "event_ts": audit["event"]["ts"]}
     print(json.dumps(report, indent=2, default=str))
     return 0
 
@@ -1099,6 +1225,7 @@ def cmd_health(args: argparse.Namespace) -> int:
             "status_path": str(queue_status_path),
             "status_exists": queue_status_path.exists(),
         },
+        "audit": _audit_health(args.storage_dir),
         "store_lock": {
             "path": str(_lock_file_path(args.storage_dir)),
             "metadata_path": str(_lock_metadata_path(args.storage_dir)),
@@ -1150,10 +1277,30 @@ def cmd_backup(args: argparse.Namespace) -> int:
             "lock": lock,
             "latency_ms": round((time.perf_counter() - started) * 1000.0, 2),
         }
+        audit = _append_audit_event(
+            args.storage_dir,
+            operation="backup",
+            status="ok",
+            actor=_audit_actor(args),
+            details={
+                "backup_dir": manifest.get("backup_dir"),
+                "file_count": len(manifest.get("files") or []),
+                "label": manifest.get("label"),
+            },
+        )
+        report["audit"] = {"path": audit["path"], "event_ts": audit["event"]["ts"]}
         print(json.dumps(report, indent=2, default=str))
         return 0
     except TimeoutError as exc:
-        print(json.dumps(_lock_failure_report("backup", exc, started), indent=2, default=str))
+        blocked = _lock_failure_report("backup", exc, started)
+        _append_audit_event(
+            args.storage_dir,
+            operation="backup",
+            status="blocked",
+            actor=_audit_actor(args),
+            details={"label": args.label, "lock": blocked.get("lock")},
+        )
+        print(json.dumps(blocked, indent=2, default=str))
         return 2
     except Exception as exc:
         report = {
@@ -1162,6 +1309,14 @@ def cmd_backup(args: argparse.Namespace) -> int:
             "error": str(exc),
             "latency_ms": round((time.perf_counter() - started) * 1000.0, 2),
         }
+        audit = _append_audit_event(
+            args.storage_dir,
+            operation="backup",
+            status="fail",
+            actor=_audit_actor(args),
+            details={"label": args.label, "error": str(exc)},
+        )
+        report["audit"] = {"path": audit["path"], "event_ts": audit["event"]["ts"]}
         print(json.dumps(report, indent=2, default=str))
         return 1
 
@@ -1282,10 +1437,30 @@ def cmd_restore(args: argparse.Namespace) -> int:
             "lock": lock,
             "latency_ms": round((time.perf_counter() - started) * 1000.0, 2),
         }
+        audit = _append_audit_event(
+            args.storage_dir,
+            operation="restore",
+            status=status,
+            actor=_audit_actor(args),
+            details={
+                "backup": args.backup,
+                "restored_from_sha256": _sha256_file(source_state),
+                "pre_restore_backup_dir": (pre_restore or {}).get("backup_dir") if isinstance(pre_restore, dict) else None,
+            },
+        )
+        report["audit"] = {"path": audit["path"], "event_ts": audit["event"]["ts"]}
         print(json.dumps(report, indent=2, default=str))
         return 0 if status == "ok" else 1
     except TimeoutError as exc:
-        print(json.dumps(_lock_failure_report("restore", exc, started), indent=2, default=str))
+        blocked = _lock_failure_report("restore", exc, started)
+        _append_audit_event(
+            args.storage_dir,
+            operation="restore",
+            status="blocked",
+            actor=_audit_actor(args),
+            details={"backup": args.backup, "lock": blocked.get("lock")},
+        )
+        print(json.dumps(blocked, indent=2, default=str))
         return 2
     except Exception as exc:
         report = {
@@ -1294,8 +1469,30 @@ def cmd_restore(args: argparse.Namespace) -> int:
             "error": str(exc),
             "latency_ms": round((time.perf_counter() - started) * 1000.0, 2),
         }
+        audit = _append_audit_event(
+            args.storage_dir,
+            operation="restore",
+            status="fail",
+            actor=_audit_actor(args),
+            details={"backup": args.backup, "error": str(exc)},
+        )
+        report["audit"] = {"path": audit["path"], "event_ts": audit["event"]["ts"]}
         print(json.dumps(report, indent=2, default=str))
         return 1
+
+
+def cmd_audit_tail(args: argparse.Namespace) -> int:
+    events = _tail_audit_events(args.storage_dir, limit=args.limit)
+    report = {
+        "status": "ok",
+        "action": "audit-tail",
+        "contract_version": "dml-agent-memory-v1",
+        "audit": _audit_health(args.storage_dir),
+        "limit": args.limit,
+        "events": events,
+    }
+    print(json.dumps(report, indent=2, default=str))
+    return 0
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -1317,6 +1514,11 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=0,
         help="Milliseconds to wait for the shared store write lock before returning blocked (default: 0)",
+    )
+    parser.add_argument(
+        "--audit-actor",
+        default=os.environ.get("DML_AUDIT_ACTOR", "wrapper"),
+        help="Actor/harness label written to dml_audit.jsonl for mutating operations",
     )
 
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -1441,6 +1643,10 @@ def build_parser() -> argparse.ArgumentParser:
     restore.add_argument("--keep", type=int, default=20)
     restore.add_argument("--no-pre-restore-backup", dest="no_pre_restore_backup", action="store_true")
     restore.set_defaults(no_pre_restore_backup=False, func=cmd_restore)
+
+    audit = sub.add_parser("audit-tail")
+    audit.add_argument("--limit", type=int, default=20)
+    audit.set_defaults(func=cmd_audit_tail)
 
     mig = sub.add_parser("migration-status")
     mig.set_defaults(func=cmd_migration_status)

@@ -16,6 +16,11 @@ Mutating commands acquire a shared store write lock at
 another writer. A blocked writer returns JSON with `status: "blocked"`,
 `error: "store_write_lock_held"`, and lock holder metadata.
 
+Mutating commands also append compact events to `$DML_STORE/dml_audit.jsonl`.
+Use global `--audit-actor <label>` to identify the harness or user-facing
+bridge. Audit entries store operation metadata, scope, counts, hashes, and
+status; they must not store raw memory text.
+
 ### Health
 
 ```bash
@@ -42,6 +47,7 @@ Expected top-level fields:
 - `state.unscoped_count`
 - `state.records_by_tenant`
 - `state.active_continuity_by_tenant`
+- `audit.event_count`, `audit.latest_ts`
 - `store_lock.path`, `store_lock.metadata`
 - `errors`
 
@@ -85,6 +91,18 @@ Restore validates the backup manifest checksum, makes a pre-restore backup of
 the current store by default, and replaces state atomically. Add
 `--no-pre-restore-backup` only when the current store is intentionally
 discardable.
+
+### Audit Tail
+
+```bash
+python scripts/dml_memory.py \
+  --storage-dir "$DML_STORE" \
+  audit-tail \
+  --limit 20
+```
+
+Returns recent append-only audit events. Use this to debug multi-agent write
+activity without exposing raw memory text.
 
 ### Ingest
 
