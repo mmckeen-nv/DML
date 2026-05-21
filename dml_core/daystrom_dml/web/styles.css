@@ -153,6 +153,7 @@ pre {
 .metric-strip,
 .work-grid,
 .results-grid,
+.comparison-grid,
 .provider-grid {
   display: grid;
   gap: 16px;
@@ -165,6 +166,10 @@ pre {
 .work-grid,
 .results-grid {
   grid-template-columns: minmax(0, 1.25fr) minmax(320px, 0.75fr);
+}
+
+.comparison-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .panel,
@@ -365,7 +370,7 @@ pre {
 
 .backend-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
   gap: 10px;
   align-items: center;
   border: 1px solid var(--line);
@@ -475,6 +480,7 @@ pre {
   .topbar,
   .work-grid,
   .results-grid,
+  .comparison-grid,
   .knowledge-row,
   .provider-grid {
     grid-template-columns: 1fr;

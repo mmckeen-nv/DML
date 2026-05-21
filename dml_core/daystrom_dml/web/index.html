@@ -96,7 +96,7 @@
           </article>
         </section>
 
-        <section class="results-grid">
+        <section class="comparison-grid">
           <article class="panel output-panel">
             <div class="panel-heading compact">
               <h2>DML Context</h2>
@@ -106,14 +106,35 @@
           </article>
           <article class="panel output-panel">
             <div class="panel-heading compact">
-              <h2>Response</h2>
+              <h2>DML Response</h2>
               <span id="response-mode" class="mini-pill">waiting</span>
             </div>
             <pre id="dml-response" class="output-box empty">The generated or retrieved answer will appear here.</pre>
           </article>
+          <article class="panel output-panel">
+            <div class="panel-heading compact">
+              <h2>RAG Response</h2>
+              <span id="rag-mode" class="mini-pill">waiting</span>
+            </div>
+            <pre id="rag-response" class="output-box empty">The top RAG backend response will appear here.</pre>
+          </article>
         </section>
 
-        <section class="results-grid">
+        <section class="comparison-grid">
+          <article class="panel output-panel">
+            <div class="panel-heading compact">
+              <h2>Base Response</h2>
+              <span id="base-mode" class="mini-pill">waiting</span>
+            </div>
+            <pre id="base-response" class="output-box empty">The raw model response will appear here.</pre>
+          </article>
+          <article class="panel output-panel">
+            <div class="panel-heading compact">
+              <h2>RAG Context</h2>
+              <span id="rag-context-count" class="mini-pill">0 docs</span>
+            </div>
+            <pre id="rag-context" class="output-box empty">Retrieved RAG documents will appear here.</pre>
+          </article>
           <article class="panel">
             <div class="panel-heading compact">
               <h2>Run Signals</h2>
@@ -127,7 +148,9 @@
             </dl>
             <div id="rag-backends" class="backend-list"></div>
           </article>
+        </section>
 
+        <section class="results-grid">
           <article class="panel">
             <div class="panel-heading compact">
               <h2>Visualizer</h2>

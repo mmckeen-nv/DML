@@ -23,6 +23,12 @@ const elements = {
   dmlContext: $('#dml-context'),
   response: $('#dml-response'),
   responseMode: $('#response-mode'),
+  ragResponse: $('#rag-response'),
+  ragMode: $('#rag-mode'),
+  ragContext: $('#rag-context'),
+  ragContextCount: $('#rag-context-count'),
+  baseResponse: $('#base-response'),
+  baseMode: $('#base-mode'),
   runLatency: $('#run-latency'),
   signalPromptTokens: $('#signal-prompt-tokens'),
   signalContextTokens: $('#signal-context-tokens'),
@@ -106,7 +112,7 @@ function averageFidelity(entries = dmlEntries()) {
 }
 
 function extractStatsMemories(stats) {
-  return stats?.memories ?? stats?.memory_count ?? stats?.store?.memories ?? null;
+  return stats?.memories ?? stats?.memory_count ?? stats?.count ?? stats?.store?.memories ?? null;
 }
 
 function renderMetrics() {
@@ -270,6 +276,21 @@ function entriesFromCompare(payload) {
   return Array.isArray(entries) ? entries : [];
 }
 
+function primaryRagBackend(payload) {
+  const backends = payload?.rag_backends || payload?.rag?.backends || payload?.rag || [];
+  const list = Array.isArray(backends) ? backends : Object.values(backends || {});
+  return list.find((backend) => backend?.available !== false) || list[0] || null;
+}
+
+function ragTokenTotal(payload) {
+  const breakdown = payload?.rag_token_breakdown || [];
+  if (Array.isArray(breakdown) && breakdown.length) {
+    return breakdown.reduce((sum, item) => sum + Number(item.tokens || 0), 0);
+  }
+  const backend = primaryRagBackend(payload);
+  return backend?.context_tokens || backend?.tokens || backend?.total_tokens || payload?.rag_context_tokens || null;
+}
+
 function renderBackends(payload) {
   const backends = payload?.rag_backends || payload?.rag?.backends || payload?.rag || [];
   const list = Array.isArray(backends) ? backends : Object.values(backends || {});
@@ -279,14 +300,16 @@ function renderBackends(payload) {
   }
 
   elements.ragBackends.innerHTML = list.map((backend) => {
-    const name = backend.name || backend.backend || backend.label || 'backend';
+    const name = backend.label || backend.name || backend.backend || backend.id || 'backend';
     const tokens = backend.tokens || backend.context_tokens || backend.total_tokens || 0;
     const docs = backend.documents?.length || backend.docs?.length || backend.count || 0;
+    const grade = backend.grade?.grade ? `grade ${backend.grade.grade}` : backend.available === false ? 'offline' : 'ready';
     return `
       <article class="backend-row">
         <strong>${escapeHTML(name)}</strong>
         <span>${formatNumber(tokens)} tokens</span>
         <span>${formatNumber(docs)} docs</span>
+        <span>${escapeHTML(grade)}</span>
       </article>
     `;
   }).join('');
@@ -296,16 +319,29 @@ function renderRun(payload, fallbackMode = 'compare') {
   const context = contextFromCompare(payload);
   const response = responseFromCompare(payload);
   const entries = entriesFromCompare(payload);
+  const ragBackend = primaryRagBackend(payload);
+  const ragResponse = ragBackend?.response || payload?.rag?.response || '';
+  const ragContext = ragBackend?.context || payload?.rag?.context || '';
+  const baseResponse = payload?.base?.response || payload?.base_response || '';
   const stats = payload?.stats || {};
   const dml = payload?.dml || {};
-  const ragTokens = payload?.rag_context_tokens || payload?.rag?.tokens || payload?.rag?.context_tokens;
+  const ragTokens = ragTokenTotal(payload);
   const contextTokens = dml.context_tokens || payload?.context_tokens || payload?.tokens;
-  const latency = dml.generation_latency_ms || dml.latency_ms || payload?.latency_ms;
+  const latency = (dml.retrieval_latency_ms || 0) + (dml.generation_latency_ms || 0) || dml.latency_ms || payload?.latency_ms;
 
   elements.dmlContext.textContent = context || 'No DML context was returned for this prompt.';
   elements.dmlContext.classList.toggle('empty', !context);
   elements.response.textContent = response || 'No generated response returned. The context panel still shows retrieved memory.';
   elements.response.classList.toggle('empty', !response);
+  elements.ragResponse.textContent = ragResponse || 'No RAG backend response returned.';
+  elements.ragResponse.classList.toggle('empty', !ragResponse);
+  elements.ragMode.textContent = ragBackend?.label || ragBackend?.id || 'rag';
+  elements.ragContext.textContent = ragContext || 'No RAG context returned.';
+  elements.ragContext.classList.toggle('empty', !ragContext);
+  elements.ragContextCount.textContent = `${formatNumber(ragBackend?.documents?.length || ragBackend?.docs?.length || 0)} docs`;
+  elements.baseResponse.textContent = baseResponse || 'No base response returned.';
+  elements.baseResponse.classList.toggle('empty', !baseResponse);
+  elements.baseMode.textContent = payload?.base ? 'base' : 'waiting';
   elements.contextCount.textContent = `${formatNumber(entries.length || dml.entry_count || dml.entries || 0)} nodes`;
   elements.responseMode.textContent = payload?.mode || fallbackMode;
   elements.queryMode.textContent = payload?.mode || fallbackMode;
