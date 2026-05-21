@@ -6,8 +6,8 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Optional
 
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import HTMLResponse, PlainTextResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -60,6 +60,35 @@ def _item_id(item: dict[str, Any]) -> str:
     return str(item.get("id") or "")
 
 
+def _embedding_from_text(text: str, dim: int = 384) -> list[float]:
+    """Return a deterministic lightweight embedding for Ollama compatibility."""
+    import hashlib
+
+    digest = hashlib.sha256(text.encode("utf-8", errors="ignore")).digest()
+    values: list[float] = []
+    for idx in range(dim):
+        byte = digest[idx % len(digest)]
+        values.append(round((byte / 127.5) - 1.0, 6))
+    return values
+
+
+def _message_text(messages: list[dict[str, Any]]) -> str:
+    parts = []
+    for message in messages:
+        role = str(message.get("role") or "user")
+        content = message.get("content")
+        if isinstance(content, list):
+            content = " ".join(str(part.get("text") or part) for part in content)
+        parts.append(f"{role}: {content or ''}".strip())
+    return "\n".join(parts)
+
+
+def _jsonl(payload: dict[str, Any]):
+    import json
+
+    return json.dumps(payload, sort_keys=True, default=str) + "\n"
+
+
 def create_app(
     *,
     adapter_factory: Callable[[], DMLAdapter] | None = None,
@@ -77,12 +106,35 @@ def create_app(
     def _close_adapter() -> None:
         app.state.adapter.close()
 
-    @app.get("/", response_class=HTMLResponse)
-    def index() -> str:
+    @app.get("/")
+    def index(request: Request):
+        accept = request.headers.get("accept", "")
+        if "text/html" not in accept:
+            return PlainTextResponse("Ollama is running")
         index_path = WEB_DIR / "index.html"
         if index_path.exists():
-            return index_path.read_text(encoding="utf-8")
-        return "<!doctype html><title>DML Provider</title><h1>DML Provider</h1>"
+            return HTMLResponse(index_path.read_text(encoding="utf-8"))
+        return HTMLResponse("<!doctype html><title>DML Provider</title><h1>DML Provider</h1>")
+
+    @app.get("/api/version")
+    def ollama_version() -> dict[str, str]:
+        return {"version": "dml-ollama-compatible-v0.1"}
+
+    @app.get("/api/ps")
+    def ollama_ps() -> dict[str, list]:
+        return {"models": []}
+
+    @app.post("/api/pull")
+    def ollama_pull(payload: dict[str, Any]) -> dict[str, Any]:
+        return {"status": "success", "model": payload.get("model") or "daystrom-dml:memory"}
+
+    @app.post("/api/copy")
+    def ollama_copy(payload: dict[str, Any]) -> dict[str, Any]:
+        return {"status": "success", "source": payload.get("source"), "destination": payload.get("destination")}
+
+    @app.delete("/api/delete")
+    def ollama_delete(payload: dict[str, Any]) -> dict[str, Any]:
+        return {"status": "success", "model": payload.get("model")}
 
     @app.get("/health")
     def health() -> dict[str, Any]:
@@ -167,7 +219,7 @@ def create_app(
         tenant_id = str(payload.get("tenant_id") or "openclaw")
         session_id = payload.get("session_id")
         report = app.state.adapter.retrieve_context(prompt, tenant_id=tenant_id, session_id=session_id, top_k=int(payload.get("top_k") or 6))
-        return {
+        result = {
             "model": payload.get("model") or "daystrom-dml:memory",
             "created_at": "",
             "response": report.get("raw_context") or "",
@@ -177,6 +229,52 @@ def create_app(
             "load_duration": 0,
             "prompt_eval_count": len(prompt.split()),
             "eval_count": int(report.get("context_tokens") or 0),
+        }
+        if payload.get("stream") is True:
+            return StreamingResponse(iter([_jsonl(result)]), media_type="application/x-ndjson")
+        return result
+
+    @app.post("/api/chat")
+    def ollama_chat(payload: dict[str, Any]) -> dict[str, Any]:
+        messages = payload.get("messages") or []
+        if not isinstance(messages, list):
+            messages = []
+        prompt = _message_text(messages)
+        tenant_id = str(payload.get("tenant_id") or "openclaw")
+        session_id = payload.get("session_id")
+        report = app.state.adapter.retrieve_context(prompt, tenant_id=tenant_id, session_id=session_id, top_k=int(payload.get("top_k") or 6))
+        result = {
+            "model": payload.get("model") or "daystrom-dml:memory",
+            "created_at": "",
+            "message": {"role": "assistant", "content": report.get("raw_context") or ""},
+            "done": True,
+            "total_duration": int(float(report.get("latency_ms") or 0) * 1_000_000),
+            "load_duration": 0,
+            "prompt_eval_count": len(prompt.split()),
+            "eval_count": int(report.get("context_tokens") or 0),
+        }
+        if payload.get("stream") is True:
+            return StreamingResponse(iter([_jsonl(result)]), media_type="application/x-ndjson")
+        return result
+
+    @app.post("/api/embeddings")
+    def ollama_embeddings(payload: dict[str, Any]) -> dict[str, Any]:
+        prompt = str(payload.get("prompt") or payload.get("input") or "")
+        return {"embedding": _embedding_from_text(prompt), "model": payload.get("model") or "daystrom-dml:memory"}
+
+    @app.post("/api/embed")
+    def ollama_embed(payload: dict[str, Any]) -> dict[str, Any]:
+        raw_input = payload.get("input")
+        if isinstance(raw_input, list):
+            embeddings = [_embedding_from_text(str(item)) for item in raw_input]
+        else:
+            embeddings = [_embedding_from_text(str(raw_input or payload.get("prompt") or ""))]
+        return {
+            "model": payload.get("model") or "daystrom-dml:memory",
+            "embeddings": embeddings,
+            "total_duration": 0,
+            "load_duration": 0,
+            "prompt_eval_count": len(embeddings),
         }
 
     @app.get("/api/search")

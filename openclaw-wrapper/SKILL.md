@@ -144,6 +144,7 @@ tenant-wide `resume` selects the newest active checkpoint.
 
 ## Provider and worker
 - Provider UI/API: `dml serve --storage-dir "$DML_STORE" --host 127.0.0.1 --port 8765`
+- Ollama-compatible memory clone: `dml-ollama --storage-dir "$DML_STORE" --host 127.0.0.1 --port 11435`
 - CLI client: `dml status`, `dml remember --text "..."`, `dml recall --query "..." --context-only`
 - Agent profile installer: `scripts/install_daystrom_dml.sh --profile openclaw` or `--profile hermes`
 - Background queue worker: `python3 skills/daystrom-dml/scripts/dml_background_worker.py --once`

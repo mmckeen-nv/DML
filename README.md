@@ -134,7 +134,15 @@ dml serve --storage-dir ./data --host 127.0.0.1 --port 8765
 Provider mode serves a local UI at `http://127.0.0.1:8765`, health at
 `/health`, and DML memory APIs under `/api/*` for recall, remember, resume,
 search, and fetch. It also exposes simple Ollama-shaped endpoints:
-`/api/tags`, `/api/show`, and `/api/generate`.
+`/api/tags`, `/api/show`, `/api/generate`, `/api/chat`, `/api/embed`,
+`/api/embeddings`, `/api/ps`, and `/api/version`.
+
+To run it as an Ollama-style memory clone:
+```bash
+dml-ollama --storage-dir ./data --host 127.0.0.1 --port 11435
+curl http://127.0.0.1:11435/api/tags
+curl http://127.0.0.1:11435/api/chat -d '{"model":"daystrom-dml:memory","messages":[{"role":"user","content":"current task"}]}'
+```
 
 Ollama-style client commands:
 ```bash

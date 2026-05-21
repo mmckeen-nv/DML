@@ -127,6 +127,7 @@ setup(
         "console_scripts": [
             "dml=daystrom_dml.provider_cli:main",
             "cma=cma.cli:app",
+            "dml-ollama=daystrom_dml.ollama_wrapper:main",
             "dml-server=daystrom_dml.server:main",
             "dml-provider=daystrom_dml.provider_server:main",
             "dml-mcp-server=dml_mcp.dml_mcp_server:main",

@@ -97,3 +97,33 @@ def test_provider_server_ollama_style_endpoints() -> None:
     generated = client.post("/api/generate", json={"prompt": "provider memory", "model": "daystrom-dml:memory"}).json()
     assert generated["done"] is True
     assert "Provider memory text" in generated["response"]
+
+
+def test_provider_server_ollama_chat_embed_and_management_endpoints() -> None:
+    app = create_app(adapter_factory=DummyAdapter)
+    client = TestClient(app)
+
+    assert client.get("/api/version").json()["version"].startswith("dml-ollama-compatible")
+    assert client.get("/api/ps").json()["models"] == []
+    chat = client.post(
+        "/api/chat",
+        json={
+            "model": "daystrom-dml:memory",
+            "messages": [{"role": "user", "content": "provider memory"}],
+        },
+    ).json()
+    assert chat["done"] is True
+    assert "Provider memory text" in chat["message"]["content"]
+    embeddings = client.post("/api/embeddings", json={"model": "daystrom-dml:memory", "prompt": "hello"}).json()
+    assert len(embeddings["embedding"]) == 384
+    embed = client.post("/api/embed", json={"model": "daystrom-dml:memory", "input": ["hello", "world"]}).json()
+    assert len(embed["embeddings"]) == 2
+    assert client.post("/api/pull", json={"model": "daystrom-dml:memory"}).json()["status"] == "success"
+
+
+def test_provider_server_root_supports_browser_ui_and_ollama_probe() -> None:
+    app = create_app(adapter_factory=DummyAdapter)
+    client = TestClient(app)
+
+    assert client.get("/", headers={"accept": "application/json"}).text == "Ollama is running"
+    assert "DML Provider" in client.get("/", headers={"accept": "text/html"}).text

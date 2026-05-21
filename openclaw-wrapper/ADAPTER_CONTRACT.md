@@ -253,7 +253,9 @@ dml serve --storage-dir "$DML_STORE" --host 127.0.0.1 --port 8765
 
 Serves a local UI at `/`, health at `/health`, DML-native API endpoints under
 `/api/*`, search/fetch compatible surfaces for provider-style integrations, and
-Ollama-shaped `/api/tags`, `/api/show`, and `/api/generate` endpoints.
+Ollama-shaped `/api/tags`, `/api/show`, `/api/generate`, `/api/chat`,
+`/api/embed`, `/api/embeddings`, `/api/ps`, and `/api/version` endpoints. Use
+`dml-ollama --port 11435` when an app expects an Ollama-like base URL.
 
 ### CLI Client
 
