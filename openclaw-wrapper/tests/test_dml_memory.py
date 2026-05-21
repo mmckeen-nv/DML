@@ -316,37 +316,41 @@ class TestContinuityResume(unittest.TestCase):
 
 
 class TestHealthCommand(unittest.TestCase):
+    def _write_state(self, storage_dir: str, *, text: str = "checkpoint") -> Path:
+        state_path = Path(storage_dir) / "dml_state.jsonl"
+        record = {
+            "id": 0,
+            "text": text,
+            "embedding": [0.1, 0.2, 0.3],
+            "timestamp": 1.0,
+            "salience": 0.5,
+            "fidelity": 1.0,
+            "level": 0,
+            "summary_of": [0],
+            "meta": {
+                "source": "rolling_thread_checkpoint",
+                "namespace": "active_continuity",
+                "summary": "thread: main | next: run tests",
+            },
+        }
+        payload_line = json.dumps(record, separators=(",", ":"), sort_keys=True)
+        checksum = mod.hashlib.sha256(payload_line.encode("utf-8")).hexdigest()
+        header = {
+            "type": "daystrom_dml.memory",
+            "version": 1,
+            "created_at": "2026-05-21T00:00:00+00:00",
+            "count": 1,
+            "checksum": checksum,
+        }
+        state_path.write_text(
+            json.dumps(header, separators=(",", ":"), sort_keys=True) + "\n" + payload_line,
+            encoding="utf-8",
+        )
+        return state_path
+
     def test_cmd_health_reports_valid_state_without_backend_probe(self):
         with tempfile.TemporaryDirectory(prefix="dml-wrapper-health-test-") as tmp:
-            state_path = Path(tmp) / "dml_state.jsonl"
-            record = {
-                "id": 0,
-                "text": "checkpoint",
-                "embedding": [0.1, 0.2, 0.3],
-                "timestamp": 1.0,
-                "salience": 0.5,
-                "fidelity": 1.0,
-                "level": 0,
-                "summary_of": [0],
-                "meta": {
-                    "source": "rolling_thread_checkpoint",
-                    "namespace": "active_continuity",
-                    "summary": "thread: main | next: run tests",
-                },
-            }
-            payload_line = json.dumps(record, separators=(",", ":"), sort_keys=True)
-            checksum = mod.hashlib.sha256(payload_line.encode("utf-8")).hexdigest()
-            header = {
-                "type": "daystrom_dml.memory",
-                "version": 1,
-                "created_at": "2026-05-21T00:00:00+00:00",
-                "count": 1,
-                "checksum": checksum,
-            }
-            state_path.write_text(
-                json.dumps(header, separators=(",", ":"), sort_keys=True) + "\n" + payload_line,
-                encoding="utf-8",
-            )
+            self._write_state(tmp)
             args = Namespace(
                 storage_dir=tmp,
                 config_path=None,
@@ -382,6 +386,49 @@ class TestHealthCommand(unittest.TestCase):
             payload = json.loads(buf.getvalue())
             self.assertEqual(payload["status"], "fail")
             self.assertIn("state_file_missing", payload["errors"])
+
+    def test_backup_verify_and_restore_round_trip(self):
+        with tempfile.TemporaryDirectory(prefix="dml-wrapper-backup-test-") as tmp:
+            storage = Path(tmp) / "store"
+            backup_dir = Path(tmp) / "backups"
+            storage.mkdir()
+            state_path = self._write_state(str(storage), text="original memory")
+
+            backup_args = Namespace(storage_dir=str(storage), backup_dir=str(backup_dir), label="unit", keep=20)
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                self.assertEqual(mod.cmd_backup(backup_args), 0)
+            backup_payload = json.loads(buf.getvalue())
+            backup_path = Path(backup_payload["backup"]["backup_dir"])
+            self.assertTrue((backup_path / "dml_state.jsonl").exists())
+            self.assertTrue((backup_path / "backup_manifest.json").exists())
+
+            state_path.write_text("broken\n", encoding="utf-8")
+            verify_args = Namespace(storage_dir=str(storage))
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                self.assertEqual(mod.cmd_verify(verify_args), 1)
+            self.assertEqual(json.loads(buf.getvalue())["status"], "fail")
+
+            restore_args = Namespace(
+                storage_dir=str(storage),
+                backup=str(backup_path),
+                backup_dir=str(backup_dir),
+                keep=20,
+                no_pre_restore_backup=False,
+            )
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                self.assertEqual(mod.cmd_restore(restore_args), 0)
+            restored = json.loads(buf.getvalue())
+            self.assertEqual(restored["status"], "ok")
+            self.assertIsNotNone(restored["pre_restore_backup"])
+            self.assertIn("original memory", state_path.read_text(encoding="utf-8"))
+
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                self.assertEqual(mod.cmd_verify(verify_args), 0)
+            self.assertEqual(json.loads(buf.getvalue())["status"], "ok")
 
 
 class TestIngestBatching(unittest.TestCase):

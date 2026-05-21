@@ -55,6 +55,9 @@ Optional flags:
 - Stable beta contract: `dml-agent-memory-v1`
 - See `ADAPTER_CONTRACT.md` for the harness-facing command/metadata contract.
 - `health`: validates store checksum/count/dimensions and reports readiness.
+- `backup`: creates checksum-manifested backups before risky operations.
+- `verify`: loads durable state through the persistence layer and reports recovery suggestions.
+- `restore`: validates a backup, creates a pre-restore backup, then restores atomically.
 - `ingest`: stores memory with kind + metadata.
 - `retrieve`: returns JSON report including `raw_context` + items.
 - `resume`: returns active continuity handoff and latest checkpoint fields.

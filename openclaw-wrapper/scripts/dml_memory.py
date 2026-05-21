@@ -7,9 +7,11 @@ import argparse
 import hashlib
 import json
 import os
+import shutil
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
+from datetime import datetime, timezone
 from pathlib import Path
 
 DEFAULT_WORKSPACE = Path("/Users/markmckeen/.openclaw/workspace")
@@ -290,6 +292,79 @@ def _dedup_index_path(storage_dir: str) -> Path:
 
 def _state_file_path(storage_dir: str) -> Path:
     return Path(storage_dir) / "dml_state.jsonl"
+
+
+def _backup_root(storage_dir: str, backup_dir: str | None = None) -> Path:
+    return Path(backup_dir).expanduser() if backup_dir else Path(storage_dir) / "backups"
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _copy_if_exists(src: Path, dest: Path) -> dict | None:
+    if not src.exists():
+        return None
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(src, dest)
+    return {
+        "source": str(src),
+        "path": str(dest),
+        "bytes": dest.stat().st_size,
+        "sha256": _sha256_file(dest),
+    }
+
+
+def _prune_backups(root: Path, *, keep: int) -> list[str]:
+    if keep <= 0 or not root.exists():
+        return []
+    manifests = sorted(root.glob("*/backup_manifest.json"), key=lambda p: p.stat().st_mtime, reverse=True)
+    removed: list[str] = []
+    for manifest in manifests[keep:]:
+        backup_dir = manifest.parent
+        shutil.rmtree(backup_dir, ignore_errors=True)
+        removed.append(str(backup_dir))
+    return removed
+
+
+def _create_backup(storage_dir: str, *, backup_dir: str | None = None, label: str = "manual", keep: int = 20) -> dict:
+    state_path = _state_file_path(storage_dir)
+    if not state_path.exists():
+        raise FileNotFoundError(f"state file missing: {state_path}")
+    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    safe_label = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "-" for ch in label).strip("-") or "manual"
+    root = _backup_root(storage_dir, backup_dir)
+    target = root / f"{ts}-{safe_label}"
+    target.mkdir(parents=True, exist_ok=False)
+
+    files = []
+    for src, name in [
+        (state_path, "dml_state.jsonl"),
+        (_dedup_index_path(storage_dir), ".ingest_dedup_sha256.txt"),
+        (Path(storage_dir) / "embedding_compatibility_report.json", "embedding_compatibility_report.json"),
+        (Path(storage_dir) / "dpm_preference_graph.json", "dpm_preference_graph.json"),
+    ]:
+        copied = _copy_if_exists(src, target / name)
+        if copied:
+            files.append(copied)
+
+    manifest = {
+        "schema_version": "dml.backup-manifest.v1",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "label": safe_label,
+        "storage_dir": str(storage_dir),
+        "backup_dir": str(target),
+        "files": files,
+    }
+    manifest_path = target / "backup_manifest.json"
+    manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True), encoding="utf-8")
+    manifest["manifest_path"] = str(manifest_path)
+    manifest["pruned_backups"] = _prune_backups(root, keep=keep)
+    return manifest
 
 
 def _read_state_health(storage_dir: str) -> dict:
@@ -922,6 +997,162 @@ def cmd_health(args: argparse.Namespace) -> int:
     return 0 if report["status"] in {"ok", "degraded"} else 1
 
 
+def cmd_backup(args: argparse.Namespace) -> int:
+    started = time.perf_counter()
+    try:
+        manifest = _create_backup(
+            args.storage_dir,
+            backup_dir=args.backup_dir,
+            label=args.label,
+            keep=args.keep,
+        )
+        report = {
+            "status": "ok",
+            "action": "backup",
+            "contract_version": "dml-agent-memory-v1",
+            "backup": manifest,
+            "latency_ms": round((time.perf_counter() - started) * 1000.0, 2),
+        }
+        print(json.dumps(report, indent=2, default=str))
+        return 0
+    except Exception as exc:
+        report = {
+            "status": "fail",
+            "action": "backup",
+            "error": str(exc),
+            "latency_ms": round((time.perf_counter() - started) * 1000.0, 2),
+        }
+        print(json.dumps(report, indent=2, default=str))
+        return 1
+
+
+def cmd_verify(args: argparse.Namespace) -> int:
+    started = time.perf_counter()
+    state = _read_state_health(args.storage_dir)
+    errors = list(state.get("errors") or [])
+    loaded_count = None
+    try:
+        from daystrom_dml.persistence import load_state  # type: ignore
+
+        items = load_state(_state_file_path(args.storage_dir))
+        loaded_count = len(items)
+        if loaded_count != state.get("record_count"):
+            errors.append("loader_count_mismatch")
+    except Exception as exc:
+        errors.append(f"persistence_loader_failed: {exc}")
+
+    suggestions = []
+    if "state_file_missing" in errors:
+        suggestions.append("restore from the latest verified backup")
+    if "checksum_mismatch" in errors or "record_count_mismatch" in errors:
+        suggestions.append("run restore with a backup whose manifest checksum matches")
+    if "mixed_embedding_dimensions" in errors:
+        suggestions.append("run migrate-embeddings or restore a store with a single embedding dimension")
+    if any(error.startswith("persistence_loader_failed") for error in errors):
+        suggestions.append("inspect invalid JSONL records or restore from backup")
+
+    report = {
+        "status": "ok" if not errors else "fail",
+        "action": "verify",
+        "contract_version": "dml-agent-memory-v1",
+        "storage_dir": args.storage_dir,
+        "state": state,
+        "loaded_count": loaded_count,
+        "errors": errors,
+        "suggestions": suggestions,
+        "latency_ms": round((time.perf_counter() - started) * 1000.0, 2),
+    }
+    print(json.dumps(report, indent=2, default=str))
+    return 0 if report["status"] == "ok" else 1
+
+
+def _load_backup_manifest(path: str) -> tuple[Path, dict]:
+    p = Path(path).expanduser()
+    if p.is_dir():
+        manifest_path = p / "backup_manifest.json"
+    else:
+        manifest_path = p
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    return manifest_path.parent, manifest
+
+
+def _manifest_file(manifest: dict, name: str) -> dict | None:
+    for file_report in manifest.get("files") or []:
+        if Path(str(file_report.get("path") or "")).name == name:
+            return file_report
+    return None
+
+
+def cmd_restore(args: argparse.Namespace) -> int:
+    started = time.perf_counter()
+    try:
+        backup_path, manifest = _load_backup_manifest(args.backup)
+        state_entry = _manifest_file(manifest, "dml_state.jsonl")
+        if not state_entry:
+            raise FileNotFoundError("backup manifest does not include dml_state.jsonl")
+        source_state = Path(str(state_entry["path"])).expanduser()
+        if not source_state.is_absolute():
+            source_state = backup_path / source_state
+        if not source_state.exists():
+            raise FileNotFoundError(f"backup state missing: {source_state}")
+        actual = _sha256_file(source_state)
+        expected = str(state_entry.get("sha256") or "")
+        if expected and actual != expected:
+            raise ValueError("backup state checksum mismatch")
+
+        pre_restore = None
+        if _state_file_path(args.storage_dir).exists() and not args.no_pre_restore_backup:
+            pre_restore = _create_backup(
+                args.storage_dir,
+                backup_dir=args.backup_dir,
+                label="pre-restore",
+                keep=args.keep,
+            )
+
+        target = _state_file_path(args.storage_dir)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        tmp = target.with_suffix(target.suffix + ".restore-tmp")
+        shutil.copy2(source_state, tmp)
+        tmp.replace(target)
+
+        for optional_name in [".ingest_dedup_sha256.txt", "embedding_compatibility_report.json", "dpm_preference_graph.json"]:
+            entry = _manifest_file(manifest, optional_name)
+            if not entry:
+                continue
+            source = Path(str(entry["path"])).expanduser()
+            if not source.is_absolute():
+                source = backup_path / source
+            if not source.exists():
+                continue
+            dest = Path(args.storage_dir) / optional_name
+            tmp_optional = dest.with_suffix(dest.suffix + ".restore-tmp") if dest.suffix else dest.with_name(dest.name + ".restore-tmp")
+            shutil.copy2(source, tmp_optional)
+            tmp_optional.replace(dest)
+
+        verify = _read_state_health(args.storage_dir)
+        status = "ok" if not verify.get("errors") else "degraded"
+        report = {
+            "status": status,
+            "action": "restore",
+            "contract_version": "dml-agent-memory-v1",
+            "restored_from": str(source_state),
+            "pre_restore_backup": pre_restore,
+            "state": verify,
+            "latency_ms": round((time.perf_counter() - started) * 1000.0, 2),
+        }
+        print(json.dumps(report, indent=2, default=str))
+        return 0 if status == "ok" else 1
+    except Exception as exc:
+        report = {
+            "status": "fail",
+            "action": "restore",
+            "error": str(exc),
+            "latency_ms": round((time.perf_counter() - started) * 1000.0, 2),
+        }
+        print(json.dumps(report, indent=2, default=str))
+        return 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
     parser.add_argument("--storage-dir", default=str(DAYSTROM_DML_HOME / "data"))
@@ -1039,6 +1270,22 @@ def build_parser() -> argparse.ArgumentParser:
         help="Instantiate the adapter and verify embedding/LLM backend surfaces",
     )
     health.set_defaults(func=cmd_health)
+
+    backup = sub.add_parser("backup")
+    backup.add_argument("--backup-dir")
+    backup.add_argument("--label", default="manual")
+    backup.add_argument("--keep", type=int, default=20)
+    backup.set_defaults(func=cmd_backup)
+
+    verify = sub.add_parser("verify")
+    verify.set_defaults(func=cmd_verify)
+
+    restore = sub.add_parser("restore")
+    restore.add_argument("--backup", required=True, help="Backup directory or backup_manifest.json path")
+    restore.add_argument("--backup-dir", help="Where to place the pre-restore backup")
+    restore.add_argument("--keep", type=int, default=20)
+    restore.add_argument("--no-pre-restore-backup", dest="no_pre_restore_backup", action="store_true")
+    restore.set_defaults(no_pre_restore_backup=False, func=cmd_restore)
 
     mig = sub.add_parser("migration-status")
     mig.set_defaults(func=cmd_migration_status)

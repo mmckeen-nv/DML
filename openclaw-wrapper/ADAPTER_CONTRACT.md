@@ -35,6 +35,47 @@ Expected top-level fields:
 - `state.active_continuity_count`
 - `errors`
 
+### Backup
+
+```bash
+python scripts/dml_memory.py \
+  --storage-dir "$DML_STORE" \
+  backup \
+  --label before-maintenance \
+  --keep 20
+```
+
+Creates a timestamped backup directory under `$DML_STORE/backups` by default.
+The backup includes `dml_state.jsonl` and any present sidecar files such as the
+dedup index, embedding migration report, and DPM preference graph. Each backup
+includes `backup_manifest.json` with file sizes and SHA-256 checksums.
+
+### Verify
+
+```bash
+python scripts/dml_memory.py \
+  --storage-dir "$DML_STORE" \
+  verify
+```
+
+Runs the health checks and then loads the state through the real persistence
+loader. Use this before migrations, after restores, and when health reports a
+degraded store.
+
+### Restore
+
+```bash
+python scripts/dml_memory.py \
+  --storage-dir "$DML_STORE" \
+  restore \
+  --backup "$DML_STORE/backups/20260521T000000Z-before-maintenance"
+```
+
+Restore validates the backup manifest checksum, makes a pre-restore backup of
+the current store by default, and replaces state atomically. Add
+`--no-pre-restore-backup` only when the current store is intentionally
+discardable.
+
 ### Ingest
 
 ```bash
@@ -112,7 +153,8 @@ The command prioritizes `active_continuity` memories and returns:
 2. On startup or compaction recovery, call `resume`.
 3. Before normal turns, call `retrieve` with the current task/query.
 4. After meaningful state changes, call `ingest`.
-5. Before shutdown/compaction, write a structured continuity checkpoint.
+5. Before risky maintenance or migration, call `backup` and `verify`.
+6. Before shutdown/compaction, write a structured continuity checkpoint.
 
 ## Compatibility Rules
 
