@@ -256,6 +256,27 @@ Accepts the chosen claim value and suppresses competing values in the same
 scope. The command acquires the shared write lock, rewrites `dml_state.jsonl`
 through the persistence layer, and appends an audit event.
 
+### Curate
+
+```bash
+python scripts/dml_memory.py \
+  --storage-dir "$DML_STORE" \
+  curate \
+  --tenant-id openclaw \
+  --min-age-days 30 \
+  --max-fidelity 0.35 \
+  --limit 50
+```
+
+Dry-runs by default and reports candidate IDs, state, scope metadata, age,
+fidelity, and text hashes without raw memory text. Add `--apply` to mutate the
+store. The default action is to mark candidates `suppressed`; use
+`--action quarantined`, `--action deleted`, or `--action delete` for stronger
+maintenance. Active continuity memories are protected unless
+`--include-continuity` is set. Apply mode acquires the shared write lock,
+rewrites `dml_state.jsonl` through the persistence layer, and appends an audit
+event.
+
 ### Resume
 
 ```bash

@@ -722,6 +722,129 @@ class TestHealthCommand(unittest.TestCase):
             self.assertEqual(audit_events[0]["operation"], "resolve-conflict")
             self.assertEqual(audit_events[0]["status"], "ok")
 
+    def test_curate_dry_run_reports_candidates_without_raw_text(self):
+        with tempfile.TemporaryDirectory(prefix="dml-wrapper-curate-dry-") as tmp:
+            old_ts = time.time() - 90 * 86400
+            raw_text = "old low fidelity raw memory should not appear"
+            _write_state_records(
+                tmp,
+                [
+                    {
+                        "id": 1,
+                        "text": raw_text,
+                        "embedding": [0.1, 0.2],
+                        "timestamp": old_ts,
+                        "salience": 0.1,
+                        "fidelity": 0.2,
+                        "level": 0,
+                        "summary_of": [1],
+                        "meta": {"tenant_id": "alpha", "source": "unit", "namespace": "scratch", "memory_state": "active"},
+                    },
+                    {
+                        "id": 2,
+                        "text": "new memory",
+                        "embedding": [0.3, 0.4],
+                        "timestamp": time.time(),
+                        "salience": 0.8,
+                        "fidelity": 0.9,
+                        "level": 0,
+                        "summary_of": [2],
+                        "meta": {"tenant_id": "alpha", "source": "unit", "namespace": "scratch", "memory_state": "active"},
+                    },
+                ],
+            )
+            args = Namespace(
+                storage_dir=tmp,
+                tenant_id="alpha",
+                namespace="scratch",
+                source=None,
+                state=None,
+                min_age_days=30.0,
+                max_fidelity=0.35,
+                limit=10,
+                action="suppressed",
+                reason="unit",
+                include_continuity=False,
+                apply=False,
+            )
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                self.assertEqual(mod.cmd_curate(args), 0)
+
+            payload_text = buf.getvalue()
+            payload = json.loads(payload_text)
+            self.assertEqual(payload["status"], "dry-run")
+            self.assertEqual(payload["candidate_count"], 1)
+            self.assertEqual(payload["candidates"][0]["id"], 1)
+            self.assertNotIn(raw_text, payload_text)
+            records = mod._iter_state_records(tmp)
+            self.assertEqual(records[0]["meta"]["memory_state"], "active")
+
+    def test_curate_apply_suppresses_candidates_and_audits(self):
+        with tempfile.TemporaryDirectory(prefix="dml-wrapper-curate-apply-") as tmp:
+            old_ts = time.time() - 90 * 86400
+            _write_state_records(
+                tmp,
+                [
+                    {
+                        "id": 1,
+                        "text": "old low fidelity memory",
+                        "embedding": [0.1, 0.2],
+                        "timestamp": old_ts,
+                        "salience": 0.1,
+                        "fidelity": 0.2,
+                        "level": 0,
+                        "summary_of": [1],
+                        "meta": {"tenant_id": "alpha", "source": "unit", "namespace": "scratch", "memory_state": "active"},
+                    },
+                    {
+                        "id": 2,
+                        "text": "continuity should be protected",
+                        "embedding": [0.3, 0.4],
+                        "timestamp": old_ts,
+                        "salience": 0.1,
+                        "fidelity": 0.1,
+                        "level": 0,
+                        "summary_of": [2],
+                        "meta": {
+                            "tenant_id": "alpha",
+                            "source": "rolling_thread_checkpoint",
+                            "namespace": "active_continuity",
+                            "memory_state": "active",
+                        },
+                    },
+                ],
+            )
+            args = Namespace(
+                storage_dir=tmp,
+                tenant_id="alpha",
+                namespace=None,
+                source=None,
+                state=None,
+                min_age_days=30.0,
+                max_fidelity=0.35,
+                limit=10,
+                action="suppressed",
+                reason="unit",
+                include_continuity=False,
+                apply=True,
+                lock_timeout_ms=0,
+                audit_actor="unit-test",
+            )
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                self.assertEqual(mod.cmd_curate(args), 0)
+
+            payload = json.loads(buf.getvalue())
+            self.assertEqual(payload["changed"], 1)
+            records = mod._iter_state_records(tmp)
+            states = {record["id"]: record["meta"]["memory_state"] for record in records}
+            self.assertEqual(states[1], "suppressed")
+            self.assertEqual(states[2], "active")
+            audit_events = mod._tail_audit_events(tmp, limit=1)
+            self.assertEqual(audit_events[0]["operation"], "curate")
+            self.assertEqual(audit_events[0]["details"]["changed"], 1)
+
 
 class TestIngestBatching(unittest.TestCase):
     def test_cmd_ingest_defers_persistence_until_chunks_finish(self):

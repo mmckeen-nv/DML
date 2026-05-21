@@ -71,6 +71,9 @@ Optional flags:
 - Use `conflicts` to list unresolved scoped claim groups, and
   `resolve-conflict --accept-value <value>` to accept one value and suppress
   competing values under the same tenant/client/session/instance/namespace key.
+- Use `curate` as a dry-run first to find old low-fidelity memories. Add
+  `--apply` only after review; active continuity memories are protected unless
+  `--include-continuity` is set.
 - Proven local baseline is GPU-first for current OpenClaw runtime work.
 - Portable installability on Linux must remain path-parameterized and not assume `/home/nvidia/...`.
 

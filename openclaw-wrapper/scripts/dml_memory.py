@@ -843,6 +843,76 @@ def _state_conflict_groups(records: list[dict]) -> list[dict]:
     return result
 
 
+def _record_state(record: dict) -> str:
+    meta = record.get("meta") or {}
+    if not isinstance(meta, dict):
+        meta = {}
+    return str(meta.get("memory_state") or meta.get("lifecycle_state") or "active").strip().lower() or "active"
+
+
+def _record_age_days(record: dict, *, now: float | None = None) -> float | None:
+    timestamp = record.get("timestamp")
+    if timestamp is None:
+        return None
+    try:
+        ts = float(timestamp)
+    except (TypeError, ValueError):
+        return None
+    current = time.time() if now is None else now
+    return max(0.0, (current - ts) / 86400.0)
+
+
+def _is_continuity_record(record: dict) -> bool:
+    meta = record.get("meta") or {}
+    if not isinstance(meta, dict):
+        return False
+    return meta.get("namespace") == "active_continuity" or meta.get("source") in CONTINUITY_SOURCES
+
+
+def _curation_candidates(records: list[dict], args: argparse.Namespace, *, now: float | None = None) -> list[dict]:
+    candidates: list[dict] = []
+    states = {str(state).strip().lower() for state in (args.state or []) if str(state).strip()}
+    current = time.time() if now is None else now
+    for record in records:
+        meta = record.get("meta") or {}
+        if not isinstance(meta, dict):
+            meta = {}
+        if args.tenant_id is not None and meta.get("tenant_id") != args.tenant_id:
+            continue
+        if args.namespace is not None and meta.get("namespace") != args.namespace:
+            continue
+        if args.source is not None and meta.get("source") != args.source:
+            continue
+        state = _record_state(record)
+        if states and state not in states:
+            continue
+        if not args.include_continuity and _is_continuity_record(record):
+            continue
+        age_days = _record_age_days(record, now=current)
+        if args.min_age_days is not None and (age_days is None or age_days < args.min_age_days):
+            continue
+        try:
+            fidelity = float(record.get("fidelity") or 0.0)
+        except (TypeError, ValueError):
+            fidelity = 0.0
+        if args.max_fidelity is not None and fidelity > args.max_fidelity:
+            continue
+        candidates.append(
+            {
+                "id": record.get("id"),
+                "state": state,
+                "source": meta.get("source"),
+                "namespace": meta.get("namespace"),
+                "tenant_id": meta.get("tenant_id"),
+                "fidelity": round(fidelity, 4),
+                "age_days": round(age_days, 2) if age_days is not None else None,
+                "text_sha256": _text_digest(str(record.get("text") or "")),
+            }
+        )
+    candidates.sort(key=lambda item: (float(item["fidelity"]), -(float(item["age_days"] or 0.0))))
+    return candidates[: max(0, args.limit)]
+
+
 def _adapter(storage_dir: str, config_path: str | None, require_gpu: bool) -> DMLAdapter:
     graph_path = os.environ.get("DAYSTROM_DPM_GRAPH_PATH") or str(Path(storage_dir) / "dpm_preference_graph.json")
     dpm_mode = os.environ.get("DAYSTROM_DPM_MODE", "active-write")
@@ -1874,6 +1944,132 @@ def cmd_resolve_conflict(args: argparse.Namespace) -> int:
         return 1
 
 
+def cmd_curate(args: argparse.Namespace) -> int:
+    started = time.perf_counter()
+    records = _iter_state_records(args.storage_dir)
+    candidates = _curation_candidates(records, args)
+    if not args.apply:
+        report = {
+            "status": "dry-run",
+            "action": "curate",
+            "contract_version": "dml-agent-memory-v1",
+            "storage_dir": args.storage_dir,
+            "curation_action": args.action,
+            "candidate_count": len(candidates),
+            "candidates": candidates,
+            "filters": {
+                "tenant_id": args.tenant_id,
+                "namespace": args.namespace,
+                "source": args.source,
+                "state": args.state,
+                "min_age_days": args.min_age_days,
+                "max_fidelity": args.max_fidelity,
+                "include_continuity": args.include_continuity,
+                "limit": args.limit,
+            },
+            "latency_ms": round((time.perf_counter() - started) * 1000.0, 2),
+        }
+        print(json.dumps(report, indent=2, default=str))
+        return 0
+
+    started_apply = time.perf_counter()
+    try:
+        with _store_write_lock(args.storage_dir, operation="curate", timeout_ms=args.lock_timeout_ms) as lock:
+            from daystrom_dml.persistence import load_state, save_state  # type: ignore
+
+            state_path = _state_file_path(args.storage_dir)
+            items = load_state(state_path)
+            records_for_items = _items_as_state_records(items)
+            candidate_ids = {
+                candidate.get("id")
+                for candidate in _curation_candidates(records_for_items, args)
+            }
+            changed = 0
+            removed = 0
+            now_iso = datetime.now(timezone.utc).isoformat()
+            if args.action == "delete":
+                kept = []
+                for item in items:
+                    if item.id in candidate_ids:
+                        removed += 1
+                        continue
+                    kept.append(item)
+                items = kept
+                changed = removed
+            else:
+                for item in items:
+                    if item.id not in candidate_ids:
+                        continue
+                    meta = dict(item.meta or {})
+                    if meta.get("memory_state") == args.action:
+                        continue
+                    meta["memory_state"] = args.action
+                    meta["curated_at"] = now_iso
+                    meta["curation_action"] = "curate"
+                    meta["curation_reason"] = args.reason
+                    item.meta = meta
+                    changed += 1
+            if changed:
+                save_state(items, state_path)
+            report = {
+                "status": "ok",
+                "action": "curate",
+                "contract_version": "dml-agent-memory-v1",
+                "storage_dir": args.storage_dir,
+                "curation_action": args.action,
+                "candidate_count": len(candidate_ids),
+                "changed": changed,
+                "removed": removed,
+                "candidate_ids": sorted(candidate_ids),
+                "lock": lock,
+                "latency_ms": round((time.perf_counter() - started_apply) * 1000.0, 2),
+            }
+            audit = _append_audit_event(
+                args.storage_dir,
+                operation="curate",
+                status="ok",
+                actor=_audit_actor(args),
+                details={
+                    "curation_action": args.action,
+                    "candidate_count": len(candidate_ids),
+                    "changed": changed,
+                    "removed": removed,
+                    "reason": args.reason,
+                },
+            )
+            report["audit"] = {"path": audit["path"], "event_ts": audit["event"]["ts"]}
+            print(json.dumps(report, indent=2, default=str))
+            return 0
+    except TimeoutError as exc:
+        blocked = _lock_failure_report("curate", exc, started)
+        _append_audit_event(
+            args.storage_dir,
+            operation="curate",
+            status="blocked",
+            actor=_audit_actor(args),
+            details={"curation_action": args.action, "lock": blocked.get("lock")},
+        )
+        print(json.dumps(blocked, indent=2, default=str))
+        return 2
+    except Exception as exc:
+        report = {
+            "status": "fail",
+            "action": "curate",
+            "error": str(exc),
+            "latency_ms": round((time.perf_counter() - started) * 1000.0, 2),
+        }
+        audit = _append_audit_event(
+            args.storage_dir,
+            operation="curate",
+            status="fail",
+            actor=_audit_actor(args),
+            details={"curation_action": args.action, "error": str(exc)},
+        )
+        report["audit"] = {"path": audit["path"], "event_ts": audit["event"]["ts"]}
+        print(json.dumps(report, indent=2, default=str))
+        return 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
     parser.add_argument("--storage-dir", default=str(DAYSTROM_DML_HOME / "data"))
@@ -2046,6 +2242,20 @@ def build_parser() -> argparse.ArgumentParser:
     resolve.add_argument("--conflict-key", required=True)
     resolve.add_argument("--accept-value", required=True)
     resolve.set_defaults(func=cmd_resolve_conflict)
+
+    curate = sub.add_parser("curate")
+    curate.add_argument("--tenant-id")
+    curate.add_argument("--namespace")
+    curate.add_argument("--source")
+    curate.add_argument("--state", action="append", help="Candidate memory_state; repeat for multiple states")
+    curate.add_argument("--min-age-days", type=float, default=30.0)
+    curate.add_argument("--max-fidelity", type=float, default=0.35)
+    curate.add_argument("--limit", type=int, default=50)
+    curate.add_argument("--action", choices=["suppressed", "quarantined", "deleted", "delete"], default="suppressed")
+    curate.add_argument("--reason", default="beta_curation")
+    curate.add_argument("--include-continuity", action="store_true")
+    curate.add_argument("--apply", action="store_true", help="Apply curation. Default is dry-run.")
+    curate.set_defaults(func=cmd_curate)
 
     mig = sub.add_parser("migration-status")
     mig.set_defaults(func=cmd_migration_status)
