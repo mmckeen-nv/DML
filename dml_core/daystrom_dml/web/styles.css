@@ -453,7 +453,7 @@ pre {
 .visualizer-preview {
   position: relative;
   overflow: hidden;
-  height: 310px;
+  height: 540px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #101314;

@@ -456,6 +456,17 @@ function renderRun(payload, fallbackMode = 'compare') {
   }
 }
 
+function withQueryParam(url, key, value) {
+  try {
+    const target = new URL(url, window.location.origin);
+    target.searchParams.set(key, value);
+    return target.toString();
+  } catch {
+    const separator = url.includes('?') ? '&' : '?';
+    return `${url}${separator}${encodeURIComponent(key)}=${encodeURIComponent(value)}`;
+  }
+}
+
 async function runQuery() {
   const prompt = elements.prompt.value.trim();
   if (!prompt) {
@@ -502,7 +513,7 @@ async function launchVisualizer() {
     const target = payload.status === 'external'
       ? (payload.url || payload.embed_url || '/visualizer')
       : (payload.embed_url || payload.url || '/visualizer');
-    elements.visualizerFrame.src = target;
+    elements.visualizerFrame.src = withQueryParam(target, 'embed', '1');
     elements.openVisualizer.href = payload.url || '/visualizer';
     elements.visualizerPlaceholder.hidden = true;
     setStatus(elements.visualizerStatus, payload.status || 'ready', 'good');

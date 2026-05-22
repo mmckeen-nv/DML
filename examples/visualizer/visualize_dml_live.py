@@ -655,9 +655,9 @@ def build_figure(graph_state: Dict) -> go.Figure:
             text=node_text,
             showlegend=False,
         )
-    )
+        )
     fig.update_layout(
-        height=680,
+        height=int(graph_state.get("figure_height", 680)),
         margin=dict(l=10, r=10, t=10, b=10),
         scene=dict(
             xaxis=dict(showgrid=False, zeroline=False, visible=False),
@@ -686,8 +686,6 @@ def get_adapter() -> DMLAdapter:
 
 def main() -> None:
     st.set_page_config(page_title="Daystrom Memory Lattice Live", layout="wide")
-    st.title("Daystrom Memory Lattice — Live Retrieval Visualizer")
-    left_col, centre_col, right_col = st.columns([1.2, 2.8, 1.0], gap="large")
 
     if "graph_state" not in st.session_state:
         st.session_state["graph_state"] = {"mode": DEFAULT_MODE, "nodes": {}}
@@ -708,6 +706,7 @@ def main() -> None:
     top_k_param = _query_param("top_k")
     mode_param = _query_param("mode", "auto")
     stamp_param = _query_param("ts")
+    embed_mode = _query_param("embed") in {"1", "true", "yes", "on"}
 
     latest_payload = None
     if prompt_param:
@@ -745,6 +744,35 @@ def main() -> None:
         st.session_state["auto_trigger"] = True
         st.session_state["auto_reason"] = latest_payload.get("reason")
         st.session_state["bridge_stamp"] = latest_payload["stamp"]
+
+    if embed_mode:
+        st.markdown(
+            """
+            <style>
+              .block-container {
+                padding: 0.25rem 0.25rem 0.1rem;
+                max-width: 100%;
+              }
+              header, footer, [data-testid="stToolbar"] {
+                display: none;
+              }
+            </style>
+            """,
+            unsafe_allow_html=True,
+        )
+        chart_placeholder = st.empty()
+        graph_state = st.session_state["graph_state"]
+        graph_state["figure_height"] = 520
+        _refresh_graph_state(
+            graph_state,
+            adapter.store.items(),
+            mode=graph_state.get("mode", DEFAULT_MODE),
+        )
+        _render_graph(chart_placeholder, graph_state)
+        return
+
+    st.title("Daystrom Memory Lattice — Live Retrieval Visualizer")
+    left_col, centre_col, right_col = st.columns([1.2, 2.8, 1.0], gap="large")
 
     with left_col:
         st.subheader("Controls")
@@ -786,6 +814,7 @@ def main() -> None:
         token_bar = right_col.progress(0)
 
     graph_state = st.session_state["graph_state"]
+    graph_state["figure_height"] = 680
     _refresh_graph_state(graph_state, adapter.store.items(), mode=graph_state.get("mode", DEFAULT_MODE))
     _render_graph(chart_placeholder, graph_state)
 
