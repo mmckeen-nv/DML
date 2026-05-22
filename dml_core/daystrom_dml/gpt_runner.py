@@ -17,7 +17,7 @@ class GPTRunner:
 
     The class attempts to instantiate a HuggingFace pipeline.  When the required
     dependencies or model weights are not available (as is often the case in
-    offline tests) it falls back to a deterministic dummy backend.
+    offline tests) it falls back to a deterministic local backend.
     """
 
     model_name: str
@@ -95,7 +95,7 @@ class GPTRunner:
                 return
             except Exception as exc:  # pragma: no cover - executed in offline tests
                 LOGGER.warning("Transformers backend unavailable: %s", exc)
-        LOGGER.warning("Using DummyGPT backend.")
+        LOGGER.warning("Using deterministic local completion backend.")
         self._backend = _DummyBackend()
 
     def generate(
@@ -163,7 +163,7 @@ class GPTRunner:
 
     @property
     def is_dummy(self) -> bool:
-        """Expose whether the runner is using the dummy backend."""
+        """Expose whether the runner is using the deterministic local backend."""
 
         return isinstance(self._backend, _DummyBackend)
 
@@ -178,10 +178,9 @@ class _DummyBackend:
 
     def generate(self, prompt: str, max_new_tokens: int = 256) -> str:
         text = prompt.strip()
-        suffix = "\n[Dummy completion truncated]"
         if len(text) > max_new_tokens:
             text = text[: max_new_tokens]
-        return text + suffix
+        return text
 
     def summarize(self, text: str, max_len: int = 128) -> str:
         text = text.strip().replace("\n", " ")

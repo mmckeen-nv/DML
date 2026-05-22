@@ -452,6 +452,11 @@ pre {
   white-space: pre-wrap;
 }
 
+.context-box {
+  min-height: 180px;
+  max-height: 280px;
+}
+
 .output-box.empty,
 .empty-copy {
   color: var(--muted);

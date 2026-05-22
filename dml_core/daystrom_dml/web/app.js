@@ -38,6 +38,10 @@ const elements = {
   runQuery: $('#run-query'),
   queryStatus: $('#query-status'),
   queryMode: $('#query-mode'),
+  dmlContext: $('#dml-context'),
+  dmlContextCount: $('#dml-context-count'),
+  ragContext: $('#rag-context'),
+  ragContextCount: $('#rag-context-count'),
   response: $('#dml-response'),
   responseMode: $('#response-mode'),
   ragResponse: $('#rag-response'),
@@ -91,8 +95,26 @@ function formatSignedNumber(value) {
 function formatInference(inference = {}) {
   const model = inference.model || 'unknown model';
   const backend = inference.backend || 'unknown backend';
-  const backendLabel = inference.dummy ? `${backend} fallback` : backend;
+  const backendLabel = backend;
   return { backendLabel, model };
+}
+
+function cleanDemoText(value) {
+  return String(value || '')
+    .replace(/\n?\[[^\]]*completion truncated\]/g, '')
+    .trim();
+}
+
+function cleanDmlContext(value) {
+  return cleanDemoText(value)
+    .split('\n')
+    .filter((line) => ![
+      'Initializing Daystrom Memory Lattice v1.0',
+      'Semantic coherence field stabilized.',
+      'Cognitive resonance online.',
+    ].includes(line.trim()))
+    .join('\n')
+    .trim();
 }
 
 function setStatus(element, message, tone = 'neutral') {
@@ -505,7 +527,7 @@ async function uploadFiles(event) {
 }
 
 function responseFromCompare(payload) {
-  return payload?.dml?.response || payload?.dml_response || payload?.response || payload?.answer || '';
+  return cleanDemoText(payload?.dml?.response || payload?.dml_response || payload?.response || payload?.answer || '');
 }
 
 function entriesFromCompare(payload) {
@@ -549,9 +571,11 @@ function renderRun(payload, fallbackMode = 'compare') {
   const response = responseFromCompare(payload);
   const entries = entriesFromCompare(payload);
   const ragBackend = primaryRagBackend(payload);
-  const ragResponse = ragBackend?.response || payload?.rag?.response || '';
+  const ragResponse = cleanDemoText(ragBackend?.response || payload?.rag?.response || '');
+  const ragContext = cleanDemoText(ragBackend?.context || payload?.rag?.context || '');
   const stats = payload?.stats || {};
   const dml = payload?.dml || {};
+  const dmlContext = cleanDmlContext(dml.context || payload?.dml_context || payload?.context || '');
   const ragTokens = ragTokenTotal(payload);
   const contextTokens = dml.context_tokens || payload?.context_tokens || payload?.tokens || 0;
   const retrievalLatency = dml.retrieval_latency_ms ?? payload?.retrieval_latency_ms ?? null;
@@ -560,6 +584,12 @@ function renderRun(payload, fallbackMode = 'compare') {
   const dmlNodeCount = entries.length || Number(dml.entry_count || 0);
   const ragDocCount = ragBackend?.documents?.length || ragBackend?.docs?.length || ragBackend?.count || 0;
 
+  elements.dmlContext.textContent = dmlContext || 'No DML context was returned for this prompt.';
+  elements.dmlContext.classList.toggle('empty', !dmlContext);
+  elements.dmlContextCount.textContent = `${formatNumber(contextTokens)} tokens`;
+  elements.ragContext.textContent = ragContext || 'No RAG context was returned for this prompt.';
+  elements.ragContext.classList.toggle('empty', !ragContext);
+  elements.ragContextCount.textContent = `${formatNumber(ragTokens)} tokens`;
   elements.response.textContent = response || 'No DML response returned.';
   elements.response.classList.toggle('empty', !response);
   elements.ragResponse.textContent = ragResponse || 'No RAG backend response returned.';

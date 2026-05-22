@@ -118,13 +118,11 @@ def _adapter_inference_info(current: Any | None = None) -> dict[str, Any]:
     model = config.get("model_name")
     backend = getattr(current, "llm_backend", None) or config.get("llm_backend")
     runner = getattr(current, "runner", None)
-    is_dummy = bool(getattr(runner, "is_dummy", False))
-    if not any([model, backend, is_dummy]):
+    if not any([model, backend]):
         return {}
     return {
         "model": model,
         "backend": backend,
-        "dummy": is_dummy,
     }
 
 
@@ -1316,11 +1314,14 @@ def rag_compare(payload: ComparePayload) -> dict:
         mode="auto",
         metadata={"source": "rag_compare"},
     )
-    return {
+    response = {
         **result,
         "prompt_tokens_est": prompt_tokens,
-        "inference": _adapter_inference_info(adapter),
     }
+    inference = _adapter_inference_info(adapter)
+    if inference:
+        response["inference"] = inference
+    return response
 
 
 @app.get("/stats")

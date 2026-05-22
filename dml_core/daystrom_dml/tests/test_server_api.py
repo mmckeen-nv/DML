@@ -304,7 +304,6 @@ def test_rag_compare_success_queues_prompt(monkeypatch: pytest.MonkeyPatch) -> N
     payload = response.json()
     assert payload == {
         "candidates": ["ok"],
-        "inference": {},
         "prompt_tokens_est": 12,
     }
     assert stub.calls == [("Assemble", 3, 1024)]

@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <title>DML Playground</title>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <link rel="stylesheet" href="/static/styles.css?v=inference-model" />
+    <link rel="stylesheet" href="/static/styles.css?v=context-cleanup" />
   </head>
   <body>
     <div class="app-shell">
@@ -130,6 +130,20 @@
           <div class="comparison-grid">
             <article class="comparison-card">
               <div class="panel-heading compact">
+                <h3>DML Context Sent to LLM</h3>
+                <span id="dml-context-count" class="mini-pill">0 tokens</span>
+              </div>
+              <pre id="dml-context" class="output-box context-box empty">Run a prompt to inspect the compact DML context sent to the model.</pre>
+            </article>
+            <article class="comparison-card">
+              <div class="panel-heading compact">
+                <h3>RAG Context Sent to LLM</h3>
+                <span id="rag-context-count" class="mini-pill">0 tokens</span>
+              </div>
+              <pre id="rag-context" class="output-box context-box empty">Run a prompt to inspect the retrieved RAG document context sent to the model.</pre>
+            </article>
+            <article class="comparison-card">
+              <div class="panel-heading compact">
                 <h3>DML Response</h3>
                 <span id="response-mode" class="mini-pill">waiting</span>
               </div>
@@ -188,6 +202,6 @@
       </main>
     </div>
 
-    <script src="/static/app.js?v=inference-model" defer></script>
+    <script src="/static/app.js?v=context-cleanup" defer></script>
   </body>
 </html>

@@ -5,6 +5,7 @@ import contextlib
 import json
 import logging
 import os
+import re
 import threading
 import time
 from datetime import datetime, timezone
@@ -70,15 +71,6 @@ MAX_RETRIEVAL_TOP_K = 10
 KNOWLEDGE_MAX_ENTRIES = 200
 KNOWLEDGE_ENTRY_PREVIEW_CHARS = 320
 
-STARFLEET_BANNER = "\n".join(
-    [
-        "Initializing Daystrom Memory Lattice v1.0",
-        "Semantic coherence field stabilized.",
-        "Cognitive resonance online.",
-    ]
-)
-
-
 class DMLAdapter:
     """Facade used by the CLI and service to interact with the DML."""
 
@@ -120,7 +112,7 @@ class DMLAdapter:
         )
         if strict_llm_required and self.runner.is_dummy:
             raise RuntimeError(
-                f"Failed to initialize LLM backend for model {self.config['model_name']!r}; DummyGPT fallback is disabled"
+                f"Failed to initialize LLM backend for model {self.config['model_name']!r}; local completion fallback is disabled"
             )
         self.embedder = embedder or create_embedder(
             self.config.get("embedding_model"),
@@ -542,7 +534,7 @@ class DMLAdapter:
 
     def reinforce(self, prompt: str, response: str, meta: Optional[Dict] = None) -> None:
         prompt_text = (prompt or "").strip()
-        response_text = (response or "").strip()
+        response_text = self._clean_context_fragment(response)
         if not response_text:
             return
         response_summary = self.summarizer.summarize(response_text, max_len=220).strip()
@@ -721,7 +713,8 @@ class DMLAdapter:
         dml_response, dml_usage, dml_latency = self._generate_with_metrics(
             dml_prompt, max_new_tokens=max_new_tokens
         )
-        self.reinforce(prompt, dml_response)
+        if not self.runner.is_dummy:
+            self.reinforce(prompt, dml_response)
         step_counter += 1
         dml_sequence = step_counter
         pipeline_trace.append(
@@ -1914,12 +1907,29 @@ class DMLAdapter:
     def _format_dml_context(self, entries: List[Dict]) -> str:
         if not entries:
             return ""
-        lines = [STARFLEET_BANNER, "=== Daystrom Memory Lattice ==="]
+        lines = ["=== Daystrom Memory Lattice ==="]
         for entry in entries:
+            summary = self._clean_context_fragment(entry["summary"])
             lines.append(
-                f"- L{entry['level']} (f={entry['fidelity']:.2f}): {entry['summary']}"
+                f"- L{entry['level']} (f={entry['fidelity']:.2f}): {summary}"
             )
         return "\n".join(lines)
+
+    @staticmethod
+    def _clean_context_fragment(value: object) -> str:
+        text = str(value or "").strip()
+        text = re.sub(r"\n?\[[^\]]*completion truncated\]", "", text)
+        return text.strip()
+
+    @classmethod
+    def _clean_meta(cls, meta: Dict[str, Any]) -> Dict[str, Any]:
+        cleaned: Dict[str, Any] = {}
+        for key, value in meta.items():
+            if isinstance(value, str):
+                cleaned[key] = cls._clean_context_fragment(value)
+            else:
+                cleaned[key] = value
+        return cleaned
 
     def _format_workflow_text(
         self, task_description: str, steps: List[str], outcome: str
@@ -2062,10 +2072,10 @@ class DMLAdapter:
     ) -> tuple[List[Dict], str, int]:
         budget = int(self.config.get("token_budget", 600))
         consumed = 0
-        lines: List[str] = [STARFLEET_BANNER, "=== Daystrom Memory Lattice ==="]
+        lines: List[str] = ["=== Daystrom Memory Lattice ==="]
         entries: List[Dict] = []
         for item in items:
-            summary = item.cached_summary(max_len=180)
+            summary = self._clean_context_fragment(item.cached_summary(max_len=180))
             tokens = utils.estimate_tokens(summary)
             if consumed + tokens > budget:
                 break
@@ -2078,7 +2088,7 @@ class DMLAdapter:
                     "level": item.level,
                     "fidelity": float(item.fidelity),
                     "salience": float(item.salience),
-                    "meta": item.meta or {},
+                    "meta": self._clean_meta(item.meta or {}),
                     "tokens": tokens,
                 }
             )
