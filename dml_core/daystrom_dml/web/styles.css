@@ -622,6 +622,10 @@ pre {
 .knowledge-list {
   display: grid;
   gap: 10px;
+  max-height: calc(5 * 54px + 4 * 10px);
+  overflow-y: auto;
+  padding-right: 4px;
+  overscroll-behavior: contain;
 }
 
 .knowledge-row {
@@ -638,6 +642,7 @@ pre {
   gap: 12px;
   grid-template-columns: auto minmax(0, 1fr) auto;
   list-style: none;
+  min-height: 54px;
   padding: 12px 14px;
 }
 
