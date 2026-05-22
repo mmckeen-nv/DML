@@ -583,11 +583,20 @@ def main() -> None:
 
     adapter = get_adapter()
 
-    query_params = st.experimental_get_query_params()
-    prompt_param = query_params.get("prompt", [""])[0]
-    top_k_param = query_params.get("top_k", [""])[0]
-    mode_param = query_params.get("mode", ["auto"])[0]
-    stamp_param = query_params.get("ts", [""])[0]
+    query_params = getattr(st, "query_params", None)
+    if query_params is None:
+        query_params = st.experimental_get_query_params()
+
+    def _query_param(name: str, default: str = "") -> str:
+        value = query_params.get(name, default)
+        if isinstance(value, list):
+            return str(value[0]) if value else default
+        return str(value) if value is not None else default
+
+    prompt_param = _query_param("prompt")
+    top_k_param = _query_param("top_k")
+    mode_param = _query_param("mode", "auto")
+    stamp_param = _query_param("ts")
 
     latest_payload = None
     if prompt_param:

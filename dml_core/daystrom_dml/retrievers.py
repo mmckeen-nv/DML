@@ -91,7 +91,34 @@ class LiteralRetriever:
     # helpers
     # ------------------------------------------------------------------
     def _build_pattern(self, query: str) -> re.Pattern | None:
-        tokens = [tok for tok in re.findall(r"[A-Za-z0-9_]+", query) if len(tok) >= 3]
+        stopwords = {
+            "about",
+            "from",
+            "what",
+            "when",
+            "where",
+            "which",
+            "with",
+            "would",
+            "could",
+            "should",
+            "show",
+            "tell",
+            "give",
+            "find",
+            "this",
+            "that",
+            "there",
+            "their",
+            "have",
+            "memory",
+            "remember",
+        }
+        tokens = [
+            tok
+            for tok in re.findall(r"[A-Za-z0-9_]+", query)
+            if len(tok) >= 3 and tok.lower() not in stopwords
+        ]
         if not tokens:
             return None
         pattern = "|".join(re.escape(tok) for tok in tokens)

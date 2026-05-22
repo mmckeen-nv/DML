@@ -401,7 +401,9 @@ async function launchVisualizer() {
   setStatus(elements.visualizerStatus, 'starting', 'neutral');
   try {
     const payload = await requestJSON('/visualizer/launch', { method: 'POST' });
-    const target = payload.embed_url || payload.url || '/visualizer';
+    const target = payload.status === 'external'
+      ? (payload.url || payload.embed_url || '/visualizer')
+      : (payload.embed_url || payload.url || '/visualizer');
     elements.visualizerFrame.src = target;
     elements.openVisualizer.href = payload.url || '/visualizer';
     elements.visualizerPlaceholder.hidden = true;

@@ -54,6 +54,47 @@ def test_query_database_literal_mode_auto():
     assert result["latency_ms"] >= 0
 
 
+def test_query_database_keeps_literal_hits_when_persistent_rag_has_weak_matches(tmp_path):
+    adapter = DMLAdapter(
+        config_overrides={
+            "model_name": "dummy",
+            "embedding_model": None,
+            "capacity": 100,
+            "top_k": 4,
+            "dml_top_k": 4,
+            "literal_context": 1,
+            "storage_dir": str(tmp_path),
+            "persistence": {"enable": False},
+            "rag_store": {
+                "enable": True,
+                "path": "rag_index.faiss",
+                "meta_path": "rag_meta.json",
+                "backend": "faiss",
+                "dim": 48,
+            },
+            "similarity_threshold": 0.0,
+        },
+        embedder=RandomEmbedder(dim=48),
+        summarizer=DummySummarizer(),
+        start_aging_loop=False,
+    )
+    adapter.ingest("Old irrelevant memory about starship maintenance.", meta={"source": "old"})
+    adapter.ingest(
+        "The unique smoke phrase is DML_SMOKE_literal_priority_blue_circuit.",
+        meta={"source": "smoke-test"},
+    )
+
+    result = adapter.query_database("What is the unique smoke phrase?", mode="hybrid")
+
+    assert "DML_SMOKE_literal_priority_blue_circuit" in result["context"]
+    assert result["context"].split("\n\n", 1)[0].find("DML_SMOKE_literal_priority_blue_circuit") != -1
+    assert "smoke-test" in result["source_docs"]
+
+    report = adapter.retrieval_report("What is the unique smoke phrase?")
+    assert report["entries"]
+    assert "DML_SMOKE_literal_priority_blue_circuit" in report["entries"][0]["summary"]
+
+
 def test_query_database_semantic_summary():
     adapter = make_adapter()
     adapter.ingest(

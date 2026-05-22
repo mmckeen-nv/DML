@@ -1013,7 +1013,7 @@ def visualizer_url(request: Request) -> dict:
     """Expose the configured visualizer target for the frontend."""
 
     payload = {"url": _resolve_visualizer_url(request)}
-    embed_path = _resolve_visualizer_embed_path()
+    embed_path = None if VISUALIZER_URL else _resolve_visualizer_embed_path()
     if embed_path:
         payload["embed_url"] = embed_path
     return payload
@@ -1038,10 +1038,7 @@ def launch_visualizer(request: Request) -> dict:
     if VISUALIZER_URL:
         # External deployments are assumed to be managed separately.
         LOGGER.info("External visualizer configured, skipping local launch")
-        payload = {"status": "external", "url": target_url}
-        if embed_path:
-            payload["embed_url"] = embed_path
-        return payload
+        return {"status": "external", "url": target_url}
 
     try:
         _launch_visualizer_server()

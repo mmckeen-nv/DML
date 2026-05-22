@@ -26,12 +26,15 @@ async function initialiseStandaloneVisualizer() {
       openLinkEl.href = targetUrl;
     }
 
-    if (embedUrl) {
+    if (targetUrl && payload.status === 'external') {
+      frameEl.src = targetUrl;
+      statusEl.textContent = 'Visualizer ready.';
+    } else if (embedUrl) {
       frameEl.src = embedUrl;
       statusEl.textContent = 'Visualizer ready.';
     } else if (targetUrl) {
-      frameEl.removeAttribute('src');
-      statusEl.textContent = 'Visualizer ready. Open the Streamlit visualizer in a new tab.';
+      frameEl.src = targetUrl;
+      statusEl.textContent = 'Visualizer ready.';
     } else {
       frameEl.removeAttribute('src');
       statusEl.textContent = 'Visualizer ready (no URL available).';

@@ -145,9 +145,17 @@ class DMLAdapter:
             persistence_path = Path(persistence_path).expanduser()
         else:
             persistence_path = Path("dml_state.jsonl")
-        # Resolve persistence_path relative to storage_dir if it's relative
         if not persistence_path.is_absolute():
-            persistence_path = (self.storage_dir / persistence_path).resolve()
+            legacy_path = (self.storage_dir / persistence_path).resolve()
+            persistence_path = self._resolve_storage_path(persistence_path).resolve()
+            if legacy_path != persistence_path and legacy_path.exists() and not persistence_path.exists():
+                persistence_path.parent.mkdir(parents=True, exist_ok=True)
+                persistence_path.write_bytes(legacy_path.read_bytes())
+                LOGGER.info(
+                    "Copied legacy DML persistence state from %s to %s",
+                    legacy_path,
+                    persistence_path,
+                )
         self._persistence_path = persistence_path
         interval_value = getattr(persistence_settings, "interval_sec", 0) if persistence_settings else 0
         try:
@@ -1974,7 +1982,33 @@ class DMLAdapter:
         """Retrieve items with phase-aware filtering."""
         limit = self._resolve_dml_top_k(top_k)
         prompt_embedding = self.embedder.embed(prompt)
-        items = self.store.retrieve(prompt_embedding, top_k=limit)
+        semantic_items = self.store.retrieve(prompt_embedding, top_k=limit)
+        literal_items: List[MemoryStore.MemoryItem] = []
+        with contextlib.suppress(Exception):
+            literal_items = [
+                result.item
+                for result in self.literal_retriever.retrieve(
+                    prompt,
+                    self.store.items(),
+                    prompt_embedding,
+                    top_k=limit,
+                )
+                if result.literal_score > 0.0
+            ]
+        items = []
+        seen_ids: set[int] = set()
+        for item in [*literal_items, *semantic_items]:
+            raw_item_id = getattr(item, "id", id(item))
+            try:
+                item_id = int(raw_item_id)
+            except (TypeError, ValueError):
+                item_id = id(item)
+            if item_id in seen_ids:
+                continue
+            seen_ids.add(item_id)
+            items.append(item)
+            if len(items) >= limit:
+                break
         items = self._filter_retrievable_items(items, include_quarantined=include_quarantined)
 
         # Apply phase-aware filtering
@@ -2097,10 +2131,9 @@ class DMLAdapter:
         if self.persistent_rag_store is not None:
             with contextlib.suppress(Exception):
                 store_matches = self.persistent_rag_store.search(query_embedding, top_k=top_k)
-        if store_matches:
-            return self._format_rag_matches(store_matches)
-        fallback = self.literal_retriever.retrieve(prompt, items, query_embedding, top_k=top_k)
         formatted: List[Dict[str, Any]] = []
+        formatted.extend(self._format_rag_matches(store_matches))
+        fallback = self.literal_retriever.retrieve(prompt, items, query_embedding, top_k=top_k)
         for result in fallback:
             meta = result.item.meta if getattr(result, "item", None) else {}
             formatted.append(
@@ -2114,7 +2147,24 @@ class DMLAdapter:
                     "origin": "literal",
                 }
             )
-        return formatted
+        formatted.sort(
+            key=lambda result: (
+                float(result.get("literal_score", 0.0)),
+                float(result.get("semantic_score", 0.0)),
+            ),
+            reverse=True,
+        )
+        deduped: List[Dict[str, Any]] = []
+        seen: set[str] = set()
+        for result in formatted:
+            key = "|".join(str(segment) for segment in result.get("context", []))
+            if key in seen:
+                continue
+            seen.add(key)
+            deduped.append(result)
+            if len(deduped) >= top_k:
+                break
+        return deduped
 
     def _format_rag_matches(self, matches: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         formatted: List[Dict[str, Any]] = []
@@ -2168,11 +2218,11 @@ class DMLAdapter:
                     "id": match.get("id"),
                     "text": text,
                     "meta": meta,
-                    "literal_score": float(match.get("score", 0.0)),
-                    "semantic_score": 0.0,
+                    "literal_score": 0.0,
+                    "semantic_score": float(match.get("score", 0.0)),
                     "source": source,
                     "context": deduped,
-                    "origin": "literal",
+                    "origin": "semantic",
                 }
             )
         return formatted
@@ -2211,7 +2261,10 @@ class DMLAdapter:
         for entry in blended:
             semantic_score = entry.get("semantic_score", 0.0)
             literal_score = entry.get("literal_score", 0.0)
-            entry["final_score"] = alpha * semantic_score + (1 - alpha) * literal_score
+            blended_score = alpha * semantic_score + (1 - alpha) * literal_score
+            if literal_score > 0.0:
+                blended_score = max(blended_score, literal_score)
+            entry["final_score"] = blended_score
         blended.sort(key=lambda x: x.get("final_score", 0.0), reverse=True)
         seen: set[str] = set()
         deduped: List[Dict[str, Any]] = []
