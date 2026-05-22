@@ -77,6 +77,21 @@ LAYOUT_CLUSTER_SPACING = 18.0
 LAYOUT_SIBLING_SPACING = 8.0
 LAYOUT_DEPTH_SPACING = 12.0
 LAYOUT_LEVEL_HEIGHT = 6.0
+LATTICE_NODE_SPACING = 7.0
+
+
+def _lattice_meta(item: MemoryItem) -> Dict:
+    meta = item.meta or {}
+    if meta.get("synthetic_lattice") != "square":
+        return {}
+    try:
+        return {
+            "row": int(meta["lattice_row"]),
+            "col": int(meta["lattice_col"]),
+            "size": int(meta.get("lattice_size") or 0),
+        }
+    except (KeyError, TypeError, ValueError):
+        return {}
 
 
 def _compute_layout(items: Iterable[MemoryItem]) -> Dict[int, Tuple[float, float, float]]:
@@ -85,6 +100,9 @@ def _compute_layout(items: Iterable[MemoryItem]) -> Dict[int, Tuple[float, float
     item_list = list(items)
     if not item_list:
         return {}
+    square_items = [item for item in item_list if _lattice_meta(item)]
+    if square_items:
+        return _compute_square_lattice_layout(item_list)
     item_map = {item.id: item for item in item_list}
     children_map: Dict[int, List[int]] = {}
     parent_counts: Dict[int, int] = {item.id: 0 for item in item_list}
@@ -156,6 +174,74 @@ def _compute_layout(items: Iterable[MemoryItem]) -> Dict[int, Tuple[float, float
     return layout
 
 
+def _compute_square_lattice_layout(items: List[MemoryItem]) -> Dict[int, Tuple[float, float, float]]:
+    """Position synthetic square lattice nodes on an actual grid."""
+
+    layout: Dict[int, Tuple[float, float, float]] = {}
+    max_col = 0
+    max_row = 0
+    square_items = []
+    for item in items:
+        meta = _lattice_meta(item)
+        if not meta:
+            continue
+        square_items.append((item, meta))
+        max_row = max(max_row, int(meta["row"]))
+        max_col = max(max_col, int(meta["col"]))
+
+    x_offset = -max_col * LATTICE_NODE_SPACING / 2.0
+    y_offset = max_row * LATTICE_NODE_SPACING / 2.0
+    for item, meta in square_items:
+        row = int(meta["row"])
+        col = int(meta["col"])
+        layout[item.id] = (
+            x_offset + col * LATTICE_NODE_SPACING,
+            y_offset - row * LATTICE_NODE_SPACING,
+            -int(item.level) * LAYOUT_LEVEL_HEIGHT,
+        )
+
+    spillover_x = (max_col + 2) * LATTICE_NODE_SPACING
+    spillover_idx = 0
+    for item in items:
+        if item.id in layout:
+            continue
+        layout[item.id] = (
+            spillover_x,
+            y_offset - spillover_idx * LATTICE_NODE_SPACING,
+            -int(item.level) * LAYOUT_LEVEL_HEIGHT,
+        )
+        spillover_idx += 1
+    return layout
+
+
+def _lattice_neighbors(node: Dict) -> List[int]:
+    raw = node.get("lattice_neighbors") or []
+    neighbors: List[int] = []
+    for value in raw:
+        try:
+            neighbor_id = int(value)
+        except (TypeError, ValueError):
+            continue
+        if neighbor_id != int(node.get("id", -1)):
+            neighbors.append(neighbor_id)
+    return neighbors
+
+
+def _edge_targets(node: Dict) -> List[int]:
+    targets: List[int] = []
+    for target_id in node.get("summary_of", []):
+        try:
+            parsed = int(target_id)
+        except (TypeError, ValueError):
+            continue
+        if parsed != int(node.get("id", -1)):
+            targets.append(parsed)
+    for target_id in _lattice_neighbors(node):
+        if target_id not in targets:
+            targets.append(target_id)
+    return targets
+
+
 def _shorten_text(text: str, limit: int = 140) -> str:
     cleaned = " ".join(text.strip().split())
     if len(cleaned) <= limit:
@@ -184,14 +270,14 @@ def _highlight_relationships(graph_state: Dict, node_id: int) -> None:
     if node is None:
         graph_state["active_edges"] = active_edges
         return
-    for child_id in node.get("summary_of", []):
+    for child_id in _edge_targets(node):
         child = nodes.get(child_id)
         if child is None:
             continue
         child["activation"] = max(child.get("activation", 0.0), 0.35)
         active_edges.append((node_id, child_id))
     for potential_parent in nodes.values():
-        if node_id in potential_parent.get("summary_of", []):
+        if node_id in _edge_targets(potential_parent):
             potential_parent["activation"] = max(
                 potential_parent.get("activation", 0.0), 0.45
             )
@@ -411,6 +497,9 @@ def _refresh_graph_state(
             "fidelity": float(item.fidelity),
             "level": int(item.level),
             "summary_of": list(item.summary_of),
+            "lattice_neighbors": list((item.meta or {}).get("lattice_neighbors") or []),
+            "lattice_row": (item.meta or {}).get("lattice_row"),
+            "lattice_col": (item.meta or {}).get("lattice_col"),
             "label": label,
             "merges": int(item.meta.get("merges", 0)) if item.meta else 0,
             "activation": activation,
@@ -441,7 +530,7 @@ def _build_edges(nodes: Dict[int, Dict]) -> Tuple[List[float], List[float], List
     z_coords: List[float] = []
     for node in nodes.values():
         start = node["position"]
-        for target_id in node["summary_of"]:
+        for target_id in _edge_targets(node):
             target = nodes.get(target_id)
             if target is None:
                 continue
