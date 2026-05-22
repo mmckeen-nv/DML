@@ -7,8 +7,12 @@ const state = {
   highlightedNodeIds: new Set(),
   latticeView: {
     angle: -0.75,
+    dragMode: 'pan',
     dragging: false,
     lastX: 0,
+    lastY: 0,
+    panX: 0,
+    panY: 0,
     zoom: 1,
   },
 };
@@ -216,13 +220,15 @@ function nodeMath(entry, highlighted) {
 function projectPoint(x, y, z, originX, originY, view = state.latticeView) {
   const angle = Number(view.angle || 0);
   const zoom = Number(view.zoom || 1);
+  const panX = Number(view.panX || 0);
+  const panY = Number(view.panY || 0);
   const cos = Math.cos(angle);
   const sin = Math.sin(angle);
   const rx = x * cos - y * sin;
   const ry = x * sin + y * cos;
   return {
-    x: originX + (rx - ry) * 32 * zoom,
-    y: originY + (rx + ry) * 18 * zoom - z * zoom,
+    x: originX + panX + (rx - ry) * 32 * zoom,
+    y: originY + panY + (rx + ry) * 18 * zoom - z * zoom,
   };
 }
 
@@ -661,8 +667,22 @@ function activateTab(name) {
   });
 }
 
-function updateLatticeView(deltaAngle = 0, zoomMultiplier = 1) {
+function pointerDeltaToViewBox(svg, deltaX, deltaY) {
+  const rect = svg.getBoundingClientRect();
+  const viewBox = svg.viewBox?.baseVal;
+  if (!rect.width || !rect.height || !viewBox) {
+    return { x: deltaX, y: deltaY };
+  }
+  return {
+    x: deltaX * (viewBox.width / rect.width),
+    y: deltaY * (viewBox.height / rect.height),
+  };
+}
+
+function updateLatticeView({ deltaAngle = 0, deltaPanX = 0, deltaPanY = 0, zoomMultiplier = 1 } = {}) {
   state.latticeView.angle += deltaAngle;
+  state.latticeView.panX += deltaPanX;
+  state.latticeView.panY += deltaPanY;
   state.latticeView.zoom = clamp(state.latticeView.zoom * zoomMultiplier, 0.62, 1.75);
   renderLattice(dmlEntries());
 }
@@ -671,16 +691,25 @@ function setupLatticeControls() {
   const svg = elements.latticeSvg;
   if (!svg) return;
 
-  const beginDrag = (clientX) => {
+  const beginDrag = (event) => {
     state.latticeView.dragging = true;
-    state.latticeView.lastX = clientX;
+    state.latticeView.dragMode = event.shiftKey ? 'rotate' : 'pan';
+    state.latticeView.lastX = event.clientX;
+    state.latticeView.lastY = event.clientY;
     svg.classList.add('dragging');
   };
-  const moveDrag = (clientX) => {
+  const moveDrag = (event) => {
     if (!state.latticeView.dragging) return;
-    const deltaX = clientX - state.latticeView.lastX;
-    state.latticeView.lastX = clientX;
-    updateLatticeView(deltaX * 0.008, 1);
+    const deltaX = event.clientX - state.latticeView.lastX;
+    const deltaY = event.clientY - state.latticeView.lastY;
+    state.latticeView.lastX = event.clientX;
+    state.latticeView.lastY = event.clientY;
+    if (state.latticeView.dragMode === 'rotate') {
+      updateLatticeView({ deltaAngle: deltaX * 0.008 });
+      return;
+    }
+    const pan = pointerDeltaToViewBox(svg, deltaX, deltaY);
+    updateLatticeView({ deltaPanX: pan.x, deltaPanY: pan.y });
   };
   const endDrag = () => {
     state.latticeView.dragging = false;
@@ -689,18 +718,20 @@ function setupLatticeControls() {
 
   svg.addEventListener('pointerdown', (event) => {
     event.preventDefault();
-    beginDrag(event.clientX);
+    beginDrag(event);
     svg.setPointerCapture?.(event.pointerId);
   });
-  window.addEventListener('pointermove', (event) => moveDrag(event.clientX));
+  window.addEventListener('pointermove', moveDrag);
   window.addEventListener('pointerup', endDrag);
   window.addEventListener('pointercancel', endDrag);
   svg.addEventListener('wheel', (event) => {
     event.preventDefault();
-    updateLatticeView(0, event.deltaY < 0 ? 1.08 : 0.92);
+    updateLatticeView({ zoomMultiplier: event.deltaY < 0 ? 1.08 : 0.92 });
   }, { passive: false });
   svg.addEventListener('dblclick', () => {
     state.latticeView.angle = -0.75;
+    state.latticeView.panX = 0;
+    state.latticeView.panY = 0;
     state.latticeView.zoom = 1;
     renderLattice(dmlEntries());
   });

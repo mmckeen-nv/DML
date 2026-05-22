@@ -5,8 +5,12 @@ const resetEl = document.querySelector('#reset-lattice-view');
 
 const view = {
   angle: -0.75,
+  dragMode: 'pan',
   dragging: false,
   lastX: 0,
+  lastY: 0,
+  panX: 0,
+  panY: 0,
   zoom: 1,
 };
 
@@ -64,8 +68,8 @@ function projectPoint(x, y, z, originX, originY) {
   const rx = x * cos - y * sin;
   const ry = x * sin + y * cos;
   return {
-    x: originX + (rx - ry) * 38 * view.zoom,
-    y: originY + (rx + ry) * 21 * view.zoom - z * view.zoom,
+    x: originX + view.panX + (rx - ry) * 38 * view.zoom,
+    y: originY + view.panY + (rx + ry) * 21 * view.zoom - z * view.zoom,
   };
 }
 
@@ -163,6 +167,8 @@ function renderLattice() {
 
 function resetView() {
   view.angle = -0.75;
+  view.panX = 0;
+  view.panY = 0;
   view.zoom = 1;
   renderLattice();
 }
@@ -170,16 +176,39 @@ function resetView() {
 function setupControls() {
   if (!svgEl) return;
 
-  const beginDrag = (clientX) => {
+  const pointerDeltaToViewBox = (deltaX, deltaY) => {
+    const rect = svgEl.getBoundingClientRect();
+    const viewBox = svgEl.viewBox?.baseVal;
+    if (!rect.width || !rect.height || !viewBox) {
+      return { x: deltaX, y: deltaY };
+    }
+    return {
+      x: deltaX * (viewBox.width / rect.width),
+      y: deltaY * (viewBox.height / rect.height),
+    };
+  };
+
+  const beginDrag = (event) => {
     view.dragging = true;
-    view.lastX = clientX;
+    view.dragMode = event.shiftKey ? 'rotate' : 'pan';
+    view.lastX = event.clientX;
+    view.lastY = event.clientY;
     svgEl.classList.add('dragging');
   };
-  const moveDrag = (clientX) => {
+  const moveDrag = (event) => {
     if (!view.dragging) return;
-    const deltaX = clientX - view.lastX;
-    view.lastX = clientX;
-    view.angle += deltaX * 0.008;
+    const deltaX = event.clientX - view.lastX;
+    const deltaY = event.clientY - view.lastY;
+    view.lastX = event.clientX;
+    view.lastY = event.clientY;
+    if (view.dragMode === 'rotate') {
+      view.angle += deltaX * 0.008;
+      renderLattice();
+      return;
+    }
+    const pan = pointerDeltaToViewBox(deltaX, deltaY);
+    view.panX += pan.x;
+    view.panY += pan.y;
     renderLattice();
   };
   const endDrag = () => {
@@ -189,10 +218,10 @@ function setupControls() {
 
   svgEl.addEventListener('pointerdown', (event) => {
     event.preventDefault();
-    beginDrag(event.clientX);
+    beginDrag(event);
     svgEl.setPointerCapture?.(event.pointerId);
   });
-  window.addEventListener('pointermove', (event) => moveDrag(event.clientX));
+  window.addEventListener('pointermove', moveDrag);
   window.addEventListener('pointerup', endDrag);
   window.addEventListener('pointercancel', endDrag);
   svgEl.addEventListener('wheel', (event) => {
