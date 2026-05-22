@@ -11,8 +11,8 @@ top_k: 6
 dml_top_k: 8
 similarity_threshold: 0.32
 token_budget: 600
-model_name: mistralai/Mistral-7B-Instruct-v0.2
-llm_backend: auto
+model_name: llama3:8b
+llm_backend: ollama
 llm_device: null
 llm_dtype: auto
 load_in_4bit: false

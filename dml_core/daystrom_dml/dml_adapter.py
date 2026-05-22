@@ -1946,6 +1946,11 @@ class DMLAdapter:
     def _compose_prompt(self, prompt: str, context: str) -> str:
         blocks: List[str] = []
         if context:
+            blocks.append(
+                "Use the retrieved context to answer the user. "
+                "Do not repeat the context verbatim. "
+                "If the context is insufficient, say what is missing."
+            )
             blocks.append(context.strip())
         blocks.append("=== User Prompt ===")
         blocks.append(prompt.strip())
