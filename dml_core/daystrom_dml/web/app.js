@@ -4,6 +4,7 @@ const state = {
   health: null,
   stats: null,
   knowledge: null,
+  visualizerLaunched: false,
 };
 
 const elements = {
@@ -61,6 +62,9 @@ const elements = {
   visualizerStatus: $('#visualizer-status'),
   visualizerFrame: $('#visualizer-frame'),
   visualizerPlaceholder: $('#visualizer-placeholder'),
+  presetButtons: Array.from(document.querySelectorAll('.preset-button')),
+  tabButtons: Array.from(document.querySelectorAll('.tab-button')),
+  tabPanels: Array.from(document.querySelectorAll('.tab-panel')),
 };
 
 function formatNumber(value) {
@@ -456,6 +460,15 @@ function renderRun(payload, fallbackMode = 'compare') {
   }
 }
 
+function activateTab(name) {
+  elements.tabButtons.forEach((button) => {
+    button.classList.toggle('active', button.dataset.tab === name);
+  });
+  elements.tabPanels.forEach((panel) => {
+    panel.classList.toggle('active', panel.dataset.panel === name);
+  });
+}
+
 function withQueryParam(url, key, value) {
   try {
     const target = new URL(url, window.location.origin);
@@ -476,6 +489,10 @@ async function runQuery() {
 
   setBusy(elements.runQuery, true, 'Running');
   setStatus(elements.queryStatus, 'Running DML comparison...', 'neutral');
+  activateTab('answer');
+  if (!state.visualizerLaunched) {
+    launchVisualizer({ quiet: true });
+  }
   const topK = Number(elements.topK.value || 0);
   const maxTokens = Number(elements.maxTokens.value || 512);
   const started = performance.now();
@@ -505,9 +522,10 @@ async function runQuery() {
   }
 }
 
-async function launchVisualizer() {
-  setBusy(elements.launchVisualizer, true, 'Launching');
-  setStatus(elements.visualizerStatus, 'starting', 'neutral');
+async function launchVisualizer(options = {}) {
+  const quiet = Boolean(options.quiet);
+  if (!quiet) setBusy(elements.launchVisualizer, true, 'Launching');
+  setStatus(elements.visualizerStatus, quiet ? 'loading preview' : 'starting', 'neutral');
   try {
     const payload = await requestJSON('/visualizer/launch', { method: 'POST' });
     const target = payload.status === 'external'
@@ -516,13 +534,21 @@ async function launchVisualizer() {
     elements.visualizerFrame.src = withQueryParam(target, 'embed', '1');
     elements.openVisualizer.href = payload.url || '/visualizer';
     elements.visualizerPlaceholder.hidden = true;
+    state.visualizerLaunched = true;
     setStatus(elements.visualizerStatus, payload.status || 'ready', 'good');
     await refreshStatus();
   } catch (error) {
     setStatus(elements.visualizerStatus, error.message, 'bad');
   } finally {
-    setBusy(elements.launchVisualizer, false, 'Launch');
+    if (!quiet) setBusy(elements.launchVisualizer, false, 'Launch Preview');
   }
+}
+
+function applyPromptPreset(event) {
+  const prompt = event.currentTarget?.dataset?.prompt;
+  if (!prompt) return;
+  elements.prompt.value = prompt;
+  elements.prompt.focus();
 }
 
 elements.refreshStatus?.addEventListener('click', refreshStatus);
@@ -532,5 +558,10 @@ elements.uploadForm?.addEventListener('submit', uploadFiles);
 elements.runQuery?.addEventListener('click', runQuery);
 elements.launchVisualizer?.addEventListener('click', launchVisualizer);
 elements.knowledgeList?.addEventListener('toggle', collapseSiblingKnowledgeRows, true);
+elements.presetButtons.forEach((button) => button.addEventListener('click', applyPromptPreset));
+elements.tabButtons.forEach((button) => {
+  button.addEventListener('click', () => activateTab(button.dataset.tab));
+});
 
 refreshStatus();
+launchVisualizer({ quiet: true });
