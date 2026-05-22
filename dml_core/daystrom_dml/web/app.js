@@ -176,6 +176,44 @@ function squareLatticeEntries(entries = dmlEntries()) {
   });
 }
 
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function nodeMath(entry, highlighted) {
+  const meta = entry.meta || {};
+  const tokenWeight = clamp(Number(entry.tokens || 0) / 120, 0, 1);
+  const row = Number(meta.lattice_row || 0);
+  const col = Number(meta.lattice_col || 0);
+  const size = Math.max(1, Number(meta.lattice_size || 1) - 1);
+  const positionWeight = clamp((row + col) / Math.max(1, size * 2), 0, 1);
+  const salience = Number(entry.salience ?? meta.salience ?? (0.25 + tokenWeight * 0.45 + positionWeight * 0.3));
+  const fidelity = Number(entry.fidelity ?? 1);
+  const level = Number(entry.level ?? 0);
+  const degree = Number(meta.lattice_degree ?? (meta.lattice_neighbors || []).length ?? 0);
+  const height = 10
+    + clamp(salience, 0, 1) * 46
+    + clamp(fidelity, 0, 1) * 18
+    + clamp(degree / 4, 0, 1) * 14
+    + level * 16
+    + (highlighted ? 38 : 0);
+  const radius = 4.8 + clamp(salience, 0, 1) * 4.2 + (highlighted ? 3.4 : 0);
+  return {
+    degree,
+    fidelity: clamp(fidelity, 0, 1),
+    height,
+    radius,
+    salience: clamp(salience, 0, 1),
+  };
+}
+
+function projectPoint(x, y, z, originX, originY) {
+  return {
+    x: originX + (x - y) * 32,
+    y: originY + (x + y) * 18 - z,
+  };
+}
+
 function renderLattice(entries = dmlEntries(), highlightedEntries = []) {
   if (!elements.latticeSvg) return;
   const square = squareLatticeEntries(entries);
@@ -196,55 +234,100 @@ function renderLattice(entries = dmlEntries(), highlightedEntries = []) {
   const cols = square.map((entry) => Number(entry.meta.lattice_col));
   const maxRow = Math.max(...rows);
   const maxCol = Math.max(...cols);
-  const cell = 54;
-  const pad = 38;
-  const width = pad * 2 + Math.max(1, maxCol) * cell;
-  const height = pad * 2 + Math.max(1, maxRow) * cell;
+  const width = 940;
+  const height = 620;
+  const originX = width / 2;
+  const originY = 116;
   const byId = new Map(square.map((entry) => [entryId(entry), entry]));
+  const positions = new Map();
+  const nodeRows = [];
   const lines = [];
-  const circles = [];
+  const columns = [];
+  const nodes = [];
 
   for (const entry of square) {
     const id = entryId(entry);
     const meta = entry.meta || {};
-    const x = pad + Number(meta.lattice_col) * cell;
-    const y = pad + Number(meta.lattice_row) * cell;
+    const x = Number(meta.lattice_col) - maxCol / 2;
+    const y = Number(meta.lattice_row) - maxRow / 2;
+    const active = highlighted.has(id);
+    const math = nodeMath(entry, active);
+    const floor = projectPoint(x, y, 0, originX, originY);
+    const top = projectPoint(x, y, math.height, originX, originY);
+    positions.set(id, { active, entry, floor, math, top });
+  }
+
+  for (const entry of square) {
+    const id = entryId(entry);
+    const meta = entry.meta || {};
+    const position = positions.get(id);
+    if (!position) continue;
     for (const neighbor of meta.lattice_neighbors || []) {
       const neighborEntry = byId.get(Number(neighbor));
       if (!neighborEntry || Number(neighbor) < id) continue;
-      const neighborMeta = neighborEntry.meta || {};
-      const x2 = pad + Number(neighborMeta.lattice_col) * cell;
-      const y2 = pad + Number(neighborMeta.lattice_row) * cell;
+      const neighborPosition = positions.get(Number(neighbor));
+      if (!neighborPosition) continue;
       const active = highlighted.has(id) && highlighted.has(Number(neighbor));
       lines.push(
-        `<line class="${active ? 'active' : ''}" x1="${x}" y1="${y}" x2="${x2}" y2="${y2}"></line>`
+        `<line class="${active ? 'active' : ''}" x1="${position.top.x.toFixed(2)}" y1="${position.top.y.toFixed(2)}" x2="${neighborPosition.top.x.toFixed(2)}" y2="${neighborPosition.top.y.toFixed(2)}"></line>`
       );
     }
   }
 
-  for (const entry of square) {
-    const id = entryId(entry);
+  for (const [id, position] of positions.entries()) {
+    const { active, entry, floor, math, top } = position;
     const meta = entry.meta || {};
-    const x = pad + Number(meta.lattice_col) * cell;
-    const y = pad + Number(meta.lattice_row) * cell;
-    const active = highlighted.has(id);
     const source = escapeHTML(meta.source || `node ${id}`);
     const label = escapeHTML(meta.summary || entry.summary || entry.text || source);
-    circles.push(
-      `<g class="lattice-node ${active ? 'active' : ''}" tabindex="0">`
-      + `<circle cx="${x}" cy="${y}" r="${active ? 9 : 6}"></circle>`
-      + `<title>${source}\n${label}</title>`
-      + `</g>`
+    columns.push(
+      `<line class="${active ? 'active' : ''}" x1="${floor.x.toFixed(2)}" y1="${floor.y.toFixed(2)}" x2="${top.x.toFixed(2)}" y2="${top.y.toFixed(2)}"></line>`
     );
+    nodeRows.push({
+      markup:
+      `<g class="lattice-node ${active ? 'active' : ''}" tabindex="0" style="--fidelity:${math.fidelity.toFixed(3)}">`
+      + `<circle cx="${top.x.toFixed(2)}" cy="${top.y.toFixed(2)}" r="${math.radius.toFixed(2)}"></circle>`
+      + `<title>${source}\n${label}</title>`
+      + `</g>`,
+      sortY: top.y,
+    });
   }
+
+  nodeRows.sort((a, b) => a.sortY - b.sortY);
+  nodes.push(...nodeRows.map((row) => row.markup));
+
+  const baseCorners = [
+    projectPoint(-maxCol / 2, -maxRow / 2, 0, originX, originY),
+    projectPoint(maxCol / 2, -maxRow / 2, 0, originX, originY),
+    projectPoint(maxCol / 2, maxRow / 2, 0, originX, originY),
+    projectPoint(-maxCol / 2, maxRow / 2, 0, originX, originY),
+  ];
+  const basePath = baseCorners
+    .map((point) => `${point.x.toFixed(2)},${point.y.toFixed(2)}`)
+    .join(' ');
+
+  const axes = [
+    ['x', projectPoint(-maxCol / 2, maxRow / 2 + 0.7, 0, originX, originY), projectPoint(maxCol / 2, maxRow / 2 + 0.7, 0, originX, originY)],
+    ['y', projectPoint(maxCol / 2 + 0.7, -maxRow / 2, 0, originX, originY), projectPoint(maxCol / 2 + 0.7, maxRow / 2, 0, originX, originY)],
+    ['z', projectPoint(maxCol / 2 + 0.9, maxRow / 2 + 0.9, 0, originX, originY), projectPoint(maxCol / 2 + 0.9, maxRow / 2 + 0.9, 96, originX, originY)],
+  ].map(
+    ([name, start, end]) =>
+      `<line class="axis ${name}" x1="${start.x.toFixed(2)}" y1="${start.y.toFixed(2)}" x2="${end.x.toFixed(2)}" y2="${end.y.toFixed(2)}"></line>`
+    );
 
   elements.latticeSvg.setAttribute('viewBox', `0 0 ${width} ${height}`);
   elements.latticeSvg.innerHTML = [
+    `<polygon class="lattice-plane" points="${basePath}"></polygon>`,
+    '<g class="lattice-axes">',
+    ...axes,
+    '</g>',
+    '<g class="lattice-columns">',
+    ...columns,
+    '</g>',
     '<g class="lattice-edges">',
     ...lines,
     '</g>',
     '<g class="lattice-nodes">',
-    ...circles,
+    ...nodes,
     '</g>',
   ].join('');
   elements.visualizerPlaceholder.hidden = true;

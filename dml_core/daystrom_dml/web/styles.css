@@ -309,16 +309,38 @@ pre {
   height: 100%;
   display: block;
   background:
-    linear-gradient(rgba(255, 255, 255, 0.025) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.025) 1px, transparent 1px),
+    radial-gradient(circle at 50% 18%, rgba(104, 211, 145, 0.08), transparent 28%),
     #101314;
-  background-size: 28px 28px;
+}
+
+.lattice-plane {
+  fill: rgba(138, 180, 255, 0.045);
+  stroke: rgba(138, 180, 255, 0.24);
+  stroke-width: 1.5;
+}
+
+.lattice-axes line {
+  stroke: rgba(246, 193, 119, 0.38);
+  stroke-dasharray: 7 7;
+  stroke-linecap: round;
+  stroke-width: 1.6;
+}
+
+.lattice-columns line {
+  stroke: rgba(155, 168, 165, 0.2);
+  stroke-linecap: round;
+  stroke-width: 1.4;
+}
+
+.lattice-columns line.active {
+  stroke: rgba(104, 211, 145, 0.66);
+  stroke-width: 2.7;
 }
 
 .lattice-edges line {
-  stroke: rgba(138, 180, 255, 0.22);
+  stroke: rgba(138, 180, 255, 0.28);
   stroke-linecap: round;
-  stroke-width: 2.1;
+  stroke-width: 1.8;
 }
 
 .lattice-edges line.active {
@@ -328,7 +350,7 @@ pre {
 
 .lattice-node circle {
   fill: #8ab4ff;
-  opacity: 0.82;
+  opacity: calc(0.35 + var(--fidelity, 1) * 0.55);
   stroke: rgba(255, 255, 255, 0.68);
   stroke-width: 1.4;
 }
