@@ -110,6 +110,24 @@ adapter = DMLAdapter(start_aging_loop=False)
 SERVICE_START_TIME = time.time()
 
 
+def _adapter_inference_info(current: Any | None = None) -> dict[str, Any]:
+    """Expose the LLM backend/model used for demo inference."""
+
+    current = current or adapter
+    config = getattr(current, "config", {}) or {}
+    model = config.get("model_name")
+    backend = getattr(current, "llm_backend", None) or config.get("llm_backend")
+    runner = getattr(current, "runner", None)
+    is_dummy = bool(getattr(runner, "is_dummy", False))
+    if not any([model, backend, is_dummy]):
+        return {}
+    return {
+        "model": model,
+        "backend": backend,
+        "dummy": is_dummy,
+    }
+
+
 def _adapter_health() -> dict[str, Any]:
     """Return a lightweight view of the adapter state."""
 
@@ -138,6 +156,7 @@ def _adapter_health() -> dict[str, Any]:
             "memories": len(current.store.items()),
             "metrics_enabled": bool(current.metrics_enabled),
             "storage_dir": str(current.storage_dir),
+            "inference": _adapter_inference_info(current),
             "rag_backends": current.rag_store.descriptors(),
             "persistent_rag": persistent_info,
             "persistence": {
@@ -1300,6 +1319,7 @@ def rag_compare(payload: ComparePayload) -> dict:
     return {
         **result,
         "prompt_tokens_est": prompt_tokens,
+        "inference": _adapter_inference_info(adapter),
     }
 
 

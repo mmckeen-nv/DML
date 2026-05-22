@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <title>DML Playground</title>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <link rel="stylesheet" href="/static/styles.css?v=compare-simple" />
+    <link rel="stylesheet" href="/static/styles.css?v=inference-model" />
   </head>
   <body>
     <div class="app-shell">
@@ -115,6 +115,11 @@
             <strong id="metric-run-rag-tokens">-</strong>
             <small>delivered to LLM</small>
           </article>
+          <article class="run-card">
+            <span>Inference Model</span>
+            <strong id="metric-inference-model">-</strong>
+            <small id="metric-inference-backend">LLM backend</small>
+          </article>
         </section>
 
         <section class="comparison-panel panel">
@@ -183,6 +188,6 @@
       </main>
     </div>
 
-    <script src="/static/app.js?v=compare-simple" defer></script>
+    <script src="/static/app.js?v=inference-model" defer></script>
   </body>
 </html>

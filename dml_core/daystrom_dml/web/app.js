@@ -30,6 +30,8 @@ const elements = {
   runNodes: $('#metric-run-nodes'),
   runRagTokens: $('#metric-run-rag-tokens'),
   runDocs: $('#metric-run-docs'),
+  inferenceModel: $('#metric-inference-model'),
+  inferenceBackend: $('#metric-inference-backend'),
   prompt: $('#prompt'),
   topK: $('#top-k'),
   maxTokens: $('#max-tokens'),
@@ -84,6 +86,13 @@ function formatSignedNumber(value) {
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) return '-';
   return `${numeric > 0 ? '+' : ''}${formatNumber(Math.round(numeric))}`;
+}
+
+function formatInference(inference = {}) {
+  const model = inference.model || 'unknown model';
+  const backend = inference.backend || 'unknown backend';
+  const backendLabel = inference.dummy ? `${backend} fallback` : backend;
+  return { backendLabel, model };
 }
 
 function setStatus(element, message, tone = 'neutral') {
@@ -147,9 +156,17 @@ function renderMetrics() {
   elements.dmlTokens.textContent = formatNumber(dml.total_tokens);
   elements.fidelity.textContent = formatPercent(averageFidelity(entries));
   elements.visualizerMetric.textContent = visualizer.status || '-';
+  renderInference(adapter.inference);
 
   const status = state.health?.status || 'unknown';
   setStatus(elements.serviceStatus, status, status === 'ok' ? 'good' : 'warn');
+}
+
+function renderInference(inference = {}) {
+  if (!elements.inferenceModel || !elements.inferenceBackend) return;
+  const { backendLabel, model } = formatInference(inference);
+  elements.inferenceModel.textContent = model;
+  elements.inferenceBackend.textContent = backendLabel;
 }
 
 function entryId(entry) {
@@ -551,6 +568,7 @@ function renderRun(payload, fallbackMode = 'compare') {
   elements.responseMode.textContent = payload?.mode || fallbackMode;
   elements.queryMode.textContent = payload?.mode || fallbackMode;
   elements.runLatency.textContent = formatMilliseconds(latency);
+  renderInference(payload?.inference || state.health?.components?.adapter?.inference);
   renderRunTelemetry({
     latency,
     retrievalLatency,

@@ -167,7 +167,7 @@ pre {
 }
 
 .run-strip {
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
 }
 
 .demo-stage {
@@ -243,12 +243,10 @@ pre {
   font-weight: 700;
 }
 
-#metric-run-token-delta[data-tone="good"] {
-  color: var(--green);
-}
-
-#metric-run-token-delta[data-tone="warn"] {
-  color: var(--amber);
+#metric-inference-model {
+  font-size: 0.95rem;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
 }
 
 .panel-heading {
