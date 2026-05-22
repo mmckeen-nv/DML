@@ -30,34 +30,17 @@ const elements = {
   runNodes: $('#metric-run-nodes'),
   runRagTokens: $('#metric-run-rag-tokens'),
   runDocs: $('#metric-run-docs'),
-  runTokenDelta: $('#metric-run-token-delta'),
-  runTokenRatio: $('#metric-run-token-ratio'),
   prompt: $('#prompt'),
   topK: $('#top-k'),
   maxTokens: $('#max-tokens'),
   runQuery: $('#run-query'),
   queryStatus: $('#query-status'),
   queryMode: $('#query-mode'),
-  contextCount: $('#context-count'),
-  dmlContext: $('#dml-context'),
   response: $('#dml-response'),
   responseMode: $('#response-mode'),
   ragResponse: $('#rag-response'),
   ragMode: $('#rag-mode'),
-  ragContext: $('#rag-context'),
-  ragContextCount: $('#rag-context-count'),
-  baseResponse: $('#base-response'),
-  baseMode: $('#base-mode'),
   runLatency: $('#run-latency'),
-  signalPromptTokens: $('#signal-prompt-tokens'),
-  signalContextTokens: $('#signal-context-tokens'),
-  signalRagTokens: $('#signal-rag-tokens'),
-  signalFidelity: $('#signal-fidelity'),
-  dmlTokenMeter: $('#dml-token-meter'),
-  dmlTokenMeterLabel: $('#dml-token-meter-label'),
-  ragTokenMeter: $('#rag-token-meter'),
-  ragTokenMeterLabel: $('#rag-token-meter-label'),
-  ragBackends: $('#rag-backends'),
   memoryText: $('#memory-text'),
   memorySource: $('#memory-source'),
   ingestMemory: $('#ingest-memory'),
@@ -73,8 +56,6 @@ const elements = {
   latticeSvg: $('#lattice-svg'),
   visualizerPlaceholder: $('#visualizer-placeholder'),
   presetButtons: Array.from(document.querySelectorAll('.preset-button')),
-  tabButtons: Array.from(document.querySelectorAll('.tab-button')),
-  tabPanels: Array.from(document.querySelectorAll('.tab-panel')),
 };
 
 function formatNumber(value) {
@@ -506,10 +487,6 @@ async function uploadFiles(event) {
   }
 }
 
-function contextFromCompare(payload) {
-  return payload?.dml?.context || payload?.dml_context || payload?.context || '';
-}
-
 function responseFromCompare(payload) {
   return payload?.dml?.response || payload?.dml_response || payload?.response || payload?.answer || '';
 }
@@ -534,49 +511,7 @@ function ragTokenTotal(payload) {
   return backend?.context_tokens || backend?.tokens || backend?.total_tokens || payload?.rag_context_tokens || null;
 }
 
-function renderBackends(payload) {
-  const backends = payload?.rag_backends || payload?.rag?.backends || payload?.rag || [];
-  const list = Array.isArray(backends) ? backends : Object.values(backends || {});
-  if (!list.length) {
-    elements.ragBackends.innerHTML = '<p class="empty-copy">No RAG backend comparison data for this run.</p>';
-    return;
-  }
-
-  elements.ragBackends.innerHTML = list.map((backend) => {
-    const name = backend.label || backend.name || backend.backend || backend.id || 'backend';
-    const tokens = backend.tokens || backend.context_tokens || backend.total_tokens || 0;
-    const docs = backend.documents?.length || backend.docs?.length || backend.count || 0;
-    const grade = backend.grade?.grade ? `grade ${backend.grade.grade}` : backend.available === false ? 'offline' : 'ready';
-    return `
-      <article class="backend-row">
-        <strong>${escapeHTML(name)}</strong>
-        <span>${formatNumber(tokens)} tokens</span>
-        <span>${formatNumber(docs)} docs</span>
-        <span>${escapeHTML(grade)}</span>
-      </article>
-    `;
-  }).join('');
-}
-
-function updateTokenMeter(meter, label, value, maxValue) {
-  const numeric = Number(value || 0);
-  const max = Math.max(1, Number(maxValue || 0));
-  if (meter) {
-    meter.max = max;
-    meter.value = Math.max(0, numeric);
-  }
-  if (label) {
-    label.textContent = `${formatNumber(numeric)} / ${formatNumber(max)}`;
-  }
-}
-
 function renderRunTelemetry({ latency, retrievalLatency, generationLatency, contextTokens, ragTokens, dmlNodes, ragDocs }) {
-  const tokenDelta = Number(ragTokens || 0) - Number(contextTokens || 0);
-  const denominator = Math.max(1, Number(ragTokens || 0));
-  const tokenRatio = Number(contextTokens || 0) / denominator;
-  const tokenRatioText = ragTokens
-    ? `${formatPercent(tokenRatio)} of RAG context`
-    : 'No RAG baseline';
   const detailParts = [];
   if (retrievalLatency !== null && retrievalLatency !== undefined) {
     detailParts.push(`${formatMilliseconds(retrievalLatency)} retrieval`);
@@ -588,26 +523,16 @@ function renderRunTelemetry({ latency, retrievalLatency, generationLatency, cont
   elements.runLatencyMetric.textContent = formatMilliseconds(latency);
   elements.runLatencyDetail.textContent = detailParts.join(' + ') || 'Measured client-side';
   elements.runDmlTokens.textContent = formatNumber(contextTokens);
-  elements.runNodes.textContent = `${formatNumber(dmlNodes)} nodes`;
+  elements.runNodes.textContent = formatNumber(dmlNodes);
   elements.runRagTokens.textContent = formatNumber(ragTokens);
-  elements.runDocs.textContent = `${formatNumber(ragDocs)} docs`;
-  elements.runTokenDelta.textContent = formatSignedNumber(tokenDelta);
-  elements.runTokenRatio.textContent = tokenRatioText;
-  elements.runTokenDelta.dataset.tone = tokenDelta >= 0 ? 'good' : 'warn';
-
-  const meterMax = Math.max(Number(contextTokens || 0), Number(ragTokens || 0), 1);
-  updateTokenMeter(elements.dmlTokenMeter, elements.dmlTokenMeterLabel, contextTokens, meterMax);
-  updateTokenMeter(elements.ragTokenMeter, elements.ragTokenMeterLabel, ragTokens, meterMax);
+  elements.runDocs.textContent = formatNumber(ragDocs);
 }
 
 function renderRun(payload, fallbackMode = 'compare') {
-  const context = contextFromCompare(payload);
   const response = responseFromCompare(payload);
   const entries = entriesFromCompare(payload);
   const ragBackend = primaryRagBackend(payload);
   const ragResponse = ragBackend?.response || payload?.rag?.response || '';
-  const ragContext = ragBackend?.context || payload?.rag?.context || '';
-  const baseResponse = payload?.base?.response || payload?.base_response || '';
   const stats = payload?.stats || {};
   const dml = payload?.dml || {};
   const ragTokens = ragTokenTotal(payload);
@@ -616,29 +541,16 @@ function renderRun(payload, fallbackMode = 'compare') {
   const generationLatency = dml.generation_latency_ms ?? payload?.generation_latency_ms ?? null;
   const latency = (Number(retrievalLatency || 0) + Number(generationLatency || 0)) || dml.latency_ms || payload?.latency_ms;
   const dmlNodeCount = entries.length || Number(dml.entry_count || 0);
-  const ragDocCount = ragBackend?.documents?.length || ragBackend?.docs?.length || 0;
+  const ragDocCount = ragBackend?.documents?.length || ragBackend?.docs?.length || ragBackend?.count || 0;
 
-  elements.dmlContext.textContent = context || 'No DML context was returned for this prompt.';
-  elements.dmlContext.classList.toggle('empty', !context);
-  elements.response.textContent = response || 'No generated response returned. The context panel still shows retrieved memory.';
+  elements.response.textContent = response || 'No DML response returned.';
   elements.response.classList.toggle('empty', !response);
   elements.ragResponse.textContent = ragResponse || 'No RAG backend response returned.';
   elements.ragResponse.classList.toggle('empty', !ragResponse);
   elements.ragMode.textContent = ragBackend?.label || ragBackend?.id || 'rag';
-  elements.ragContext.textContent = ragContext || 'No RAG context returned.';
-  elements.ragContext.classList.toggle('empty', !ragContext);
-  elements.ragContextCount.textContent = `${formatNumber(ragBackend?.documents?.length || ragBackend?.docs?.length || 0)} docs`;
-  elements.baseResponse.textContent = baseResponse || 'No base response returned.';
-  elements.baseResponse.classList.toggle('empty', !baseResponse);
-  elements.baseMode.textContent = payload?.base ? 'base' : 'waiting';
-  elements.contextCount.textContent = `${formatNumber(dmlNodeCount)} nodes`;
   elements.responseMode.textContent = payload?.mode || fallbackMode;
   elements.queryMode.textContent = payload?.mode || fallbackMode;
   elements.runLatency.textContent = formatMilliseconds(latency);
-  elements.signalPromptTokens.textContent = formatNumber(payload?.prompt_tokens_est);
-  elements.signalContextTokens.textContent = formatNumber(contextTokens);
-  elements.signalRagTokens.textContent = formatNumber(ragTokens);
-  elements.signalFidelity.textContent = formatPercent(dml.average_fidelity || dml.avg_fidelity || averageFidelity(entries));
   renderRunTelemetry({
     latency,
     retrievalLatency,
@@ -648,7 +560,6 @@ function renderRun(payload, fallbackMode = 'compare') {
     dmlNodes: dmlNodeCount,
     ragDocs: ragDocCount,
   });
-  renderBackends(payload);
   state.highlightedNodeIds = new Set(entries.map(entryId).filter((id) => id !== null));
   renderLattice(dmlEntries(), entries);
 
@@ -656,15 +567,6 @@ function renderRun(payload, fallbackMode = 'compare') {
     state.stats = { ...state.stats, ...stats };
     renderMetrics();
   }
-}
-
-function activateTab(name) {
-  elements.tabButtons.forEach((button) => {
-    button.classList.toggle('active', button.dataset.tab === name);
-  });
-  elements.tabPanels.forEach((panel) => {
-    panel.classList.toggle('active', panel.dataset.panel === name);
-  });
 }
 
 function pointerDeltaToViewBox(svg, deltaX, deltaY) {
@@ -746,7 +648,6 @@ async function runQuery() {
 
   setBusy(elements.runQuery, true, 'Running');
   setStatus(elements.queryStatus, 'Running DML comparison...', 'neutral');
-  activateTab('answer');
   const topK = Number(elements.topK.value || 0);
   const maxTokens = Number(elements.maxTokens.value || 512);
   const started = performance.now();
@@ -804,9 +705,6 @@ elements.runQuery?.addEventListener('click', runQuery);
 elements.launchVisualizer?.addEventListener('click', launchVisualizer);
 elements.knowledgeList?.addEventListener('toggle', collapseSiblingKnowledgeRows, true);
 elements.presetButtons.forEach((button) => button.addEventListener('click', applyPromptPreset));
-elements.tabButtons.forEach((button) => {
-  button.addEventListener('click', () => activateTab(button.dataset.tab));
-});
 
 setupLatticeControls();
 refreshStatus();

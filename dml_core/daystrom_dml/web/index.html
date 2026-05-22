@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <title>DML Playground</title>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <link rel="stylesheet" href="/static/styles.css?v=knowledge-scroll" />
+    <link rel="stylesheet" href="/static/styles.css?v=compare-simple" />
   </head>
   <body>
     <div class="app-shell">
@@ -89,99 +89,54 @@
           </article>
         </section>
 
-        <section class="run-strip" aria-label="Latest run telemetry">
+        <section class="run-strip" aria-label="Latest comparison telemetry">
           <article class="run-card">
             <span>Latency</span>
             <strong id="metric-run-latency">-</strong>
             <small id="metric-run-latency-detail">Run a prompt</small>
           </article>
           <article class="run-card">
-            <span>DML Context</span>
+            <span>Memory Nodes Accessed</span>
+            <strong id="metric-run-nodes">0</strong>
+            <small>DML</small>
+          </article>
+          <article class="run-card">
+            <span>DML Context Tokens</span>
             <strong id="metric-run-dml-tokens">-</strong>
-            <small id="metric-run-nodes">0 nodes</small>
+            <small>delivered to LLM</small>
           </article>
           <article class="run-card">
-            <span>RAG Context</span>
+            <span>Documents Accessed</span>
+            <strong id="metric-run-docs">0</strong>
+            <small>RAG</small>
+          </article>
+          <article class="run-card">
+            <span>RAG Context Tokens</span>
             <strong id="metric-run-rag-tokens">-</strong>
-            <small id="metric-run-docs">0 docs</small>
-          </article>
-          <article class="run-card">
-            <span>Token Delta</span>
-            <strong id="metric-run-token-delta">-</strong>
-            <small id="metric-run-token-ratio">Waiting</small>
+            <small>delivered to LLM</small>
           </article>
         </section>
 
-        <section class="evidence-panel panel">
+        <section class="comparison-panel panel">
           <div class="panel-heading compact">
-            <h2>Evidence</h2>
+            <h2>Comparison</h2>
             <span id="run-latency" class="mini-pill">-</span>
           </div>
-          <nav class="evidence-tabs" aria-label="Evidence views">
-            <button class="tab-button active" type="button" data-tab="answer">Answer</button>
-            <button class="tab-button" type="button" data-tab="dml">DML Context <span id="context-count">0 nodes</span></button>
-            <button class="tab-button" type="button" data-tab="rag">RAG Context <span id="rag-context-count">0 docs</span></button>
-            <button class="tab-button" type="button" data-tab="signals">Signals</button>
-          </nav>
-
-          <div class="tab-panel active" data-panel="answer">
-            <div class="answer-grid">
-              <article>
-                <div class="panel-heading compact">
-                  <h3>DML Response</h3>
-                  <span id="response-mode" class="mini-pill">waiting</span>
-                </div>
-                <pre id="dml-response" class="output-box empty">The generated or retrieved answer will appear here.</pre>
-              </article>
-              <article>
-                <div class="panel-heading compact">
-                  <h3>RAG Response</h3>
-                  <span id="rag-mode" class="mini-pill">waiting</span>
-                </div>
-                <pre id="rag-response" class="output-box empty">The top RAG backend response will appear here.</pre>
-              </article>
-            </div>
-          </div>
-
-          <div class="tab-panel" data-panel="dml">
-            <pre id="dml-context" class="output-box empty">Run a prompt to inspect retrieved context.</pre>
-          </div>
-
-          <div class="tab-panel" data-panel="rag">
-            <div class="answer-grid">
-              <pre id="rag-context" class="output-box empty">Retrieved RAG documents will appear here.</pre>
-              <article>
-                <div class="panel-heading compact">
-                  <h3>Base Response</h3>
-                  <span id="base-mode" class="mini-pill">waiting</span>
-                </div>
-                <pre id="base-response" class="output-box empty">The raw model response will appear here.</pre>
-              </article>
-            </div>
-          </div>
-
-          <div class="tab-panel" data-panel="signals">
-            <div class="signals-grid">
-              <dl class="signal-list">
-                <div><dt>Prompt tokens</dt><dd id="signal-prompt-tokens">-</dd></div>
-                <div><dt>Context tokens</dt><dd id="signal-context-tokens">-</dd></div>
-                <div><dt>RAG tokens</dt><dd id="signal-rag-tokens">-</dd></div>
-                <div><dt>DML fidelity</dt><dd id="signal-fidelity">-</dd></div>
-              </dl>
-              <div>
-                <div class="token-meter-list">
-                  <div class="token-meter">
-                    <div><span>DML context</span><strong id="dml-token-meter-label">-</strong></div>
-                    <meter id="dml-token-meter" min="0" max="1" value="0"></meter>
-                  </div>
-                  <div class="token-meter">
-                    <div><span>RAG context</span><strong id="rag-token-meter-label">-</strong></div>
-                    <meter id="rag-token-meter" min="0" max="1" value="0"></meter>
-                  </div>
-                </div>
-                <div id="rag-backends" class="backend-list"></div>
+          <div class="comparison-grid">
+            <article class="comparison-card">
+              <div class="panel-heading compact">
+                <h3>DML Response</h3>
+                <span id="response-mode" class="mini-pill">waiting</span>
               </div>
-            </div>
+              <pre id="dml-response" class="output-box empty">Run a prompt to see the model response using DML context.</pre>
+            </article>
+            <article class="comparison-card">
+              <div class="panel-heading compact">
+                <h3>RAG Response</h3>
+                <span id="rag-mode" class="mini-pill">waiting</span>
+              </div>
+              <pre id="rag-response" class="output-box empty">Run a prompt to see the model response using RAG context.</pre>
+            </article>
           </div>
         </section>
 
@@ -228,6 +183,6 @@
       </main>
     </div>
 
-    <script src="/static/app.js?v=pan-lattice" defer></script>
+    <script src="/static/app.js?v=compare-simple" defer></script>
   </body>
 </html>

@@ -154,6 +154,7 @@ pre {
 .run-strip,
 .demo-stage,
 .answer-grid,
+.comparison-grid,
 .signals-grid,
 .setup-grid,
 .provider-grid {
@@ -161,9 +162,12 @@ pre {
   gap: 16px;
 }
 
-.overview-strip,
-.run-strip {
+.overview-strip {
   grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.run-strip {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
 }
 
 .demo-stage {
@@ -172,6 +176,7 @@ pre {
 }
 
 .answer-grid,
+.comparison-grid,
 .signals-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
@@ -426,44 +431,17 @@ pre {
   white-space: nowrap;
 }
 
-.evidence-panel {
+.comparison-panel {
   min-width: 0;
 }
 
-.evidence-tabs {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-bottom: 14px;
-}
-
-.tab-button {
-  min-height: 36px;
-  gap: 8px;
-}
-
-.tab-button.active {
-  border-color: rgba(104, 211, 145, 0.75);
-  background: #2d6a4f;
-}
-
-.tab-button span {
-  color: var(--muted);
-  font-size: 0.72rem;
-  font-weight: 800;
-}
-
-.tab-panel {
-  display: none;
-}
-
-.tab-panel.active {
-  display: block;
+.comparison-card {
+  min-width: 0;
 }
 
 .output-box {
   width: 100%;
-  min-height: 315px;
+  min-height: 260px;
   max-height: 56vh;
   overflow: auto;
   margin: 0;
@@ -737,6 +715,7 @@ pre {
 @media (max-width: 1100px) {
   .demo-stage,
   .answer-grid,
+  .comparison-grid,
   .signals-grid,
   .setup-grid {
     grid-template-columns: 1fr;
