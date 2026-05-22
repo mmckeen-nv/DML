@@ -150,20 +150,38 @@ function renderKnowledge() {
   elements.knowledgeList.innerHTML = entries.slice(0, limit).map((entry) => {
     const source = entry.meta?.source || entry.meta?.doc_path || entry.meta?.filename || 'memory';
     const summary = escapeHTML(entry.summary || entry.text || '');
+    const title = escapeHTML(source);
     return `
-      <article class="knowledge-row">
-        <div>
-          <strong>${escapeHTML(source)}</strong>
+      <details class="knowledge-row">
+        <summary>
+          <span class="knowledge-title">${title}</span>
+          <span class="knowledge-meta">
+            <span>L${formatNumber(entry.level)}</span>
+            <span>${formatNumber(entry.tokens)} tokens</span>
+            <span>${formatPercent(entry.fidelity)}</span>
+          </span>
+        </summary>
+        <div class="knowledge-body">
           <p>${summary}</p>
+          <dl>
+            <div><dt>Level</dt><dd>${formatNumber(entry.level)}</dd></div>
+            <div><dt>Tokens</dt><dd>${formatNumber(entry.tokens)}</dd></div>
+            <div><dt>Fidelity</dt><dd>${formatPercent(entry.fidelity)}</dd></div>
+          </dl>
         </div>
-        <dl>
-          <div><dt>Level</dt><dd>${formatNumber(entry.level)}</dd></div>
-          <div><dt>Tokens</dt><dd>${formatNumber(entry.tokens)}</dd></div>
-          <div><dt>Fidelity</dt><dd>${formatPercent(entry.fidelity)}</dd></div>
-        </dl>
-      </article>
+      </details>
     `;
   }).join('');
+}
+
+function collapseSiblingKnowledgeRows(event) {
+  const opened = event.target;
+  if (!(opened instanceof HTMLDetailsElement) || !opened.open) return;
+  elements.knowledgeList
+    ?.querySelectorAll('details.knowledge-row[open]')
+    .forEach((row) => {
+      if (row !== opened) row.open = false;
+    });
 }
 
 function escapeHTML(value) {
@@ -422,5 +440,6 @@ elements.fileInput?.addEventListener('change', updateSelectedFiles);
 elements.uploadForm?.addEventListener('submit', uploadFiles);
 elements.runQuery?.addEventListener('click', runQuery);
 elements.launchVisualizer?.addEventListener('click', launchVisualizer);
+elements.knowledgeList?.addEventListener('toggle', collapseSiblingKnowledgeRows, true);
 
 refreshStatus();
