@@ -670,24 +670,31 @@ function updateLatticeView(deltaAngle = 0, zoomMultiplier = 1) {
 function setupLatticeControls() {
   const svg = elements.latticeSvg;
   if (!svg) return;
-  svg.addEventListener('pointerdown', (event) => {
+
+  const beginDrag = (clientX) => {
     state.latticeView.dragging = true;
-    state.latticeView.lastX = event.clientX;
+    state.latticeView.lastX = clientX;
+    svg.classList.add('dragging');
+  };
+  const moveDrag = (clientX) => {
+    if (!state.latticeView.dragging) return;
+    const deltaX = clientX - state.latticeView.lastX;
+    state.latticeView.lastX = clientX;
+    updateLatticeView(deltaX * 0.008, 1);
+  };
+  const endDrag = () => {
+    state.latticeView.dragging = false;
+    svg.classList.remove('dragging');
+  };
+
+  svg.addEventListener('pointerdown', (event) => {
+    event.preventDefault();
+    beginDrag(event.clientX);
     svg.setPointerCapture?.(event.pointerId);
   });
-  svg.addEventListener('pointermove', (event) => {
-    if (!state.latticeView.dragging) return;
-    const deltaX = event.clientX - state.latticeView.lastX;
-    state.latticeView.lastX = event.clientX;
-    updateLatticeView(deltaX * 0.008, 1);
-  });
-  svg.addEventListener('pointerup', (event) => {
-    state.latticeView.dragging = false;
-    svg.releasePointerCapture?.(event.pointerId);
-  });
-  svg.addEventListener('pointerleave', () => {
-    state.latticeView.dragging = false;
-  });
+  window.addEventListener('pointermove', (event) => moveDrag(event.clientX));
+  window.addEventListener('pointerup', endDrag);
+  window.addEventListener('pointercancel', endDrag);
   svg.addEventListener('wheel', (event) => {
     event.preventDefault();
     updateLatticeView(0, event.deltaY < 0 ? 1.08 : 0.92);

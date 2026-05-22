@@ -169,25 +169,32 @@ function resetView() {
 
 function setupControls() {
   if (!svgEl) return;
-  svgEl.addEventListener('pointerdown', (event) => {
+
+  const beginDrag = (clientX) => {
     view.dragging = true;
-    view.lastX = event.clientX;
-    svgEl.setPointerCapture?.(event.pointerId);
-  });
-  svgEl.addEventListener('pointermove', (event) => {
+    view.lastX = clientX;
+    svgEl.classList.add('dragging');
+  };
+  const moveDrag = (clientX) => {
     if (!view.dragging) return;
-    const deltaX = event.clientX - view.lastX;
-    view.lastX = event.clientX;
+    const deltaX = clientX - view.lastX;
+    view.lastX = clientX;
     view.angle += deltaX * 0.008;
     renderLattice();
-  });
-  svgEl.addEventListener('pointerup', (event) => {
+  };
+  const endDrag = () => {
     view.dragging = false;
-    svgEl.releasePointerCapture?.(event.pointerId);
+    svgEl.classList.remove('dragging');
+  };
+
+  svgEl.addEventListener('pointerdown', (event) => {
+    event.preventDefault();
+    beginDrag(event.clientX);
+    svgEl.setPointerCapture?.(event.pointerId);
   });
-  svgEl.addEventListener('pointerleave', () => {
-    view.dragging = false;
-  });
+  window.addEventListener('pointermove', (event) => moveDrag(event.clientX));
+  window.addEventListener('pointerup', endDrag);
+  window.addEventListener('pointercancel', endDrag);
   svgEl.addEventListener('wheel', (event) => {
     event.preventDefault();
     view.zoom = clamp(view.zoom * (event.deltaY < 0 ? 1.08 : 0.92), 0.55, 2.1);
