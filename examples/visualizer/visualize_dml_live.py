@@ -25,7 +25,8 @@ MODE_COLORS: Dict[str, Tuple[int, int, int]] = {
 }
 DEFAULT_MODE = "literal"
 FRAME_DELAY = 0.35
-MAX_TOP_K = 8
+MAX_TOP_K = 16
+DEFAULT_TOP_K = 10
 NODE_SIZE_SCALE = 0.33
 PULSE_SEQUENCE = (0.25, 0.55, 0.95, 0.5)
 ACTIVATION_DECAY = 0.65
@@ -198,35 +199,43 @@ def _highlight_relationships(graph_state: Dict, node_id: int) -> None:
     graph_state["active_edges"] = active_edges
 
 
-def _animate_active_node(chart_placeholder, graph_state: Dict, node_id: int) -> None:
+def _render_graph(chart_placeholder, graph_state: Dict) -> None:
+    frame_index = int(graph_state.get("frame_index", 0))
+    chart_placeholder.plotly_chart(
+        build_figure(graph_state),
+        width="stretch",
+        key=f"lattice-frame-{frame_index}",
+    )
+    graph_state["frame_index"] = frame_index + 1
+
+
+def _animate_active_node(
+    chart_placeholder,
+    graph_state: Dict,
+    node_id: int,
+    *,
+    pulse: bool,
+) -> None:
     """Pulse the active node through multiple animation frames."""
 
     nodes = graph_state.get("nodes", {})
     node = nodes.get(node_id)
-    frame_index = int(graph_state.get("frame_index", 0))
     if node is None:
-        chart_placeholder.plotly_chart(
-            build_figure(graph_state),
-            width="stretch",
-            key=f"lattice-frame-{frame_index}",
-        )
-        graph_state["frame_index"] = frame_index + 1
+        _render_graph(chart_placeholder, graph_state)
         return
     peak = max(0.8, float(node.get("activation", 1.0)))
+    if not pulse:
+        node["activation"] = peak
+        _render_graph(chart_placeholder, graph_state)
+        return
     for phase in PULSE_SEQUENCE:
-        frame_index = int(graph_state.get("frame_index", 0))
         node["activation"] = peak * phase
         for other_id, other in nodes.items():
             if other_id == node_id:
                 continue
             decay = float(other.get("activation", 0.0)) * ACTIVATION_DECAY
             other["activation"] = decay if decay > 0.01 else 0.0
-        chart_placeholder.plotly_chart(
-            build_figure(graph_state),
-            width="stretch",
-            key=f"lattice-frame-{frame_index}",
-        )
-        graph_state["frame_index"] = frame_index + 1
+        _render_graph(chart_placeholder, graph_state)
         time.sleep(FRAME_DELAY)
 
 
@@ -559,14 +568,19 @@ def build_figure(graph_state: Dict) -> go.Figure:
         )
     )
     fig.update_layout(
+        height=680,
         margin=dict(l=10, r=10, t=10, b=10),
         scene=dict(
             xaxis=dict(showgrid=False, zeroline=False, visible=False),
             yaxis=dict(showgrid=False, zeroline=False, visible=False),
             zaxis=dict(showgrid=False, zeroline=False, visible=False),
+            aspectmode="data",
+            camera=dict(eye=dict(x=1.35, y=1.55, z=0.92)),
         ),
         paper_bgcolor="#0b0d17",
         plot_bgcolor="#0b0d17",
+        uirevision="dml-lattice-v1",
+        transition=dict(duration=120, easing="cubic-in-out"),
     )
     return fig
 
@@ -662,12 +676,13 @@ def main() -> None:
             index=mode_index,
             help="Choose how the lattice should search. 'Auto' selects a mode heuristically.",
         )
-        default_top_k = int(st.session_state.get("auto_top_k", 6) or 6)
+        default_top_k = int(st.session_state.get("auto_top_k", DEFAULT_TOP_K) or DEFAULT_TOP_K)
         default_top_k = max(1, min(MAX_TOP_K, default_top_k))
         top_k = st.slider("Max nodes", min_value=1, max_value=MAX_TOP_K, value=default_top_k, step=1)
         st.session_state["auto_top_k"] = top_k
+        pulse_animation = st.toggle("Pulse animation", value=False)
         run_clicked = st.button("Run retrieval", type="primary", width="stretch")
-        st.caption("Nodes pulse as they are scored. Lower fidelity nodes dim over time.")
+        st.caption("Smooth mode renders one stable graph update per scored node.")
 
     chart_placeholder = centre_col.empty()
     summary_placeholder = centre_col.empty()
@@ -683,13 +698,7 @@ def main() -> None:
 
     graph_state = st.session_state["graph_state"]
     _refresh_graph_state(graph_state, adapter.store.items(), mode=graph_state.get("mode", DEFAULT_MODE))
-    frame_index = int(graph_state.get("frame_index", 0))
-    chart_placeholder.plotly_chart(
-        build_figure(graph_state),
-        width="stretch",
-        key=f"lattice-frame-{frame_index}",
-    )
-    graph_state["frame_index"] = frame_index + 1
+    _render_graph(chart_placeholder, graph_state)
 
     auto_trigger = st.session_state.pop("auto_trigger", False)
     auto_reason = st.session_state.pop("auto_reason", None)
@@ -712,7 +721,8 @@ def main() -> None:
     summary_placeholder.info(
         f"Embedding prompt and preparing {actual_mode.title()} retrieval animation…"
     )
-    time.sleep(FRAME_DELAY)
+    if pulse_animation:
+        time.sleep(FRAME_DELAY)
 
     stream = retrieval_stream(adapter, prompt, actual_mode, top_k=top_k)
     try:
@@ -751,7 +761,12 @@ def main() -> None:
             f"**Step {step_index}:** Node `{step.item.id}` scored {step.score:.3f}"
             f" (rank {step.rank}, {step.tokens} tokens)\n\n{step.summary}"
         )
-        _animate_active_node(chart_placeholder, graph_state, step.item.id)
+        _animate_active_node(
+            chart_placeholder,
+            graph_state,
+            step.item.id,
+            pulse=pulse_animation,
+        )
         ordered_unique = list(dict.fromkeys(retrieved_ids))
         avg_fidelity = (
             sum(graph_state["nodes"][nid]["fidelity"] for nid in ordered_unique)
@@ -767,13 +782,7 @@ def main() -> None:
         )
         token_bar.progress(int(token_ratio * 100))
 
-    frame_index = int(graph_state.get("frame_index", 0))
-    chart_placeholder.plotly_chart(
-        build_figure(graph_state),
-        width="stretch",
-        key=f"lattice-frame-{frame_index}",
-    )
-    graph_state["frame_index"] = frame_index + 1
+    _render_graph(chart_placeholder, graph_state)
 
     total_time_ms = (time.time() - start_time) * 1000.0
     summary_placeholder.success(

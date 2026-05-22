@@ -151,6 +151,7 @@ pre {
 }
 
 .metric-strip,
+.run-strip,
 .work-grid,
 .results-grid,
 .comparison-grid,
@@ -160,6 +161,10 @@ pre {
 }
 
 .metric-strip {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.run-strip {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
@@ -173,7 +178,8 @@ pre {
 }
 
 .panel,
-.metric-card {
+.metric-card,
+.run-card {
   border: 1px solid var(--line);
   border-radius: 8px;
   background: rgba(25, 29, 31, 0.92);
@@ -191,16 +197,45 @@ pre {
   align-content: space-between;
 }
 
-.metric-card span {
+.run-card {
+  min-height: 112px;
+  padding: 16px;
+  display: grid;
+  align-content: space-between;
+  gap: 8px;
+  background: rgba(17, 21, 22, 0.96);
+}
+
+.metric-card span,
+.run-card span {
   color: var(--muted);
   font-size: 0.8rem;
   font-weight: 800;
   text-transform: uppercase;
 }
 
-.metric-card strong {
+.metric-card strong,
+.run-card strong {
   font-size: clamp(1.8rem, 3vw, 2.8rem);
   line-height: 1;
+}
+
+.run-card small {
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.run-card strong[data-tone="good"],
+.run-card small[data-tone="good"],
+#metric-run-token-delta[data-tone="good"] {
+  color: var(--green);
+}
+
+.run-card strong[data-tone="warn"],
+.run-card small[data-tone="warn"],
+#metric-run-token-delta[data-tone="warn"] {
+  color: var(--amber);
 }
 
 .panel-heading {
@@ -368,6 +403,37 @@ pre {
   gap: 8px;
 }
 
+.token-meter-list {
+  display: grid;
+  gap: 12px;
+  margin: 0 0 16px;
+}
+
+.token-meter {
+  display: grid;
+  gap: 8px;
+}
+
+.token-meter div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.token-meter strong {
+  color: var(--text);
+}
+
+.token-meter meter {
+  width: 100%;
+  height: 12px;
+}
+
 .backend-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto auto;
@@ -427,7 +493,7 @@ pre {
 .knowledge-row {
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: #fff;
+  background: #111516;
   overflow: hidden;
 }
 
@@ -547,6 +613,10 @@ pre {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .run-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .knowledge-row dl,
   .signal-list {
     grid-template-columns: 1fr;
@@ -570,6 +640,7 @@ pre {
   }
 
   .metric-strip,
+  .run-strip,
   .upload-form {
     grid-template-columns: 1fr;
   }

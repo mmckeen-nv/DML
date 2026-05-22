@@ -40,6 +40,29 @@
           </article>
         </section>
 
+        <section class="run-strip" aria-label="Latest run telemetry">
+          <article class="run-card">
+            <span>Latency</span>
+            <strong id="metric-run-latency">-</strong>
+            <small id="metric-run-latency-detail">Run a prompt</small>
+          </article>
+          <article class="run-card">
+            <span>DML Context</span>
+            <strong id="metric-run-dml-tokens">-</strong>
+            <small id="metric-run-nodes">0 nodes</small>
+          </article>
+          <article class="run-card">
+            <span>RAG Context</span>
+            <strong id="metric-run-rag-tokens">-</strong>
+            <small id="metric-run-docs">0 docs</small>
+          </article>
+          <article class="run-card">
+            <span>Token Delta</span>
+            <strong id="metric-run-token-delta">-</strong>
+            <small id="metric-run-token-ratio">Waiting</small>
+          </article>
+        </section>
+
         <section class="work-grid">
           <article class="panel panel-query">
             <div class="panel-heading">
@@ -146,6 +169,16 @@
               <div><dt>RAG tokens</dt><dd id="signal-rag-tokens">-</dd></div>
               <div><dt>DML fidelity</dt><dd id="signal-fidelity">-</dd></div>
             </dl>
+            <div class="token-meter-list">
+              <div class="token-meter">
+                <div><span>DML context</span><strong id="dml-token-meter-label">-</strong></div>
+                <meter id="dml-token-meter" min="0" max="1" value="0"></meter>
+              </div>
+              <div class="token-meter">
+                <div><span>RAG context</span><strong id="rag-token-meter-label">-</strong></div>
+                <meter id="rag-token-meter" min="0" max="1" value="0"></meter>
+              </div>
+            </div>
             <div id="rag-backends" class="backend-list"></div>
           </article>
         </section>
