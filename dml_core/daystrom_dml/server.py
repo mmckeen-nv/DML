@@ -343,9 +343,6 @@ def _visualizer_health() -> dict[str, Any]:
                 "running": True,
                 "url": VISUALIZER_URL,
             }
-            embed_path = _resolve_visualizer_embed_path()
-            if embed_path:
-                payload["embed_path"] = embed_path
             return payload
 
         process = VISUALIZER_STATE.get("process")
@@ -1034,12 +1031,12 @@ def launch_visualizer(request: Request) -> dict:
     """Ensure the Streamlit visualizer is ready and return its URL."""
 
     target_url = _resolve_visualizer_url(request)
-    embed_path = _resolve_visualizer_embed_path()
     if VISUALIZER_URL:
         # External deployments are assumed to be managed separately.
         LOGGER.info("External visualizer configured, skipping local launch")
         return {"status": "external", "url": target_url}
 
+    embed_path = _resolve_visualizer_embed_path()
     try:
         _launch_visualizer_server()
     except HTTPException as exc:

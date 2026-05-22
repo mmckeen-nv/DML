@@ -203,13 +203,18 @@ def _animate_active_node(chart_placeholder, graph_state: Dict, node_id: int) -> 
 
     nodes = graph_state.get("nodes", {})
     node = nodes.get(node_id)
+    frame_index = int(graph_state.get("frame_index", 0))
     if node is None:
         chart_placeholder.plotly_chart(
-            build_figure(graph_state), use_container_width=True
+            build_figure(graph_state),
+            width="stretch",
+            key=f"lattice-frame-{frame_index}",
         )
+        graph_state["frame_index"] = frame_index + 1
         return
     peak = max(0.8, float(node.get("activation", 1.0)))
     for phase in PULSE_SEQUENCE:
+        frame_index = int(graph_state.get("frame_index", 0))
         node["activation"] = peak * phase
         for other_id, other in nodes.items():
             if other_id == node_id:
@@ -217,8 +222,11 @@ def _animate_active_node(chart_placeholder, graph_state: Dict, node_id: int) -> 
             decay = float(other.get("activation", 0.0)) * ACTIVATION_DECAY
             other["activation"] = decay if decay > 0.01 else 0.0
         chart_placeholder.plotly_chart(
-            build_figure(graph_state), use_container_width=True
+            build_figure(graph_state),
+            width="stretch",
+            key=f"lattice-frame-{frame_index}",
         )
+        graph_state["frame_index"] = frame_index + 1
         time.sleep(FRAME_DELAY)
 
 
@@ -658,7 +666,7 @@ def main() -> None:
         default_top_k = max(1, min(MAX_TOP_K, default_top_k))
         top_k = st.slider("Max nodes", min_value=1, max_value=MAX_TOP_K, value=default_top_k, step=1)
         st.session_state["auto_top_k"] = top_k
-        run_clicked = st.button("Run retrieval", type="primary", use_container_width=True)
+        run_clicked = st.button("Run retrieval", type="primary", width="stretch")
         st.caption("Nodes pulse as they are scored. Lower fidelity nodes dim over time.")
 
     chart_placeholder = centre_col.empty()
@@ -675,7 +683,13 @@ def main() -> None:
 
     graph_state = st.session_state["graph_state"]
     _refresh_graph_state(graph_state, adapter.store.items(), mode=graph_state.get("mode", DEFAULT_MODE))
-    chart_placeholder.plotly_chart(build_figure(graph_state), use_container_width=True)
+    frame_index = int(graph_state.get("frame_index", 0))
+    chart_placeholder.plotly_chart(
+        build_figure(graph_state),
+        width="stretch",
+        key=f"lattice-frame-{frame_index}",
+    )
+    graph_state["frame_index"] = frame_index + 1
 
     auto_trigger = st.session_state.pop("auto_trigger", False)
     auto_reason = st.session_state.pop("auto_reason", None)
@@ -753,7 +767,13 @@ def main() -> None:
         )
         token_bar.progress(int(token_ratio * 100))
 
-    chart_placeholder.plotly_chart(build_figure(graph_state), use_container_width=True)
+    frame_index = int(graph_state.get("frame_index", 0))
+    chart_placeholder.plotly_chart(
+        build_figure(graph_state),
+        width="stretch",
+        key=f"lattice-frame-{frame_index}",
+    )
+    graph_state["frame_index"] = frame_index + 1
 
     total_time_ms = (time.time() - start_time) * 1000.0
     summary_placeholder.success(
