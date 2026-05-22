@@ -2,107 +2,87 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <title>DML Visualizer</title>
+    <title>DML Lattice View</title>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <link rel="stylesheet" href="/static/styles.css" />
+    <link rel="stylesheet" href="/static/styles.css?v=full-lattice" />
     <style>
-      main.visualizer-page {
-        max-width: 1320px;
-        margin: 0 auto;
-        padding: 24px 16px 40px;
+      body {
+        overflow: hidden;
+      }
+
+      .full-lattice-shell {
+        display: grid;
+        grid-template-rows: auto minmax(0, 1fr);
+        height: 100vh;
+        padding: 16px;
+        gap: 12px;
+      }
+
+      .full-lattice-header {
+        align-items: center;
         display: flex;
-        flex-direction: column;
         gap: 16px;
-      }
-
-      .visualizer-card {
-        background: rgba(25, 29, 31, 0.92);
-        border: 1px solid var(--line);
-        border-radius: 8px;
-        padding: 18px;
-        box-shadow: var(--shadow);
-      }
-
-      .visualizer-card header {
-        margin-bottom: 16px;
-        display: flex;
         justify-content: space-between;
-        gap: 16px;
-        align-items: start;
       }
 
-      .visualizer-card h1 {
-        margin: 0 0 6px;
-        font-size: clamp(1.7rem, 3vw, 3rem);
-        letter-spacing: 0;
-      }
-
-      .visualizer-card p {
+      .full-lattice-header h1 {
+        font-size: clamp(1.6rem, 3vw, 3rem);
         margin: 0;
-        color: var(--muted);
       }
 
-      .visualizer-embed {
-        margin-top: 14px;
-      }
-
-      #visualizer-fullscreen-frame {
-        width: 100%;
-        min-height: min(760px, calc(100vh - 220px));
-        border: 1px solid var(--line);
-        border-radius: 8px;
-        background: #101314;
-      }
-
-      .visualizer-actions {
-        margin-top: 14px;
+      .full-lattice-actions {
         display: flex;
         flex-wrap: wrap;
         gap: 10px;
       }
 
-      #visualizer-page-status {
-        min-height: 30px;
+      .full-lattice-stage {
+        min-height: 0;
+        position: relative;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #101314;
+        overflow: hidden;
+      }
+
+      .full-lattice-stage .lattice-svg {
+        height: 100%;
+      }
+
+      .full-lattice-help {
+        position: absolute;
+        left: 14px;
+        bottom: 14px;
         border: 1px solid var(--line);
         border-radius: 999px;
-        background: #111516;
+        background: rgba(17, 21, 22, 0.86);
         color: var(--muted);
-        display: inline-flex;
-        align-items: center;
-        padding: 0 11px;
         font-size: 0.78rem;
         font-weight: 800;
+        padding: 8px 12px;
         text-transform: uppercase;
       }
     </style>
   </head>
   <body>
-    <main class="visualizer-page">
-      <section class="visualizer-card">
-        <header>
-          <div>
-            <p class="eyebrow">Live Lattice</p>
-            <h1>DML Visualizer</h1>
-            <p>Topology, retrieved nodes, and prompt-driven memory movement.</p>
-          </div>
-          <div id="visualizer-page-status">Preparing visualizer</div>
-        </header>
-        <div class="visualizer-embed">
-          <iframe
-            id="visualizer-fullscreen-frame"
-            title="Daystrom Memory Lattice Visualizer"
-            loading="lazy"
-            allowfullscreen
-          ></iframe>
+    <main class="full-lattice-shell">
+      <header class="full-lattice-header">
+        <div>
+          <p class="eyebrow">Daystrom Memory Lattice</p>
+          <h1>Full Lattice</h1>
         </div>
-        <div class="visualizer-actions">
-          <a class="button-link secondary" href="/" rel="noopener">Back to Playground</a>
-          <a class="button-link" id="visualizer-open-streamlit" href="#" rel="noopener" target="_blank">
-            Open Streamlit App
-          </a>
+        <div class="full-lattice-actions">
+          <span id="visualizer-page-status" class="mini-pill">loading</span>
+          <button id="reset-lattice-view" class="secondary" type="button">Reset View</button>
+          <a class="button-link secondary" href="/" rel="noopener">Back to Demo</a>
         </div>
+      </header>
+      <section class="full-lattice-stage">
+        <svg id="full-lattice-svg" class="lattice-svg" role="img" aria-label="Full DML lattice"></svg>
+        <div id="visualizer-placeholder">Loading lattice nodes.</div>
+        <div class="full-lattice-help">Drag to rotate · scroll to zoom · double-click to reset</div>
       </section>
     </main>
-    <script src="/static/visualizer.js" defer></script>
+    <script src="/static/visualizer.js?v=full-lattice" defer></script>
   </body>
 </html>

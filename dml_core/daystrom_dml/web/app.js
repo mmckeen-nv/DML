@@ -5,6 +5,12 @@ const state = {
   stats: null,
   knowledge: null,
   highlightedNodeIds: new Set(),
+  latticeView: {
+    angle: -0.75,
+    dragging: false,
+    lastX: 0,
+    zoom: 1,
+  },
 };
 
 const elements = {
@@ -207,10 +213,16 @@ function nodeMath(entry, highlighted) {
   };
 }
 
-function projectPoint(x, y, z, originX, originY) {
+function projectPoint(x, y, z, originX, originY, view = state.latticeView) {
+  const angle = Number(view.angle || 0);
+  const zoom = Number(view.zoom || 1);
+  const cos = Math.cos(angle);
+  const sin = Math.sin(angle);
+  const rx = x * cos - y * sin;
+  const ry = x * sin + y * cos;
   return {
-    x: originX + (x - y) * 32,
-    y: originY + (x + y) * 18 - z,
+    x: originX + (rx - ry) * 32 * zoom,
+    y: originY + (rx + ry) * 18 * zoom - z * zoom,
   };
 }
 
@@ -237,7 +249,7 @@ function renderLattice(entries = dmlEntries(), highlightedEntries = []) {
   const width = 940;
   const height = 620;
   const originX = width / 2;
-  const originY = 116;
+  const originY = 150;
   const byId = new Map(square.map((entry) => [entryId(entry), entry]));
   const positions = new Map();
   const nodeRows = [];
@@ -649,6 +661,44 @@ function activateTab(name) {
   });
 }
 
+function updateLatticeView(deltaAngle = 0, zoomMultiplier = 1) {
+  state.latticeView.angle += deltaAngle;
+  state.latticeView.zoom = clamp(state.latticeView.zoom * zoomMultiplier, 0.62, 1.75);
+  renderLattice(dmlEntries());
+}
+
+function setupLatticeControls() {
+  const svg = elements.latticeSvg;
+  if (!svg) return;
+  svg.addEventListener('pointerdown', (event) => {
+    state.latticeView.dragging = true;
+    state.latticeView.lastX = event.clientX;
+    svg.setPointerCapture?.(event.pointerId);
+  });
+  svg.addEventListener('pointermove', (event) => {
+    if (!state.latticeView.dragging) return;
+    const deltaX = event.clientX - state.latticeView.lastX;
+    state.latticeView.lastX = event.clientX;
+    updateLatticeView(deltaX * 0.008, 1);
+  });
+  svg.addEventListener('pointerup', (event) => {
+    state.latticeView.dragging = false;
+    svg.releasePointerCapture?.(event.pointerId);
+  });
+  svg.addEventListener('pointerleave', () => {
+    state.latticeView.dragging = false;
+  });
+  svg.addEventListener('wheel', (event) => {
+    event.preventDefault();
+    updateLatticeView(0, event.deltaY < 0 ? 1.08 : 0.92);
+  }, { passive: false });
+  svg.addEventListener('dblclick', () => {
+    state.latticeView.angle = -0.75;
+    state.latticeView.zoom = 1;
+    renderLattice(dmlEntries());
+  });
+}
+
 async function runQuery() {
   const prompt = elements.prompt.value.trim();
   if (!prompt) {
@@ -720,4 +770,5 @@ elements.tabButtons.forEach((button) => {
   button.addEventListener('click', () => activateTab(button.dataset.tab));
 });
 
+setupLatticeControls();
 refreshStatus();
