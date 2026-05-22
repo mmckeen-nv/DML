@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <title>DML Playground</title>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <link rel="stylesheet" href="/static/styles.css" />
+    <link rel="stylesheet" href="/static/styles.css?v=inline-lattice" />
   </head>
   <body>
     <div class="app-shell">
@@ -76,14 +76,14 @@
           <article class="panel lattice-panel">
             <div class="panel-heading compact">
               <h2>Live Lattice</h2>
-              <span id="visualizer-status" class="mini-pill">idle</span>
+              <span id="visualizer-status" class="mini-pill">loading</span>
             </div>
             <div class="visualizer-preview">
-              <iframe id="visualizer-frame" title="DML lattice preview"></iframe>
-              <div id="visualizer-placeholder">Launch the lattice preview.</div>
+              <svg id="lattice-svg" class="lattice-svg" role="img" aria-label="DML lattice preview"></svg>
+              <div id="visualizer-placeholder">Loading lattice nodes.</div>
             </div>
             <div class="button-row">
-              <button id="launch-visualizer" type="button">Launch Preview</button>
+              <button id="launch-visualizer" type="button">Refresh Lattice</button>
               <a id="open-visualizer" class="button-link secondary" href="/visualizer" target="_blank" rel="noopener noreferrer">Open Full View</a>
             </div>
           </article>
@@ -228,6 +228,6 @@
       </main>
     </div>
 
-    <script src="/static/app.js" defer></script>
+    <script src="/static/app.js?v=inline-lattice" defer></script>
   </body>
 </html>

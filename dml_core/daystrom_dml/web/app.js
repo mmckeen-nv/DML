@@ -4,7 +4,7 @@ const state = {
   health: null,
   stats: null,
   knowledge: null,
-  visualizerLaunched: false,
+  highlightedNodeIds: new Set(),
 };
 
 const elements = {
@@ -60,7 +60,7 @@ const elements = {
   launchVisualizer: $('#launch-visualizer'),
   openVisualizer: $('#open-visualizer'),
   visualizerStatus: $('#visualizer-status'),
-  visualizerFrame: $('#visualizer-frame'),
+  latticeSvg: $('#lattice-svg'),
   visualizerPlaceholder: $('#visualizer-placeholder'),
   presetButtons: Array.from(document.querySelectorAll('.preset-button')),
   tabButtons: Array.from(document.querySelectorAll('.tab-button')),
@@ -161,6 +161,100 @@ function renderMetrics() {
   setStatus(elements.serviceStatus, status, status === 'ok' ? 'good' : 'warn');
 }
 
+function entryId(entry) {
+  const raw = entry?.id ?? entry?.meta?.memory_id;
+  const numeric = Number(raw);
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
+function squareLatticeEntries(entries = dmlEntries()) {
+  return entries.filter((entry) => {
+    const meta = entry.meta || {};
+    return meta.synthetic_lattice === 'square'
+      && Number.isFinite(Number(meta.lattice_row))
+      && Number.isFinite(Number(meta.lattice_col));
+  });
+}
+
+function renderLattice(entries = dmlEntries(), highlightedEntries = []) {
+  if (!elements.latticeSvg) return;
+  const square = squareLatticeEntries(entries);
+  const highlighted = new Set([
+    ...state.highlightedNodeIds,
+    ...highlightedEntries.map(entryId).filter((id) => id !== null),
+  ]);
+
+  if (!square.length) {
+    elements.latticeSvg.innerHTML = '';
+    elements.visualizerPlaceholder.hidden = false;
+    elements.visualizerPlaceholder.textContent = 'No square lattice nodes are available yet.';
+    setStatus(elements.visualizerStatus, 'empty', 'warn');
+    return;
+  }
+
+  const rows = square.map((entry) => Number(entry.meta.lattice_row));
+  const cols = square.map((entry) => Number(entry.meta.lattice_col));
+  const maxRow = Math.max(...rows);
+  const maxCol = Math.max(...cols);
+  const cell = 54;
+  const pad = 38;
+  const width = pad * 2 + Math.max(1, maxCol) * cell;
+  const height = pad * 2 + Math.max(1, maxRow) * cell;
+  const byId = new Map(square.map((entry) => [entryId(entry), entry]));
+  const lines = [];
+  const circles = [];
+
+  for (const entry of square) {
+    const id = entryId(entry);
+    const meta = entry.meta || {};
+    const x = pad + Number(meta.lattice_col) * cell;
+    const y = pad + Number(meta.lattice_row) * cell;
+    for (const neighbor of meta.lattice_neighbors || []) {
+      const neighborEntry = byId.get(Number(neighbor));
+      if (!neighborEntry || Number(neighbor) < id) continue;
+      const neighborMeta = neighborEntry.meta || {};
+      const x2 = pad + Number(neighborMeta.lattice_col) * cell;
+      const y2 = pad + Number(neighborMeta.lattice_row) * cell;
+      const active = highlighted.has(id) && highlighted.has(Number(neighbor));
+      lines.push(
+        `<line class="${active ? 'active' : ''}" x1="${x}" y1="${y}" x2="${x2}" y2="${y2}"></line>`
+      );
+    }
+  }
+
+  for (const entry of square) {
+    const id = entryId(entry);
+    const meta = entry.meta || {};
+    const x = pad + Number(meta.lattice_col) * cell;
+    const y = pad + Number(meta.lattice_row) * cell;
+    const active = highlighted.has(id);
+    const source = escapeHTML(meta.source || `node ${id}`);
+    const label = escapeHTML(meta.summary || entry.summary || entry.text || source);
+    circles.push(
+      `<g class="lattice-node ${active ? 'active' : ''}" tabindex="0">`
+      + `<circle cx="${x}" cy="${y}" r="${active ? 9 : 6}"></circle>`
+      + `<title>${source}\n${label}</title>`
+      + `</g>`
+    );
+  }
+
+  elements.latticeSvg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+  elements.latticeSvg.innerHTML = [
+    '<g class="lattice-edges">',
+    ...lines,
+    '</g>',
+    '<g class="lattice-nodes">',
+    ...circles,
+    '</g>',
+  ].join('');
+  elements.visualizerPlaceholder.hidden = true;
+  setStatus(
+    elements.visualizerStatus,
+    highlighted.size ? `${formatNumber(highlighted.size)} active` : `${formatNumber(square.length)} nodes`,
+    'good',
+  );
+}
+
 function renderKnowledge() {
   const entries = dmlEntries();
   const dml = state.knowledge?.dml || {};
@@ -201,6 +295,7 @@ function renderKnowledge() {
       </details>
     `;
   }).join('');
+  renderLattice(entries);
 }
 
 function collapseSiblingKnowledgeRows(event) {
@@ -453,6 +548,8 @@ function renderRun(payload, fallbackMode = 'compare') {
     ragDocs: ragDocCount,
   });
   renderBackends(payload);
+  state.highlightedNodeIds = new Set(entries.map(entryId).filter((id) => id !== null));
+  renderLattice(dmlEntries(), entries);
 
   if (stats.memories || stats.memory_count) {
     state.stats = { ...state.stats, ...stats };
@@ -469,17 +566,6 @@ function activateTab(name) {
   });
 }
 
-function withQueryParam(url, key, value) {
-  try {
-    const target = new URL(url, window.location.origin);
-    target.searchParams.set(key, value);
-    return target.toString();
-  } catch {
-    const separator = url.includes('?') ? '&' : '?';
-    return `${url}${separator}${encodeURIComponent(key)}=${encodeURIComponent(value)}`;
-  }
-}
-
 async function runQuery() {
   const prompt = elements.prompt.value.trim();
   if (!prompt) {
@@ -490,9 +576,6 @@ async function runQuery() {
   setBusy(elements.runQuery, true, 'Running');
   setStatus(elements.queryStatus, 'Running DML comparison...', 'neutral');
   activateTab('answer');
-  if (!state.visualizerLaunched) {
-    launchVisualizer({ quiet: true });
-  }
   const topK = Number(elements.topK.value || 0);
   const maxTokens = Number(elements.maxTokens.value || 512);
   const started = performance.now();
@@ -522,25 +605,16 @@ async function runQuery() {
   }
 }
 
-async function launchVisualizer(options = {}) {
-  const quiet = Boolean(options.quiet);
-  if (!quiet) setBusy(elements.launchVisualizer, true, 'Launching');
-  setStatus(elements.visualizerStatus, quiet ? 'loading preview' : 'starting', 'neutral');
+async function launchVisualizer() {
+  setBusy(elements.launchVisualizer, true, 'Refreshing');
+  setStatus(elements.visualizerStatus, 'refreshing', 'neutral');
   try {
-    const payload = await requestJSON('/visualizer/launch', { method: 'POST' });
-    const target = payload.status === 'external'
-      ? (payload.url || payload.embed_url || '/visualizer')
-      : (payload.embed_url || payload.url || '/visualizer');
-    elements.visualizerFrame.src = withQueryParam(target, 'embed', '1');
-    elements.openVisualizer.href = payload.url || '/visualizer';
-    elements.visualizerPlaceholder.hidden = true;
-    state.visualizerLaunched = true;
-    setStatus(elements.visualizerStatus, payload.status || 'ready', 'good');
     await refreshStatus();
+    setStatus(elements.visualizerStatus, 'ready', 'good');
   } catch (error) {
     setStatus(elements.visualizerStatus, error.message, 'bad');
   } finally {
-    if (!quiet) setBusy(elements.launchVisualizer, false, 'Launch Preview');
+    setBusy(elements.launchVisualizer, false, 'Refresh Lattice');
   }
 }
 
@@ -564,4 +638,3 @@ elements.tabButtons.forEach((button) => {
 });
 
 refreshStatus();
-launchVisualizer({ quiet: true });
