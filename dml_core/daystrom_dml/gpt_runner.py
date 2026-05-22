@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from dataclasses import dataclass
 from typing import Iterable, Optional
 
@@ -177,16 +178,51 @@ class _DummyBackend:
     """Fallback backend used during tests."""
 
     def generate(self, prompt: str, max_new_tokens: int = 256) -> str:
-        text = prompt.strip()
-        if len(text) > max_new_tokens:
-            text = text[: max_new_tokens]
-        return text
+        prompt_text = self._extract_user_prompt(prompt)
+        snippets = self._extract_context_snippets(prompt)
+        if snippets:
+            body = " ".join(snippets[:2])
+            text = f"Using the retrieved context, {body}"
+        else:
+            text = prompt_text or prompt.strip()
+        return self._truncate(text, max_new_tokens)
 
     def summarize(self, text: str, max_len: int = 128) -> str:
         text = text.strip().replace("\n", " ")
         if len(text) <= max_len:
             return text
         return text[: max_len - 3] + "..."
+
+    @staticmethod
+    def _extract_user_prompt(prompt: str) -> str:
+        marker = "=== User Prompt ==="
+        if marker not in prompt:
+            return prompt.strip()
+        return prompt.rsplit(marker, 1)[-1].strip()
+
+    @staticmethod
+    def _extract_context_snippets(prompt: str) -> list[str]:
+        context = prompt.split("=== User Prompt ===", 1)[0]
+        snippets: list[str] = []
+        for raw_line in context.splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("==="):
+                continue
+            line = re.sub(r"^- L\d+ \(f=[^)]+\):\s*", "", line)
+            line = re.sub(r"^Document \d+[^\\n]*", "", line).strip()
+            if line.startswith(("Source:", "Prompt:", "Answer summary:")):
+                continue
+            if line:
+                snippets.append(line)
+        return snippets
+
+    @staticmethod
+    def _truncate(text: str, max_new_tokens: int) -> str:
+        max_chars = max(24, int(max_new_tokens or 256) * 4)
+        text = re.sub(r"\s+", " ", text).strip()
+        if len(text) <= max_chars:
+            return text
+        return text[: max_chars].rsplit(" ", 1)[0].strip()
 
 
 class _OpenAICompatibleBackend:

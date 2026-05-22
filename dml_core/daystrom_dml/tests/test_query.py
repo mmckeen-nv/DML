@@ -6,6 +6,7 @@ from pathlib import Path
 from daystrom_dml.dml_adapter import DMLAdapter
 from daystrom_dml.embeddings import RandomEmbedder
 from daystrom_dml.summarizer import DummySummarizer
+from daystrom_dml.gpt_runner import GPTRunner
 
 
 def make_adapter():
@@ -25,6 +26,21 @@ def make_adapter():
         summarizer=DummySummarizer(),
         start_aging_loop=False,
     )
+
+
+def test_local_completion_backend_answers_from_user_prompt_not_raw_context():
+    runner = GPTRunner("dummy", backend="auto")
+    output = runner.generate(
+        "=== Daystrom Memory Lattice ===\n"
+        "- L0 (f=1.00): Continuity memory preserves decisions and tests.\n"
+        "=== User Prompt ===\n"
+        "What does continuity preserve?",
+        max_new_tokens=64,
+    )
+
+    assert "=== Daystrom Memory Lattice ===" not in output
+    assert "=== User Prompt ===" not in output
+    assert "Continuity memory preserves decisions and tests." in output
 
 
 def test_query_database_literal_mode_auto():
