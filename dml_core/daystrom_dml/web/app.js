@@ -197,12 +197,80 @@ function entryId(entry) {
   return Number.isFinite(numeric) ? numeric : null;
 }
 
-function squareLatticeEntries(entries = dmlEntries()) {
-  return entries.filter((entry) => {
+function firstFinite(...values) {
+  for (const value of values) {
+    const numeric = Number(value);
+    if (Number.isFinite(numeric)) return numeric;
+  }
+  return null;
+}
+
+function mergeLatticeEntries(entries = [], highlightedEntries = []) {
+  const merged = [...entries];
+  const seen = new Set(merged.map(entryId).filter((id) => id !== null));
+  for (const entry of highlightedEntries || []) {
+    const id = entryId(entry);
+    if (id === null || seen.has(id)) continue;
+    merged.push(entry);
+    seen.add(id);
+  }
+  return merged;
+}
+
+function visualLatticeEntries(entries = dmlEntries(), highlightedEntries = []) {
+  const merged = mergeLatticeEntries(entries, highlightedEntries);
+  const gridEntries = merged.filter((entry) => {
     const meta = entry.meta || {};
-    return meta.synthetic_lattice === 'square'
-      && Number.isFinite(Number(meta.lattice_row))
-      && Number.isFinite(Number(meta.lattice_col));
+    return Number.isFinite(Number(meta.lattice_row)) && Number.isFinite(Number(meta.lattice_col));
+  });
+  const explicitLayers = merged
+    .map((entry) => {
+      const meta = entry.meta || {};
+      return firstFinite(meta.lattice_layer, meta.layer, entry.level, meta.level, meta.cluster_index);
+    })
+    .filter((layer) => layer !== null);
+  const hasLayerVariety = new Set(explicitLayers.map((layer) => Math.round(layer))).size > 1;
+  const maxGridRow = gridEntries.length
+    ? Math.max(...gridEntries.map((entry) => Number(entry.meta.lattice_row)))
+    : 0;
+  const maxGridCol = gridEntries.length
+    ? Math.max(...gridEntries.map((entry) => Number(entry.meta.lattice_col)))
+    : 0;
+  const fallbackWidth = Math.max(7, maxGridCol + 1, Math.ceil(Math.sqrt(Math.max(1, merged.length))));
+  let fallbackIndex = 0;
+
+  return merged.map((entry) => {
+    const meta = entry.meta || {};
+    const row = Number(meta.lattice_row);
+    const col = Number(meta.lattice_col);
+    const hasGridPosition = Number.isFinite(row) && Number.isFinite(col);
+    const explicitLayer = firstFinite(
+      meta.lattice_layer,
+      meta.layer,
+      entry.level,
+      meta.level,
+      meta.cluster_index,
+    );
+    const derivedRow = hasGridPosition
+      ? row
+      : maxGridRow + 2 + Math.floor(fallbackIndex / fallbackWidth);
+    const derivedCol = hasGridPosition
+      ? col
+      : fallbackIndex % fallbackWidth;
+    const derivedIndex = fallbackIndex;
+    fallbackIndex += hasGridPosition ? 0 : 1;
+    const layer = explicitLayer !== null && hasLayerVariety
+      ? Math.max(0, Math.round(explicitLayer))
+      : hasGridPosition
+        ? Math.floor((derivedRow + derivedCol) / Math.max(2, Math.ceil((maxGridRow + maxGridCol + 2) / 4)))
+        : Math.floor(derivedIndex / Math.max(1, fallbackWidth * 2)) % 5;
+    return {
+      col: derivedCol,
+      entry,
+      id: entryId(entry),
+      layer: clamp(layer, 0, 7),
+      row: derivedRow,
+    };
   });
 }
 
@@ -254,49 +322,66 @@ function projectPoint(x, y, z, originX, originY, view = state.latticeView) {
 
 function renderLattice(entries = dmlEntries(), highlightedEntries = []) {
   if (!elements.latticeSvg) return;
-  const square = squareLatticeEntries(entries);
+  const latticeNodes = visualLatticeEntries(entries, highlightedEntries);
   const highlighted = new Set([
     ...state.highlightedNodeIds,
     ...highlightedEntries.map(entryId).filter((id) => id !== null),
   ]);
 
-  if (!square.length) {
+  if (!latticeNodes.length) {
     elements.latticeSvg.innerHTML = '';
     elements.visualizerPlaceholder.hidden = false;
-    elements.visualizerPlaceholder.textContent = 'No square lattice nodes are available yet.';
+    elements.visualizerPlaceholder.textContent = 'No lattice nodes are available yet.';
     setStatus(elements.visualizerStatus, 'empty', 'warn');
     return;
   }
 
-  const rows = square.map((entry) => Number(entry.meta.lattice_row));
-  const cols = square.map((entry) => Number(entry.meta.lattice_col));
+  const rows = latticeNodes.map((node) => node.row);
+  const cols = latticeNodes.map((node) => node.col);
   const maxRow = Math.max(...rows);
+  const minRow = Math.min(...rows);
   const maxCol = Math.max(...cols);
+  const minCol = Math.min(...cols);
+  const maxLayer = Math.max(...latticeNodes.map((node) => node.layer));
+  const layerGap = 24;
   const width = 940;
   const height = 620;
   const originX = width / 2;
   const originY = 150;
-  const byId = new Map(square.map((entry) => [entryId(entry), entry]));
+  const byId = new Map(latticeNodes.map((node) => [node.id, node]));
   const positions = new Map();
   const nodeRows = [];
   const lines = [];
   const columns = [];
   const nodes = [];
+  const layerPlanes = [];
 
-  for (const entry of square) {
-    const id = entryId(entry);
-    const meta = entry.meta || {};
-    const x = Number(meta.lattice_col) - maxCol / 2;
-    const y = Number(meta.lattice_row) - maxRow / 2;
-    const active = highlighted.has(id);
-    const math = nodeMath(entry, active);
-    const floor = projectPoint(x, y, 0, originX, originY);
-    const top = projectPoint(x, y, math.height, originX, originY);
-    positions.set(id, { active, entry, floor, math, top });
+  for (let layer = 0; layer <= maxLayer; layer += 1) {
+    const z = layer * layerGap;
+    const corners = [
+      projectPoint(minCol - maxCol / 2 - 0.35, minRow - maxRow / 2 - 0.35, z, originX, originY),
+      projectPoint(maxCol - maxCol / 2 + 0.35, minRow - maxRow / 2 - 0.35, z, originX, originY),
+      projectPoint(maxCol - maxCol / 2 + 0.35, maxRow - maxRow / 2 + 0.35, z, originX, originY),
+      projectPoint(minCol - maxCol / 2 - 0.35, maxRow - maxRow / 2 + 0.35, z, originX, originY),
+    ];
+    const points = corners.map((point) => `${point.x.toFixed(2)},${point.y.toFixed(2)}`).join(' ');
+    layerPlanes.push(`<polygon class="lattice-plane layer-plane" points="${points}"></polygon>`);
   }
 
-  for (const entry of square) {
-    const id = entryId(entry);
+  for (const node of latticeNodes) {
+    const { entry, id, layer } = node;
+    const x = node.col - maxCol / 2;
+    const y = node.row - maxRow / 2;
+    const active = highlighted.has(id);
+    const math = nodeMath(entry, active);
+    const baseZ = layer * layerGap;
+    const floor = projectPoint(x, y, baseZ, originX, originY);
+    const top = projectPoint(x, y, baseZ + math.height, originX, originY);
+    positions.set(id, { active, entry, floor, layer, math, top });
+  }
+
+  for (const node of latticeNodes) {
+    const { entry, id } = node;
     const meta = entry.meta || {};
     const position = positions.get(id);
     if (!position) continue;
@@ -313,7 +398,7 @@ function renderLattice(entries = dmlEntries(), highlightedEntries = []) {
   }
 
   for (const [id, position] of positions.entries()) {
-    const { active, entry, floor, math, top } = position;
+    const { active, entry, floor, layer, math, top } = position;
     const meta = entry.meta || {};
     const source = escapeHTML(meta.source || `node ${id}`);
     const label = escapeHTML(meta.summary || entry.summary || entry.text || source);
@@ -324,7 +409,7 @@ function renderLattice(entries = dmlEntries(), highlightedEntries = []) {
       markup:
       `<g class="lattice-node ${active ? 'active' : ''}" tabindex="0" style="--fidelity:${math.fidelity.toFixed(3)}">`
       + `<circle cx="${top.x.toFixed(2)}" cy="${top.y.toFixed(2)}" r="${math.radius.toFixed(2)}"></circle>`
-      + `<title>${source}\n${label}</title>`
+      + `<title>${source}\nLayer ${layer}\n${label}</title>`
       + `</g>`,
       sortY: top.y,
     });
@@ -333,20 +418,10 @@ function renderLattice(entries = dmlEntries(), highlightedEntries = []) {
   nodeRows.sort((a, b) => a.sortY - b.sortY);
   nodes.push(...nodeRows.map((row) => row.markup));
 
-  const baseCorners = [
-    projectPoint(-maxCol / 2, -maxRow / 2, 0, originX, originY),
-    projectPoint(maxCol / 2, -maxRow / 2, 0, originX, originY),
-    projectPoint(maxCol / 2, maxRow / 2, 0, originX, originY),
-    projectPoint(-maxCol / 2, maxRow / 2, 0, originX, originY),
-  ];
-  const basePath = baseCorners
-    .map((point) => `${point.x.toFixed(2)},${point.y.toFixed(2)}`)
-    .join(' ');
-
   const axes = [
-    ['x', projectPoint(-maxCol / 2, maxRow / 2 + 0.7, 0, originX, originY), projectPoint(maxCol / 2, maxRow / 2 + 0.7, 0, originX, originY)],
-    ['y', projectPoint(maxCol / 2 + 0.7, -maxRow / 2, 0, originX, originY), projectPoint(maxCol / 2 + 0.7, maxRow / 2, 0, originX, originY)],
-    ['z', projectPoint(maxCol / 2 + 0.9, maxRow / 2 + 0.9, 0, originX, originY), projectPoint(maxCol / 2 + 0.9, maxRow / 2 + 0.9, 96, originX, originY)],
+    ['x', projectPoint(minCol - maxCol / 2, maxRow - maxRow / 2 + 0.7, 0, originX, originY), projectPoint(maxCol - maxCol / 2, maxRow - maxRow / 2 + 0.7, 0, originX, originY)],
+    ['y', projectPoint(maxCol - maxCol / 2 + 0.7, minRow - maxRow / 2, 0, originX, originY), projectPoint(maxCol - maxCol / 2 + 0.7, maxRow - maxRow / 2, 0, originX, originY)],
+    ['z', projectPoint(maxCol - maxCol / 2 + 0.9, maxRow - maxRow / 2 + 0.9, 0, originX, originY), projectPoint(maxCol - maxCol / 2 + 0.9, maxRow - maxRow / 2 + 0.9, maxLayer * layerGap + 100, originX, originY)],
   ].map(
     ([name, start, end]) =>
       `<line class="axis ${name}" x1="${start.x.toFixed(2)}" y1="${start.y.toFixed(2)}" x2="${end.x.toFixed(2)}" y2="${end.y.toFixed(2)}"></line>`
@@ -354,7 +429,7 @@ function renderLattice(entries = dmlEntries(), highlightedEntries = []) {
 
   elements.latticeSvg.setAttribute('viewBox', `0 0 ${width} ${height}`);
   elements.latticeSvg.innerHTML = [
-    `<polygon class="lattice-plane" points="${basePath}"></polygon>`,
+    ...layerPlanes,
     '<g class="lattice-axes">',
     ...axes,
     '</g>',
@@ -371,7 +446,9 @@ function renderLattice(entries = dmlEntries(), highlightedEntries = []) {
   elements.visualizerPlaceholder.hidden = true;
   setStatus(
     elements.visualizerStatus,
-    highlighted.size ? `${formatNumber(highlighted.size)} active` : `${formatNumber(square.length)} nodes`,
+    highlighted.size
+      ? `${formatNumber([...highlighted].filter((id) => positions.has(id)).length)} active / ${formatNumber(latticeNodes.length)} nodes`
+      : `${formatNumber(latticeNodes.length)} nodes · ${formatNumber(maxLayer + 1)} layers`,
     'good',
   );
 }
