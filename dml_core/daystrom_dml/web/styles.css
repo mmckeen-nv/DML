@@ -330,6 +330,11 @@ pre {
   stroke-width: 1.5;
 }
 
+.lattice-plane.layer-plane {
+  fill: rgba(138, 180, 255, 0.028);
+  stroke: rgba(138, 180, 255, 0.18);
+}
+
 .lattice-axes line {
   stroke: rgba(246, 193, 119, 0.38);
   stroke-dasharray: 7 7;

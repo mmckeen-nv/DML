@@ -1308,11 +1308,21 @@ def rag_compare(payload: ComparePayload) -> dict:
             raise HTTPException(status_code=503, detail="NIM backend is unreachable. Start the container and try again.")
         raise
     prompt_tokens = utils.estimate_tokens(payload.prompt)
+    dml_entries = result.get("dml", {}).get("entries", [])
+    activated_ids = [
+        entry.get("id")
+        for entry in dml_entries
+        if isinstance(entry, dict) and entry.get("id") is not None
+    ]
     visualizer_bridge.queue_prompt(
         payload.prompt,
         top_k=payload.top_k or adapter.config.get("top_k", 6),
         mode="auto",
-        metadata={"source": "rag_compare"},
+        metadata={
+            "source": "rag_compare",
+            "activated_node_ids": activated_ids,
+            "activated_nodes": dml_entries,
+        },
     )
     response = {
         **result,

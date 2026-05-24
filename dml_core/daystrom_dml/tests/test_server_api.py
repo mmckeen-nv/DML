@@ -275,7 +275,7 @@ def test_rag_compare_success_queues_prompt(monkeypatch: pytest.MonkeyPatch) -> N
             self, prompt: str, *, top_k: int | None = None, max_new_tokens: int
         ) -> dict:
             self.calls.append((prompt, top_k, max_new_tokens))
-            return {"candidates": ["ok"]}
+            return {"candidates": ["ok"], "dml": {"entries": [{"id": 42, "summary": "matched"}]}}
 
     stub = StubAdapter()
     monkeypatch.setattr(server, "adapter", stub)
@@ -304,6 +304,7 @@ def test_rag_compare_success_queues_prompt(monkeypatch: pytest.MonkeyPatch) -> N
     payload = response.json()
     assert payload == {
         "candidates": ["ok"],
+        "dml": {"entries": [{"id": 42, "summary": "matched"}]},
         "prompt_tokens_est": 12,
     }
     assert stub.calls == [("Assemble", 3, 1024)]
@@ -314,7 +315,11 @@ def test_rag_compare_success_queues_prompt(monkeypatch: pytest.MonkeyPatch) -> N
             {
                 "top_k": 3,
                 "mode": "auto",
-                "metadata": {"source": "rag_compare"},
+                "metadata": {
+                    "source": "rag_compare",
+                    "activated_node_ids": [42],
+                    "activated_nodes": [{"id": 42, "summary": "matched"}],
+                },
             },
         )
     ]
