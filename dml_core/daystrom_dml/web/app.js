@@ -506,23 +506,9 @@ function renderLattice(entries = dmlEntries(), highlightedEntries = []) {
   nodeRows.sort((a, b) => a.sortY - b.sortY);
   nodes.push(...nodeRows.map((row) => row.markup));
 
-  const axes = [
-    ['x', projectPoint(minCol - maxCol / 2, maxRow - maxRow / 2 + 0.7, 0, originX, originY), projectPoint(maxCol - maxCol / 2, maxRow - maxRow / 2 + 0.7, 0, originX, originY)],
-    ['y', projectPoint(maxCol - maxCol / 2 + 0.7, minRow - maxRow / 2, 0, originX, originY), projectPoint(maxCol - maxCol / 2 + 0.7, maxRow - maxRow / 2, 0, originX, originY)],
-    ['z', projectPoint(maxCol - maxCol / 2 + 0.9, maxRow - maxRow / 2 + 0.9, 0, originX, originY), projectPoint(maxCol - maxCol / 2 + 0.9, maxRow - maxRow / 2 + 0.9, maxLayer * layerGap + 100, originX, originY)],
-  ];
-  projectedPoints.push(...axes.flatMap(([, start, end]) => [start, end]));
-  const axisMarkup = axes.map(
-    ([name, start, end]) =>
-      `<line class="axis ${name}" x1="${start.x.toFixed(2)}" y1="${start.y.toFixed(2)}" x2="${end.x.toFixed(2)}" y2="${end.y.toFixed(2)}"></line>`
-  );
-
   elements.latticeSvg.setAttribute('viewBox', cameraViewBoxForPoints(projectedPoints, width, height));
   elements.latticeSvg.innerHTML = [
     ...layerPlanes,
-    '<g class="lattice-axes">',
-    ...axisMarkup,
-    '</g>',
     '<g class="lattice-columns">',
     ...columns,
     '</g>',

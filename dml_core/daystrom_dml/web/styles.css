@@ -497,13 +497,6 @@ pre {
   animation-delay: var(--delay, 0s);
 }
 
-.lattice-axes line {
-  stroke: rgba(246, 193, 119, 0.38);
-  stroke-dasharray: 7 7;
-  stroke-linecap: round;
-  stroke-width: 1.6;
-}
-
 .lattice-columns line {
   stroke: rgba(155, 168, 165, 0.2);
   stroke-linecap: round;
