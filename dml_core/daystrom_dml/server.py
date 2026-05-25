@@ -1302,6 +1302,7 @@ def rag_compare(payload: ComparePayload) -> dict:
             payload.prompt,
             top_k=payload.top_k,
             max_new_tokens=payload.max_new_tokens or 512,
+            allow_reinforce=False,
         )
     except Exception as exc:
         if requests and isinstance(exc, requests.RequestException):

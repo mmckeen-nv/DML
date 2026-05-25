@@ -690,6 +690,7 @@ class DMLAdapter:
         *,
         top_k: Optional[int] = None,
         max_new_tokens: int = 512,
+        allow_reinforce: bool = True,
     ) -> Dict:
         step_counter = 0
         pipeline_trace: List[Dict[str, Any]] = []
@@ -713,7 +714,7 @@ class DMLAdapter:
         dml_response, dml_usage, dml_latency = self._generate_with_metrics(
             dml_prompt, max_new_tokens=max_new_tokens
         )
-        if not self.runner.is_dummy:
+        if allow_reinforce and not self.runner.is_dummy:
             self.reinforce(prompt, dml_response)
         step_counter += 1
         dml_sequence = step_counter

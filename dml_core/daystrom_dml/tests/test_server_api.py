@@ -272,9 +272,14 @@ def test_rag_compare_success_queues_prompt(monkeypatch: pytest.MonkeyPatch) -> N
             self.calls: list[tuple[str, int | None, int]] = []
 
         def compare_responses(
-            self, prompt: str, *, top_k: int | None = None, max_new_tokens: int
+            self,
+            prompt: str,
+            *,
+            top_k: int | None = None,
+            max_new_tokens: int,
+            allow_reinforce: bool = True,
         ) -> dict:
-            self.calls.append((prompt, top_k, max_new_tokens))
+            self.calls.append((prompt, top_k, max_new_tokens, allow_reinforce))
             return {"candidates": ["ok"], "dml": {"entries": [{"id": 42, "summary": "matched"}]}}
 
     stub = StubAdapter()
@@ -307,7 +312,7 @@ def test_rag_compare_success_queues_prompt(monkeypatch: pytest.MonkeyPatch) -> N
         "dml": {"entries": [{"id": 42, "summary": "matched"}]},
         "prompt_tokens_est": 12,
     }
-    assert stub.calls == [("Assemble", 3, 1024)]
+    assert stub.calls == [("Assemble", 3, 1024, False)]
     assert token_inputs == ["Assemble"]
     assert queue_calls == [
         (

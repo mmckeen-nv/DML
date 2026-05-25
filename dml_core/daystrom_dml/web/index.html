@@ -51,18 +51,18 @@
             </div>
 
             <div class="prompt-presets" aria-label="Prompt presets">
-              <button class="preset-button secondary" type="button" data-prompt="Show me the synthetic square lattice demo-square local neighborhood activation.">Square lattice</button>
-              <button class="preset-button secondary" type="button" data-prompt="What do you remember about DML continuity and context compaction?">Continuity</button>
-              <button class="preset-button secondary" type="button" data-prompt="What do you know about the personality matrix and DPM preferences?">DPM</button>
+              <button class="preset-button secondary" type="button" data-prompt="For Asteria Crossing, who controls inventory, what medical stores are aboard, and what are the fuel reserves?">Inventory</button>
+              <button class="preset-button secondary" type="button" data-prompt="Summarize the Asteria Crossing propulsion stack, burn budget, and fuel reserve constraints.">Propulsion</button>
+              <button class="preset-button secondary" type="button" data-prompt="Which crew members are responsible for habitat, medical, comms, and inventory operations on Asteria Crossing?">Crew</button>
             </div>
 
             <label for="prompt">Prompt</label>
-            <textarea id="prompt" rows="7" spellcheck="true">Show me the synthetic square lattice demo-square local neighborhood activation.</textarea>
+            <textarea id="prompt" rows="7" spellcheck="true">For Asteria Crossing, who controls inventory, what medical stores are aboard, and what are the fuel reserves?</textarea>
 
             <div class="control-row">
               <label>
                 Top K
-                <input id="top-k" type="number" min="1" max="30" value="10" />
+                <input id="top-k" type="number" min="1" max="30" value="6" />
               </label>
               <label>
                 Max Tokens
