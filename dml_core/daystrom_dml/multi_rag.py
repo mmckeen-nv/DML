@@ -339,7 +339,9 @@ class MultiRAGStore:
             backends = list(self._backends)
         if not backends:
             return reports
+        embedding_start = time.perf_counter()
         query_embedding = np.asarray(self.embedder.embed(prompt), dtype=np.float32)
+        embedding_latency_ms = int((time.perf_counter() - embedding_start) * 1000.0)
         for backend in backends:
             instance: RAGBackendProtocol = backend["backend"]
             start = time.perf_counter()
@@ -355,12 +357,15 @@ class MultiRAGStore:
                         "context": "",
                         "tokens": 0,
                         "latency_ms": 0,
+                        "embedding_latency_ms": embedding_latency_ms,
+                        "index_latency_ms": 0,
                     }
                 )
                 continue
             try:
                 matches = instance.retrieve(query_embedding, top_k=top_k)
-                latency_ms = int((time.perf_counter() - start) * 1000.0)
+                index_latency_ms = int((time.perf_counter() - start) * 1000.0)
+                latency_ms = embedding_latency_ms + index_latency_ms
                 context_lines: List[str] = []
                 for idx, match in enumerate(matches, start=1):
                     meta = match.get("meta") or {}
@@ -378,6 +383,8 @@ class MultiRAGStore:
                         "context": context,
                         "tokens": tokens,
                         "latency_ms": latency_ms,
+                        "embedding_latency_ms": embedding_latency_ms,
+                        "index_latency_ms": index_latency_ms,
                         "available": True,
                         "error": None,
                     }
@@ -395,6 +402,8 @@ class MultiRAGStore:
                         "context": "",
                         "tokens": 0,
                         "latency_ms": 0,
+                        "embedding_latency_ms": embedding_latency_ms,
+                        "index_latency_ms": 0,
                         "available": False,
                         "error": str(exc),
                     }
@@ -464,4 +473,3 @@ class MultiRAGStore:
                 }
                 for backend in self._backends
             ]
-

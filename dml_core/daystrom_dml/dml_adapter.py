@@ -814,6 +814,8 @@ class DMLAdapter:
                 "documents": report.get("documents"),
                 "sequence": step_counter,
                 "retrieval_latency_ms": report.get("latency_ms", 0),
+                "embedding_latency_ms": report.get("embedding_latency_ms"),
+                "index_latency_ms": report.get("index_latency_ms"),
                 "generation_latency_ms": rag_latency,
                 "available": True,
                 "error": report.get("error"),
