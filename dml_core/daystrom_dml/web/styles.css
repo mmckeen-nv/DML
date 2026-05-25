@@ -489,6 +489,8 @@ pre {
 .lattice-plane.layer-plane {
   fill: rgba(138, 180, 255, 0.028);
   stroke: rgba(138, 180, 255, 0.18);
+  animation: lattice-plane-breathe 5.8s ease-in-out infinite;
+  animation-delay: var(--delay, 0s);
 }
 
 .lattice-axes line {
@@ -525,14 +527,108 @@ pre {
   opacity: calc(0.35 + var(--fidelity, 1) * 0.55);
   stroke: rgba(255, 255, 255, 0.68);
   stroke-width: 1.4;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: lattice-node-drift 4.6s ease-in-out infinite;
+  animation-delay: var(--delay, 0s);
 }
 
-.lattice-node.active circle {
+.lattice-columns line.signal-flow,
+.lattice-edges line.signal-flow {
+  stroke-dasharray: 12 18;
+  animation: lattice-signal-flow 1.15s linear infinite;
+}
+
+.lattice-node.active circle:not(.activation-ring) {
   fill: var(--green);
   opacity: 1;
   stroke: #f8fffb;
   stroke-width: 2.4;
   filter: drop-shadow(0 0 8px rgba(104, 211, 145, 0.65));
+  animation:
+    lattice-node-drift 4.6s ease-in-out infinite,
+    lattice-node-glow 1.7s ease-in-out infinite;
+  animation-delay: var(--delay, 0s), 0s;
+}
+
+.lattice-node .activation-ring {
+  fill: none;
+  stroke: rgba(104, 211, 145, 0.72);
+  stroke-width: 2;
+  opacity: 0;
+  filter: drop-shadow(0 0 10px rgba(104, 211, 145, 0.42));
+  animation: lattice-activation-ring 1.8s ease-out infinite;
+  animation-delay: var(--delay, 0s);
+}
+
+@keyframes lattice-plane-breathe {
+  0%,
+  100% {
+    opacity: 0.68;
+  }
+
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes lattice-node-drift {
+  0%,
+  100% {
+    transform: translateY(0) scale(1);
+  }
+
+  50% {
+    transform: translateY(-1.4px) scale(1.025);
+  }
+}
+
+@keyframes lattice-node-glow {
+  0%,
+  100% {
+    filter: drop-shadow(0 0 7px rgba(104, 211, 145, 0.52));
+  }
+
+  50% {
+    filter: drop-shadow(0 0 18px rgba(104, 211, 145, 0.85));
+  }
+}
+
+@keyframes lattice-activation-ring {
+  0% {
+    opacity: 0.68;
+    transform: scale(0.7);
+  }
+
+  70% {
+    opacity: 0.08;
+    transform: scale(2.25);
+  }
+
+  100% {
+    opacity: 0;
+    transform: scale(2.6);
+  }
+}
+
+@keyframes lattice-signal-flow {
+  to {
+    stroke-dashoffset: -60;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lattice-plane.layer-plane,
+  .lattice-node circle,
+  .lattice-columns line.signal-flow,
+  .lattice-edges line.signal-flow {
+    animation: none;
+  }
+
+  .lattice-columns line.signal-flow,
+  .lattice-edges line.signal-flow {
+    stroke-dasharray: none;
+  }
 }
 
 #visualizer-placeholder {

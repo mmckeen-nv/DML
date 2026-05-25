@@ -443,7 +443,7 @@ function renderLattice(entries = dmlEntries(), highlightedEntries = []) {
     ];
     projectedPoints.push(...corners);
     const points = corners.map((point) => `${point.x.toFixed(2)},${point.y.toFixed(2)}`).join(' ');
-    layerPlanes.push(`<polygon class="lattice-plane layer-plane" points="${points}"></polygon>`);
+    layerPlanes.push(`<polygon class="lattice-plane layer-plane" style="--delay:${(layer * 0.18).toFixed(2)}s" points="${points}"></polygon>`);
   }
 
   for (const node of latticeNodes) {
@@ -471,7 +471,7 @@ function renderLattice(entries = dmlEntries(), highlightedEntries = []) {
       if (!neighborPosition) continue;
       const active = highlighted.has(id) && highlighted.has(Number(neighbor));
       lines.push(
-        `<line class="${active ? 'active' : ''}" x1="${position.top.x.toFixed(2)}" y1="${position.top.y.toFixed(2)}" x2="${neighborPosition.top.x.toFixed(2)}" y2="${neighborPosition.top.y.toFixed(2)}"></line>`
+        `<line class="${active ? 'active signal-flow' : ''}" pathLength="100" x1="${position.top.x.toFixed(2)}" y1="${position.top.y.toFixed(2)}" x2="${neighborPosition.top.x.toFixed(2)}" y2="${neighborPosition.top.y.toFixed(2)}"></line>`
       );
     }
   }
@@ -481,12 +481,14 @@ function renderLattice(entries = dmlEntries(), highlightedEntries = []) {
     const meta = entry.meta || {};
     const source = escapeHTML(meta.source || `node ${id}`);
     const label = escapeHTML(meta.summary || entry.summary || entry.text || source);
+    const delay = ((id % 9) * 0.11).toFixed(2);
     columns.push(
-      `<line class="${active ? 'active' : ''}" x1="${floor.x.toFixed(2)}" y1="${floor.y.toFixed(2)}" x2="${top.x.toFixed(2)}" y2="${top.y.toFixed(2)}"></line>`
+      `<line class="${active ? 'active signal-flow' : ''}" pathLength="100" x1="${floor.x.toFixed(2)}" y1="${floor.y.toFixed(2)}" x2="${top.x.toFixed(2)}" y2="${top.y.toFixed(2)}"></line>`
     );
     nodeRows.push({
       markup:
-      `<g class="lattice-node ${active ? 'active' : ''}" tabindex="0" style="--fidelity:${math.fidelity.toFixed(3)}">`
+      `<g class="lattice-node ${active ? 'active' : ''}" tabindex="0" style="--fidelity:${math.fidelity.toFixed(3)}; --delay:${delay}s">`
+      + (active ? `<circle class="activation-ring" cx="${top.x.toFixed(2)}" cy="${top.y.toFixed(2)}" r="${(math.radius + 2).toFixed(2)}"></circle>` : '')
       + `<circle cx="${top.x.toFixed(2)}" cy="${top.y.toFixed(2)}" r="${math.radius.toFixed(2)}"></circle>`
       + `<title>${source}\nLayer ${layer}\n${label}</title>`
       + `</g>`,
