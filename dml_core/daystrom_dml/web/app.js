@@ -26,6 +26,10 @@ const elements = {
   visualizerMetric: $('#metric-visualizer'),
   runLatencyMetric: $('#metric-run-latency'),
   runLatencyDetail: $('#metric-run-latency-detail'),
+  runDmlLatencyMetric: $('#metric-run-dml-latency'),
+  runDmlLatencyDetail: $('#metric-run-dml-latency-detail'),
+  runRagLatencyMetric: $('#metric-run-rag-latency'),
+  runRagLatencyDetail: $('#metric-run-rag-latency-detail'),
   runDmlTokens: $('#metric-run-dml-tokens'),
   runNodes: $('#metric-run-nodes'),
   runRagTokens: $('#metric-run-rag-tokens'),
@@ -80,6 +84,7 @@ function formatPercent(value) {
 }
 
 function formatMilliseconds(value) {
+  if (value === null || value === undefined || value === '') return '-';
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) return '-';
   if (numeric >= 1000) return `${(numeric / 1000).toFixed(2)} s`;
@@ -658,7 +663,7 @@ function ragTokenTotal(payload) {
   return backend?.context_tokens || backend?.tokens || backend?.total_tokens || payload?.rag_context_tokens || null;
 }
 
-function renderRunTelemetry({ latency, retrievalLatency, generationLatency, contextTokens, ragTokens, dmlNodes, ragDocs }) {
+function latencyBreakdown(retrievalLatency, generationLatency) {
   const detailParts = [];
   if (retrievalLatency !== null && retrievalLatency !== undefined) {
     detailParts.push(`${formatMilliseconds(retrievalLatency)} retrieval`);
@@ -666,9 +671,38 @@ function renderRunTelemetry({ latency, retrievalLatency, generationLatency, cont
   if (generationLatency !== null && generationLatency !== undefined) {
     detailParts.push(`${formatMilliseconds(generationLatency)} generation`);
   }
+  return detailParts.join(' + ');
+}
+
+function combinedLatency(retrievalLatency, generationLatency, fallback = null) {
+  const hasRetrieval = retrievalLatency !== null && retrievalLatency !== undefined;
+  const hasGeneration = generationLatency !== null && generationLatency !== undefined;
+  if (!hasRetrieval && !hasGeneration) return fallback;
+  return Number(retrievalLatency || 0) + Number(generationLatency || 0);
+}
+
+function renderRunTelemetry({
+  latency,
+  retrievalLatency,
+  generationLatency,
+  ragRetrievalLatency,
+  ragGenerationLatency,
+  contextTokens,
+  ragTokens,
+  dmlNodes,
+  ragDocs,
+}) {
+  const dmlLatency = combinedLatency(retrievalLatency, generationLatency);
+  const ragLatency = combinedLatency(ragRetrievalLatency, ragGenerationLatency);
+  const dmlDetail = latencyBreakdown(retrievalLatency, generationLatency);
+  const ragDetail = latencyBreakdown(ragRetrievalLatency, ragGenerationLatency);
 
   elements.runLatencyMetric.textContent = formatMilliseconds(latency);
-  elements.runLatencyDetail.textContent = detailParts.join(' + ') || 'Measured client-side';
+  elements.runLatencyDetail.textContent = 'DML path shown';
+  elements.runDmlLatencyMetric.textContent = formatMilliseconds(dmlLatency);
+  elements.runDmlLatencyDetail.textContent = dmlDetail || 'not reported';
+  elements.runRagLatencyMetric.textContent = formatMilliseconds(ragLatency);
+  elements.runRagLatencyDetail.textContent = ragDetail || 'not reported';
   elements.runDmlTokens.textContent = formatNumber(contextTokens);
   elements.runNodes.textContent = formatNumber(dmlNodes);
   elements.runRagTokens.textContent = formatNumber(ragTokens);
@@ -688,7 +722,9 @@ function renderRun(payload, fallbackMode = 'compare') {
   const contextTokens = dml.context_tokens || payload?.context_tokens || payload?.tokens || 0;
   const retrievalLatency = dml.retrieval_latency_ms ?? payload?.retrieval_latency_ms ?? null;
   const generationLatency = dml.generation_latency_ms ?? payload?.generation_latency_ms ?? null;
-  const latency = (Number(retrievalLatency || 0) + Number(generationLatency || 0)) || dml.latency_ms || payload?.latency_ms;
+  const ragRetrievalLatency = ragBackend?.retrieval_latency_ms ?? payload?.rag?.retrieval_latency_ms ?? null;
+  const ragGenerationLatency = ragBackend?.generation_latency_ms ?? payload?.rag?.generation_latency_ms ?? null;
+  const latency = combinedLatency(retrievalLatency, generationLatency, dml.latency_ms || payload?.latency_ms);
   const dmlNodeCount = entries.length || Number(dml.entry_count || 0);
   const ragDocCount = ragBackend?.documents?.length || ragBackend?.docs?.length || ragBackend?.count || 0;
 
@@ -711,6 +747,8 @@ function renderRun(payload, fallbackMode = 'compare') {
     latency,
     retrievalLatency,
     generationLatency,
+    ragRetrievalLatency,
+    ragGenerationLatency,
     contextTokens,
     ragTokens,
     dmlNodes: dmlNodeCount,

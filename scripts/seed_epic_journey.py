@@ -154,6 +154,116 @@ def build_records() -> list[dict[str, Any]]:
             salience=0.68,
             tags=["cargo", "inventory", f"pallet-{idx:02d}"],
         ))
+    arrival_sites = [
+        ("Morrow Basin", "basalt plain with stable winds and low biological ambiguity", "shelter ceramics and landing beacon anchors"),
+        ("Glassmere Delta", "ancient river fan with hydrated minerals and possible brine pockets", "sterile geology tents and sample vaults"),
+        ("Cairn Plateau", "high-altitude plateau with excellent telescope seeing", "radiation kites and observatory truss kits"),
+        ("Nacre Coast", "coastal shelf candidate with dense cloud cover and high science value", "ocean sniffers and weather probe pallets"),
+        ("Hearth Saddle", "temperate saddle between two shielded ridges", "habitat ribs and emergency greenhouse film"),
+        ("Vesper Crater", "old impact basin with exposed mantle signatures", "drill worms and seismic bead grids"),
+    ]
+    for idx, (site, character, kit) in enumerate(arrival_sites, start=1):
+        records.append(_record(
+            f"Arrival Site Candidate {idx}: {site}",
+            "arrival_ops",
+            4,
+            f"{site} is an Asteria b arrival candidate described as a {character}. The site requires {kit}. Survey priority is set by Dr. Anika Rao, while Iris Vale owns descent rehearsal and Captain Solenne owns the final crewed landing go/no-go vote.",
+            salience=0.79,
+            tags=["arrival", "asteria_b", site.lower().replace(" ", "_")],
+        ))
+    watch_eras = [
+        ("Lantern", "departure stabilization, family packet triage, and fusion ladder verification"),
+        ("Keel", "habitat drum bearing replacement, child curriculum migration, and water ledger recalibration"),
+        ("Orchard", "garden expansion, citrus cultivar recovery, and closed-loop protein diversification"),
+        ("Parallax", "stellar navigation recalibration, interferometer rehearsal, and archive redundancy audit"),
+        ("Quiet Hammer", "Dust Corridor Epsilon posture, shield inspection, and radiator stow drills"),
+        ("Long Cave", "maintenance culture reset, map renaming, and tunnel rescue timing"),
+        ("Low Ember", "braking stack recommissioning, pulse-count ritual adoption, and fuel board retraining"),
+        ("First Dawn", "arrival survey triage, lander sterile lockout, and colony charter renewal"),
+    ]
+    for idx, (era, focus) in enumerate(watch_eras, start=1):
+        records.append(_record(
+            f"Watch Era {idx}: {era}",
+            "mission_log",
+            4,
+            f"The {era} watch era focuses on {focus}. Each watch era stores operational goals, cultural continuity notes, training obligations, and known failure modes so future crews can retrieve context without reopening century-scale logs.",
+            salience=0.73,
+            tags=["watch_era", era.lower().replace(" ", "_")],
+        ))
+    departments = [
+        ("Inventory", "Jun Park", "sealed stores, ration recuts, spoilage projections, and cargo substitution authority"),
+        ("Medical", "Dr. Mateo Velasquez", "hibernation care, surgical readiness, quarantine thresholds, and biobank custody"),
+        ("Propulsion", "Tomas Ilyin", "fusion chamber health, fuel board triggers, antimatter bottle drift, and burn authorization"),
+        ("Habitat", "Lina Kade", "gardens, air balance, morale ecology, and crop disease response"),
+        ("Comms", "Priya Sen", "laser relay scheduling, packet compression, Earth delay ethics, and governance reports"),
+        ("Robotics", "Noor Tejada", "hull crawlers, surgical micro-drones, cargo walkers, and refinery scout reserves"),
+        ("Materials", "Pavel Orlov", "printer feedstock, alloy certification, patch recipes, and pressure vessel repair"),
+        ("Security", "Omar Halberg", "restricted lockers, mediation protocol, legal continuity, and wildlife-survey firearms custody"),
+    ]
+    for department, lead, authority in departments:
+        records.append(_record(
+            f"Department Authority: {department}",
+            "crew",
+            2,
+            f"{lead} is the accountable lead for {department.lower()} operations. Authority includes {authority}. This record exists so questions about who owns a function retrieve a direct department-to-person mapping.",
+            salience=0.81,
+            tags=["authority", "crew", department.lower()],
+        ))
+    consumables = [
+        ("CO2 Scrubber Matrix", "18,400 ceramic amine wafers", "replace after pressure drop exceeds 11% across two inspections"),
+        ("Hydroponic Nutrient Salts", "220 tonnes mixed macro and trace minerals", "ration to lettuce and herbs first during morale-stress months"),
+        ("Hibernation Cryofluid", "71,000 liters certified reserve", "quarantine any batch with crystallization above 0.03%"),
+        ("Radiation Dosimeter Patches", "94,000 skin and suit badges", "issue double patches during dust corridor and flare posture"),
+        ("Printer Binder Resin", "48 tonnes structural resin and 17 tonnes medical polymer", "do not cross-use medical polymer without Velasquez approval"),
+        ("Laser Optics Cleaning Kits", "6,200 sealed optical swab packs", "Priya Sen controls release during relay alignment windows"),
+        ("Emergency Oxygen Candles", "31,000 ceramic candles", "burn only under command emergency or confirmed scrubber cascade"),
+        ("Survey Sterility Seals", "12,800 numbered sterile field seals", "science veto applies if any landing kit arrives with broken seals"),
+    ]
+    for name, quantity, rule in consumables:
+        records.append(_record(
+            f"Consumable Ledger: {name}",
+            "inventory",
+            3,
+            f"{name} inventory stands at {quantity}. Handling rule: {rule}. Quartermaster Jun Park audits this ledger and records every substitution against mission reserve policy.",
+            salience=0.76,
+            tags=["consumable", "inventory", name.lower().replace(" ", "_")],
+        ))
+    failure_modes = [
+        ("Fusion Injector Flutter", "propulsion", "acoustic drift in chamber injectors", "derate affected chamber, swap sensor pair, and schedule low-thrust recovery burn"),
+        ("Garden Fungal Bloom", "habitat", "white-thread bloom across root mats", "isolate rack, ultraviolet rest cycle, and cut humidity by 6%"),
+        ("Optical Bus Desync", "compute", "clock skew between command and habitat fabrics", "freeze autonomous writes and reestablish two-fabric consensus"),
+        ("Crawler Adhesion Loss", "robotics", "hull crawler foot slip under dust scoring", "switch to tether crawl and replace pad set from EVA bay"),
+        ("Hibernation Pod Cascade", "medical", "more than four simultaneous pod alarms", "wake surgical reserve and shed nonessential compute loads"),
+        ("Argon Manifold Leak", "propulsion", "unexpected pressure drop during drone refill", "stop skimmer training and move cargo by tether transfer"),
+        ("Greywater Biofilm Spike", "life_support", "filter colony growth above nominal range", "thermal shock loop and divert water to emergency mineral beds"),
+        ("Governance Approval Drop", "governance", "mission approval below compact threshold", "convene slow assembly before irreversible colony decisions"),
+    ]
+    for name, category, signature, recovery in failure_modes:
+        records.append(_record(
+            f"Failure Mode: {name}",
+            "risk",
+            4,
+            f"{name} belongs to {category}. Detection signature: {signature}. Recovery path: {recovery}. This memory is designed for incident and troubleshooting retrieval.",
+            salience=0.82,
+            tags=["failure_mode", category, name.lower().replace(" ", "_")],
+        ))
+    science_windows = [
+        ("Oxygen Disequilibrium", "Asteria b atmosphere", "compare oxygen, methane, and seasonal cloud albedo before crew descent"),
+        ("Sub-Neptune Ocean Signal", "Asteria c limb spectra", "search for water absorption, haze chemistry, and magnetosphere interactions"),
+        ("Volatile Harvest Survey", "Asteria d ice belts", "rank shield replenishment sites by purity, spin, and dust hazard"),
+        ("Stellar Flare Baseline", "Asteria-9 corona", "establish storm shelter timing and probe loss expectations"),
+        ("Biosignature False Positive", "Asteria b nightside", "rule out volcanic methane and photochemical oxygen before settlement vote"),
+        ("Seismic Habitability", "Morrow Basin", "use seismic beads to map crust stability under shelter foundations"),
+    ]
+    for title, target, objective in science_windows:
+        records.append(_record(
+            f"Science Window: {title}",
+            "science",
+            4,
+            f"{title} targets {target}. Objective: {objective}. Dr. Anika Rao owns priority ranking and can delay landing rehearsals if the window resolves a biosphere or hazard ambiguity.",
+            salience=0.78,
+            tags=["science_window", target.lower().replace(" ", "_")],
+        ))
     return records
 
 

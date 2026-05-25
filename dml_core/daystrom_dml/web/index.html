@@ -96,6 +96,11 @@
             <small id="metric-run-latency-detail">Run a prompt</small>
           </article>
           <article class="run-card">
+            <span>DML Latency</span>
+            <strong id="metric-run-dml-latency">-</strong>
+            <small id="metric-run-dml-latency-detail">retrieval + inference</small>
+          </article>
+          <article class="run-card">
             <span>Memory Nodes Accessed</span>
             <strong id="metric-run-nodes">0</strong>
             <small>DML</small>
@@ -114,6 +119,11 @@
             <span>RAG Context Tokens</span>
             <strong id="metric-run-rag-tokens">-</strong>
             <small>delivered to LLM</small>
+          </article>
+          <article class="run-card">
+            <span>RAG Latency</span>
+            <strong id="metric-run-rag-latency">-</strong>
+            <small id="metric-run-rag-latency-detail">retrieval + inference</small>
           </article>
           <article class="run-card">
             <span>Inference Model</span>
@@ -202,6 +212,6 @@
       </main>
     </div>
 
-    <script src="/static/app.js?v=inline-lattice" defer></script>
+    <script src="/static/app.js?v=latency-telemetry" defer></script>
   </body>
 </html>
