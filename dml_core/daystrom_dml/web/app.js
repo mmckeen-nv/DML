@@ -24,12 +24,29 @@ const elements = {
   dmlTokens: $('#metric-dml-tokens'),
   fidelity: $('#metric-fidelity'),
   visualizerMetric: $('#metric-visualizer'),
-  runLatencyMetric: $('#metric-run-latency'),
-  runLatencyDetail: $('#metric-run-latency-detail'),
+  runBaseLatencyMetric: $('#metric-run-base-latency'),
+  runBaseLatencyDetail: $('#metric-run-base-detail'),
   runDmlLatencyMetric: $('#metric-run-dml-latency'),
   runDmlLatencyDetail: $('#metric-run-dml-latency-detail'),
   runRagLatencyMetric: $('#metric-run-rag-latency'),
   runRagLatencyDetail: $('#metric-run-rag-latency-detail'),
+  graphBaseLatency: $('#graph-base-latency'),
+  graphDmlLatency: $('#graph-dml-latency'),
+  graphRagLatency: $('#graph-rag-latency'),
+  graphBaseTokens: $('#graph-base-tokens'),
+  graphDmlTokens: $('#graph-dml-tokens'),
+  graphRagTokens: $('#graph-rag-tokens'),
+  barBaseGeneration: $('#bar-base-generation'),
+  barDmlRetrieval: $('#bar-dml-retrieval'),
+  barDmlGeneration: $('#bar-dml-generation'),
+  barRagRetrieval: $('#bar-rag-retrieval'),
+  barRagGeneration: $('#bar-rag-generation'),
+  barBaseInput: $('#bar-base-input'),
+  barBaseOutput: $('#bar-base-output'),
+  barDmlInput: $('#bar-dml-input'),
+  barDmlOutput: $('#bar-dml-output'),
+  barRagInput: $('#bar-rag-input'),
+  barRagOutput: $('#bar-rag-output'),
   runDmlTokens: $('#metric-run-dml-tokens'),
   runNodes: $('#metric-run-nodes'),
   runRagTokens: $('#metric-run-rag-tokens'),
@@ -95,6 +112,22 @@ function formatSignedNumber(value) {
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) return '-';
   return `${numeric > 0 ? '+' : ''}${formatNumber(Math.round(numeric))}`;
+}
+
+function estimateTokens(value) {
+  const text = String(value || '').trim();
+  if (!text) return 0;
+  return Math.max(1, Math.ceil(text.length / 4));
+}
+
+function usageToken(usage, ...keys) {
+  if (!usage) return null;
+  for (const key of keys) {
+    const value = usage[key];
+    const numeric = Number(value);
+    if (Number.isFinite(numeric)) return numeric;
+  }
+  return null;
 }
 
 function formatInference(inference = {}) {
@@ -681,28 +714,63 @@ function combinedLatency(retrievalLatency, generationLatency, fallback = null) {
   return Number(retrievalLatency || 0) + Number(generationLatency || 0);
 }
 
+function setSegmentWidth(element, value, maxValue) {
+  if (!element) return;
+  const numeric = Number(value || 0);
+  const max = Math.max(Number(maxValue || 0), 1);
+  element.style.width = `${Math.max(0, Math.min(100, (numeric / max) * 100))}%`;
+}
+
 function renderRunTelemetry({
-  latency,
+  baseLatency,
   retrievalLatency,
   generationLatency,
   ragRetrievalLatency,
   ragGenerationLatency,
+  promptTokens,
   contextTokens,
   ragTokens,
+  baseOutputTokens,
+  dmlOutputTokens,
+  ragOutputTokens,
   dmlNodes,
   ragDocs,
 }) {
+  const baseTotalTokens = promptTokens + baseOutputTokens;
   const dmlLatency = combinedLatency(retrievalLatency, generationLatency);
   const ragLatency = combinedLatency(ragRetrievalLatency, ragGenerationLatency);
+  const dmlInputTokens = promptTokens + Number(contextTokens || 0);
+  const ragInputTokens = promptTokens + Number(ragTokens || 0);
+  const dmlTotalTokens = dmlInputTokens + dmlOutputTokens;
+  const ragTotalTokens = ragInputTokens + ragOutputTokens;
   const dmlDetail = latencyBreakdown(retrievalLatency, generationLatency);
   const ragDetail = latencyBreakdown(ragRetrievalLatency, ragGenerationLatency);
+  const maxLatency = Math.max(Number(baseLatency || 0), Number(dmlLatency || 0), Number(ragLatency || 0), 1);
+  const maxTokens = Math.max(baseTotalTokens, dmlTotalTokens, ragTotalTokens, 1);
 
-  elements.runLatencyMetric.textContent = formatMilliseconds(latency);
-  elements.runLatencyDetail.textContent = 'DML path shown';
+  elements.runBaseLatencyMetric.textContent = formatMilliseconds(baseLatency);
+  elements.runBaseLatencyDetail.textContent = `${formatNumber(promptTokens)} in / ${formatNumber(baseOutputTokens)} out`;
   elements.runDmlLatencyMetric.textContent = formatMilliseconds(dmlLatency);
   elements.runDmlLatencyDetail.textContent = dmlDetail || 'not reported';
   elements.runRagLatencyMetric.textContent = formatMilliseconds(ragLatency);
   elements.runRagLatencyDetail.textContent = ragDetail || 'not reported';
+  elements.graphBaseLatency.textContent = formatMilliseconds(baseLatency);
+  elements.graphDmlLatency.textContent = formatMilliseconds(dmlLatency);
+  elements.graphRagLatency.textContent = formatMilliseconds(ragLatency);
+  elements.graphBaseTokens.textContent = formatNumber(baseTotalTokens);
+  elements.graphDmlTokens.textContent = formatNumber(dmlTotalTokens);
+  elements.graphRagTokens.textContent = formatNumber(ragTotalTokens);
+  setSegmentWidth(elements.barBaseGeneration, baseLatency, maxLatency);
+  setSegmentWidth(elements.barDmlRetrieval, retrievalLatency, maxLatency);
+  setSegmentWidth(elements.barDmlGeneration, generationLatency, maxLatency);
+  setSegmentWidth(elements.barRagRetrieval, ragRetrievalLatency, maxLatency);
+  setSegmentWidth(elements.barRagGeneration, ragGenerationLatency, maxLatency);
+  setSegmentWidth(elements.barBaseInput, promptTokens, maxTokens);
+  setSegmentWidth(elements.barBaseOutput, baseOutputTokens, maxTokens);
+  setSegmentWidth(elements.barDmlInput, dmlInputTokens, maxTokens);
+  setSegmentWidth(elements.barDmlOutput, dmlOutputTokens, maxTokens);
+  setSegmentWidth(elements.barRagInput, ragInputTokens, maxTokens);
+  setSegmentWidth(elements.barRagOutput, ragOutputTokens, maxTokens);
   elements.runDmlTokens.textContent = formatNumber(contextTokens);
   elements.runNodes.textContent = formatNumber(dmlNodes);
   elements.runRagTokens.textContent = formatNumber(ragTokens);
@@ -713,6 +781,8 @@ function renderRun(payload, fallbackMode = 'compare') {
   const response = responseFromCompare(payload);
   const entries = entriesFromCompare(payload);
   const ragBackend = primaryRagBackend(payload);
+  const base = payload?.base || {};
+  const baseResponse = cleanDemoText(base.response || '');
   const ragResponse = cleanDemoText(ragBackend?.response || payload?.rag?.response || '');
   const ragContext = cleanDemoText(ragBackend?.context || payload?.rag?.context || '');
   const stats = payload?.stats || {};
@@ -720,13 +790,19 @@ function renderRun(payload, fallbackMode = 'compare') {
   const dmlContext = cleanDmlContext(dml.context || payload?.dml_context || payload?.context || '');
   const ragTokens = ragTokenTotal(payload);
   const contextTokens = dml.context_tokens || payload?.context_tokens || payload?.tokens || 0;
+  const promptTokens = estimateTokens(payload?.prompt || elements.prompt.value);
+  const baseLatency = base.generation_latency_ms ?? null;
   const retrievalLatency = dml.retrieval_latency_ms ?? payload?.retrieval_latency_ms ?? null;
   const generationLatency = dml.generation_latency_ms ?? payload?.generation_latency_ms ?? null;
   const ragRetrievalLatency = ragBackend?.retrieval_latency_ms ?? payload?.rag?.retrieval_latency_ms ?? null;
   const ragGenerationLatency = ragBackend?.generation_latency_ms ?? payload?.rag?.generation_latency_ms ?? null;
   const latency = combinedLatency(retrievalLatency, generationLatency, dml.latency_ms || payload?.latency_ms);
+  const wallLatency = payload?.latency_ms ?? latency;
   const dmlNodeCount = entries.length || Number(dml.entry_count || 0);
   const ragDocCount = ragBackend?.documents?.length || ragBackend?.docs?.length || ragBackend?.count || 0;
+  const baseOutputTokens = usageToken(base.usage, 'completion_tokens', 'output_tokens', 'generated_tokens') ?? estimateTokens(baseResponse);
+  const dmlOutputTokens = usageToken(dml.usage, 'completion_tokens', 'output_tokens', 'generated_tokens') ?? estimateTokens(response);
+  const ragOutputTokens = usageToken(ragBackend?.usage, 'completion_tokens', 'output_tokens', 'generated_tokens') ?? estimateTokens(ragResponse);
 
   elements.dmlContext.textContent = dmlContext || 'No DML context was returned for this prompt.';
   elements.dmlContext.classList.toggle('empty', !dmlContext);
@@ -741,16 +817,20 @@ function renderRun(payload, fallbackMode = 'compare') {
   elements.ragMode.textContent = ragBackend?.label || ragBackend?.id || 'rag';
   elements.responseMode.textContent = payload?.mode || fallbackMode;
   elements.queryMode.textContent = payload?.mode || fallbackMode;
-  elements.runLatency.textContent = formatMilliseconds(latency);
+  elements.runLatency.textContent = `wall ${formatMilliseconds(wallLatency)}`;
   renderInference(payload?.inference || state.health?.components?.adapter?.inference);
   renderRunTelemetry({
-    latency,
+    baseLatency,
     retrievalLatency,
     generationLatency,
     ragRetrievalLatency,
     ragGenerationLatency,
+    promptTokens,
     contextTokens,
     ragTokens,
+    baseOutputTokens,
+    dmlOutputTokens,
+    ragOutputTokens,
     dmlNodes: dmlNodeCount,
     ragDocs: ragDocCount,
   });

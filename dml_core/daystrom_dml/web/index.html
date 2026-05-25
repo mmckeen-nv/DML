@@ -89,53 +89,108 @@
           </article>
         </section>
 
-        <section class="run-strip" aria-label="Latest comparison telemetry">
-          <article class="run-card">
-            <span>Latency</span>
-            <strong id="metric-run-latency">-</strong>
-            <small id="metric-run-latency-detail">Run a prompt</small>
-          </article>
-          <article class="run-card">
-            <span>DML Latency</span>
-            <strong id="metric-run-dml-latency">-</strong>
-            <small id="metric-run-dml-latency-detail">retrieval + inference</small>
-          </article>
-          <article class="run-card">
-            <span>Memory Nodes Accessed</span>
-            <strong id="metric-run-nodes">0</strong>
-            <small>DML</small>
-          </article>
-          <article class="run-card">
-            <span>DML Context Tokens</span>
-            <strong id="metric-run-dml-tokens">-</strong>
-            <small>delivered to LLM</small>
-          </article>
-          <article class="run-card">
-            <span>Documents Accessed</span>
-            <strong id="metric-run-docs">0</strong>
-            <small>RAG</small>
-          </article>
-          <article class="run-card">
-            <span>RAG Context Tokens</span>
-            <strong id="metric-run-rag-tokens">-</strong>
-            <small>delivered to LLM</small>
-          </article>
-          <article class="run-card">
-            <span>RAG Latency</span>
-            <strong id="metric-run-rag-latency">-</strong>
-            <small id="metric-run-rag-latency-detail">retrieval + inference</small>
-          </article>
-          <article class="run-card">
-            <span>Inference Model</span>
-            <strong id="metric-inference-model">-</strong>
-            <small id="metric-inference-backend">LLM backend</small>
-          </article>
+        <section class="telemetry-panel panel" aria-label="Latest comparison telemetry">
+          <div class="panel-heading compact">
+            <h2>Telemetry</h2>
+            <span id="run-latency" class="mini-pill">-</span>
+          </div>
+          <div class="telemetry-layout">
+            <div class="run-strip">
+              <article class="run-card">
+                <span>Base Model</span>
+                <strong id="metric-run-base-latency">-</strong>
+                <small id="metric-run-base-detail">prompt only</small>
+              </article>
+              <article class="run-card">
+                <span>DML Context</span>
+                <strong id="metric-run-dml-latency">-</strong>
+                <small id="metric-run-dml-latency-detail">retrieval + generation</small>
+              </article>
+              <article class="run-card">
+                <span>RAG Context</span>
+                <strong id="metric-run-rag-latency">-</strong>
+                <small id="metric-run-rag-latency-detail">retrieval + generation</small>
+              </article>
+              <article class="run-card">
+                <span>Inference Model</span>
+                <strong id="metric-inference-model">-</strong>
+                <small id="metric-inference-backend">LLM backend</small>
+              </article>
+            </div>
+            <div class="telemetry-graphs">
+              <div class="graph-block">
+                <div class="graph-heading">
+                  <span>Latency</span>
+                  <small>retrieval + generation</small>
+                </div>
+                <div class="bar-row">
+                  <span>Base</span>
+                  <div class="stack-bar" aria-hidden="true">
+                    <i id="bar-base-generation" class="bar-segment generation"></i>
+                  </div>
+                  <strong id="graph-base-latency">-</strong>
+                </div>
+                <div class="bar-row">
+                  <span>DML</span>
+                  <div class="stack-bar" aria-hidden="true">
+                    <i id="bar-dml-retrieval" class="bar-segment retrieval"></i>
+                    <i id="bar-dml-generation" class="bar-segment generation"></i>
+                  </div>
+                  <strong id="graph-dml-latency">-</strong>
+                </div>
+                <div class="bar-row">
+                  <span>RAG</span>
+                  <div class="stack-bar" aria-hidden="true">
+                    <i id="bar-rag-retrieval" class="bar-segment retrieval rag"></i>
+                    <i id="bar-rag-generation" class="bar-segment generation rag"></i>
+                  </div>
+                  <strong id="graph-rag-latency">-</strong>
+                </div>
+              </div>
+              <div class="graph-block">
+                <div class="graph-heading">
+                  <span>Tokens</span>
+                  <small>input + output</small>
+                </div>
+                <div class="bar-row">
+                  <span>Base</span>
+                  <div class="stack-bar token-bar" aria-hidden="true">
+                    <i id="bar-base-input" class="bar-segment input"></i>
+                    <i id="bar-base-output" class="bar-segment output"></i>
+                  </div>
+                  <strong id="graph-base-tokens">-</strong>
+                </div>
+                <div class="bar-row">
+                  <span>DML</span>
+                  <div class="stack-bar token-bar" aria-hidden="true">
+                    <i id="bar-dml-input" class="bar-segment input"></i>
+                    <i id="bar-dml-output" class="bar-segment output"></i>
+                  </div>
+                  <strong id="graph-dml-tokens">-</strong>
+                </div>
+                <div class="bar-row">
+                  <span>RAG</span>
+                  <div class="stack-bar token-bar" aria-hidden="true">
+                    <i id="bar-rag-input" class="bar-segment input rag"></i>
+                    <i id="bar-rag-output" class="bar-segment output rag"></i>
+                  </div>
+                  <strong id="graph-rag-tokens">-</strong>
+                </div>
+              </div>
+            </div>
+            <div class="telemetry-counts">
+              <span>DML nodes <strong id="metric-run-nodes">0</strong></span>
+              <span>DML context <strong id="metric-run-dml-tokens">-</strong></span>
+              <span>RAG docs <strong id="metric-run-docs">0</strong></span>
+              <span>RAG context <strong id="metric-run-rag-tokens">-</strong></span>
+            </div>
+          </div>
         </section>
 
         <section class="comparison-panel panel">
           <div class="panel-heading compact">
             <h2>Comparison</h2>
-            <span id="run-latency" class="mini-pill">-</span>
+            <span id="comparison-status" class="mini-pill">waiting</span>
           </div>
           <div class="comparison-grid">
             <article class="comparison-card">
@@ -212,6 +267,6 @@
       </main>
     </div>
 
-    <script src="/static/app.js?v=latency-telemetry" defer></script>
+    <script src="/static/app.js?v=stacked-telemetry" defer></script>
   </body>
 </html>
