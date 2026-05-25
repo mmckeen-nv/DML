@@ -93,11 +93,22 @@ class LiteralRetriever:
     def _build_pattern(self, query: str) -> re.Pattern | None:
         stopwords = {
             "about",
+            "aboard",
+            "after",
+            "also",
+            "and",
+            "are",
+            "does",
             "from",
+            "for",
+            "how",
+            "into",
+            "the",
             "what",
             "when",
             "where",
             "which",
+            "who",
             "with",
             "would",
             "could",
@@ -139,7 +150,7 @@ class LiteralRetriever:
                 start = max(0, first.start() - 80)
                 end = min(len(text), first.end() + 80)
                 snippet = text[start:end].strip()
-                boost = len(matches)
+                boost = len({match.group(0).lower() for match in matches})
         if len(snippet) > self.max_snippet_chars:
             snippet = snippet[: self.max_snippet_chars - 3] + "..."
         return snippet, float(boost)

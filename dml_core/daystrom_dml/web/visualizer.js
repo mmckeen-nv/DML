@@ -161,6 +161,32 @@ function projectPoint(x, y, z, originX, originY) {
   };
 }
 
+function viewBoxForPoints(points, targetWidth, targetHeight, padding = 64) {
+  const xs = points.map((point) => point.x).filter(Number.isFinite);
+  const ys = points.map((point) => point.y).filter(Number.isFinite);
+  if (!xs.length || !ys.length) return `0 0 ${targetWidth} ${targetHeight}`;
+  let minX = Math.min(...xs) - padding;
+  let maxX = Math.max(...xs) + padding;
+  let minY = Math.min(...ys) - padding;
+  let maxY = Math.max(...ys) + padding;
+  let width = Math.max(1, maxX - minX);
+  let height = Math.max(1, maxY - minY);
+  const targetAspect = targetWidth / targetHeight;
+  const aspect = width / height;
+  if (aspect > targetAspect) {
+    const nextHeight = width / targetAspect;
+    const delta = (nextHeight - height) / 2;
+    minY -= delta;
+    height = nextHeight;
+  } else {
+    const nextWidth = height * targetAspect;
+    const delta = (nextWidth - width) / 2;
+    minX -= delta;
+    width = nextWidth;
+  }
+  return `${minX.toFixed(2)} ${minY.toFixed(2)} ${width.toFixed(2)} ${height.toFixed(2)}`;
+}
+
 function renderLattice() {
   const nodesForView = visualEntries();
   if (!svgEl || !nodesForView.length) {
@@ -190,6 +216,7 @@ function renderLattice() {
   const columns = [];
   const nodes = [];
   const layerPlanes = [];
+  const projectedPoints = [];
 
   for (let layer = 0; layer <= maxLayer; layer += 1) {
     const z = layer * layerGap;
@@ -199,6 +226,7 @@ function renderLattice() {
       projectPoint(maxCol - maxCol / 2 + 0.35, maxRow - maxRow / 2 + 0.35, z, originX, originY),
       projectPoint(minCol - maxCol / 2 - 0.35, maxRow - maxRow / 2 + 0.35, z, originX, originY),
     ];
+    projectedPoints.push(...corners);
     const points = corners.map((point) => `${point.x.toFixed(2)},${point.y.toFixed(2)}`).join(' ');
     layerPlanes.push(`<polygon class="lattice-plane layer-plane" points="${points}"></polygon>`);
   }
@@ -212,6 +240,7 @@ function renderLattice() {
     const baseZ = layer * layerGap;
     const floor = projectPoint(x, y, baseZ, originX, originY);
     const top = projectPoint(x, y, baseZ + math.height, originX, originY);
+    projectedPoints.push(floor, top);
     positions.set(id, { active, entry, floor, layer, math, top });
   }
 
@@ -252,16 +281,18 @@ function renderLattice() {
     ['x', projectPoint(minCol - maxCol / 2, maxRow - maxRow / 2 + 0.7, 0, originX, originY), projectPoint(maxCol - maxCol / 2, maxRow - maxRow / 2 + 0.7, 0, originX, originY)],
     ['y', projectPoint(maxCol - maxCol / 2 + 0.7, minRow - maxRow / 2, 0, originX, originY), projectPoint(maxCol - maxCol / 2 + 0.7, maxRow - maxRow / 2, 0, originX, originY)],
     ['z', projectPoint(maxCol - maxCol / 2 + 0.9, maxRow - maxRow / 2 + 0.9, 0, originX, originY), projectPoint(maxCol - maxCol / 2 + 0.9, maxRow - maxRow / 2 + 0.9, maxLayer * layerGap + 110, originX, originY)],
-  ].map(
+  ];
+  projectedPoints.push(...axes.flatMap(([, start, end]) => [start, end]));
+  const axisMarkup = axes.map(
     ([name, start, end]) =>
       `<line class="axis ${name}" x1="${start.x.toFixed(2)}" y1="${start.y.toFixed(2)}" x2="${end.x.toFixed(2)}" y2="${end.y.toFixed(2)}"></line>`
   );
 
-  svgEl.setAttribute('viewBox', `0 0 ${width} ${height}`);
+  svgEl.setAttribute('viewBox', viewBoxForPoints(projectedPoints, width, height));
   svgEl.innerHTML = [
     ...layerPlanes,
     '<g class="lattice-axes">',
-    ...axes,
+    ...axisMarkup,
     '</g>',
     '<g class="lattice-columns">',
     ...columns,
