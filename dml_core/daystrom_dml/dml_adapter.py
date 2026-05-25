@@ -2091,14 +2091,37 @@ class DMLAdapter:
         blocks: List[str] = []
         if context:
             blocks.append(
-                "Use the retrieved context to answer the user. "
-                "Do not repeat the context verbatim. "
+                "Answer the user directly and naturally. "
+                "Treat the notes below as private grounding, not as something to announce. "
+                "Do not mention DML, RAG, retrieved context, background notes, or say "
+                "'according to' unless the user explicitly asks for provenance. "
+                "Use only the relevant details. "
                 "If the context is insufficient, say what is missing."
             )
-            blocks.append(context.strip())
+            blocks.append("=== Private Grounding Notes ===")
+            blocks.append(self._silent_context_for_model(context))
         blocks.append("=== User Prompt ===")
         blocks.append(prompt.strip())
         return "\n\n".join(blocks)
+
+    @staticmethod
+    def _silent_context_for_model(context: str) -> str:
+        """Strip retrieval branding from context before it reaches the generator."""
+
+        text = str(context or "").strip()
+        if not text:
+            return ""
+        text = text.split("=== User Prompt ===", 1)[0].strip()
+        replacements = {
+            "=== Daystrom Memory Lattice ===": "",
+            "=== RAG Retrieval ===": "",
+            "=== Retrieved Context ===": "",
+            "=== Retrieved Memory ===": "",
+        }
+        for needle, replacement in replacements.items():
+            text = text.replace(needle, replacement)
+        text = re.sub(r"\n{3,}", "\n\n", text)
+        return text.strip()
 
     def _resolve_storage_path(self, candidate: Path) -> Path:
         path = candidate.expanduser()

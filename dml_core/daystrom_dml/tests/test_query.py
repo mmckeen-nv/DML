@@ -40,6 +40,7 @@ def test_local_completion_backend_answers_from_user_prompt_not_raw_context():
 
     assert "=== Daystrom Memory Lattice ===" not in output
     assert "=== User Prompt ===" not in output
+    assert "retrieved context" not in output.lower()
     assert "Continuity memory preserves decisions and tests." in output
 
 

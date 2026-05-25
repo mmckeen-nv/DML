@@ -72,6 +72,31 @@ def test_ingest_retrieve_reinforce(tmp_path):
     assert after >= before
 
 
+def test_generation_prompt_keeps_memory_provider_silent(tmp_path):
+    adapter = DMLAdapter(
+        config_overrides={
+            "model_name": "dummy",
+            "embedding_model": None,
+            "capacity": 50,
+            "token_budget": 120,
+            "storage_dir": str(tmp_path / "storage"),
+            "persistence": {"enable": False},
+        },
+        start_aging_loop=False,
+    )
+    prompt = adapter._compose_prompt(
+        "Who controls inventory?",
+        "=== Daystrom Memory Lattice ===\n- L0 (f=1.00): Quartermaster Imani Vale controls inventory.\n=== User Prompt ===\nWho controls inventory?",
+    )
+
+    assert "Quartermaster Imani Vale controls inventory." in prompt
+    assert "Daystrom Memory Lattice" not in prompt
+    assert "RAG Retrieval" not in prompt
+    assert prompt.count("=== User Prompt ===") == 1
+    assert "Who controls inventory?" in prompt
+    assert "Do not mention DML, RAG, retrieved context" in prompt
+
+
 def test_decay_adjusts_abstraction_level():
     store = make_store(tau_s=0.8)
     embedding = np.ones(8, dtype=np.float32)

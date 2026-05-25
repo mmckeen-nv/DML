@@ -197,7 +197,7 @@ class _DummyBackend:
         snippets = self._extract_context_snippets(prompt)
         if snippets:
             body = " ".join(snippets[:2])
-            text = f"Using the retrieved context, {body}"
+            text = body
         else:
             text = prompt_text or prompt.strip()
         return self._truncate(text, max_new_tokens)
