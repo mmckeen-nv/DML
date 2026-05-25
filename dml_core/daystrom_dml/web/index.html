@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <title>DML Playground</title>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <link rel="stylesheet" href="/static/styles.css?v=inline-lattice" />
+    <link rel="stylesheet" href="/static/styles.css?v=accuracy-telemetry" />
   </head>
   <body>
     <div class="app-shell">
@@ -177,12 +177,40 @@
                   <strong id="graph-rag-tokens">-</strong>
                 </div>
               </div>
+              <div class="graph-block accuracy-block">
+                <div class="graph-heading">
+                  <span>Accuracy</span>
+                  <small>answer-key facts</small>
+                </div>
+                <div class="bar-row">
+                  <span>Base</span>
+                  <div class="stack-bar accuracy-bar" aria-hidden="true">
+                    <i id="bar-base-accuracy" class="bar-segment accuracy"></i>
+                  </div>
+                  <strong id="graph-base-accuracy">-</strong>
+                </div>
+                <div class="bar-row">
+                  <span>DML</span>
+                  <div class="stack-bar accuracy-bar" aria-hidden="true">
+                    <i id="bar-dml-accuracy" class="bar-segment accuracy"></i>
+                  </div>
+                  <strong id="graph-dml-accuracy">-</strong>
+                </div>
+                <div class="bar-row">
+                  <span>RAG</span>
+                  <div class="stack-bar accuracy-bar" aria-hidden="true">
+                    <i id="bar-rag-accuracy" class="bar-segment accuracy rag"></i>
+                  </div>
+                  <strong id="graph-rag-accuracy">-</strong>
+                </div>
+              </div>
             </div>
             <div class="telemetry-counts">
               <span>DML nodes <strong id="metric-run-nodes">0</strong></span>
               <span>DML context <strong id="metric-run-dml-tokens">-</strong></span>
               <span>RAG docs <strong id="metric-run-docs">0</strong></span>
               <span>RAG context <strong id="metric-run-rag-tokens">-</strong></span>
+              <span>Fact key <strong id="metric-accuracy-key">not scored</strong></span>
             </div>
           </div>
         </section>
@@ -267,6 +295,6 @@
       </main>
     </div>
 
-    <script src="/static/app.js?v=stacked-telemetry" defer></script>
+    <script src="/static/app.js?v=accuracy-telemetry" defer></script>
   </body>
 </html>

@@ -36,6 +36,9 @@ const elements = {
   graphBaseTokens: $('#graph-base-tokens'),
   graphDmlTokens: $('#graph-dml-tokens'),
   graphRagTokens: $('#graph-rag-tokens'),
+  graphBaseAccuracy: $('#graph-base-accuracy'),
+  graphDmlAccuracy: $('#graph-dml-accuracy'),
+  graphRagAccuracy: $('#graph-rag-accuracy'),
   barBaseGeneration: $('#bar-base-generation'),
   barDmlRetrieval: $('#bar-dml-retrieval'),
   barDmlGeneration: $('#bar-dml-generation'),
@@ -47,10 +50,14 @@ const elements = {
   barDmlOutput: $('#bar-dml-output'),
   barRagInput: $('#bar-rag-input'),
   barRagOutput: $('#bar-rag-output'),
+  barBaseAccuracy: $('#bar-base-accuracy'),
+  barDmlAccuracy: $('#bar-dml-accuracy'),
+  barRagAccuracy: $('#bar-rag-accuracy'),
   runDmlTokens: $('#metric-run-dml-tokens'),
   runNodes: $('#metric-run-nodes'),
   runRagTokens: $('#metric-run-rag-tokens'),
   runDocs: $('#metric-run-docs'),
+  accuracyKey: $('#metric-accuracy-key'),
   inferenceModel: $('#metric-inference-model'),
   inferenceBackend: $('#metric-inference-backend'),
   prompt: $('#prompt'),
@@ -98,6 +105,11 @@ function formatPercent(value) {
   }
   const normalized = Number(value) <= 1 ? Number(value) * 100 : Number(value);
   return `${normalized.toFixed(1)}%`;
+}
+
+function formatAccuracy(value) {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) return '-';
+  return `${Math.round(Number(value) * 100)}%`;
 }
 
 function formatMilliseconds(value) {
@@ -721,6 +733,15 @@ function setSegmentWidth(element, value, maxValue) {
   element.style.width = `${Math.max(0, Math.min(100, (numeric / max) * 100))}%`;
 }
 
+function setAccuracyWidth(element, accuracy) {
+  if (!element) return;
+  if (!accuracy?.scored || accuracy.score === null || accuracy.score === undefined) {
+    element.style.width = '0%';
+    return;
+  }
+  setSegmentWidth(element, Number(accuracy.score), 1);
+}
+
 function renderRunTelemetry({
   baseLatency,
   retrievalLatency,
@@ -733,6 +754,10 @@ function renderRunTelemetry({
   baseOutputTokens,
   dmlOutputTokens,
   ragOutputTokens,
+  baseAccuracy,
+  dmlAccuracy,
+  ragAccuracy,
+  answerKey,
   dmlNodes,
   ragDocs,
 }) {
@@ -760,6 +785,9 @@ function renderRunTelemetry({
   elements.graphBaseTokens.textContent = formatNumber(baseTotalTokens);
   elements.graphDmlTokens.textContent = formatNumber(dmlTotalTokens);
   elements.graphRagTokens.textContent = formatNumber(ragTotalTokens);
+  elements.graphBaseAccuracy.textContent = baseAccuracy?.scored ? formatAccuracy(baseAccuracy.score) : '-';
+  elements.graphDmlAccuracy.textContent = dmlAccuracy?.scored ? formatAccuracy(dmlAccuracy.score) : '-';
+  elements.graphRagAccuracy.textContent = ragAccuracy?.scored ? formatAccuracy(ragAccuracy.score) : '-';
   setSegmentWidth(elements.barBaseGeneration, baseLatency, maxLatency);
   setSegmentWidth(elements.barDmlRetrieval, retrievalLatency, maxLatency);
   setSegmentWidth(elements.barDmlGeneration, generationLatency, maxLatency);
@@ -771,10 +799,14 @@ function renderRunTelemetry({
   setSegmentWidth(elements.barDmlOutput, dmlOutputTokens, maxTokens);
   setSegmentWidth(elements.barRagInput, ragInputTokens, maxTokens);
   setSegmentWidth(elements.barRagOutput, ragOutputTokens, maxTokens);
+  setAccuracyWidth(elements.barBaseAccuracy, baseAccuracy);
+  setAccuracyWidth(elements.barDmlAccuracy, dmlAccuracy);
+  setAccuracyWidth(elements.barRagAccuracy, ragAccuracy);
   elements.runDmlTokens.textContent = formatNumber(contextTokens);
   elements.runNodes.textContent = formatNumber(dmlNodes);
   elements.runRagTokens.textContent = formatNumber(ragTokens);
   elements.runDocs.textContent = formatNumber(ragDocs);
+  elements.accuracyKey.textContent = answerKey?.facts?.length ? `${formatNumber(answerKey.facts.length)} facts` : 'not scored';
 }
 
 function renderRun(payload, fallbackMode = 'compare') {
@@ -803,6 +835,9 @@ function renderRun(payload, fallbackMode = 'compare') {
   const baseOutputTokens = usageToken(base.usage, 'completion_tokens', 'output_tokens', 'generated_tokens') ?? estimateTokens(baseResponse);
   const dmlOutputTokens = usageToken(dml.usage, 'completion_tokens', 'output_tokens', 'generated_tokens') ?? estimateTokens(response);
   const ragOutputTokens = usageToken(ragBackend?.usage, 'completion_tokens', 'output_tokens', 'generated_tokens') ?? estimateTokens(ragResponse);
+  const baseAccuracy = base.accuracy || null;
+  const dmlAccuracy = dml.accuracy || null;
+  const ragAccuracy = ragBackend?.accuracy || payload?.rag?.accuracy || null;
 
   elements.dmlContext.textContent = dmlContext || 'No DML context was returned for this prompt.';
   elements.dmlContext.classList.toggle('empty', !dmlContext);
@@ -831,6 +866,10 @@ function renderRun(payload, fallbackMode = 'compare') {
     baseOutputTokens,
     dmlOutputTokens,
     ragOutputTokens,
+    baseAccuracy,
+    dmlAccuracy,
+    ragAccuracy,
+    answerKey: payload?.answer_key || null,
     dmlNodes: dmlNodeCount,
     ragDocs: ragDocCount,
   });

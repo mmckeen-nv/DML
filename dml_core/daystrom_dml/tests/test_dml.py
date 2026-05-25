@@ -398,6 +398,34 @@ def test_retrieval_report_caps_context_items_and_summary_size(tmp_path) -> None:
     assert all(len(entry["summary"]) <= 72 for entry in report["entries"])
 
 
+def test_asteria_answer_key_scores_base_dml_and_rag(tmp_path) -> None:
+    adapter = DMLAdapter(
+        config_overrides={
+            "model_name": "dummy",
+            "embedding_model": None,
+            "storage_dir": str(tmp_path / "storage"),
+            "persistence": {"enable": False},
+            "metrics_enabled": False,
+        },
+        embedder=RandomEmbedder(dim=48),
+        summarizer=DummySummarizer(),
+        start_aging_loop=False,
+    )
+
+    key = adapter._answer_key_for_prompt("What are the fuel reserves for Asteria Crossing?")
+    full = adapter._evaluate_answer_accuracy(
+        "Fuel reserves include 41,200 tonnes deuterium slush, 7,900 tonnes helium-3, "
+        "320 kilograms antimatter catalyst, 8,400 tonnes argon, and 19,000 tonnes shield ice.",
+        key,
+    )
+    partial = adapter._evaluate_answer_accuracy("Fuel reserves include argon.", key)
+
+    assert full["scored"] is True
+    assert full["score"] == 1.0
+    assert partial["score"] < full["score"]
+    assert "41,200 tonnes deuterium slush" in partial["missing"]
+
+
 def test_retrieve_context_falls_back_to_recent_memory_when_similarity_filters_all(tmp_path) -> None:
     adapter = DMLAdapter(
         config_overrides={

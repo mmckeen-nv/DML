@@ -762,6 +762,10 @@ class DMLAdapter:
                 }
             )
 
+        answer_key = self._answer_key_for_prompt(prompt)
+        base_accuracy = self._evaluate_answer_accuracy(base_response, answer_key)
+        dml_accuracy = self._evaluate_answer_accuracy(dml_response, answer_key)
+
         rag_top_k = self.config.get("top_k", 6) if top_k is None else top_k
         rag_reports = self.rag_store.report_all(prompt, top_k=rag_top_k)
 
@@ -786,6 +790,7 @@ class DMLAdapter:
                     "sequence": None,
                     "generation_latency_ms": 0,
                     "retrieval_latency_ms": report.get("latency_ms", 0),
+                    "accuracy": self._evaluate_answer_accuracy("", answer_key),
                 }
                 if reference_available:
                     entry["grade"] = {
@@ -824,6 +829,7 @@ class DMLAdapter:
                 "generation_latency_ms": rag_latency,
                 "available": True,
                 "error": report.get("error"),
+                "accuracy": self._evaluate_answer_accuracy(rag_response, answer_key),
             }
 
             if reference_available:
@@ -860,6 +866,7 @@ class DMLAdapter:
                 "usage": base_usage,
                 "sequence": base_sequence,
                 "generation_latency_ms": base_latency,
+                "accuracy": base_accuracy,
             },
             "rag_backends": rag_results,
             "dml": {
@@ -873,7 +880,9 @@ class DMLAdapter:
                 "retrieval_latency_ms": dml_report.get("latency_ms", 0),
                 "generation_latency_ms": dml_latency,
                 "grade": dml_grade,
+                "accuracy": dml_accuracy,
             },
+            "answer_key": self._public_answer_key(answer_key),
             "rag_token_breakdown": [
                 {
                     "id": entry.get("id"),
@@ -968,6 +977,118 @@ class DMLAdapter:
             "score": score,
             "grade": grade,
             "explanation": f"Cosine similarity to DML response: {score:.2f}",
+        }
+
+    def _answer_key_for_prompt(self, prompt: str) -> Optional[Dict[str, Any]]:
+        normalized = str(prompt or "").lower()
+        keys: List[Dict[str, Any]] = []
+
+        def add_fuel() -> None:
+            keys.extend(
+                [
+                    {"label": "41,200 tonnes deuterium slush", "patterns": [r"41,?200", r"deuterium"]},
+                    {"label": "7,900 tonnes helium-3", "patterns": [r"7,?900", r"helium[- ]?3|he[- ]?3"]},
+                    {"label": "320 kilograms antimatter catalyst", "patterns": [r"320", r"antimatter"]},
+                    {"label": "8,400 tonnes argon", "patterns": [r"8,?400", r"argon"]},
+                    {"label": "19,000 tonnes shield ice", "patterns": [r"19,?000", r"shield ice|ice"]},
+                ]
+            )
+
+        def add_inventory_medical() -> None:
+            keys.extend(
+                [
+                    {"label": "Quartermaster Jun Park controls inventory", "patterns": [r"jun park", r"inventory|quartermaster"]},
+                    {"label": "Dr. Mateo Velasquez owns medical stores/care", "patterns": [r"velasquez|velásquez|mateo", r"medical|hibernation|surgical"]},
+                    {"label": "1,200 trauma kits", "patterns": [r"1,?200", r"trauma kit"]},
+                    {"label": "44 surgical nanofiber packs", "patterns": [r"\b44\b", r"surgical nanofiber"]},
+                    {"label": "18 organ scaffold cartridges", "patterns": [r"\b18\b", r"organ scaffold"]},
+                    {"label": "900 hibernation stabilizer vials", "patterns": [r"\b900\b", r"hibernation stabilizer"]},
+                    {"label": "6,400 antiviral courses", "patterns": [r"6,?400", r"antiviral"]},
+                ]
+            )
+
+        def add_landing_site() -> None:
+            keys.extend(
+                [
+                    {"label": "Morrow Basin", "patterns": [r"morrow basin"]},
+                    {"label": "shelter ceramics", "patterns": [r"shelter ceramic"]},
+                    {"label": "landing beacon anchors", "patterns": [r"beacon anchor|landing beacon"]},
+                ]
+            )
+
+        def add_failure_modes() -> None:
+            keys.extend(
+                [
+                    {"label": "Fusion Injector Flutter", "patterns": [r"fusion injector flutter"]},
+                    {"label": "Garden Fungal Bloom", "patterns": [r"garden fungal bloom"]},
+                    {"label": "Optical Bus Desync", "patterns": [r"optical bus desync"]},
+                    {"label": "Crawler Adhesion Loss", "patterns": [r"crawler adhesion loss"]},
+                    {"label": "Hibernation Pod Cascade", "patterns": [r"hibernation pod cascade"]},
+                ]
+            )
+
+        if "fuel" in normalized or "reserves" in normalized:
+            add_fuel()
+        if "inventory" in normalized or "medical" in normalized or "stores" in normalized:
+            add_inventory_medical()
+        if "shelter ceramics" in normalized or "beacon anchors" in normalized or "landing site" in normalized:
+            add_landing_site()
+        if "failure mode" in normalized or "failure modes" in normalized:
+            add_failure_modes()
+
+        if not keys:
+            return None
+        deduped: List[Dict[str, Any]] = []
+        seen: set[str] = set()
+        for fact in keys:
+            label = str(fact["label"])
+            if label in seen:
+                continue
+            seen.add(label)
+            deduped.append(fact)
+        return {"name": "Asteria deterministic answer key", "facts": deduped}
+
+    def _public_answer_key(self, answer_key: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        if not answer_key:
+            return None
+        return {
+            "name": answer_key.get("name"),
+            "facts": [fact.get("label") for fact in answer_key.get("facts", [])],
+        }
+
+    def _evaluate_answer_accuracy(
+        self, response: str, answer_key: Optional[Dict[str, Any]]
+    ) -> Dict[str, Any]:
+        if not answer_key:
+            return {
+                "scored": False,
+                "score": None,
+                "grade": "N/A",
+                "matched": [],
+                "missing": [],
+                "explanation": "No deterministic answer key matched this prompt.",
+            }
+        text = str(response or "").lower()
+        matched: List[str] = []
+        missing: List[str] = []
+        for fact in answer_key.get("facts", []):
+            patterns = fact.get("patterns") or []
+            found = all(re.search(pattern, text, flags=re.IGNORECASE) for pattern in patterns)
+            label = str(fact.get("label") or "")
+            if found:
+                matched.append(label)
+            else:
+                missing.append(label)
+        total = len(matched) + len(missing)
+        score = (len(matched) / total) if total else 0.0
+        return {
+            "scored": True,
+            "score": score,
+            "grade": self._score_to_grade(score),
+            "matched": matched,
+            "missing": missing,
+            "required": total,
+            "explanation": f"Matched {len(matched)} of {total} required Asteria facts.",
         }
 
     @staticmethod

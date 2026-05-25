@@ -376,6 +376,14 @@ pre {
   background: #b8c7ff;
 }
 
+.bar-segment.accuracy {
+  background: linear-gradient(90deg, var(--green), #d4f7a5);
+}
+
+.bar-segment.accuracy.rag {
+  background: linear-gradient(90deg, var(--amber), #ffe0a8);
+}
+
 .telemetry-counts {
   grid-column: 1 / -1;
   flex-wrap: wrap;
