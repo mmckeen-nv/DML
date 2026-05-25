@@ -1771,18 +1771,20 @@ class DMLAdapter:
         if not items:
             return [], "", 0
         budget = int(self.config.get("token_budget", 600))
+        item_limit = self._context_item_limit(len(items))
+        summary_chars = self._context_summary_chars()
         consumed = 0
         lines: List[str] = ["=== Retrieved Context ==="]
         entries: List[Dict[str, Any]] = []
-        for item in items:
-            summary = item.cached_summary(max_len=220)
+        for item in items[:item_limit]:
+            summary = item.cached_summary(max_len=summary_chars)
             tokens = utils.estimate_tokens(summary)
             if consumed + tokens > budget:
                 if entries:
                     break
                 approx_chars = max(32, budget * 4)
                 summary = summary[:approx_chars].rstrip()
-                if len(item.cached_summary(max_len=220)) > len(summary):
+                if len(item.cached_summary(max_len=summary_chars)) > len(summary):
                     summary = summary.rstrip() + "..."
                 tokens = min(max(1, utils.estimate_tokens(summary)), budget)
             consumed += tokens
@@ -2096,15 +2098,33 @@ class DMLAdapter:
             return DEFAULT_DML_TOP_K
         return parsed
 
+    def _context_item_limit(self, available: int) -> int:
+        if available <= 0:
+            return 0
+        try:
+            configured = int(self.config.get("dml_context_max_items", 4) or 4)
+        except (TypeError, ValueError):
+            configured = 4
+        return max(1, min(available, configured))
+
+    def _context_summary_chars(self) -> int:
+        try:
+            configured = int(self.config.get("dml_context_summary_chars", 140) or 140)
+        except (TypeError, ValueError):
+            configured = 140
+        return max(64, min(320, configured))
+
     def _prepare_context(
         self, prompt: str, items: List[MemoryStore.MemoryItem]
     ) -> tuple[List[Dict], str, int]:
         budget = int(self.config.get("token_budget", 600))
+        item_limit = self._context_item_limit(len(items))
+        summary_chars = self._context_summary_chars()
         consumed = 0
         lines: List[str] = ["=== Daystrom Memory Lattice ==="]
         entries: List[Dict] = []
-        for item in items:
-            summary = self._clean_context_fragment(item.cached_summary(max_len=180))
+        for item in items[:item_limit]:
+            summary = self._clean_context_fragment(item.cached_summary(max_len=summary_chars))
             tokens = utils.estimate_tokens(summary)
             if consumed + tokens > budget:
                 break

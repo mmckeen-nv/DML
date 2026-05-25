@@ -370,6 +370,34 @@ def test_retrieve_context_respects_token_budget_and_omits_vectors(tmp_path) -> N
     assert all("embedding" not in item for item in report["items"])
 
 
+def test_retrieval_report_caps_context_items_and_summary_size(tmp_path) -> None:
+    adapter = DMLAdapter(
+        config_overrides={
+            "model_name": "dummy",
+            "embedding_model": None,
+            "storage_dir": str(tmp_path / "storage"),
+            "persistence": {"enable": False},
+            "metrics_enabled": False,
+            "similarity_threshold": 0.0,
+            "dml_context_max_items": 2,
+            "dml_context_summary_chars": 72,
+        },
+        embedder=RandomEmbedder(dim=48),
+        summarizer=DummySummarizer(),
+        start_aging_loop=False,
+    )
+    for idx in range(5):
+        adapter.ingest(
+            f"Memory {idx} contains detailed operational context about telemetry trimming and context packing.",
+            meta={"kind": "note"},
+        )
+
+    report = adapter.retrieval_report("telemetry context packing", top_k=5)
+
+    assert len(report["entries"]) <= 2
+    assert all(len(entry["summary"]) <= 72 for entry in report["entries"])
+
+
 def test_retrieve_context_falls_back_to_recent_memory_when_similarity_filters_all(tmp_path) -> None:
     adapter = DMLAdapter(
         config_overrides={
