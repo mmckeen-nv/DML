@@ -103,6 +103,11 @@ class MemoryStore:
         self._stop_event = threading.Event()
         self._lineage: Dict[int, MemoryItem] = {}
         self._repair_queue: List[int] = []
+        self._cache_version = 0
+        self._embedding_cache_version = -1
+        self._embedding_cache_dim = 0
+        self._embedding_cache_items: List[MemoryItem] = []
+        self._embedding_cache_matrix: Optional[np.ndarray] = None
         self.quality_threshold = -0.1
         self.similarity_threshold = float(max(-1.0, min(1.0, similarity_threshold)))
         # Expensive quality/repair checks can be deferred to a maintenance pass.
@@ -171,6 +176,7 @@ class MemoryStore:
             item.summary_of = [item.id]
             self._register_lineage(item)
             self._items.append(item)
+            self._invalidate_embedding_cache()
             self._enforce_capacity()
             return item, False
 
@@ -182,10 +188,12 @@ class MemoryStore:
             if not self._items:
                 return []
             query_vec = np.asarray(query_embedding, dtype=np.float32)
-            candidates = self._filter_dimension_compatible(self._items, query_vec.size)
+            candidates, key_matrix = self._embedding_snapshot(query_vec.size)
             if not candidates:
                 return []
-            scores, similarities = self._score_candidates(candidates, query_vec, now)
+            scores, similarities = self._score_candidates(
+                candidates, query_vec, now, key_matrix=key_matrix
+            )
             return self._select_top_items(candidates, query_vec, top_k, now, scores, similarities)
 
     def retrieve_filtered(
@@ -310,6 +318,7 @@ class MemoryStore:
         with self._lock:
             self._items = reconstructed
             self._lineage = lineage_map
+            self._invalidate_embedding_cache()
             if self._items:
                 self._id = max(item.id for item in self._items) + 1
             else:
@@ -382,6 +391,34 @@ class MemoryStore:
                 target_dim,
             )
         return compatible
+
+    def _invalidate_embedding_cache(self) -> None:
+        self._cache_version += 1
+        self._embedding_cache_version = -1
+        self._embedding_cache_dim = 0
+        self._embedding_cache_items = []
+        self._embedding_cache_matrix = None
+
+    def _embedding_snapshot(self, target_dim: int) -> tuple[List[MemoryItem], Optional[np.ndarray]]:
+        if target_dim <= 0:
+            return [], None
+        if (
+            self._embedding_cache_version == self._cache_version
+            and self._embedding_cache_dim == target_dim
+            and self._embedding_cache_matrix is not None
+        ):
+            return self._embedding_cache_items, self._embedding_cache_matrix
+        compatible = self._filter_dimension_compatible(self._items, target_dim)
+        matrix = (
+            np.stack([item.embedding for item in compatible]).astype(np.float32)
+            if compatible
+            else None
+        )
+        self._embedding_cache_version = self._cache_version
+        self._embedding_cache_dim = target_dim
+        self._embedding_cache_items = compatible
+        self._embedding_cache_matrix = matrix
+        return compatible, matrix
 
     def _best_match(self, embedding: np.ndarray) -> Tuple[Optional[MemoryItem], float]:
         """Return the most similar existing item and its similarity."""
@@ -456,6 +493,7 @@ class MemoryStore:
                 if child_id not in best.summary_of:
                     best.summary_of.append(child_id)
             self._register_lineage(best)
+            self._invalidate_embedding_cache()
             return best
         return None
 
@@ -491,6 +529,7 @@ class MemoryStore:
         )
         while len(self._items) > self.capacity:
             self._items.pop(0)
+            self._invalidate_embedding_cache()
 
     def _aging_loop(self) -> None:  # pragma: no cover - background thread
         while not self._stop_event.is_set():
@@ -533,6 +572,8 @@ class MemoryStore:
                 item.fidelity *= 0.5
                 new_items.append(new_item)
         self._items.extend(new_items)
+        if new_items:
+            self._invalidate_embedding_cache()
         self._enforce_capacity()
 
     # ------------------------------------------------------------------
@@ -583,9 +624,15 @@ class MemoryStore:
         return text[: max_len - 3] + "..."
 
     def _score_candidates(
-        self, items: Sequence[MemoryItem], query_vec: np.ndarray, now: float
+        self,
+        items: Sequence[MemoryItem],
+        query_vec: np.ndarray,
+        now: float,
+        *,
+        key_matrix: Optional[np.ndarray] = None,
     ) -> tuple[np.ndarray, np.ndarray]:
-        key_matrix = np.stack([item.embedding for item in items]).astype(np.float32)
+        if key_matrix is None:
+            key_matrix = np.stack([item.embedding for item in items]).astype(np.float32)
         backend = self._vector_backend
         similarities = backend.cosine_sim_matrix(query_vec, key_matrix)[0]
         ages = np.array(
@@ -728,6 +775,7 @@ class MemoryStore:
             target.embedding = np.asarray(embedding, dtype=np.float32)
             target.timestamp = time.time()
             self._register_lineage(target)
+            self._invalidate_embedding_cache()
 
     def repair_queue(self) -> List[int]:
         with self._lock:

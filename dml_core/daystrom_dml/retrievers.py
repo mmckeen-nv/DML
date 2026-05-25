@@ -68,6 +68,8 @@ class LiteralRetriever:
         doc_index = self._build_doc_index(search_space)
         for item in search_space:
             snippet, regex_boost = self._extract_snippet(item.text, phrase_pattern)
+            if phrase_pattern is not None and regex_boost <= 0.0:
+                continue
             similarity = utils.cosine_similarity(item.embedding, query_embedding)
             literal_score = self._score_literal(regex_boost, similarity)
             if literal_score == 0.0:

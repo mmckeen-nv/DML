@@ -8,6 +8,7 @@ import os
 import re
 import threading
 import time
+from collections import OrderedDict
 from datetime import datetime, timezone
 from pathlib import Path
 from threading import Event, RLock
@@ -118,6 +119,10 @@ class DMLAdapter:
             self.config.get("embedding_model"),
             device=self.config.get("embedding_device"),
             allow_random_fallback=not strict_embedding_required,
+        )
+        self._query_embedding_cache: OrderedDict[str, np.ndarray] = OrderedDict()
+        self._query_embedding_cache_size = max(
+            0, int(self.config.get("query_embedding_cache_size", 64) or 0)
         )
         if summarizer is not None:
             self.summarizer = summarizer
@@ -1384,7 +1389,7 @@ class DMLAdapter:
             raise ValueError(f"Unsupported mode: {mode}")
         selected_mode = mode if mode != "auto" else decide_mode(prompt)
         start = time.perf_counter()
-        query_embedding = self.embedder.embed(prompt)
+        query_embedding = self._embed_query(prompt)
         items = self.store.items()
         dml_limit = self._resolve_dml_top_k(None)
         top_k = min(len(items), dml_limit)
@@ -1633,7 +1638,7 @@ class DMLAdapter:
         if final_kinds is None and phase_enum in {MemoryPhase.EXECUTE, MemoryPhase.DEBUG}:
             final_kinds = ["action", "observation", "error"]
 
-        query_embedding = self.embedder.embed(prompt)
+        query_embedding = self._embed_query(prompt)
         scoped = any(value is not None for value in (tenant_id, client_id, session_id, instance_id))
         if scoped:
             items = self.store.retrieve_filtered(
@@ -1746,6 +1751,19 @@ class DMLAdapter:
         except ValueError:
             LOGGER.debug("Ignoring unknown memory phase %r", phase)
             return None
+
+    def _embed_query(self, prompt: str) -> np.ndarray:
+        key = re.sub(r"\s+", " ", str(prompt or "").strip()).lower()
+        if self._query_embedding_cache_size > 0 and key in self._query_embedding_cache:
+            embedding = self._query_embedding_cache.pop(key)
+            self._query_embedding_cache[key] = embedding
+            return embedding
+        embedding = self.embedder.embed(prompt)
+        if self._query_embedding_cache_size > 0 and key:
+            self._query_embedding_cache[key] = embedding
+            while len(self._query_embedding_cache) > self._query_embedding_cache_size:
+                self._query_embedding_cache.popitem(last=False)
+        return embedding
 
     def _compact_context_items(
         self, items: List[MemoryItem]
@@ -1999,7 +2017,7 @@ class DMLAdapter:
     ) -> List[MemoryStore.MemoryItem]:
         """Retrieve items with phase-aware filtering."""
         limit = self._resolve_dml_top_k(top_k)
-        prompt_embedding = self.embedder.embed(prompt)
+        prompt_embedding = self._embed_query(prompt)
         semantic_items = self.store.retrieve(prompt_embedding, top_k=limit)
         literal_items: List[MemoryStore.MemoryItem] = []
         with contextlib.suppress(Exception):
@@ -2035,6 +2053,9 @@ class DMLAdapter:
             for item in items:
                 meta = item.meta or {}
                 item_kind = str(meta.get("kind", "memory")).lower()
+                item_phase = str(meta.get("phase") or "").strip().lower()
+                if item_phase and item_phase != phase:
+                    continue
                 if item_kind in ["action", "observation", "error"]:
                     filtered.append(item)
             items = filtered

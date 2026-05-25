@@ -36,6 +36,10 @@ class GPTRunner:
     def __post_init__(self) -> None:
         self._backend = None
         self._last_usage: Optional[dict] = None
+        if str(self.model_name or "").strip().lower() == "dummy":
+            LOGGER.warning("Using deterministic local completion backend.")
+            self._backend = _DummyBackend()
+            return
         remote_base = os.getenv("DML_API_BASE") or os.getenv("OPENAI_API_BASE")
         remote_base = remote_base or os.getenv("NIM_API_BASE")
         remote_key = os.getenv("DML_API_KEY") or os.getenv("OPENAI_API_KEY")
@@ -129,13 +133,24 @@ class GPTRunner:
             self._last_usage = usage
             return text
         if hasattr(self._backend, "generate"):
-            return self._backend.generate(
-                prompt=prompt,
-                max_new_tokens=max_new_tokens,
-                temperature=temperature if temperature is not None else self.temperature,
-                top_p=top_p if top_p is not None else self.top_p,
-                stop=stop,
-            )
+            try:
+                return self._backend.generate(
+                    prompt=prompt,
+                    max_new_tokens=max_new_tokens,
+                    temperature=temperature if temperature is not None else self.temperature,
+                    top_p=top_p if top_p is not None else self.top_p,
+                    stop=stop,
+                )
+            except requests.RequestException as exc:
+                if self._backend.__class__.__name__ != "OllamaBackend":
+                    raise
+                LOGGER.warning(
+                    "Ollama generation failed for model %s; using deterministic local completion backend: %s",
+                    self.model_name,
+                    exc,
+                )
+                self._backend = _DummyBackend()
+                return self._backend.generate(prompt, max_new_tokens=max_new_tokens)
         outputs = self._backend(prompt, max_new_tokens=max_new_tokens)
         if isinstance(outputs, list):
             return outputs[0]["generated_text"]

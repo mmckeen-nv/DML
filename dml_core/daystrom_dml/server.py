@@ -1298,12 +1298,13 @@ def rag_retrieve(payload: QueryPayload) -> dict:
 @app.post("/rag/compare")
 def rag_compare(payload: ComparePayload) -> dict:
     try:
-        result = adapter.compare_responses(
-            payload.prompt,
-            top_k=payload.top_k,
-            max_new_tokens=payload.max_new_tokens or 512,
-            allow_reinforce=False,
-        )
+        compare_kwargs = {
+            "top_k": payload.top_k,
+            "max_new_tokens": payload.max_new_tokens or 512,
+        }
+        if "allow_reinforce" in inspect.signature(adapter.compare_responses).parameters:
+            compare_kwargs["allow_reinforce"] = False
+        result = adapter.compare_responses(payload.prompt, **compare_kwargs)
     except Exception as exc:
         if requests and isinstance(exc, requests.RequestException):
             raise HTTPException(status_code=503, detail="NIM backend is unreachable. Start the container and try again.")
