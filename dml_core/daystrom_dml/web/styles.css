@@ -480,6 +480,10 @@ pre {
   cursor: grabbing;
 }
 
+.lattice-svg.panning {
+  cursor: move;
+}
+
 .lattice-plane {
   fill: rgba(138, 180, 255, 0.045);
   stroke: rgba(138, 180, 255, 0.24);

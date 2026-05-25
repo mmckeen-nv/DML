@@ -357,23 +357,20 @@ function nodeMath(entry, highlighted) {
 
 function projectPoint(x, y, z, originX, originY, view = state.latticeView) {
   const angle = Number(view.angle || 0);
-  const zoom = Number(view.zoom || 1);
-  const panX = Number(view.panX || 0);
-  const panY = Number(view.panY || 0);
   const cos = Math.cos(angle);
   const sin = Math.sin(angle);
   const rx = x * cos - y * sin;
   const ry = x * sin + y * cos;
   return {
-    x: originX + panX + (rx - ry) * 32 * zoom,
-    y: originY + panY + (rx + ry) * 18 * zoom - z * zoom,
+    x: originX + (rx - ry) * 32,
+    y: originY + (rx + ry) * 18 - z,
   };
 }
 
-function viewBoxForPoints(points, targetWidth, targetHeight, padding = 48) {
+function fittedViewBoxForPoints(points, targetWidth, targetHeight, padding = 48) {
   const xs = points.map((point) => point.x).filter(Number.isFinite);
   const ys = points.map((point) => point.y).filter(Number.isFinite);
-  if (!xs.length || !ys.length) return `0 0 ${targetWidth} ${targetHeight}`;
+  if (!xs.length || !ys.length) return { x: 0, y: 0, width: targetWidth, height: targetHeight };
   let minX = Math.min(...xs) - padding;
   let maxX = Math.max(...xs) + padding;
   let minY = Math.min(...ys) - padding;
@@ -393,7 +390,17 @@ function viewBoxForPoints(points, targetWidth, targetHeight, padding = 48) {
     minX -= delta;
     width = nextWidth;
   }
-  return `${minX.toFixed(2)} ${minY.toFixed(2)} ${width.toFixed(2)} ${height.toFixed(2)}`;
+  return { x: minX, y: minY, width, height };
+}
+
+function cameraViewBoxForPoints(points, targetWidth, targetHeight) {
+  const base = fittedViewBoxForPoints(points, targetWidth, targetHeight);
+  const zoom = clamp(Number(state.latticeView.zoom || 1), 0.62, 1.75);
+  const width = base.width / zoom;
+  const height = base.height / zoom;
+  const x = base.x + (base.width - width) / 2 - Number(state.latticeView.panX || 0);
+  const y = base.y + (base.height - height) / 2 - Number(state.latticeView.panY || 0);
+  return `${x.toFixed(2)} ${y.toFixed(2)} ${width.toFixed(2)} ${height.toFixed(2)}`;
 }
 
 function renderLattice(entries = dmlEntries(), highlightedEntries = []) {
@@ -510,7 +517,7 @@ function renderLattice(entries = dmlEntries(), highlightedEntries = []) {
       `<line class="axis ${name}" x1="${start.x.toFixed(2)}" y1="${start.y.toFixed(2)}" x2="${end.x.toFixed(2)}" y2="${end.y.toFixed(2)}"></line>`
   );
 
-  elements.latticeSvg.setAttribute('viewBox', viewBoxForPoints(projectedPoints, width, height));
+  elements.latticeSvg.setAttribute('viewBox', cameraViewBoxForPoints(projectedPoints, width, height));
   elements.latticeSvg.innerHTML = [
     ...layerPlanes,
     '<g class="lattice-axes">',
@@ -910,10 +917,13 @@ function setupLatticeControls() {
 
   const beginDrag = (event) => {
     state.latticeView.dragging = true;
-    state.latticeView.dragMode = event.shiftKey ? 'rotate' : 'pan';
+    state.latticeView.dragMode = event.button === 1 || event.button === 2 || event.shiftKey || event.altKey
+      ? 'pan'
+      : 'rotate';
     state.latticeView.lastX = event.clientX;
     state.latticeView.lastY = event.clientY;
     svg.classList.add('dragging');
+    svg.classList.toggle('panning', state.latticeView.dragMode === 'pan');
   };
   const moveDrag = (event) => {
     if (!state.latticeView.dragging) return;
@@ -931,9 +941,11 @@ function setupLatticeControls() {
   const endDrag = () => {
     state.latticeView.dragging = false;
     svg.classList.remove('dragging');
+    svg.classList.remove('panning');
   };
 
   svg.addEventListener('pointerdown', (event) => {
+    if (![0, 1, 2].includes(event.button)) return;
     event.preventDefault();
     beginDrag(event);
     svg.setPointerCapture?.(event.pointerId);
@@ -941,6 +953,7 @@ function setupLatticeControls() {
   window.addEventListener('pointermove', moveDrag);
   window.addEventListener('pointerup', endDrag);
   window.addEventListener('pointercancel', endDrag);
+  svg.addEventListener('contextmenu', (event) => event.preventDefault());
   svg.addEventListener('wheel', (event) => {
     event.preventDefault();
     updateLatticeView({ zoomMultiplier: event.deltaY < 0 ? 1.08 : 0.92 });
