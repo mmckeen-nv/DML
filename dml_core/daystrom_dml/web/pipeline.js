@@ -4,8 +4,10 @@ const els = {
   status: $('#pipeline-status'),
   apiKey: $('#api-key-state'),
   message: $('#pipeline-message'),
+  loadFlappy: $('#load-flappy-demo'),
   prepare: $('#prepare-pipeline'),
   run: $('#run-paid-inference'),
+  runDirect: $('#run-direct-inference'),
   prompt: $('#pipeline-prompt'),
   model: $('#pipeline-model'),
   effort: $('#pipeline-effort'),
@@ -15,6 +17,7 @@ const els = {
   directOutput: $('#pipeline-direct-output'),
   localDraft: $('#pipeline-local-draft'),
   mode: $('#metric-mode'),
+  turns: $('#metric-turns'),
   frontierInput: $('#metric-frontier-input'),
   inputSaved: $('#metric-input-saved'),
   outputSaved: $('#metric-output-saved'),
@@ -34,10 +37,18 @@ const els = {
   localOutput: $('#pipeline-local-output'),
   frontierPrompt: $('#pipeline-frontier-prompt'),
   frontierResponse: $('#pipeline-frontier-response'),
+  directPrompt: $('#pipeline-direct-prompt'),
+  directResponse: $('#pipeline-direct-response'),
   dmlCount: $('#dml-pipeline-count'),
   draftCount: $('#local-draft-count'),
   promptCount: $('#frontier-prompt-count'),
   responseCount: $('#frontier-response-count'),
+  directPromptCount: $('#direct-prompt-count'),
+  directResponseCount: $('#direct-response-count'),
+};
+
+const state = {
+  scenario: null,
 };
 
 function formatNumber(value) {
@@ -86,7 +97,7 @@ function payload() {
   return {
     prompt: els.prompt.value,
     tenant_id: 'openclaw',
-    session_id: 'daystrom-inference-pipeline',
+    session_id: state.scenario?.session_id || 'daystrom-inference-pipeline',
     model: els.model.value,
     reasoning_effort: els.effort.value,
     top_k: Number(els.topK.value || 8),
@@ -120,6 +131,9 @@ function renderPrepared(data) {
   setStatus(els.apiKey, data.api_key_configured ? 'key configured' : 'key missing', data.api_key_configured ? 'good' : 'warn');
   setStatus(els.artifactStatus, 'prepared', 'good');
   els.mode.textContent = data.mode || '-';
+  els.turns.textContent = state.scenario
+    ? `${formatNumber(state.scenario.dml_turns)} / ${formatNumber(state.scenario.traditional_turns)}`
+    : '-';
   els.frontierInput.textContent = formatNumber(telemetry.frontier_input_tokens);
   els.inputSaved.textContent = `${formatNumber(telemetry.input_tokens_saved_estimate)} (${telemetry.input_savings_pct_estimate || 0}%)`;
   els.outputSaved.textContent = `${formatNumber(telemetry.output_tokens_saved_estimate)} (${telemetry.output_savings_pct_estimate || 0}%)`;
@@ -135,6 +149,38 @@ function renderPrepared(data) {
   els.draftCount.textContent = `${formatNumber(telemetry.local_draft_tokens)} tokens`;
   els.promptCount.textContent = `${formatNumber(telemetry.frontier_input_tokens)} tokens`;
   renderBars(telemetry);
+}
+
+function renderScenario(data) {
+  state.scenario = data;
+  els.prompt.value = data.prompt || els.prompt.value;
+  els.topK.value = data.top_k || els.topK.value;
+  els.frontierMax.value = data.frontier_max_tokens || els.frontierMax.value;
+  els.directInput.value = data.direct_input_tokens_estimate || 0;
+  els.directOutput.value = data.direct_output_tokens_estimate || 0;
+  els.localDraft.checked = false;
+  els.directPrompt.textContent = data.direct_prompt || '';
+  els.directPromptCount.textContent = `${formatNumber(data.direct_input_tokens_estimate || estimateTokens(data.direct_prompt))} tokens`;
+  els.directResponse.textContent = 'Run the direct baseline to compare output without DML-assisted context compression.';
+  els.directResponseCount.textContent = '0 tokens';
+  els.turns.textContent = `${formatNumber(data.dml_turns)} / ${formatNumber(data.traditional_turns)}`;
+  els.message.textContent = `Loaded ${data.title}: ${formatNumber(data.memory_count)} DML memories, ${formatNumber(data.traditional_turns)} simulated baseline turns.`;
+}
+
+async function loadFlappyDemo() {
+  setBusy(els.loadFlappy, true, 'Loading');
+  setStatus(els.status, 'seeding demo', 'warn');
+  els.message.textContent = '';
+  try {
+    const data = await requestJSON('/inference/scenarios/flappy-bird', { method: 'POST' });
+    renderScenario(data);
+    await prepareOnly();
+  } catch (error) {
+    setStatus(els.status, 'error', 'bad');
+    els.message.textContent = error.message;
+  } finally {
+    setBusy(els.loadFlappy, false, 'Load Flappy Bird Demo');
+  }
 }
 
 async function prepareOnly() {
@@ -179,6 +225,40 @@ async function runPaidInference() {
   }
 }
 
+async function runDirectInference() {
+  if (!state.scenario?.direct_prompt) {
+    els.message.textContent = 'Load the Flappy Bird demo first so the direct baseline prompt is available.';
+    return;
+  }
+  setBusy(els.runDirect, true, 'Running');
+  setStatus(els.status, 'direct call', 'warn');
+  els.message.textContent = '';
+  try {
+    const data = await requestJSON('/inference/direct/run', {
+      method: 'POST',
+      body: JSON.stringify({
+        prompt: state.scenario.direct_prompt,
+        model: els.model.value,
+        reasoning_effort: els.effort.value,
+      }),
+    });
+    const output = data.inference?.output_text || '';
+    const usage = data.telemetry?.usage || {};
+    const outputTokens = usage.output_tokens || data.telemetry?.direct_output_tokens_observed || estimateTokens(output);
+    els.directResponse.textContent = output || JSON.stringify(data.inference?.raw || {}, null, 2);
+    els.directResponseCount.textContent = `${formatNumber(outputTokens)} tokens`;
+    els.message.textContent = `Direct baseline completed in ${formatMs(data.inference?.latency_ms)}.`;
+    setStatus(els.status, 'complete', 'good');
+  } catch (error) {
+    setStatus(els.status, 'error', 'bad');
+    els.message.textContent = error.message;
+  } finally {
+    setBusy(els.runDirect, false, 'Run Direct Baseline');
+  }
+}
+
+els.loadFlappy.addEventListener('click', loadFlappyDemo);
 els.prepare.addEventListener('click', prepareOnly);
 els.run.addEventListener('click', runPaidInference);
+els.runDirect.addEventListener('click', runDirectInference);
 prepareOnly();

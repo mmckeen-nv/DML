@@ -26,6 +26,10 @@
             <strong id="metric-mode">-</strong>
           </article>
           <article class="metric-card">
+            <span>Turns</span>
+            <strong id="metric-turns">-</strong>
+          </article>
+          <article class="metric-card">
             <span>Frontier Input</span>
             <strong id="metric-frontier-input">-</strong>
           </article>
@@ -89,8 +93,10 @@
             </label>
 
             <div class="button-row">
+              <button id="load-flappy-demo" class="secondary" type="button">Load Flappy Bird Demo</button>
               <button id="prepare-pipeline" type="button">Prepare Pipeline</button>
               <button id="run-paid-inference" class="secondary" type="button">Run Paid Inference</button>
+              <button id="run-direct-inference" class="secondary" type="button">Run Direct Baseline</button>
             </div>
             <div id="pipeline-message" class="status-line"></div>
           </article>
@@ -154,6 +160,20 @@
                 <span id="frontier-response-count" class="mini-pill">0 tokens</span>
               </div>
               <pre id="pipeline-frontier-response" class="output-box empty">Run paid inference to see the endpoint response.</pre>
+            </article>
+            <article class="comparison-card">
+              <div class="panel-heading compact">
+                <h3>Direct Baseline Prompt</h3>
+                <span id="direct-prompt-count" class="mini-pill">0 tokens</span>
+              </div>
+              <pre id="pipeline-direct-prompt" class="output-box context-box empty">Load the canned demo to inspect the no-DML transcript prompt.</pre>
+            </article>
+            <article class="comparison-card">
+              <div class="panel-heading compact">
+                <h3>Direct Baseline Response</h3>
+                <span id="direct-response-count" class="mini-pill">0 tokens</span>
+              </div>
+              <pre id="pipeline-direct-response" class="output-box empty">Run the direct baseline to compare output without DML-assisted context compression.</pre>
             </article>
           </div>
         </section>

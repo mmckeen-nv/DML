@@ -424,6 +424,33 @@ def test_inference_prepare_builds_frontier_request(monkeypatch: pytest.MonkeyPat
     assert payload["telemetry"]["output_tokens_saved_estimate"] == 480
 
 
+def test_flappy_bird_scenario_seeds_canned_code_agent_run(monkeypatch: pytest.MonkeyPatch) -> None:
+    class StubAdapter:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict | None]] = []
+
+        def ingest(self, text: str, meta: dict | None = None) -> None:
+            self.calls.append((text, meta))
+
+    stub = StubAdapter()
+    monkeypatch.setattr(server, "adapter", stub)
+    server.SEEDED_INFERENCE_SCENARIOS.discard("flappy-bird-code-agent")
+
+    with _client(monkeypatch) as client:
+        response = client.post("/inference/scenarios/flappy-bird")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["session_id"] == "flappy-bird-canned-demo"
+    assert payload["traditional_turns"] == 16
+    assert payload["dml_turns"] == 3
+    assert payload["direct_input_tokens_estimate"] > 0
+    assert "Flappy Bird" in payload["prompt"]
+    assert "Traditional agent turn 16" in payload["direct_prompt"]
+    assert len(stub.calls) == payload["memory_count"]
+    assert any(call[1]["kind"] == "survival_ledger" for call in stub.calls)
+
+
 def test_inference_run_requires_env_key(monkeypatch: pytest.MonkeyPatch) -> None:
     class StubAdapter:
         def retrieve_context(self, prompt: str, **kwargs) -> dict:
@@ -434,6 +461,16 @@ def test_inference_run_requires_env_key(monkeypatch: pytest.MonkeyPatch) -> None
 
     with _client(monkeypatch) as client:
         response = client.post("/inference/run", json={"prompt": "Spend?"})
+
+    assert response.status_code == 400
+    assert "DML_NVIDIA_API_KEY" in response.json()["detail"]
+
+
+def test_inference_direct_run_requires_env_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("DML_NVIDIA_API_KEY", raising=False)
+
+    with _client(monkeypatch) as client:
+        response = client.post("/inference/direct/run", json={"prompt": "Build code directly"})
 
     assert response.status_code == 400
     assert "DML_NVIDIA_API_KEY" in response.json()["detail"]

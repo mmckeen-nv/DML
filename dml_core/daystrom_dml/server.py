@@ -109,6 +109,7 @@ if WEB_DIR.exists():
 ADAPTER_LOCK = Lock()
 adapter = DMLAdapter(start_aging_loop=False)
 SERVICE_START_TIME = time.time()
+SEEDED_INFERENCE_SCENARIOS: set[str] = set()
 
 
 def _adapter_inference_info(current: Any | None = None) -> dict[str, Any]:
@@ -346,6 +347,12 @@ class InferencePipelinePayload(BaseModel):
     frontier_max_tokens: int = 512
     direct_input_tokens_estimate: Optional[int] = None
     direct_output_tokens_estimate: Optional[int] = None
+    model: str = "azure/openai/gpt-5.2-codex"
+    reasoning_effort: str = "low"
+
+
+class DirectInferencePayload(BaseModel):
+    prompt: str
     model: str = "azure/openai/gpt-5.2-codex"
     reasoning_effort: str = "low"
 
@@ -1368,6 +1375,149 @@ def _local_draft_generator(prompt: str, max_tokens: int) -> str:
     return runner.generate(prompt, max_new_tokens=max_tokens)
 
 
+def _flappy_bird_agentic_scenario() -> dict[str, Any]:
+    """Seed and return a canned code-agent benchmark scenario."""
+
+    scenario_id = "flappy-bird-code-agent"
+    tenant_id = "openclaw"
+    session_id = "flappy-bird-canned-demo"
+    final_prompt = (
+        "Develop a clone of Flappy Bird in Python, test it, harden it, and deliver it to me. "
+        "Use the remembered run context instead of restating the whole transcript. Return a concise delivery with: "
+        "1) final architecture, 2) complete playable Python code in one file, 3) test plan or pytest smoke tests, "
+        "4) hardening notes, and 5) run instructions."
+    )
+    turns = [
+        (
+            "turn-01-requirements",
+            "User requested a Python Flappy Bird clone. Requirements: playable locally, keyboard controls, gravity, "
+            "pipe spawning, collision, score, restart after game over, no network assets, and simple installation."
+        ),
+        (
+            "turn-02-tech-choice",
+            "Agent selected pygame as the target runtime because it is common for small Python games and supports "
+            "keyboard input, frame timing, collision rects, and simple drawing without external art."
+        ),
+        (
+            "turn-03-architecture",
+            "Architecture decision FLAPPY-ARCH-042: one-file implementation with Game, Bird, PipePair, and Config "
+            "objects. Keep constants grouped, avoid global mutable gameplay state, and make collision/test helpers pure."
+        ),
+        (
+            "turn-04-physics",
+            "Physics decision FLAPPY-PHYSICS-117: bird velocity increases by gravity each frame, flap sets velocity "
+            "negative, y position integrates velocity, and pipe speed is frame-time adjusted."
+        ),
+        (
+            "turn-05-rendering",
+            "Rendering plan: draw sky, ground strip, bird circle/body, pipe rectangles, score text, game-over overlay, "
+            "and small restart instructions. Avoid loading files so the demo is self-contained."
+        ),
+        (
+            "turn-06-testing",
+            "Test plan FLAPPY-TEST-233: verify collision detection against pipes and bounds, scoring when a pipe pair "
+            "is passed once, pipe recycling/spawn spacing, restart resets score/game_over, and config sanity."
+        ),
+        (
+            "turn-07-hardening",
+            "Hardening decision FLAPPY-HARDEN-311: clamp delta time to avoid huge physics jumps after pause, handle "
+            "missing pygame with a clear message, keep deterministic helpers for tests, and guard main with __name__."
+        ),
+        (
+            "turn-08-delivery",
+            "Delivery expectation FLAPPY-DELIVER-909: final answer should include complete main.py code, optional "
+            "test_flappy.py snippets, pip install pygame, python main.py, and mention controls SPACE/click to flap."
+        ),
+    ]
+    long_transcript = []
+    for index in range(1, 17):
+        base_key, base_text = turns[(index - 1) % len(turns)]
+        long_transcript.append(
+            f"Traditional agent turn {index:02d} ({base_key}). {base_text} "
+            "Verbose scratchpad: considered sprite sheets, audio, menu screens, persistence, ECS architecture, "
+            "mobile touch controls, generated assets, and packaging; deferred them unless needed for a solid demo."
+        )
+    direct_prompt = (
+        "You are finishing this long coding-agent run without DML. Use the full transcript below and deliver the final "
+        "Flappy Bird clone.\n\n"
+        + "\n\n".join(long_transcript)
+        + "\n\nFinal user request:\n"
+        + final_prompt
+    )
+    memories = [
+        {
+            "text": text,
+            "meta": {
+                "tenant_id": tenant_id,
+                "session_id": session_id,
+                "kind": "code_agent_turn",
+                "source": "canned_flappy_bird_demo",
+                "scenario_id": scenario_id,
+                "step_id": key,
+                "no_merge": True,
+            },
+        }
+        for key, text in turns
+    ]
+    ledger = (
+        "Flappy Bird code-agent survival ledger. "
+        "FLAPPY-ARCH-042 = one-file pygame implementation with Game, Bird, PipePair, Config, pure helpers for tests. "
+        "FLAPPY-PHYSICS-117 = gravity integrates velocity, flap sets negative velocity, pipe speed uses delta time. "
+        "FLAPPY-TEST-233 = test collision, scoring once, pipe recycling, restart reset, config sanity. "
+        "FLAPPY-HARDEN-311 = clamp delta time, clear missing-pygame message, deterministic helpers, guarded main. "
+        "FLAPPY-DELIVER-909 = provide complete main.py, optional pytest smoke tests, install/run instructions, controls."
+    )
+    memories.append(
+        {
+            "text": ledger,
+            "meta": {
+                "tenant_id": tenant_id,
+                "session_id": session_id,
+                "kind": "survival_ledger",
+                "source": "canned_flappy_bird_demo",
+                "scenario_id": scenario_id,
+                "summary": ledger,
+                "no_merge": True,
+                "survival_ledger": True,
+                "anchors": [
+                    "FLAPPY-ARCH-042",
+                    "FLAPPY-PHYSICS-117",
+                    "FLAPPY-TEST-233",
+                    "FLAPPY-HARDEN-311",
+                    "FLAPPY-DELIVER-909",
+                ],
+            },
+        }
+    )
+    if scenario_id not in SEEDED_INFERENCE_SCENARIOS:
+        with ADAPTER_LOCK:
+            current = adapter
+        for memory in memories:
+            current.ingest(memory["text"], meta=memory["meta"])
+        SEEDED_INFERENCE_SCENARIOS.add(scenario_id)
+    return {
+        "id": scenario_id,
+        "title": "Build a Python Flappy Bird Clone",
+        "tenant_id": tenant_id,
+        "session_id": session_id,
+        "prompt": final_prompt,
+        "direct_prompt": direct_prompt,
+        "traditional_turns": len(long_transcript),
+        "dml_turns": 3,
+        "direct_input_tokens_estimate": utils.estimate_tokens(direct_prompt),
+        "direct_output_tokens_estimate": 3200,
+        "frontier_max_tokens": 2200,
+        "top_k": 8,
+        "memory_count": len(memories),
+        "seeded": True,
+    }
+
+
+@app.post("/inference/scenarios/flappy-bird")
+def inference_flappy_bird_scenario() -> dict[str, Any]:
+    return _flappy_bird_agentic_scenario()
+
+
 def _prepare_inference_pipeline(payload: InferencePipelinePayload) -> dict[str, Any]:
     pipeline = FrontierCompressionPipeline(
         adapter,
@@ -1469,6 +1619,62 @@ def inference_run(payload: InferencePipelinePayload) -> dict[str, Any]:
         },
         "telemetry": telemetry,
     }
+
+
+def _run_frontier_direct(payload: DirectInferencePayload) -> dict[str, Any]:
+    api_key = os.environ.get("DML_NVIDIA_API_KEY")
+    if not api_key:
+        raise HTTPException(
+            status_code=400,
+            detail="DML_NVIDIA_API_KEY is not set. Set it in the environment before running paid inference.",
+        )
+    if requests is None:
+        raise HTTPException(status_code=503, detail="Requests library unavailable; cannot call inference endpoint.")
+    request_payload = {
+        "model": payload.model,
+        "input": payload.prompt,
+        "reasoning": {"effort": payload.reasoning_effort},
+    }
+    started = time.perf_counter()
+    try:
+        response = requests.post(
+            os.environ.get("DML_NVIDIA_INFERENCE_URL", "https://inference-api.nvidia.com/v1/responses"),
+            json=request_payload,
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+            timeout=float(os.environ.get("DML_NVIDIA_INFERENCE_TIMEOUT", "180")),
+        )
+        response.raise_for_status()
+    except requests.RequestException as exc:
+        raise HTTPException(status_code=502, detail=f"Inference endpoint failed: {exc}") from exc
+    latency_ms = round((time.perf_counter() - started) * 1000.0, 2)
+    try:
+        inference_payload = response.json()
+    except ValueError:
+        inference_payload = {"text": response.text}
+    output_text = _extract_response_text(inference_payload)
+    raw_usage = inference_payload.get("usage") if isinstance(inference_payload, dict) else {}
+    return {
+        "inference": {
+            "status_code": response.status_code,
+            "latency_ms": latency_ms,
+            "output_text": output_text,
+            "raw": inference_payload,
+        },
+        "telemetry": {
+            "direct_input_tokens_estimate": utils.estimate_tokens(payload.prompt),
+            "direct_output_tokens_observed": utils.estimate_tokens(output_text),
+            "frontier_latency_ms": latency_ms,
+            "usage": raw_usage or {},
+        },
+    }
+
+
+@app.post("/inference/direct/run")
+def inference_direct_run(payload: DirectInferencePayload) -> dict[str, Any]:
+    return _run_frontier_direct(payload)
 
 
 def _extract_response_text(payload: Any) -> str:
