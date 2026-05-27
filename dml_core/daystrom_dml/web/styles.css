@@ -34,6 +34,17 @@ textarea {
   font: inherit;
 }
 
+select {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #101314;
+  color: var(--text);
+  padding: 12px;
+  outline: none;
+  font: inherit;
+}
+
 button,
 .button-link {
   min-height: 40px;
@@ -150,6 +161,11 @@ pre {
   gap: 16px;
 }
 
+.pipeline-dashboard {
+  display: grid;
+  gap: 16px;
+}
+
 .overview-strip,
 .run-strip,
 .demo-stage,
@@ -184,6 +200,50 @@ pre {
 .setup-grid {
   grid-template-columns: minmax(280px, 0.75fr) minmax(360px, 1.5fr) minmax(280px, 0.8fr);
   align-items: start;
+}
+
+.pipeline-grid {
+  display: grid;
+  grid-template-columns: minmax(420px, 0.9fr) minmax(420px, 1.1fr);
+  gap: 16px;
+  align-items: stretch;
+}
+
+.pipeline-control {
+  display: grid;
+  gap: 14px;
+  align-content: start;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text);
+}
+
+.toggle-row input {
+  width: auto;
+}
+
+.pipeline-bars {
+  display: grid;
+  gap: 18px;
+  margin-top: 8px;
+}
+
+.pipeline-counts {
+  margin-top: 18px;
+}
+
+.pipeline-artifacts .output-box {
+  min-height: 320px;
 }
 
 .panel,
@@ -975,6 +1035,7 @@ pre {
   .comparison-grid,
   .signals-grid,
   .setup-grid,
+  .pipeline-grid,
   .telemetry-layout {
     grid-template-columns: 1fr;
   }
@@ -991,7 +1052,8 @@ pre {
   }
 
   .overview-strip,
-  .run-strip {
+  .run-strip,
+  .form-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -1009,6 +1071,7 @@ pre {
 
   .overview-strip,
   .run-strip,
+  .form-grid,
   .upload-form {
     grid-template-columns: 1fr;
   }

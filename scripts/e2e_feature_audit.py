@@ -570,6 +570,43 @@ def audit_playground_server(adapter: DMLAdapter) -> list[dict[str, Any]]:
 
     results.append(run_step("server.query+rag", query_and_rag))
 
+    def inference_pipeline_ops() -> dict[str, Any]:
+        page = client.get("/pipeline")
+        script = client.get("/static/pipeline.js")
+        prepare = client.post(
+            "/inference/prepare",
+            json={
+                "prompt": "What is the Zephyr server token?",
+                "tenant_id": "openclaw",
+                "session_id": "pipeline-audit",
+                "direct_input_tokens_estimate": 4096,
+                "direct_output_tokens_estimate": 900,
+                "frontier_max_tokens": 420,
+            },
+        )
+        blocked = client.post("/inference/run", json={"prompt": "Do not spend money during audit."})
+        prepared = prepare.json() if response_ok(prepare) else {}
+        telemetry = prepared.get("telemetry") or {}
+        return {
+            "passed": (
+                response_ok(page)
+                and "Daystrom Inference Pipeline" in page.text
+                and response_ok(script)
+                and "Prepare Pipeline" in script.text
+                and response_ok(prepare)
+                and telemetry.get("input_tokens_saved_estimate", 0) > 0
+                and telemetry.get("output_tokens_saved_estimate", 0) == 480
+                and blocked.status_code == 400
+            ),
+            "endpoints": ["/pipeline", "/static/pipeline.js", "/inference/prepare", "/inference/run"],
+            "mode": prepared.get("mode"),
+            "frontier_input_tokens": telemetry.get("frontier_input_tokens"),
+            "input_tokens_saved_estimate": telemetry.get("input_tokens_saved_estimate"),
+            "paid_path_guarded": blocked.status_code == 400,
+        }
+
+    results.append(run_step("server.inference_pipeline", inference_pipeline_ops))
+
     def visualizer_ops() -> dict[str, Any]:
         page = client.get("/visualizer")
         url = client.get("/visualizer/url")

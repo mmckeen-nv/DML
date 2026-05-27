@@ -36,6 +36,7 @@ from structlog.stdlib import ProcessorFormatter
 
 from . import utils, visualizer_bridge
 from .dml_adapter import DMLAdapter
+from .frontier_pipeline import FrontierCompressionPipeline, FrontierPipelineConfig
 from .metrics import latest_metrics, record_tokens
 
 try:  # httpx is required for proxying the visualizer through the API origin
@@ -333,6 +334,22 @@ class ComparePayload(BaseModel):
     max_new_tokens: Optional[int] = 512
 
 
+class InferencePipelinePayload(BaseModel):
+    prompt: str
+    tenant_id: str = "openclaw"
+    client_id: Optional[str] = None
+    session_id: Optional[str] = None
+    instance_id: Optional[str] = None
+    top_k: int = 8
+    include_local_draft: bool = True
+    local_max_tokens: int = 256
+    frontier_max_tokens: int = 512
+    direct_input_tokens_estimate: Optional[int] = None
+    direct_output_tokens_estimate: Optional[int] = None
+    model: str = "azure/openai/gpt-5.2-codex"
+    reasoning_effort: str = "low"
+
+
 class NimConfigurePayload(BaseModel):
     nim_id: Optional[str] = None
     nim_image: Optional[str] = None
@@ -422,6 +439,14 @@ def home() -> HTMLResponse:
     if not index.exists():
         raise HTTPException(status_code=404, detail="Frontend bundle missing")
     return HTMLResponse(index.read_text(encoding="utf-8"))
+
+
+@app.get("/pipeline", response_class=HTMLResponse)
+def inference_pipeline_demo() -> HTMLResponse:
+    page = WEB_DIR / "pipeline.html"
+    if not page.exists():
+        raise HTTPException(status_code=404, detail="Inference pipeline demo missing")
+    return HTMLResponse(page.read_text(encoding="utf-8"))
 
 
 def _resolve_visualizer_url(request: Request) -> str:
@@ -1334,6 +1359,146 @@ def rag_compare(payload: ComparePayload) -> dict:
     if inference:
         response["inference"] = inference
     return response
+
+
+def _local_draft_generator(prompt: str, max_tokens: int) -> str:
+    runner = getattr(adapter, "runner", None)
+    if runner is None or getattr(runner, "is_dummy", False):
+        return ""
+    return runner.generate(prompt, max_new_tokens=max_tokens)
+
+
+def _prepare_inference_pipeline(payload: InferencePipelinePayload) -> dict[str, Any]:
+    pipeline = FrontierCompressionPipeline(
+        adapter,
+        config=FrontierPipelineConfig(
+            top_k=payload.top_k,
+            local_max_tokens=payload.local_max_tokens,
+            frontier_max_tokens=payload.frontier_max_tokens,
+            include_local_draft=payload.include_local_draft,
+        ),
+        draft_generator=_local_draft_generator,
+    )
+    prepared = pipeline.prepare(
+        payload.prompt,
+        tenant_id=payload.tenant_id,
+        client_id=payload.client_id,
+        session_id=payload.session_id,
+        instance_id=payload.instance_id,
+        top_k=payload.top_k,
+        local_max_tokens=payload.local_max_tokens,
+        frontier_max_tokens=payload.frontier_max_tokens,
+        include_local_draft=payload.include_local_draft,
+        direct_input_tokens_estimate=payload.direct_input_tokens_estimate,
+    )
+    telemetry = dict(prepared.get("telemetry") or {})
+    direct_output = int(payload.direct_output_tokens_estimate or 0)
+    frontier_output = int(payload.frontier_max_tokens or 0)
+    if direct_output > 0:
+        saved_output = max(0, direct_output - frontier_output)
+        telemetry["direct_output_tokens_estimate"] = direct_output
+        telemetry["frontier_output_tokens_estimate"] = frontier_output
+        telemetry["output_tokens_saved_estimate"] = saved_output
+        telemetry["output_savings_pct_estimate"] = round(
+            (saved_output / max(1, direct_output)) * 100.0,
+            1,
+        )
+    prepared["telemetry"] = telemetry
+    prepared["frontier_request"] = {
+        "url": os.environ.get("DML_NVIDIA_INFERENCE_URL", "https://inference-api.nvidia.com/v1/responses"),
+        "model": payload.model,
+        "reasoning": {"effort": payload.reasoning_effort},
+        "input": prepared.get("frontier_prompt", ""),
+        "max_output_tokens": payload.frontier_max_tokens,
+    }
+    prepared["api_key_configured"] = bool(os.environ.get("DML_NVIDIA_API_KEY"))
+    return prepared
+
+
+@app.post("/inference/prepare")
+def inference_prepare(payload: InferencePipelinePayload) -> dict[str, Any]:
+    return _prepare_inference_pipeline(payload)
+
+
+@app.post("/inference/run")
+def inference_run(payload: InferencePipelinePayload) -> dict[str, Any]:
+    api_key = os.environ.get("DML_NVIDIA_API_KEY")
+    if not api_key:
+        raise HTTPException(
+            status_code=400,
+            detail="DML_NVIDIA_API_KEY is not set. Set it in the environment before running paid inference.",
+        )
+    if requests is None:
+        raise HTTPException(status_code=503, detail="Requests library unavailable; cannot call inference endpoint.")
+    prepared = _prepare_inference_pipeline(payload)
+    request_payload = {
+        "model": payload.model,
+        "input": prepared.get("frontier_prompt", ""),
+        "reasoning": {"effort": payload.reasoning_effort},
+    }
+    started = time.perf_counter()
+    try:
+        response = requests.post(
+            os.environ.get("DML_NVIDIA_INFERENCE_URL", "https://inference-api.nvidia.com/v1/responses"),
+            json=request_payload,
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+            timeout=float(os.environ.get("DML_NVIDIA_INFERENCE_TIMEOUT", "180")),
+        )
+        response.raise_for_status()
+    except requests.RequestException as exc:
+        raise HTTPException(status_code=502, detail=f"Inference endpoint failed: {exc}") from exc
+    latency_ms = round((time.perf_counter() - started) * 1000.0, 2)
+    try:
+        inference_payload = response.json()
+    except ValueError:
+        inference_payload = {"text": response.text}
+    output_text = _extract_response_text(inference_payload)
+    telemetry = dict(prepared.get("telemetry") or {})
+    telemetry["frontier_latency_ms"] = latency_ms
+    telemetry["frontier_output_tokens_observed"] = utils.estimate_tokens(output_text)
+    return {
+        "prepared": prepared,
+        "inference": {
+            "status_code": response.status_code,
+            "latency_ms": latency_ms,
+            "output_text": output_text,
+            "raw": inference_payload,
+        },
+        "telemetry": telemetry,
+    }
+
+
+def _extract_response_text(payload: Any) -> str:
+    if isinstance(payload, str):
+        return payload
+    if not isinstance(payload, dict):
+        return str(payload)
+    if isinstance(payload.get("output_text"), str):
+        return payload["output_text"]
+    if isinstance(payload.get("text"), str):
+        return payload["text"]
+    output = payload.get("output")
+    if isinstance(output, list):
+        chunks: list[str] = []
+        for item in output:
+            if not isinstance(item, dict):
+                continue
+            content = item.get("content")
+            if isinstance(content, list):
+                for part in content:
+                    if isinstance(part, dict):
+                        text = part.get("text") or part.get("output_text")
+                        if isinstance(text, str):
+                            chunks.append(text)
+            text = item.get("text")
+            if isinstance(text, str):
+                chunks.append(text)
+        if chunks:
+            return "\n".join(chunks).strip()
+    return ""
 
 
 @app.get("/stats")

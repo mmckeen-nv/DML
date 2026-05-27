@@ -381,3 +381,59 @@ def test_rag_retrieve_collects_reports(monkeypatch: pytest.MonkeyPatch) -> None:
             },
         )
     ]
+
+
+def test_pipeline_page_serves_demo(monkeypatch: pytest.MonkeyPatch) -> None:
+    with _client(monkeypatch) as client:
+        response = client.get("/pipeline")
+
+    assert response.status_code == 200
+    assert "Daystrom Inference Pipeline" in response.text
+
+
+def test_inference_prepare_builds_frontier_request(monkeypatch: pytest.MonkeyPatch) -> None:
+    class StubAdapter:
+        def retrieve_context(self, prompt: str, **kwargs) -> dict:
+            return {
+                "raw_context": "=== Retrieved Context ===\nSURVIVAL-ANCHOR-123 is active.",
+                "context_tokens": 12,
+                "items": [{"id": "1", "summary": "SURVIVAL-ANCHOR-123"}],
+                "survival_ledger_included": True,
+            }
+
+    monkeypatch.setattr(server, "adapter", StubAdapter())
+    monkeypatch.delenv("DML_NVIDIA_API_KEY", raising=False)
+
+    with _client(monkeypatch) as client:
+        response = client.post(
+            "/inference/prepare",
+            json={
+                "prompt": "What anchor is active?",
+                "direct_input_tokens_estimate": 1000,
+                "direct_output_tokens_estimate": 900,
+                "frontier_max_tokens": 420,
+            },
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["api_key_configured"] is False
+    assert payload["frontier_request"]["model"] == "azure/openai/gpt-5.2-codex"
+    assert "SURVIVAL-ANCHOR-123" in payload["frontier_prompt"]
+    assert payload["telemetry"]["input_tokens_saved_estimate"] > 0
+    assert payload["telemetry"]["output_tokens_saved_estimate"] == 480
+
+
+def test_inference_run_requires_env_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    class StubAdapter:
+        def retrieve_context(self, prompt: str, **kwargs) -> dict:
+            return {"raw_context": "Context", "context_tokens": 2, "items": []}
+
+    monkeypatch.setattr(server, "adapter", StubAdapter())
+    monkeypatch.delenv("DML_NVIDIA_API_KEY", raising=False)
+
+    with _client(monkeypatch) as client:
+        response = client.post("/inference/run", json={"prompt": "Spend?"})
+
+    assert response.status_code == 400
+    assert "DML_NVIDIA_API_KEY" in response.json()["detail"]
