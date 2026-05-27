@@ -301,6 +301,8 @@ def main(argv: list[str] | None = None) -> int:
         "local_draft_latency_ms": round(local_latency_ms, 2) if local_latency_ms is not None else None,
         "input_token_savings": input_savings,
         "input_token_savings_pct": round((input_savings / max(1, direct_input_tokens)) * 100, 1),
+        "direct_output_tokens_assumed": args.direct_output_tokens,
+        "proxy_verify_output_tokens_assumed": args.verify_output_tokens,
         "output_token_savings": output_savings,
         "output_token_savings_pct": round((output_savings / max(1, args.direct_output_tokens)) * 100, 1),
         "estimated_direct_frontier_cost": round(
