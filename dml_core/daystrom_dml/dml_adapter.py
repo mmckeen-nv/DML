@@ -1846,10 +1846,8 @@ class DMLAdapter:
             instance_id=instance_id,
         )
         ledger_included = False
-        if ledger_item is not None and all(item.id != ledger_item.id for item in items):
-            items = [ledger_item] + items
-            ledger_included = True
-        elif ledger_item is not None and any(item.id == ledger_item.id for item in items):
+        if ledger_item is not None:
+            items = [ledger_item] + [item for item in items if item.id != ledger_item.id]
             ledger_included = True
 
         entries, context, tokens_used = self._compact_context_items(items)
@@ -2155,18 +2153,21 @@ class DMLAdapter:
         lines: List[str] = ["=== Retrieved Context ==="]
         entries: List[Dict[str, Any]] = []
         for item in items[:item_limit]:
-            summary = item.cached_summary(max_len=summary_chars)
+            meta = item.meta or {}
+            max_len = summary_chars
+            if meta.get("kind") == SURVIVAL_LEDGER_KIND:
+                max_len = max(summary_chars, self.survival_ledger_summary_chars)
+            summary = item.cached_summary(max_len=max_len)
             tokens = utils.estimate_tokens(summary)
             if consumed + tokens > budget:
                 if entries:
                     break
                 approx_chars = max(32, budget * 4)
                 summary = summary[:approx_chars].rstrip()
-                if len(item.cached_summary(max_len=summary_chars)) > len(summary):
+                if len(item.cached_summary(max_len=max_len)) > len(summary):
                     summary = summary.rstrip() + "..."
                 tokens = min(max(1, utils.estimate_tokens(summary)), budget)
             consumed += tokens
-            meta = item.meta or {}
             source = meta.get("source", "unknown")
             timestamp = time.strftime("%Y-%m-%d", time.gmtime(item.timestamp))
             lines.append(f"- ({timestamp}) [source={source}]\n  {summary}")
