@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import math
 import re
 import sys
@@ -151,6 +152,11 @@ def run_step(name: str, fn: Callable[[], dict[str, Any]]) -> dict[str, Any]:
     return {"name": name, "status": status, "latency_ms": round(timer.ms, 2), **payload}
 
 
+def response_ok(response: Any, *expected_statuses: int) -> bool:
+    statuses = expected_statuses or (200,)
+    return int(getattr(response, "status_code", 0)) in statuses
+
+
 def audit_adapter(adapter: DMLAdapter) -> list[dict[str, Any]]:
     results: list[dict[str, Any]] = []
 
@@ -168,6 +174,39 @@ def audit_adapter(adapter: DMLAdapter) -> list[dict[str, Any]]:
         }
 
     results.append(run_step("adapter.ingest", ingest))
+
+    def adapter_reports() -> dict[str, Any]:
+        stats = adapter.stats()
+        knowledge = adapter.knowledge_report()
+        preamble = adapter.build_preamble("Mission Zephyr inventory lockbox", top_k=4)
+        generation = adapter.run_generation("Mission Zephyr lockbox code?", max_new_tokens=64)
+        silent = all(
+            phrase not in generation.lower()
+            for phrase in ("according to the dml", "retrieved context", "private grounding")
+        )
+        return {
+            "passed": stats.get("count", 0) >= 4 and bool(knowledge.get("dml")) and "ORCHID-17" in preamble and silent,
+            "stats_count": stats.get("count"),
+            "knowledge_dml_items": len(knowledge.get("dml") or []),
+            "preamble_tokens": len(preamble.split()),
+            "silent_generation": silent,
+        }
+
+    results.append(run_step("adapter.stats+knowledge+preamble+generation", adapter_reports))
+
+    def adapter_literal_query() -> dict[str, Any]:
+        result = adapter.query_database("Mission Zephyr lockbox ORCHID-17")
+        context = result.get("context", "")
+        score = score_text(context, ("ORCHID-17", "Ada Sol"))
+        return {
+            "passed": score["score"] >= 0.5 and result.get("latency_ms", 0) >= 0,
+            "accuracy": score,
+            "mode": result.get("mode"),
+            "tokens": result.get("tokens"),
+            "reported_latency_ms": result.get("latency_ms"),
+        }
+
+    results.append(run_step("adapter.query_database", adapter_literal_query))
 
     def scoped_recall() -> dict[str, Any]:
         report = adapter.retrieve_context(
@@ -234,11 +273,32 @@ def audit_provider(adapter: DMLAdapter) -> list[dict[str, Any]]:
     client = TestClient(create_app(adapter_factory=lambda: adapter))
     results: list[dict[str, Any]] = []
 
+    def provider_root() -> dict[str, Any]:
+        plain = client.get("/", headers={"accept": "application/json"})
+        html = client.get("/", headers={"accept": "text/html"})
+        version = client.get("/api/version")
+        stats = client.get("/api/stats")
+        return {
+            "passed": (
+                response_ok(plain)
+                and plain.text == "Ollama is running"
+                and response_ok(html)
+                and "memory provider" in html.text.lower()
+                and version.json().get("version", "").startswith("dml-ollama-compatible")
+                and response_ok(stats)
+            ),
+            "endpoints": ["/", "/api/version", "/api/stats"],
+            "stats_count": stats.json().get("count"),
+        }
+
+    results.append(run_step("provider.root+version+stats", provider_root))
+
     results.append(
         run_step(
             "provider.health",
             lambda: {
                 "passed": client.get("/health").json().get("status") == "ok",
+                "endpoints": ["/health"],
             },
         )
     )
@@ -264,14 +324,46 @@ def audit_provider(adapter: DMLAdapter) -> list[dict[str, Any]]:
         return {
             "passed": remember.status_code == 200 and score["score"] == 1.0,
             "accuracy": score,
+            "endpoints": ["/api/remember", "/api/recall"],
             "context_tokens": payload.get("context_tokens"),
             "items": len(payload.get("items") or []),
         }
 
     results.append(run_step("provider.remember+recall", remember_recall))
 
+    def resume_search_fetch() -> dict[str, Any]:
+        resume = client.post(
+            "/api/resume",
+            json={"query": "Zephyr audit token", "tenant_id": "openclaw", "session_id": "provider", "top_k": 4},
+        )
+        search = client.get("/api/search", params={"q": "Zephyr audit token", "tenant_id": "openclaw", "session_id": "provider"})
+        results_payload = search.json().get("results") or []
+        memory_id = str(results_payload[0].get("id")) if results_payload else ""
+        fetch = client.get(f"/api/fetch/{memory_id}") if memory_id else None
+        context = resume.json().get("raw_context", "")
+        score = score_text(context, ("COBALT-29",))
+        return {
+            "passed": response_ok(resume) and response_ok(search) and fetch is not None and response_ok(fetch) and score["score"] == 1.0,
+            "accuracy": score,
+            "endpoints": ["/api/resume", "/api/search", "/api/fetch/{memory_id}"],
+            "search_results": len(results_payload),
+            "fetched_id": memory_id,
+        }
+
+    results.append(run_step("provider.resume+search+fetch", resume_search_fetch))
+
     def ollama_routes() -> dict[str, Any]:
         tags = client.get("/api/tags").json()
+        show = client.post("/api/show", json={"model": "daystrom-dml:memory"}).json()
+        generate = client.post(
+            "/api/generate",
+            json={
+                "model": "daystrom-dml:memory",
+                "prompt": "Zephyr audit token",
+                "tenant_id": "openclaw",
+                "session_id": "provider",
+            },
+        ).json()
         chat = client.post(
             "/api/chat",
             json={
@@ -281,11 +373,41 @@ def audit_provider(adapter: DMLAdapter) -> list[dict[str, Any]]:
                 "session_id": "provider",
             },
         ).json()
+        embeddings = client.post("/api/embeddings", json={"model": "daystrom-dml:memory", "prompt": "hello"}).json()
         embed = client.post("/api/embed", json={"model": "daystrom-dml:memory", "input": ["hello", "world"]}).json()
-        score = score_text(chat.get("message", {}).get("content", ""), ("COBALT-29",))
+        pull = client.post("/api/pull", json={"model": "daystrom-dml:memory"}).json()
+        copy = client.post("/api/copy", json={"source": "daystrom-dml:memory", "destination": "daystrom-dml:test"}).json()
+        delete = client.request("DELETE", "/api/delete", json={"model": "daystrom-dml:test"}).json()
+        ps = client.get("/api/ps").json()
+        score = score_text(
+            "\n".join([chat.get("message", {}).get("content", ""), generate.get("response", "")]),
+            ("COBALT-29",),
+        )
         return {
-            "passed": bool(tags.get("models")) and len(embed.get("embeddings") or []) == 2 and score["score"] == 1.0,
+            "passed": (
+                bool(tags.get("models"))
+                and show.get("details", {}).get("family") == "memory-provider"
+                and len(embeddings.get("embedding") or []) == 384
+                and len(embed.get("embeddings") or []) == 2
+                and pull.get("status") == "success"
+                and copy.get("status") == "success"
+                and delete.get("status") == "success"
+                and isinstance(ps.get("models"), list)
+                and score["score"] == 1.0
+            ),
             "accuracy": score,
+            "endpoints": [
+                "/api/tags",
+                "/api/show",
+                "/api/generate",
+                "/api/chat",
+                "/api/embeddings",
+                "/api/embed",
+                "/api/pull",
+                "/api/copy",
+                "/api/delete",
+                "/api/ps",
+            ],
             "models": [model.get("name") for model in tags.get("models", [])],
             "embeddings": len(embed.get("embeddings") or []),
         }
@@ -295,7 +417,7 @@ def audit_provider(adapter: DMLAdapter) -> list[dict[str, Any]]:
 
 
 def audit_profiles(output_dir: Path) -> list[dict[str, Any]]:
-    profiles = ["openclaw", "hermes", "generic"]
+    profiles = ["openclaw", "hermes", "generic", "nemoclaw", "openshell"]
 
     def profile_case(app: str) -> dict[str, Any]:
         profile = _app_profile(app, base_url="http://127.0.0.1:8765", tenant_id=app, storage_dir=str(output_dir / "store"))
@@ -309,13 +431,187 @@ def audit_profiles(output_dir: Path) -> list[dict[str, Any]]:
     return [run_step(f"profile.{app}", lambda app=app: profile_case(app)) for app in profiles]
 
 
+def audit_playground_server(adapter: DMLAdapter) -> list[dict[str, Any]]:
+    """Exercise the main playground/server API with the isolated adapter."""
+
+    env_overrides = {
+        "DML_VISUALIZER_URL": "http://127.0.0.1:8501",
+        "DML_STORAGE_DIR": str(adapter.storage_dir),
+        "DML_MODEL_NAME": "dummy",
+        "DML_EMBEDDING_MODEL": "",
+        "DML_PERSISTENCE__ENABLE": "false",
+    }
+    previous_env = {key: os.environ.get(key) for key in env_overrides}
+    os.environ.update(env_overrides)
+    from daystrom_dml import server
+
+    previous_adapter = server.adapter
+    previous_visualizer_url = server.VISUALIZER_URL
+    server.adapter = adapter
+    server.VISUALIZER_URL = "http://127.0.0.1:8501"
+    server._launch_visualizer_server = lambda: None
+    client = TestClient(server.app)
+    results: list[dict[str, Any]] = []
+
+    def service_shell() -> dict[str, Any]:
+        home = client.get("/")
+        static_app = client.get("/static/app.js")
+        static_css = client.get("/static/styles.css")
+        metrics = client.get("/metrics")
+        health = client.get("/health")
+        return {
+            "passed": (
+                response_ok(home)
+                and "DML Playground" in home.text
+                and response_ok(static_app)
+                and "renderLattice" in static_app.text
+                and response_ok(static_css)
+                and "lattice-svg" in static_css.text
+                and response_ok(metrics)
+                and response_ok(health)
+                and health.json().get("status") in {"ok", "degraded"}
+            ),
+            "endpoints": ["/", "/static/app.js", "/static/styles.css", "/metrics", "/health"],
+            "health_status": health.json().get("status"),
+        }
+
+    results.append(run_step("server.shell+health+assets", service_shell))
+
+    def server_memory_ops() -> dict[str, Any]:
+        ingest = client.post(
+            "/ingest",
+            json={"text": "Server endpoint memory says Zephyr server token is MARBLE-41.", "meta": {"source": "server-audit"}},
+        )
+        reinforce = client.post(
+            "/reinforce",
+            json={"text": "Server reinforcement remembers MARBLE-41 for continuity.", "meta": {"source": "server-audit"}},
+        )
+        stats = client.get("/stats")
+        knowledge = client.get("/knowledge")
+        return {
+            "passed": response_ok(ingest) and response_ok(reinforce) and response_ok(stats) and response_ok(knowledge) and stats.json().get("count", 0) >= 1,
+            "endpoints": ["/ingest", "/reinforce", "/stats", "/knowledge"],
+            "stats_count": stats.json().get("count"),
+            "knowledge_dml_items": len(knowledge.json().get("dml") or []),
+        }
+
+    results.append(run_step("server.ingest+reinforce+stats+knowledge", server_memory_ops))
+
+    def upload_ops() -> dict[str, Any]:
+        upload = client.post(
+            "/upload",
+            files={"file": ("audit.txt", b"Uploaded Zephyr audit document contains token QUARTZ-88.", "text/plain")},
+        )
+        report = adapter.retrieve_context("QUARTZ-88", top_k=4)
+        score = score_text(report.get("raw_context", ""), ("QUARTZ-88",))
+        payload = upload.json() if response_ok(upload) else {}
+        return {
+            "passed": response_ok(upload) and score["score"] == 1.0 and payload.get("chunks", 0) >= 1,
+            "accuracy": score,
+            "endpoints": ["/upload"],
+            "chunks": payload.get("chunks"),
+            "tokens": payload.get("tokens"),
+        }
+
+    results.append(run_step("server.upload", upload_ops))
+
+    def query_and_rag() -> dict[str, Any]:
+        query = client.post("/query", json={"prompt": "What is the Zephyr server token?"})
+        rag_retrieve = client.post("/rag/retrieve", json={"prompt": "Mission Zephyr lockbox and propulsion"})
+        rag_compare = client.post(
+            "/rag/compare",
+            json={"prompt": CASES[0].query, "top_k": 6, "max_new_tokens": 96},
+        )
+        compare_payload = rag_compare.json()
+        dml_score = score_text(compare_payload.get("dml", {}).get("response", ""), CASES[0].expected)
+        return {
+            "passed": response_ok(query) and response_ok(rag_retrieve) and response_ok(rag_compare) and dml_score["score"] == 1.0,
+            "accuracy": dml_score,
+            "endpoints": ["/query", "/rag/retrieve", "/rag/compare"],
+            "rag_backends": len(rag_retrieve.json().get("rag_backends") or []),
+            "dml_nodes": len(compare_payload.get("dml", {}).get("entries") or []),
+            "dml_latency_ms": compare_payload.get("dml", {}).get("retrieval_latency_ms", 0)
+            + compare_payload.get("dml", {}).get("generation_latency_ms", 0),
+        }
+
+    results.append(run_step("server.query+rag", query_and_rag))
+
+    def visualizer_ops() -> dict[str, Any]:
+        page = client.get("/visualizer")
+        url = client.get("/visualizer/url")
+        state = client.get("/visualizer/state")
+        launch = client.post("/visualizer/launch")
+        return {
+            "passed": (
+                response_ok(page)
+                and "full-lattice-svg" in page.text
+                and response_ok(url)
+                and response_ok(state)
+                and response_ok(launch)
+                and launch.json().get("status") == "external"
+            ),
+            "endpoints": ["/visualizer", "/visualizer/url", "/visualizer/state", "/visualizer/launch"],
+            "launch_status": launch.json().get("status"),
+        }
+
+    results.append(run_step("server.visualizer", visualizer_ops))
+
+    def dpm_ops() -> dict[str, Any]:
+        overlay = client.get("/dpm/overlay", params={"prompt": "status"})
+        graph = client.get("/dpm/graph")
+        preference = client.post("/dpm/preference", json={"text": "Prefer compact audit summaries.", "scope": "relationship"})
+        suppress = client.post("/dpm/preference/audit-node/suppress", json={"reason": "audit"})
+        delete = client.request("DELETE", "/dpm/preference/audit-node")
+        return {
+            "passed": all(response_ok(item) for item in [overlay, graph, preference, suppress, delete]),
+            "endpoints": [
+                "/dpm/overlay",
+                "/dpm/graph",
+                "/dpm/preference",
+                "/dpm/preference/{node_id}/suppress",
+                "/dpm/preference/{node_id}",
+            ],
+            "preference_status": preference.json().get("status"),
+        }
+
+    results.append(run_step("server.dpm", dpm_ops))
+
+    def nim_safe_ops() -> dict[str, Any]:
+        options = client.get("/nim/options")
+        return {
+            "passed": response_ok(options) and bool(options.json().get("options")),
+            "endpoints": ["/nim/options"],
+            "option_count": len(options.json().get("options") or []),
+            "skipped_unsafe": ["/nim/configure", "/nim/start", "/nim/stop"],
+        }
+
+    results.append(run_step("server.nim.safe", nim_safe_ops))
+
+    server.adapter = previous_adapter
+    server.VISUALIZER_URL = previous_visualizer_url
+    for key, value in previous_env.items():
+        if value is None:
+            os.environ.pop(key, None)
+        else:
+            os.environ[key] = value
+    return results
+
+
 def flatten_summary(results: list[dict[str, Any]]) -> dict[str, Any]:
     steps = [step for group in results for step in group.get("steps", [])]
     compare = next((step for step in steps if step["name"] == "adapter.compare_responses DML/RAG"), {})
+    endpoint_names = {
+        endpoint
+        for step in steps
+        for endpoint in step.get("endpoints", [])
+        if isinstance(endpoint, str)
+    }
     return {
         "total_steps": len(steps),
         "passed_steps": sum(1 for step in steps if step.get("status") == "pass"),
         "failed_steps": sum(1 for step in steps if step.get("status") != "pass"),
+        "endpoint_count": len(endpoint_names),
+        "endpoint_count_including_repeated": sum(len(step.get("endpoints", [])) for step in steps),
         "avg_step_latency_ms": round(mean(step.get("latency_ms", 0) for step in steps), 2) if steps else 0,
         "base_accuracy": compare.get("base_accuracy"),
         "dml_accuracy": compare.get("dml_accuracy"),
@@ -369,7 +665,7 @@ def write_svg(path: Path, summary: dict[str, Any], results: list[dict[str, Any]]
         "</defs>",
         "<rect width='1100' height='760' fill='url(#bg)'/>",
         "<text x='44' y='62' class='title'>Daystrom DML E2E Feature Audit</text>",
-        f"<text x='44' y='92' class='muted small'>{summary['passed_steps']} / {summary['total_steps']} checks passed · average step latency {summary['avg_step_latency_ms']} ms</text>",
+        f"<text x='44' y='92' class='muted small'>{summary['passed_steps']} / {summary['total_steps']} checks passed · {summary.get('endpoint_count', 0)} unique endpoints · average step latency {summary['avg_step_latency_ms']} ms</text>",
         "<rect x='44' y='126' width='314' height='150' rx='8' class='card'/>",
         "<rect x='393' y='126' width='314' height='150' rx='8' class='card'/>",
         "<rect x='742' y='126' width='314' height='150' rx='8' class='card'/>",
@@ -447,6 +743,7 @@ def write_markdown(path: Path, summary: dict[str, Any], results: list[dict[str, 
         "## Summary",
         "",
         f"- Checks passed: {summary['passed_steps']} / {summary['total_steps']}",
+        f"- Unique endpoints/routes covered: {summary.get('endpoint_count', 0)}",
         f"- Average step latency: {summary['avg_step_latency_ms']} ms",
         f"- Base accuracy: {pct(summary.get('base_accuracy'))}",
         f"- DML accuracy: {pct(summary.get('dml_accuracy'))}",
@@ -488,6 +785,7 @@ def main(argv: list[str] | None = None) -> int:
             results = [
                 {"group": "adapter", "steps": audit_adapter(adapter)},
                 {"group": "provider", "steps": audit_provider(adapter)},
+                {"group": "playground_server", "steps": audit_playground_server(adapter)},
                 {"group": "profiles", "steps": audit_profiles(output_dir)},
             ]
         finally:
