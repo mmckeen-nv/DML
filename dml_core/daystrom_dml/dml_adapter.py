@@ -12,7 +12,7 @@ from collections import OrderedDict
 from datetime import datetime, timezone
 from pathlib import Path
 from threading import Event, RLock
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 from .config import load_config
@@ -66,6 +66,8 @@ class _PersistentRAGBackendAdapter:
 
 DEFAULT_DML_TOP_K = 8
 MAX_RETRIEVAL_TOP_K = 10
+SURVIVAL_LEDGER_KIND = "survival_ledger"
+SURVIVAL_ANCHOR_RE = re.compile(r"\b[A-Z][A-Z0-9]+(?:-[A-Z0-9]+)+\b")
 
 # Limit the amount of data returned by the knowledge endpoint to keep the
 # payload responsive even when the lattice contains thousands of memories.
@@ -96,6 +98,15 @@ class DMLAdapter:
             self.config.get("enable_quality_on_retrieval", False)
         )
         self.metrics_enabled = bool(self.settings.metrics_enabled)
+        self.survival_ledger_enabled = bool(
+            self.config.get("survival_ledger_enabled", True)
+        )
+        self.survival_ledger_max_anchors = max(
+            8, int(self.config.get("survival_ledger_max_anchors", 80) or 80)
+        )
+        self.survival_ledger_summary_chars = max(
+            160, int(self.config.get("survival_ledger_summary_chars", 1200) or 1200)
+        )
         self.llm_backend = str(self.config.get("llm_backend", "auto"))
         strict_embedding_required = bool(self.config.get("strict_embedding_required", False))
         strict_llm_required = bool(self.config.get("strict_llm_required", False))
@@ -427,6 +438,7 @@ class DMLAdapter:
                 self.agentic_promotion.verified.add(memory_entry)
                 LOGGER.debug(f"Added {kind.value} to verified store")
 
+        self._maybe_update_survival_ledger(text, agentic_meta)
         self._persist_all()
         if self.metrics_enabled:
             update_memory_gauge(len(self.store.items()))
@@ -1616,6 +1628,7 @@ class DMLAdapter:
             with contextlib.suppress(Exception):
                 self.persistent_rag_store.add(rag_text, rag_embedding, meta=rag_meta)
         self.rag_store.add_document(rag_text, meta=rag_meta)
+        self._maybe_update_survival_ledger(text, enriched_meta)
         self._persist_all()
         if self.metrics_enabled:
             update_memory_gauge(len(self.store.items()))
@@ -1826,6 +1839,19 @@ class DMLAdapter:
                     include_quarantined=include_quarantined,
                 )
 
+        ledger_item = self._survival_ledger_for_scope(
+            tenant_id=tenant_id,
+            client_id=client_id,
+            session_id=session_id,
+            instance_id=instance_id,
+        )
+        ledger_included = False
+        if ledger_item is not None and all(item.id != ledger_item.id for item in items):
+            items = [ledger_item] + items
+            ledger_included = True
+        elif ledger_item is not None and any(item.id == ledger_item.id for item in items):
+            ledger_included = True
+
         entries, context, tokens_used = self._compact_context_items(items)
         personality_overlay = None
         if getattr(self.settings.dpm, "include_in_context", True):
@@ -1853,6 +1879,7 @@ class DMLAdapter:
             "phase": phase_enum.value if phase_enum else None,
             "include_quarantined": include_quarantined,
             "items": entries,
+            "survival_ledger_included": ledger_included,
             "personality_overlay": personality_overlay,
             "latency_ms": latency_ms,
         }
@@ -1861,6 +1888,236 @@ class DMLAdapter:
             record_retrieval("context", latency_ms=latency_ms)
 
         return report
+
+    def _maybe_update_survival_ledger(self, text: str, meta: Optional[Dict[str, Any]]) -> None:
+        if not self.survival_ledger_enabled or not text:
+            return
+        metadata = dict(meta or {})
+        if metadata.get("kind") == SURVIVAL_LEDGER_KIND:
+            return
+        tenant_id = metadata.get("tenant_id")
+        session_id = metadata.get("session_id")
+        if not tenant_id or not session_id:
+            return
+        if not self._is_survival_ledger_event(text, metadata):
+            return
+        anchors = self._extract_survival_anchors(text, metadata)
+        if not anchors:
+            return
+        self._upsert_survival_ledger(
+            anchors,
+            tenant_id=str(tenant_id),
+            client_id=metadata.get("client_id"),
+            session_id=str(session_id),
+            instance_id=metadata.get("instance_id"),
+            source_meta=metadata,
+        )
+
+    def _is_survival_ledger_event(self, text: str, meta: Dict[str, Any]) -> bool:
+        if any(
+            key in meta
+            for key in (
+                "compaction_cycle",
+                "virtual_tokens",
+                "survival_ledger",
+                "long_horizon",
+                "continuity_checkpoint",
+            )
+        ):
+            return True
+        marker_text = " ".join(
+            str(value)
+            for key, value in meta.items()
+            if key in {"source", "tool", "kind", "phase", "task_id", "episode_id"}
+        )
+        haystack = f"{text} {marker_text}".lower()
+        return any(
+            marker in haystack
+            for marker in (
+                "compaction",
+                "compact survival ledger",
+                "survival ledger",
+                "long-horizon",
+                "long horizon",
+                "continuity checkpoint",
+                "handoff",
+            )
+        )
+
+    def _extract_survival_anchors(self, text: str, meta: Dict[str, Any]) -> List[str]:
+        values: List[str] = []
+        values.extend(SURVIVAL_ANCHOR_RE.findall(text or ""))
+        for key in (
+            "anchor",
+            "anchors",
+            "decision",
+            "blocker",
+            "next_step",
+            "objective",
+            "invariant",
+        ):
+            value = meta.get(key)
+            if isinstance(value, str):
+                values.extend(SURVIVAL_ANCHOR_RE.findall(value))
+            elif isinstance(value, list):
+                for entry in value:
+                    values.extend(SURVIVAL_ANCHOR_RE.findall(str(entry)))
+        seen = set()
+        ordered: List[str] = []
+        for value in values:
+            if value not in seen:
+                seen.add(value)
+                ordered.append(value)
+        return ordered
+
+    def _survival_scope_key(
+        self,
+        *,
+        tenant_id: Optional[str],
+        client_id: Optional[str],
+        session_id: Optional[str],
+        instance_id: Optional[str],
+    ) -> Tuple[Optional[str], Optional[str], Optional[str], Optional[str]]:
+        return (
+            str(tenant_id) if tenant_id is not None else None,
+            str(client_id) if client_id is not None else None,
+            str(session_id) if session_id is not None else None,
+            str(instance_id) if instance_id is not None else None,
+        )
+
+    def _survival_ledger_for_scope(
+        self,
+        *,
+        tenant_id: Optional[str],
+        client_id: Optional[str],
+        session_id: Optional[str],
+        instance_id: Optional[str],
+    ) -> Optional[MemoryItem]:
+        if not self.survival_ledger_enabled or not tenant_id or not session_id:
+            return None
+        target = self._survival_scope_key(
+            tenant_id=tenant_id,
+            client_id=client_id,
+            session_id=session_id,
+            instance_id=instance_id,
+        )
+        candidates: List[MemoryItem] = []
+        for item in self.store.items():
+            meta = item.meta or {}
+            if meta.get("kind") != SURVIVAL_LEDGER_KIND:
+                continue
+            scope = self._survival_scope_key(
+                tenant_id=meta.get("tenant_id"),
+                client_id=meta.get("client_id"),
+                session_id=meta.get("session_id"),
+                instance_id=meta.get("instance_id"),
+            )
+            if scope == target:
+                candidates.append(item)
+        if not candidates:
+            return None
+        return max(candidates, key=lambda item: item.timestamp)
+
+    def _upsert_survival_ledger(
+        self,
+        anchors: List[str],
+        *,
+        tenant_id: str,
+        client_id: Optional[str],
+        session_id: str,
+        instance_id: Optional[str],
+        source_meta: Dict[str, Any],
+    ) -> None:
+        existing = self._survival_ledger_for_scope(
+            tenant_id=tenant_id,
+            client_id=client_id,
+            session_id=session_id,
+            instance_id=instance_id,
+        )
+        previous: List[str] = []
+        if existing is not None:
+            previous = list((existing.meta or {}).get("anchors") or [])
+        combined = self._merge_survival_anchors(previous, anchors)
+        text = self._render_survival_ledger_text(
+            tenant_id=tenant_id,
+            session_id=session_id,
+            anchors=combined,
+            source_meta=source_meta,
+        )
+        summary = text[: self.survival_ledger_summary_chars].rstrip()
+        if len(text) > len(summary):
+            summary = summary.rstrip() + "..."
+        now = time.time()
+        meta: Dict[str, Any] = {
+            "kind": SURVIVAL_LEDGER_KIND,
+            "source": "dml_survival_ledger",
+            "tenant_id": tenant_id,
+            "client_id": client_id,
+            "session_id": session_id,
+            "instance_id": instance_id,
+            "anchors": combined,
+            "anchor_count": len(combined),
+            "summary": summary,
+            "survival_ledger": True,
+            "updated_at": now,
+            "last_step_id": source_meta.get("step_id"),
+            "last_task_id": source_meta.get("task_id"),
+            "last_virtual_tokens": source_meta.get("virtual_tokens"),
+            "last_compaction_cycle": source_meta.get("compaction_cycle"),
+            "no_merge": True,
+        }
+        embedding = self.embedder.embed(text)
+        if existing is None:
+            self.store.ingest(
+                text,
+                embedding,
+                salience=2.0,
+                fidelity=1.0,
+                level=0,
+                meta=meta,
+            )
+            return
+        with self.store._lock:
+            existing.text = text
+            existing.embedding = np.asarray(embedding, dtype=np.float32)
+            existing.timestamp = now
+            existing.salience = max(float(existing.salience), 2.0)
+            existing.fidelity = 1.0
+            existing.meta = meta
+            self.store._cache_summary(existing, text)
+            self.store._invalidate_embedding_cache()
+
+    def _merge_survival_anchors(self, previous: List[str], incoming: List[str]) -> List[str]:
+        ordered: List[str] = []
+        seen = set()
+        for value in list(previous) + list(incoming):
+            if not value or value in seen:
+                continue
+            seen.add(value)
+            ordered.append(value)
+        if len(ordered) > self.survival_ledger_max_anchors:
+            ordered = ordered[-self.survival_ledger_max_anchors :]
+        return ordered
+
+    def _render_survival_ledger_text(
+        self,
+        *,
+        tenant_id: str,
+        session_id: str,
+        anchors: List[str],
+        source_meta: Dict[str, Any],
+    ) -> str:
+        anchor_text = " ".join(anchors)
+        parts = [
+            f"Survival ledger anchors: {anchor_text}.",
+            f"Scope tenant={tenant_id} session={session_id}.",
+        ]
+        if source_meta.get("virtual_tokens") is not None:
+            parts.append(f"Last virtual token count: {source_meta.get('virtual_tokens')}.")
+        if source_meta.get("compaction_cycle") is not None:
+            parts.append(f"Last compaction cycle: {source_meta.get('compaction_cycle')}.")
+        parts.append("Use this ledger as high-priority continuity state for long-horizon agent recovery.")
+        return " ".join(parts)
 
     def _coerce_memory_phase(self, phase: Optional[str | MemoryPhase]) -> Optional[MemoryPhase]:
         if phase is None:

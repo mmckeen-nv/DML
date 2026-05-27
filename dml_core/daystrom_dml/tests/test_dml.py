@@ -346,6 +346,108 @@ def test_retrieve_context_respects_single_user_session_scope(tmp_path) -> None:
     assert "OPENCLAW-SESSION-B" in tenant_report["raw_context"]
 
 
+def test_survival_ledger_carries_long_horizon_anchors(tmp_path) -> None:
+    adapter = DMLAdapter(
+        config_overrides={
+            "model_name": "dummy",
+            "embedding_model": None,
+            "theta_merge": 2.0,
+            "storage_dir": str(tmp_path / "storage"),
+            "persistence": {"enable": False},
+            "metrics_enabled": False,
+            "similarity_threshold": 0.0,
+            "token_budget": 80,
+            "dml_context_max_items": 2,
+        },
+        embedder=FixedEmbedder(),
+        summarizer=DummySummarizer(),
+        start_aging_loop=False,
+    )
+
+    for idx, anchor in enumerate(
+        [
+            "HORIZON-ANCHOR-005",
+            "HORIZON-ANCHOR-025",
+            "HORIZON-ANCHOR-050",
+            "HORIZON-ANCHOR-075",
+            "HORIZON-ANCHOR-100",
+        ],
+        start=1,
+    ):
+        adapter.ingest_memory(
+            f"Compaction cycle {idx} preserves durable milestone {anchor}.",
+            tenant_id="openclaw",
+            session_id="long-run",
+            kind="note",
+            meta={
+                "compaction_cycle": idx,
+                "virtual_tokens": idx * 250_000_000,
+                "source": "compactor",
+            },
+        )
+    for idx in range(6):
+        adapter.ingest_memory(
+            f"Recent noisy execution detail {idx} should not erase survival anchors.",
+            tenant_id="openclaw",
+            session_id="long-run",
+            kind="note",
+        )
+
+    report = adapter.retrieve_context(
+        "Which HORIZON anchors survived?",
+        tenant_id="openclaw",
+        session_id="long-run",
+        top_k=1,
+    )
+
+    assert report["survival_ledger_included"] is True
+    assert "Survival ledger" in report["raw_context"]
+    assert "HORIZON-ANCHOR-005" in report["raw_context"]
+    assert "HORIZON-ANCHOR-100" in report["raw_context"]
+
+
+def test_survival_ledger_is_scoped_to_session(tmp_path) -> None:
+    adapter = DMLAdapter(
+        config_overrides={
+            "model_name": "dummy",
+            "embedding_model": None,
+            "theta_merge": 2.0,
+            "storage_dir": str(tmp_path / "storage"),
+            "persistence": {"enable": False},
+            "metrics_enabled": False,
+            "similarity_threshold": 0.0,
+        },
+        embedder=FixedEmbedder(),
+        summarizer=DummySummarizer(),
+        start_aging_loop=False,
+    )
+
+    adapter.ingest_memory(
+        "Compaction checkpoint keeps SESSION-A-ANCHOR-777.",
+        tenant_id="openclaw",
+        session_id="session-a",
+        kind="note",
+        meta={"compaction_cycle": 1},
+    )
+    adapter.ingest_memory(
+        "Compaction checkpoint keeps SESSION-B-ANCHOR-999.",
+        tenant_id="openclaw",
+        session_id="session-b",
+        kind="note",
+        meta={"compaction_cycle": 1},
+    )
+
+    report = adapter.retrieve_context(
+        "Which session anchor survived?",
+        tenant_id="openclaw",
+        session_id="session-a",
+        top_k=5,
+    )
+
+    assert "SESSION-A-ANCHOR-777" in report["raw_context"]
+    assert "SESSION-B-ANCHOR-999" not in report["raw_context"]
+
+
 def test_retrieve_context_applies_phase_filtering(tmp_path) -> None:
     adapter = DMLAdapter(
         config_overrides={
