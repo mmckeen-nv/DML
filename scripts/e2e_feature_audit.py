@@ -352,6 +352,40 @@ def audit_provider(adapter: DMLAdapter) -> list[dict[str, Any]]:
 
     results.append(run_step("provider.resume+search+fetch", resume_search_fetch))
 
+    def frontier_prepare() -> dict[str, Any]:
+        payload = client.post(
+            "/api/frontier/prepare",
+            json={
+                "prompt": "What is the Zephyr audit token?",
+                "tenant_id": "openclaw",
+                "session_id": "provider",
+                "top_k": 4,
+                "direct_input_tokens_estimate": 4096,
+            },
+        )
+        body = payload.json()
+        score = score_text(
+            "\n".join([body.get("dml_context", ""), body.get("frontier_prompt", "")]),
+            ("COBALT-29",),
+        )
+        telemetry = body.get("telemetry") or {}
+        return {
+            "passed": (
+                response_ok(payload)
+                and body.get("mode") in {"frontier_with_dml_context", "frontier_verify_local_draft"}
+                and "frontier" in body.get("frontier_prompt", "").lower()
+                and telemetry.get("input_tokens_saved_estimate", 0) > 0
+                and score["score"] == 1.0
+            ),
+            "accuracy": score,
+            "endpoints": ["/api/frontier/prepare"],
+            "mode": body.get("mode"),
+            "frontier_input_tokens": telemetry.get("frontier_input_tokens"),
+            "input_tokens_saved_estimate": telemetry.get("input_tokens_saved_estimate"),
+        }
+
+    results.append(run_step("provider.frontier_prepare", frontier_prepare))
+
     def ollama_routes() -> dict[str, Any]:
         tags = client.get("/api/tags").json()
         show = client.post("/api/show", json={"model": "daystrom-dml:memory"}).json()

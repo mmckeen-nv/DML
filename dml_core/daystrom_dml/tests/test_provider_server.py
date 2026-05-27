@@ -121,6 +121,28 @@ def test_provider_server_ollama_chat_embed_and_management_endpoints() -> None:
     assert client.post("/api/pull", json={"model": "daystrom-dml:memory"}).json()["status"] == "success"
 
 
+def test_provider_frontier_prepare_builds_verifier_prompt() -> None:
+    app = create_app(adapter_factory=DummyAdapter)
+    client = TestClient(app)
+
+    payload = client.post(
+        "/api/frontier/prepare",
+        json={
+            "prompt": "What should the agent remember?",
+            "tenant_id": "openclaw",
+            "session_id": "s1",
+            "top_k": 4,
+            "direct_input_tokens_estimate": 2000,
+        },
+    ).json()
+
+    assert payload["mode"] == "frontier_with_dml_context"
+    assert "Provider memory text" in payload["dml_context"]
+    assert "frontier finalizer" in payload["frontier_prompt"]
+    assert payload["telemetry"]["frontier_input_tokens"] > 0
+    assert payload["telemetry"]["input_tokens_saved_estimate"] > 0
+
+
 def test_provider_server_root_supports_browser_ui_and_ollama_probe() -> None:
     app = create_app(adapter_factory=DummyAdapter)
     client = TestClient(app)

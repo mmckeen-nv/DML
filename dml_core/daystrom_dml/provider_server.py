@@ -12,6 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from .dml_adapter import DMLAdapter
+from .frontier_pipeline import FrontierCompressionPipeline, FrontierPipelineConfig
 
 
 WEB_DIR = Path(__file__).with_name("provider_web")
@@ -43,6 +44,19 @@ class ResumeRequest(BaseModel):
     session_id: Optional[str] = None
     instance_id: Optional[str] = None
     top_k: int = 12
+
+
+class FrontierPrepareRequest(BaseModel):
+    prompt: str
+    tenant_id: str = "openclaw"
+    client_id: Optional[str] = None
+    session_id: Optional[str] = None
+    instance_id: Optional[str] = None
+    top_k: int = 8
+    include_local_draft: bool = True
+    local_max_tokens: int = 256
+    frontier_max_tokens: int = 512
+    direct_input_tokens_estimate: Optional[int] = None
 
 
 def _build_adapter(config_path: str | None, storage_dir: str | None) -> DMLAdapter:
@@ -212,6 +226,39 @@ def create_app(
         )
         report["action"] = "resume"
         return report
+
+    @app.post("/api/frontier/prepare")
+    def frontier_prepare(payload: FrontierPrepareRequest) -> dict[str, Any]:
+        adapter = app.state.adapter
+
+        def _draft(prompt: str, max_tokens: int) -> str:
+            runner = getattr(adapter, "runner", None)
+            if runner is None or getattr(runner, "is_dummy", False):
+                return ""
+            return runner.generate(prompt, max_new_tokens=max_tokens)
+
+        pipeline = FrontierCompressionPipeline(
+            adapter,
+            config=FrontierPipelineConfig(
+                top_k=payload.top_k,
+                local_max_tokens=payload.local_max_tokens,
+                frontier_max_tokens=payload.frontier_max_tokens,
+                include_local_draft=payload.include_local_draft,
+            ),
+            draft_generator=_draft,
+        )
+        return pipeline.prepare(
+            payload.prompt,
+            tenant_id=payload.tenant_id,
+            client_id=payload.client_id,
+            session_id=payload.session_id,
+            instance_id=payload.instance_id,
+            top_k=payload.top_k,
+            local_max_tokens=payload.local_max_tokens,
+            frontier_max_tokens=payload.frontier_max_tokens,
+            include_local_draft=payload.include_local_draft,
+            direct_input_tokens_estimate=payload.direct_input_tokens_estimate,
+        )
 
     @app.post("/api/generate")
     def ollama_generate(payload: dict[str, Any]) -> dict[str, Any]:
