@@ -318,6 +318,24 @@ pre {
   line-height: 1;
 }
 
+.metric-card strong {
+  overflow-wrap: anywhere;
+}
+
+.metric-card strong .metric-main {
+  display: block;
+}
+
+.metric-card strong .metric-sub {
+  display: block;
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+  line-height: 1.15;
+  text-transform: none;
+}
+
 .telemetry-panel .run-card strong {
   font-size: clamp(1.2rem, 2vw, 1.7rem);
 }

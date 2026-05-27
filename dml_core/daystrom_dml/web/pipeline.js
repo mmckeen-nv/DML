@@ -64,6 +64,12 @@ function formatMs(value) {
   return `${Math.round(numeric)} ms`;
 }
 
+function formatPercent(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return '0%';
+  return `${numeric.toFixed(1).replace(/\\.0$/, '')}%`;
+}
+
 function estimateTokens(text) {
   const value = String(text || '').trim();
   return value ? Math.max(1, Math.ceil(value.length / 4)) : 0;
@@ -78,6 +84,21 @@ function setStatus(el, text, tone = 'neutral') {
 function setBusy(button, busy, label) {
   button.disabled = busy;
   if (label) button.textContent = label;
+}
+
+function setMetric(el, main, sub = '') {
+  if (!el) return;
+  const mainEl = document.createElement('span');
+  mainEl.className = 'metric-main';
+  mainEl.textContent = main;
+  if (!sub) {
+    el.replaceChildren(mainEl);
+    return;
+  }
+  const subEl = document.createElement('span');
+  subEl.className = 'metric-sub';
+  subEl.textContent = sub;
+  el.replaceChildren(mainEl, subEl);
 }
 
 async function requestJSON(url, options = {}) {
@@ -130,13 +151,27 @@ function renderPrepared(data) {
   setStatus(els.status, data.mode || 'prepared', 'good');
   setStatus(els.apiKey, data.api_key_configured ? 'key configured' : 'key missing', data.api_key_configured ? 'good' : 'warn');
   setStatus(els.artifactStatus, 'prepared', 'good');
-  els.mode.textContent = data.mode || '-';
-  els.turns.textContent = state.scenario
-    ? `${formatNumber(state.scenario.dml_turns)} / ${formatNumber(state.scenario.traditional_turns)}`
-    : '-';
-  els.frontierInput.textContent = formatNumber(telemetry.frontier_input_tokens);
-  els.inputSaved.textContent = `${formatNumber(telemetry.input_tokens_saved_estimate)} (${telemetry.input_savings_pct_estimate || 0}%)`;
-  els.outputSaved.textContent = `${formatNumber(telemetry.output_tokens_saved_estimate)} (${telemetry.output_savings_pct_estimate || 0}%)`;
+  setMetric(els.mode, state.scenario ? 'Flappy Bird' : data.mode || '-', data.mode || '');
+  setMetric(
+    els.turns,
+    state.scenario ? `${formatNumber(state.scenario.dml_turns)} / ${formatNumber(state.scenario.traditional_turns)}` : '-',
+    state.scenario ? 'compressed continuity vs full transcript' : '',
+  );
+  setMetric(
+    els.frontierInput,
+    formatNumber(telemetry.frontier_input_tokens),
+    `${formatNumber(telemetry.dml_context_tokens)} context tokens`,
+  );
+  setMetric(
+    els.inputSaved,
+    formatPercent(telemetry.input_savings_pct_estimate),
+    `${formatNumber(telemetry.input_tokens_saved_estimate)} estimated tokens`,
+  );
+  setMetric(
+    els.outputSaved,
+    formatPercent(telemetry.output_savings_pct_estimate),
+    `${formatNumber(telemetry.output_tokens_saved_estimate)} budget tokens`,
+  );
   els.latency.textContent = formatMs(telemetry.latency_ms);
   els.countDmlContext.textContent = formatNumber(telemetry.dml_context_tokens);
   els.countLocalDraft.textContent = formatNumber(telemetry.local_draft_tokens);
@@ -163,8 +198,9 @@ function renderScenario(data) {
   els.directPromptCount.textContent = `${formatNumber(data.direct_input_tokens_estimate || estimateTokens(data.direct_prompt))} tokens`;
   els.directResponse.textContent = 'Run the direct baseline to compare output without DML-assisted context compression.';
   els.directResponseCount.textContent = '0 tokens';
-  els.turns.textContent = `${formatNumber(data.dml_turns)} / ${formatNumber(data.traditional_turns)}`;
-  els.message.textContent = `Loaded ${data.title}: ${formatNumber(data.memory_count)} DML memories, ${formatNumber(data.traditional_turns)} simulated baseline turns.`;
+  setMetric(els.mode, 'Flappy Bird', 'canned coding demo');
+  setMetric(els.turns, `${formatNumber(data.dml_turns)} / ${formatNumber(data.traditional_turns)}`, 'DML continuity vs baseline');
+  els.message.textContent = `Loaded canned Flappy Bird build: ${formatNumber(data.memory_count)} memories and ${formatNumber(data.traditional_turns)} baseline turns.`;
 }
 
 async function loadFlappyDemo() {
@@ -179,7 +215,7 @@ async function loadFlappyDemo() {
     setStatus(els.status, 'error', 'bad');
     els.message.textContent = error.message;
   } finally {
-    setBusy(els.loadFlappy, false, 'Load Flappy Bird Demo');
+    setBusy(els.loadFlappy, false, 'Reset Canned Demo');
   }
 }
 
@@ -261,4 +297,4 @@ els.loadFlappy.addEventListener('click', loadFlappyDemo);
 els.prepare.addEventListener('click', prepareOnly);
 els.run.addEventListener('click', runPaidInference);
 els.runDirect.addEventListener('click', runDirectInference);
-prepareOnly();
+loadFlappyDemo();

@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <title>Daystrom Inference Pipeline</title>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <link rel="stylesheet" href="/static/styles.css?v=inference-pipeline" />
+    <link rel="stylesheet" href="/static/styles.css?v=inference-pipeline-flappy" />
   </head>
   <body>
     <div class="app-shell pipeline-shell">
@@ -22,23 +22,23 @@
       <main class="pipeline-dashboard">
         <section class="overview-strip" aria-label="Pipeline telemetry">
           <article class="metric-card">
-            <span>Mode</span>
+            <span>Scenario</span>
             <strong id="metric-mode">-</strong>
           </article>
           <article class="metric-card">
-            <span>Turns</span>
+            <span>Turns DML / Direct</span>
             <strong id="metric-turns">-</strong>
           </article>
           <article class="metric-card">
-            <span>Frontier Input</span>
+            <span>DML Input</span>
             <strong id="metric-frontier-input">-</strong>
           </article>
           <article class="metric-card">
-            <span>Input Saved</span>
+            <span>Est. Input Saved</span>
             <strong id="metric-input-saved">-</strong>
           </article>
           <article class="metric-card">
-            <span>Output Saved</span>
+            <span>Est. Budget Saved</span>
             <strong id="metric-output-saved">-</strong>
           </article>
         </section>
@@ -47,14 +47,14 @@
           <article class="panel pipeline-control">
             <div class="panel-heading">
               <div>
-                <h2>Run Setup</h2>
-                <p>Prepare compressed DML context, local draft, and a frontier verifier prompt before paid inference.</p>
+                <h2>Flappy Bird Agent Run</h2>
+                <p>A canned long-horizon coding task comparing DML-assisted inference with a direct full-transcript baseline.</p>
               </div>
               <span id="api-key-state" class="mini-pill">checking</span>
             </div>
 
             <label for="pipeline-prompt">Prompt</label>
-            <textarea id="pipeline-prompt" rows="8" spellcheck="true">For the long agent run, what was the final provider decision, what blocker affected long-horizon continuity, what exact patch fixed it, and what should the next step be?</textarea>
+            <textarea id="pipeline-prompt" rows="8" spellcheck="true">Develop a clone of Flappy Bird in Python, test it, harden it, and deliver it to me.</textarea>
 
             <div class="form-grid">
               <label>
@@ -74,16 +74,16 @@
                 <input id="pipeline-top-k" type="number" min="1" max="30" value="8" />
               </label>
               <label>
-                Frontier Max Output
-                <input id="pipeline-frontier-max" type="number" min="32" max="8192" value="512" />
+                DML Output Budget
+                <input id="pipeline-frontier-max" type="number" min="32" max="8192" value="2200" />
               </label>
               <label>
-                Traditional Input Estimate
-                <input id="pipeline-direct-input" type="number" min="0" value="1700000" />
+                Direct Baseline Input
+                <input id="pipeline-direct-input" type="number" min="0" value="0" />
               </label>
               <label>
-                Traditional Output Estimate
-                <input id="pipeline-direct-output" type="number" min="0" value="1200" />
+                Direct Output Budget
+                <input id="pipeline-direct-output" type="number" min="0" value="0" />
               </label>
             </div>
 
@@ -93,7 +93,7 @@
             </label>
 
             <div class="button-row">
-              <button id="load-flappy-demo" class="secondary" type="button">Load Flappy Bird Demo</button>
+              <button id="load-flappy-demo" class="secondary" type="button">Reset Canned Demo</button>
               <button id="prepare-pipeline" type="button">Prepare Pipeline</button>
               <button id="run-paid-inference" class="secondary" type="button">Run Paid Inference</button>
               <button id="run-direct-inference" class="secondary" type="button">Run Direct Baseline</button>
@@ -108,12 +108,12 @@
             </div>
             <div class="pipeline-bars">
               <div class="bar-row">
-                <span>Traditional</span>
+                <span>Direct baseline</span>
                 <div class="stack-bar token-bar"><i id="bar-direct-input" class="bar-segment input"></i><i id="bar-direct-output" class="bar-segment output"></i></div>
                 <strong id="direct-token-label">-</strong>
               </div>
               <div class="bar-row">
-                <span>DML Proxy</span>
+                <span>DML-assisted</span>
                 <div class="stack-bar token-bar"><i id="bar-frontier-input" class="bar-segment input"></i><i id="bar-frontier-output" class="bar-segment output"></i></div>
                 <strong id="frontier-token-label">-</strong>
               </div>
@@ -179,6 +179,6 @@
         </section>
       </main>
     </div>
-    <script src="/static/pipeline.js?v=inference-pipeline"></script>
+    <script src="/static/pipeline.js?v=inference-pipeline-flappy"></script>
   </body>
 </html>
