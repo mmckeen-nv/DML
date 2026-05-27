@@ -218,6 +218,8 @@ class _DummyBackend:
     @staticmethod
     def _extract_context_snippets(prompt: str) -> list[str]:
         context = prompt.split("=== User Prompt ===", 1)[0]
+        if "=== Private Grounding Notes ===" in context:
+            context = context.split("=== Private Grounding Notes ===", 1)[1]
         snippets: list[str] = []
         for raw_line in context.splitlines():
             line = raw_line.strip()
@@ -225,6 +227,8 @@ class _DummyBackend:
                 continue
             line = re.sub(r"^- L\d+ \(f=[^)]+\):\s*", "", line)
             line = re.sub(r"^Document \d+[^\\n]*", "", line).strip()
+            if line.startswith(("Answer the user", "Treat the notes", "Do not mention", "Use only", "If the context")):
+                continue
             if line.startswith(("Source:", "Prompt:", "Answer summary:")):
                 continue
             if line:

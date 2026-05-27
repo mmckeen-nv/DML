@@ -44,6 +44,24 @@ def test_local_completion_backend_answers_from_user_prompt_not_raw_context():
     assert "Continuity memory preserves decisions and tests." in output
 
 
+def test_local_completion_backend_uses_private_grounding_notes():
+    runner = GPTRunner("dummy", backend="auto")
+    output = runner.generate(
+        "Answer the user directly and naturally. "
+        "Treat the notes below as private grounding, not as something to announce.\n\n"
+        "=== Private Grounding Notes ===\n"
+        "- L0 (f=1.00): Quartermaster Ada Sol controls inventory with lockbox ORCHID-17.\n"
+        "=== User Prompt ===\n"
+        "Who controls inventory?",
+        max_new_tokens=64,
+    )
+
+    assert "Answer the user directly" not in output
+    assert "private grounding" not in output
+    assert "Ada Sol" in output
+    assert "ORCHID-17" in output
+
+
 def test_query_database_literal_mode_auto():
     adapter = make_adapter()
     adapter.ingest(
