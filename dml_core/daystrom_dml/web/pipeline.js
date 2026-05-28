@@ -15,6 +15,8 @@ const els = {
   frontierMax: $('#pipeline-frontier-max'),
   directInput: $('#pipeline-direct-input'),
   directOutput: $('#pipeline-direct-output'),
+  inputRate: $('#pipeline-input-rate'),
+  outputRate: $('#pipeline-output-rate'),
   localDraft: $('#pipeline-local-draft'),
   mode: $('#metric-mode'),
   turns: $('#metric-turns'),
@@ -28,6 +30,16 @@ const els = {
   tableDmlInput: $('#table-dml-input'),
   tableDmlOutput: $('#table-dml-output'),
   tableDmlTotal: $('#table-dml-total'),
+  costDirectInput: $('#cost-direct-input'),
+  costDirectOutput: $('#cost-direct-output'),
+  costDirectTotal: $('#cost-direct-total'),
+  costDmlInput: $('#cost-dml-input'),
+  costDmlOutput: $('#cost-dml-output'),
+  costDmlTotal: $('#cost-dml-total'),
+  costSavedInput: $('#cost-saved-input'),
+  costSavedOutput: $('#cost-saved-output'),
+  costSavedTotal: $('#cost-saved-total'),
+  costRateNote: $('#cost-rate-note'),
   countDmlContext: $('#count-dml-context'),
   countLocalDraft: $('#count-local-draft'),
   countRetrieved: $('#count-retrieved'),
@@ -49,6 +61,9 @@ const els = {
 
 const state = {
   scenario: null,
+  lastTelemetry: null,
+  dmlUsage: null,
+  directUsage: null,
 };
 
 function formatNumber(value) {
@@ -68,6 +83,13 @@ function formatPercent(value) {
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) return '0%';
   return `${Math.round(numeric)}%`;
+}
+
+function formatCurrency(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return '-';
+  if (numeric < 0.01) return `$${numeric.toFixed(4)}`;
+  return `$${numeric.toFixed(2)}`;
 }
 
 function estimateTokens(text) {
@@ -129,6 +151,18 @@ function payload() {
   };
 }
 
+function costRates() {
+  return {
+    input: Number(els.inputRate.value || 0),
+    output: Number(els.outputRate.value || 0),
+  };
+}
+
+function tokenCost(inputTokens, outputTokens) {
+  const rates = costRates();
+  return ((Number(inputTokens || 0) * rates.input) + (Number(outputTokens || 0) * rates.output)) / 1_000_000;
+}
+
 function renderTokenTable(telemetry = {}) {
   const directInput = Number(telemetry.direct_input_tokens_estimate || 0);
   const directOutput = Number(telemetry.direct_output_tokens_estimate || 0);
@@ -142,8 +176,28 @@ function renderTokenTable(telemetry = {}) {
   els.tableDmlTotal.textContent = formatNumber(frontierInput + frontierOutput);
 }
 
+function renderCostTable(telemetry = {}) {
+  const directInput = Number(state.directUsage?.input_tokens || telemetry.direct_input_tokens_estimate || 0);
+  const directOutput = Number(state.directUsage?.output_tokens || telemetry.direct_output_tokens_estimate || 0);
+  const dmlInput = Number(state.dmlUsage?.input_tokens || telemetry.frontier_input_tokens || 0);
+  const dmlOutput = Number(state.dmlUsage?.output_tokens || telemetry.frontier_output_tokens_estimate || 0);
+  const rates = costRates();
+
+  els.costDirectInput.textContent = formatNumber(directInput);
+  els.costDirectOutput.textContent = formatNumber(directOutput);
+  els.costDirectTotal.textContent = formatCurrency(tokenCost(directInput, directOutput));
+  els.costDmlInput.textContent = formatNumber(dmlInput);
+  els.costDmlOutput.textContent = formatNumber(dmlOutput);
+  els.costDmlTotal.textContent = formatCurrency(tokenCost(dmlInput, dmlOutput));
+  els.costSavedInput.textContent = formatNumber(Math.max(0, directInput - dmlInput));
+  els.costSavedOutput.textContent = formatNumber(Math.max(0, directOutput - dmlOutput));
+  els.costSavedTotal.textContent = formatCurrency(Math.max(0, tokenCost(directInput, directOutput) - tokenCost(dmlInput, dmlOutput)));
+  els.costRateNote.textContent = `Rates: ${formatCurrency(rates.input)} input / ${formatCurrency(rates.output)} output per 1M tokens`;
+}
+
 function renderPrepared(data) {
   const telemetry = data.telemetry || {};
+  state.lastTelemetry = telemetry;
   setStatus(els.status, data.mode || 'prepared', 'good');
   setStatus(els.apiKey, data.api_key_configured ? 'key configured' : 'key missing', data.api_key_configured ? 'good' : 'warn');
   setStatus(els.artifactStatus, 'prepared', 'good');
@@ -180,10 +234,13 @@ function renderPrepared(data) {
   els.draftCount.textContent = `${formatNumber(telemetry.local_draft_tokens)} tokens`;
   els.promptCount.textContent = `${formatNumber(telemetry.frontier_input_tokens)} tokens`;
   renderTokenTable(telemetry);
+  renderCostTable(telemetry);
 }
 
 function renderScenario(data) {
   state.scenario = data;
+  state.dmlUsage = null;
+  state.directUsage = null;
   els.prompt.value = data.prompt || els.prompt.value;
   els.topK.value = data.top_k || els.topK.value;
   els.frontierMax.value = data.frontier_max_tokens || els.frontierMax.value;
@@ -245,6 +302,9 @@ async function runPaidInference() {
     });
     renderPrepared(data.prepared || {});
     const output = data.inference?.output_text || '';
+    const usage = data.inference?.raw?.usage || {};
+    state.dmlUsage = usage;
+    renderCostTable(state.lastTelemetry || {});
     els.frontierResponse.textContent = output || JSON.stringify(data.inference?.raw || {}, null, 2);
     els.responseCount.textContent = `${formatNumber(data.telemetry?.frontier_output_tokens_observed || estimateTokens(output))} tokens`;
     setStatus(els.status, 'complete', 'good');
@@ -277,6 +337,8 @@ async function runDirectInference() {
     });
     const output = data.inference?.output_text || '';
     const usage = data.telemetry?.usage || {};
+    state.directUsage = usage;
+    renderCostTable(state.lastTelemetry || {});
     const outputTokens = usage.output_tokens || data.telemetry?.direct_output_tokens_observed || estimateTokens(output);
     els.directResponse.textContent = output || JSON.stringify(data.inference?.raw || {}, null, 2);
     els.directResponseCount.textContent = `${formatNumber(outputTokens)} tokens`;
@@ -294,4 +356,6 @@ els.loadFlappy.addEventListener('click', loadFlappyDemo);
 els.prepare.addEventListener('click', prepareOnly);
 els.run.addEventListener('click', runPaidInference);
 els.runDirect.addEventListener('click', runDirectInference);
+els.inputRate.addEventListener('input', () => renderCostTable(state.lastTelemetry || {}));
+els.outputRate.addEventListener('input', () => renderCostTable(state.lastTelemetry || {}));
 loadFlappyDemo();

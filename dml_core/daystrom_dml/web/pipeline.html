@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <title>Daystrom Inference Pipeline</title>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <link rel="stylesheet" href="/static/styles.css?v=inference-pipeline-table" />
+    <link rel="stylesheet" href="/static/styles.css?v=inference-pipeline-cost" />
   </head>
   <body>
     <div class="app-shell pipeline-shell">
@@ -85,6 +85,14 @@
                 Direct Output Budget
                 <input id="pipeline-direct-output" type="number" min="0" value="0" />
               </label>
+              <label>
+                Input $ / 1M
+                <input id="pipeline-input-rate" type="number" min="0" step="0.01" value="1.25" />
+              </label>
+              <label>
+                Output $ / 1M
+                <input id="pipeline-output-rate" type="number" min="0" step="0.01" value="10.00" />
+              </label>
             </div>
 
             <label class="toggle-row">
@@ -130,6 +138,38 @@
                 </tr>
               </tbody>
             </table>
+            <h3 class="table-section-title">Token Cost</h3>
+            <table class="token-flow-table cost-flow-table">
+              <thead>
+                <tr>
+                  <th>Path</th>
+                  <th>Input Tokens</th>
+                  <th>Output Tokens</th>
+                  <th>Est. Cost</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <th scope="row">Direct baseline</th>
+                  <td id="cost-direct-input">-</td>
+                  <td id="cost-direct-output">-</td>
+                  <td id="cost-direct-total">-</td>
+                </tr>
+                <tr>
+                  <th scope="row">DML-assisted</th>
+                  <td id="cost-dml-input">-</td>
+                  <td id="cost-dml-output">-</td>
+                  <td id="cost-dml-total">-</td>
+                </tr>
+                <tr>
+                  <th scope="row">Estimated savings</th>
+                  <td id="cost-saved-input">-</td>
+                  <td id="cost-saved-output">-</td>
+                  <td id="cost-saved-total">-</td>
+                </tr>
+              </tbody>
+            </table>
+            <div id="cost-rate-note" class="table-note"></div>
             <div class="telemetry-counts pipeline-counts">
               <span>DML context <strong id="count-dml-context">-</strong></span>
               <span>Local draft <strong id="count-local-draft">-</strong></span>
@@ -191,6 +231,6 @@
         </section>
       </main>
     </div>
-    <script src="/static/pipeline.js?v=inference-pipeline-table"></script>
+    <script src="/static/pipeline.js?v=inference-pipeline-cost"></script>
   </body>
 </html>
