@@ -276,6 +276,7 @@ async function runDirectInference() {
         prompt: state.scenario.direct_prompt,
         model: els.model.value,
         reasoning_effort: els.effort.value,
+        max_output_tokens: Number(els.directOutput.value || els.frontierMax.value || 512),
       }),
     });
     const output = data.inference?.output_text || '';

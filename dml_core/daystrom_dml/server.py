@@ -98,6 +98,51 @@ DEFAULT_PYTHON = Path(sys.executable)
 VENV_DIR = REPO_ROOT / ".venv"
 VISUALIZER_LOG = REPO_ROOT / "visualizer.log"
 
+
+def _load_local_env_files() -> None:
+    """Load local .env files into os.environ without overriding shell values."""
+
+    candidates = [
+        REPO_ROOT / ".env",
+        REPO_ROOT / ".env.local",
+        REPO_ROOT / "dml_core" / ".env",
+        REPO_ROOT / "dml_core" / ".env.local",
+        Path.cwd() / ".env",
+        Path.cwd() / ".env.local",
+    ]
+    seen: set[Path] = set()
+    for candidate in candidates:
+        try:
+            resolved = candidate.resolve()
+        except OSError:
+            continue
+        if resolved in seen or not candidate.is_file():
+            continue
+        seen.add(resolved)
+        try:
+            lines = candidate.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            continue
+        for line in lines:
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            if stripped.lower().startswith("export "):
+                stripped = stripped[7:].lstrip()
+            if "=" not in stripped:
+                continue
+            key, value = stripped.split("=", 1)
+            key = key.strip()
+            value = value.strip()
+            if not key:
+                continue
+            if value and value[0] == value[-1] and value[0] in {"'", '"'}:
+                value = value[1:-1]
+            os.environ.setdefault(key, value)
+
+
+_load_local_env_files()
+
 MAX_ARCHIVE_MEMBER_SIZE = int(
     os.environ.get("DML_MAX_ARCHIVE_MEMBER_SIZE", str(5 * 1024 * 1024))
 )
@@ -355,6 +400,7 @@ class DirectInferencePayload(BaseModel):
     prompt: str
     model: str = "azure/openai/gpt-5.2-codex"
     reasoning_effort: str = "low"
+    max_output_tokens: int = 2200
 
 
 class NimConfigurePayload(BaseModel):
@@ -1585,6 +1631,7 @@ def inference_run(payload: InferencePipelinePayload) -> dict[str, Any]:
         "model": payload.model,
         "input": prepared.get("frontier_prompt", ""),
         "reasoning": {"effort": payload.reasoning_effort},
+        "max_output_tokens": payload.frontier_max_tokens,
     }
     started = time.perf_counter()
     try:
@@ -1634,6 +1681,7 @@ def _run_frontier_direct(payload: DirectInferencePayload) -> dict[str, Any]:
         "model": payload.model,
         "input": payload.prompt,
         "reasoning": {"effort": payload.reasoning_effort},
+        "max_output_tokens": payload.max_output_tokens,
     }
     started = time.perf_counter()
     try:
