@@ -9,6 +9,7 @@ This directory is a mirror of the active OpenClaw-facing Daystrom DML wrapper bu
 
 ### Scripts
 - `scripts/dml_memory.py`
+- `scripts/dml_frontier_prepare.py`
 - `scripts/tuning_utils.py`
 
 ### Config

@@ -146,10 +146,14 @@ def _app_profile(app: str, *, base_url: str, tenant_id: str, storage_dir: str | 
             "remember": "dml remember --text '...' --meta '{\"source\":\"agent\"}'",
             "recall": "dml recall --query 'current task' --context-only",
             "resume": "dml resume --context-only",
+            "frontier_prepare": "python skills/daystrom-dml/scripts/dml_frontier_prepare.py --prompt-file task.md --telemetry-only",
         },
         "mcp": {
             "command": "dml-mcp-server",
             "args": ["--transport", "stdio", "--storage", storage_dir or "$DML_STORE"],
+        },
+        "endpoints": {
+            "frontier_prepare": f"{base_url.rstrip('/')}/api/frontier/prepare",
         },
     }
     if app == "openclaw":

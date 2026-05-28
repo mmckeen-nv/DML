@@ -6,6 +6,36 @@ This contract is the stable beta surface for wiring Daystrom DML into an
 agentic harness. A harness does not need to understand the internal lattice. It
 only needs to write structured memories and read compact context packets.
 
+## Frontier Prompt Preparation
+
+The provider exposes a preparation-only endpoint for harnesses that want DML to
+act as an inference controller before a frontier model call. The endpoint does
+not call the paid model and does not require API keys.
+
+```bash
+python scripts/dml_frontier_prepare.py \
+  --base-url "$DML_PROVIDER_URL" \
+  --prompt-file task.md \
+  --session-id "$DML_SESSION_ID" \
+  --top-k 8 \
+  --frontier-max-tokens 1200
+```
+
+Equivalent HTTP endpoint:
+
+- `POST /api/frontier/prepare`
+
+Expected use:
+
+- retrieve scoped DML context for the prompt
+- optionally include a local draft
+- emit `frontier_prompt` plus telemetry fields for DML context tokens,
+  frontier input tokens, retrieved items, and retrieval latency
+
+The harness owns frontier model invocation and secret handling. Never store
+frontier API keys in DML memory, skill files, committed config, or prepared
+prompt artifacts.
+
 ## Commands
 
 All commands emit JSON and should be safe for another process to parse.

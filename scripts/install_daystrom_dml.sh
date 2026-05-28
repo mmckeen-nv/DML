@@ -101,6 +101,9 @@ MCP:
 OpenClaw wrapper:
   $VENV/bin/python "$SKILL_TARGET/scripts/dml_memory.py" --storage-dir "$STORE" --no-require-gpu resume
 
+Frontier prompt preparation:
+  $VENV/bin/python "$SKILL_TARGET/scripts/dml_frontier_prepare.py" --base-url "http://127.0.0.1:8765" --prompt "current task" --telemetry-only
+
 Agent profile:
   $PROFILE_OUTPUT
 EOF

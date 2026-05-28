@@ -51,6 +51,54 @@ Optional flags:
 - `ingest`: `--chunk/--no-chunk`, `--chunk-chars`, `--chunk-overlap`, `--filter-noise/--no-filter-noise`
 - `retrieve`: `--query-expand/--no-query-expand` (expands blocker terms like USD/export/fallback)
 
+## Agent usage policy
+- Use DML silently as memory substrate. Do not tell the user "according to DML" unless they ask how memory was used.
+- Call `resume` at the start of a session, after compaction, and before continuing a long-running task.
+- Call `retrieve` before a turn that depends on prior decisions, active files, blockers, test results, or user preferences.
+- Call `handoff` before compaction, shutdown, model handoff, or any long pause.
+- Call `ingest` after durable facts: decisions, accepted plans, changed files, commands run, failures, fixes, tests, external constraints, and next actions.
+- Keep `tenant_id=openclaw` for a single local user. Pass a unique `--session-id` for concurrent sessions; omit `--session-id` only for intentional tenant-wide recall.
+- Prefer compact, factual memories with stable anchors. Avoid storing raw secrets, full logs, transient speculation, or noisy terminal output.
+
+## Long-horizon continuity loop
+Use this loop for compaction survival and multi-hour agent runs:
+
+1. Start or reuse a session id:
+   - `python3 skills/daystrom-dml/scripts/dml_memory.py session --label "<project-or-thread>"`
+2. Resume:
+   - `python3 skills/daystrom-dml/scripts/dml_memory.py resume --session-id "$DML_SESSION_ID" --no-require-gpu`
+3. Retrieve before important inference:
+   - `python3 skills/daystrom-dml/scripts/dml_memory.py retrieve --query "<current task>" --session-id "$DML_SESSION_ID" --top-k 6 --ground-truth-policy low-confidence --no-reform-memory --no-require-gpu`
+4. Store durable state:
+   - `python3 skills/daystrom-dml/scripts/dml_memory.py ingest --text "<fact>" --kind action --session-id "$DML_SESSION_ID" --meta '{"source":"openclaw","phase":"execute"}' --no-require-gpu`
+5. Write a survival checkpoint:
+   - `python3 skills/daystrom-dml/scripts/dml_memory.py handoff --thread "<thread>" --state "<current state>" --task "<task>" --next-action "<next action>" --session-id "$DML_SESSION_ID" --no-require-gpu`
+
+For extreme long-horizon runs, create a handoff whenever the active plan, file set, blocker, or test status changes. That keeps late-session facts durable even when the LLM context compacts.
+
+## Frontier inference pipeline
+DML can act as a prompt-preparation layer in front of a frontier model. The skill should prepare a compact prompt from scoped memory, then the harness or user-approved endpoint performs inference.
+
+Start the local provider:
+
+- `dml-provider --storage-dir "$DML_STORE" --host 127.0.0.1 --port 8765`
+
+Prepare a DML-assisted frontier prompt:
+
+- `python3 skills/daystrom-dml/scripts/dml_frontier_prepare.py --prompt-file task.md --session-id "$DML_SESSION_ID" --top-k 8 --frontier-max-tokens 1200`
+
+Useful output modes:
+
+- `--frontier-prompt-only`: print only the prompt to send to the frontier model.
+- `--telemetry-only`: print compact token/latency/retrieval telemetry.
+
+Inference pipeline policy:
+
+- Use `/api/frontier/prepare` or `dml_frontier_prepare.py` for preparation only. Do not embed API keys in skill files, command examples, memory, or committed config.
+- The prepared prompt should include only retrieved memory context, the current task, and any optional local draft. It should not include demo transcripts unless the current task explicitly asks for a demo.
+- Compare estimates honestly: direct input tokens are a baseline estimate supplied by the harness; DML savings are meaningful only when the baseline represents real omitted transcript/context.
+- Store frontier results back into DML only when they become durable decisions, code changes, tests, blockers, or next actions.
+
 ## Integration contract
 - Stable beta contract: `dml-agent-memory-v1`
 - See `ADAPTER_CONTRACT.md` for the harness-facing command/metadata contract.
@@ -146,6 +194,7 @@ tenant-wide `resume` selects the newest active checkpoint.
 - Provider UI/API: `dml serve --storage-dir "$DML_STORE" --host 127.0.0.1 --port 8765`
 - Ollama-compatible memory clone: `dml-ollama --storage-dir "$DML_STORE" --host 127.0.0.1 --port 11435`
 - CLI client: `dml status`, `dml remember --text "..."`, `dml recall --query "..." --context-only`
+- Frontier prompt preparation: `python3 skills/daystrom-dml/scripts/dml_frontier_prepare.py --prompt "..." --telemetry-only`
 - Agent profile installer: `scripts/install_daystrom_dml.sh --profile openclaw` or `--profile hermes`
 - Background queue worker: `python3 skills/daystrom-dml/scripts/dml_background_worker.py --once`
 - Installer: `scripts/install_daystrom_dml.sh`
