@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <title>Daystrom Inference Pipeline</title>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <link rel="stylesheet" href="/static/styles.css?v=inference-pipeline-flappy" />
+    <link rel="stylesheet" href="/static/styles.css?v=inference-pipeline-table" />
   </head>
   <body>
     <div class="app-shell pipeline-shell">
@@ -106,18 +106,30 @@
               <h2>Token Flow</h2>
               <span id="pipeline-latency" class="mini-pill">-</span>
             </div>
-            <div class="pipeline-bars">
-              <div class="bar-row">
-                <span>Direct baseline</span>
-                <div class="stack-bar token-bar"><i id="bar-direct-input" class="bar-segment input"></i><i id="bar-direct-output" class="bar-segment output"></i></div>
-                <strong id="direct-token-label">-</strong>
-              </div>
-              <div class="bar-row">
-                <span>DML-assisted</span>
-                <div class="stack-bar token-bar"><i id="bar-frontier-input" class="bar-segment input"></i><i id="bar-frontier-output" class="bar-segment output"></i></div>
-                <strong id="frontier-token-label">-</strong>
-              </div>
-            </div>
+            <table class="token-flow-table">
+              <thead>
+                <tr>
+                  <th>Path</th>
+                  <th>Input</th>
+                  <th>Output Budget</th>
+                  <th>Total Budget</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <th scope="row">Direct baseline</th>
+                  <td id="table-direct-input">-</td>
+                  <td id="table-direct-output">-</td>
+                  <td id="table-direct-total">-</td>
+                </tr>
+                <tr>
+                  <th scope="row">DML-assisted</th>
+                  <td id="table-dml-input">-</td>
+                  <td id="table-dml-output">-</td>
+                  <td id="table-dml-total">-</td>
+                </tr>
+              </tbody>
+            </table>
             <div class="telemetry-counts pipeline-counts">
               <span>DML context <strong id="count-dml-context">-</strong></span>
               <span>Local draft <strong id="count-local-draft">-</strong></span>
@@ -179,6 +191,6 @@
         </section>
       </main>
     </div>
-    <script src="/static/pipeline.js?v=inference-pipeline-flappy"></script>
+    <script src="/static/pipeline.js?v=inference-pipeline-table"></script>
   </body>
 </html>

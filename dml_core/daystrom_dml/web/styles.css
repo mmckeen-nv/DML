@@ -232,30 +232,51 @@ pre {
   width: auto;
 }
 
-.pipeline-bars {
-  display: grid;
-  gap: 16px;
-  margin-top: 8px;
-}
-
-.pipeline-bars .bar-row {
-  grid-template-columns: minmax(124px, 0.32fr) minmax(220px, 1fr) minmax(86px, auto);
-  gap: 12px;
-  min-height: 34px;
-}
-
-.pipeline-bars .bar-row > span {
-  min-width: 0;
-  overflow-wrap: anywhere;
-  line-height: 1.2;
-}
-
-.pipeline-bars .bar-row > strong {
-  min-width: 76px;
-}
-
 .pipeline-counts {
   margin-top: 18px;
+}
+
+.token-flow-table {
+  width: 100%;
+  margin-top: 8px;
+  border-collapse: collapse;
+  table-layout: fixed;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #111516;
+}
+
+.token-flow-table th,
+.token-flow-table td {
+  border-bottom: 1px solid var(--line);
+  padding: 12px 10px;
+  text-align: right;
+  vertical-align: middle;
+  overflow-wrap: anywhere;
+}
+
+.token-flow-table th {
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.token-flow-table tbody th {
+  color: var(--text);
+  text-align: left;
+}
+
+.token-flow-table td {
+  color: var(--text);
+  font-size: 0.95rem;
+  font-weight: 850;
+}
+
+.token-flow-table tr:last-child th,
+.token-flow-table tr:last-child td {
+  border-bottom: 0;
 }
 
 .pipeline-artifacts .output-box {
@@ -1122,18 +1143,14 @@ pre {
     grid-template-columns: 1fr;
   }
 
-  .pipeline-bars .bar-row {
-    grid-template-columns: 1fr;
-    gap: 7px;
+  .token-flow-table {
+    table-layout: auto;
   }
 
-  .pipeline-bars .bar-row > strong {
-    justify-self: start;
-    min-width: 0;
-  }
-
-  .stack-bar {
-    width: 100%;
+  .token-flow-table th,
+  .token-flow-table td {
+    padding: 10px 8px;
+    font-size: 0.76rem;
   }
 
   .topbar-actions,

@@ -22,12 +22,12 @@ const els = {
   inputSaved: $('#metric-input-saved'),
   outputSaved: $('#metric-output-saved'),
   latency: $('#pipeline-latency'),
-  barDirectInput: $('#bar-direct-input'),
-  barDirectOutput: $('#bar-direct-output'),
-  barFrontierInput: $('#bar-frontier-input'),
-  barFrontierOutput: $('#bar-frontier-output'),
-  directTokenLabel: $('#direct-token-label'),
-  frontierTokenLabel: $('#frontier-token-label'),
+  tableDirectInput: $('#table-direct-input'),
+  tableDirectOutput: $('#table-direct-output'),
+  tableDirectTotal: $('#table-direct-total'),
+  tableDmlInput: $('#table-dml-input'),
+  tableDmlOutput: $('#table-dml-output'),
+  tableDmlTotal: $('#table-dml-total'),
   countDmlContext: $('#count-dml-context'),
   countLocalDraft: $('#count-local-draft'),
   countRetrieved: $('#count-retrieved'),
@@ -129,21 +129,17 @@ function payload() {
   };
 }
 
-function renderBars(telemetry = {}) {
+function renderTokenTable(telemetry = {}) {
   const directInput = Number(telemetry.direct_input_tokens_estimate || 0);
   const directOutput = Number(telemetry.direct_output_tokens_estimate || 0);
   const frontierInput = Number(telemetry.frontier_input_tokens || 0);
   const frontierOutput = Number(telemetry.frontier_output_tokens_estimate || 0);
-  const maxTotal = Math.max(1, directInput + directOutput, frontierInput + frontierOutput);
-  const setWidth = (el, value) => {
-    el.style.width = `${Math.max(1, (Number(value || 0) / maxTotal) * 100)}%`;
-  };
-  setWidth(els.barDirectInput, directInput);
-  setWidth(els.barDirectOutput, directOutput);
-  setWidth(els.barFrontierInput, frontierInput);
-  setWidth(els.barFrontierOutput, frontierOutput);
-  els.directTokenLabel.textContent = formatNumber(directInput + directOutput);
-  els.frontierTokenLabel.textContent = formatNumber(frontierInput + frontierOutput);
+  els.tableDirectInput.textContent = formatNumber(directInput);
+  els.tableDirectOutput.textContent = formatNumber(directOutput);
+  els.tableDirectTotal.textContent = formatNumber(directInput + directOutput);
+  els.tableDmlInput.textContent = formatNumber(frontierInput);
+  els.tableDmlOutput.textContent = formatNumber(frontierOutput);
+  els.tableDmlTotal.textContent = formatNumber(frontierInput + frontierOutput);
 }
 
 function renderPrepared(data) {
@@ -183,7 +179,7 @@ function renderPrepared(data) {
   els.dmlCount.textContent = `${formatNumber(telemetry.dml_context_tokens)} tokens`;
   els.draftCount.textContent = `${formatNumber(telemetry.local_draft_tokens)} tokens`;
   els.promptCount.textContent = `${formatNumber(telemetry.frontier_input_tokens)} tokens`;
-  renderBars(telemetry);
+  renderTokenTable(telemetry);
 }
 
 function renderScenario(data) {
