@@ -67,7 +67,7 @@ function formatMs(value) {
 function formatPercent(value) {
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) return '0%';
-  return `${numeric.toFixed(1).replace(/\\.0$/, '')}%`;
+  return `${Math.round(numeric)}%`;
 }
 
 function estimateTokens(text) {

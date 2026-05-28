@@ -179,7 +179,7 @@ pre {
 }
 
 .overview-strip {
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(150px, 1fr));
 }
 
 .run-strip {
@@ -204,7 +204,7 @@ pre {
 
 .pipeline-grid {
   display: grid;
-  grid-template-columns: minmax(420px, 0.9fr) minmax(420px, 1.1fr);
+  grid-template-columns: minmax(380px, 0.9fr) minmax(430px, 1.1fr);
   gap: 16px;
   align-items: stretch;
 }
@@ -234,8 +234,24 @@ pre {
 
 .pipeline-bars {
   display: grid;
-  gap: 18px;
+  gap: 16px;
   margin-top: 8px;
+}
+
+.pipeline-bars .bar-row {
+  grid-template-columns: minmax(124px, 0.32fr) minmax(220px, 1fr) minmax(86px, auto);
+  gap: 12px;
+  min-height: 34px;
+}
+
+.pipeline-bars .bar-row > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  line-height: 1.2;
+}
+
+.pipeline-bars .bar-row > strong {
+  min-width: 76px;
 }
 
 .pipeline-counts {
@@ -320,6 +336,7 @@ pre {
 
 .metric-card strong {
   overflow-wrap: anywhere;
+  min-width: 0;
 }
 
 .metric-card strong .metric-main {
@@ -391,6 +408,7 @@ pre {
   display: grid;
   grid-template-columns: 42px minmax(120px, 1fr) 74px;
   min-height: 22px;
+  min-width: 0;
 }
 
 .bar-row > span,
@@ -414,6 +432,7 @@ pre {
   background: #0c0f10;
   display: flex;
   overflow: hidden;
+  min-width: 0;
 }
 
 .bar-segment {
@@ -469,6 +488,7 @@ pre {
   border-radius: 8px;
   background: #111516;
   padding: 10px 12px;
+  min-width: 0;
 }
 
 .telemetry-counts span {
@@ -476,6 +496,7 @@ pre {
   font-size: 0.76rem;
   font-weight: 800;
   text-transform: uppercase;
+  overflow-wrap: anywhere;
 }
 
 .telemetry-counts strong {
@@ -1062,6 +1083,10 @@ pre {
   .lattice-panel {
     min-height: auto;
   }
+
+  .overview-strip {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 820px) {
@@ -1069,9 +1094,12 @@ pre {
     display: grid;
   }
 
-  .overview-strip,
   .run-strip,
   .form-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .overview-strip {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -1092,6 +1120,20 @@ pre {
   .form-grid,
   .upload-form {
     grid-template-columns: 1fr;
+  }
+
+  .pipeline-bars .bar-row {
+    grid-template-columns: 1fr;
+    gap: 7px;
+  }
+
+  .pipeline-bars .bar-row > strong {
+    justify-self: start;
+    min-width: 0;
+  }
+
+  .stack-bar {
+    width: 100%;
   }
 
   .topbar-actions,
