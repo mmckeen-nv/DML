@@ -58,6 +58,17 @@ _TOOL_EXHAUST_RE = re.compile(
     r"^total output lines:|\[truncated\])\b",
     re.IGNORECASE | re.MULTILINE,
 )
+_DISCORD_PREFIX_RE = re.compile(r"\[[A-Za-z0-9_.-]{2,32}\]\s*")
+_STRUCTURED_FIELD_RE = re.compile(
+    r"(?P<key>current_focus|memory_policy|next_action|next_step|task)\s*=\s*(?P<value>.*?)(?=;\s*(?:current_focus|memory_policy|next_action|next_step|task|last_confirmed_status)\s*=|\s*\|\s*(?:thread|state)\s*:|\Z)",
+    re.IGNORECASE,
+)
+_LOG_STATUS_RE = re.compile(
+    r"\b(?:gateway received sigterm|pytest passed|py_compile|traceback|"
+    r"ran pytest|tests? passed|smoke hygiene|chunk id:|process exited|"
+    r"wall time:|original token count|```)\b",
+    re.IGNORECASE,
+)
 _DURABLE_PATTERNS: Tuple[Tuple[str, re.Pattern[str]], ...] = (
     ("preference", re.compile(r"\b(?:i|we|mark)\s+(?:prefers?|likes?|wants?|needs?|expects?)\b|\bplease\s+(?:prefer|use|keep|make|remember|avoid)\b", re.IGNORECASE)),
     ("identity", re.compile(r"\b(?:assistant identity|citizen snips|snips_?2|you are citizen snips)\b", re.IGNORECASE)),
@@ -70,14 +81,295 @@ _DURABLE_PATTERNS: Tuple[Tuple[str, re.Pattern[str]], ...] = (
 _SENSITIVE_RE = re.compile(
     r"(?i)\b(api[_-]?key|token|secret|password|authorization|bearer)\b\s*[:=]\s*\S+"
 )
+_TRANSCRIPT_RESIDUE_RE = re.compile(
+    r"(?:\bCompleted\s+(?:Snips_?2|Citizen Snips)\s+turn\b|"
+    r"\b(?:User|Assistant):\s|"
+    r"\bassistant:\s*\|\s*assistant:\b|"
+    r"===\s*Daystrom\s+(?:DML|Personality)|"
+    r"<\s*memory-context\s*>|"
+    r"\b(?:tool_calls?|functions\.|multi_tool_use\.|Chunk ID:|Process exited)\b)",
+    re.IGNORECASE,
+)
+_SYSTEM_WRAPPER_RE = re.compile(
+    r"(?:\[System note:|"
+    r"Your previous turn in this session was interrupted by a gateway shutdown|"
+    r"The conversation history below is intact|"
+    r"unfinished tool result|"
+    r"address the user's new message below|"
+    r"\[IMPORTANT:\s*Background process|"
+    r"Background process proc_|"
+    r"completed \(exit code|"
+    r"Command:\s*codex exec|"
+    r"Output:\s*\n?\s*\[… output truncated|"
+    r"tokens used|"
+    r"--output-last-message)",
+    re.IGNORECASE,
+)
+_PERSONALITY_OVERLAY_RE = re.compile(
+    r"(?:"
+    r"===\s*(?:Daystrom\s+)?Personality Matrix(?:\s+Overlay)?\s*===|"
+    r"\bIdentity:\s*Citizen Snips\.\s*Preferences:|"
+    r"\bConstraint:\s*Current-turn instructions override the DPM overlay\b|"
+    r"\bDPM overlay\b"
+    r")",
+    re.IGNORECASE,
+)
+_MEMORY_REHYDRATION_RE = re.compile(
+    r"(?:"
+    r"\bre[- ]?hydrat(?:e|ion)\b|"
+    r"\b(?:resume|restore|recover|reload|rebuild|reconstruct)\b.{0,80}\b(?:context|memory|state|continuity|thread|session)\b|"
+    r"\b(?:context|memory|state|continuity|thread|session)\b.{0,80}\b(?:resume|restore|recover|reload|rebuild|reconstruct)\b|"
+    r"\b(?:lost|missing|dropped|forgot|forget|compacted|compressed|truncated)\b.{0,80}\b(?:context|memory|state|continuity|thread|session)\b|"
+    r"\b(?:after|from|following|because of)\b.{0,40}\b(?:compaction|compression|context loss|context reset)\b|"
+    r"\b(?:system|memory)[- ]?context\b|"
+    r"<\s*memory-context\s*>|"
+    r"\bcompaction\b"
+    r")",
+    re.IGNORECASE,
+)
+_EXPLICIT_MEMORY_RECALL_RE = re.compile(
+    r"(?:"
+    r"\b(?:what|where|when|why|how)\b.{0,80}\b(?:did|do|had)\s+we\s+(?:decide|agree|choose|settle|plan|say)\b|"
+    r"\b(?:what|where|when|why|how)\b.{0,80}\b(?:did|do|had)\s+(?:i|you|mark)\s+(?:decide|agree|choose|settle|plan|say|ask|tell)\b|"
+    r"\b(?:recall|remember|remind me|look up|retrieve)\b.{0,80}\b(?:memory|memories|decision|decisions|context|what we|what i|what you|yesterday|earlier|last time|previously)\b|"
+    r"\b(?:what did we|what was the|what were the)\b.{0,80}\b(?:yesterday|earlier|last time|previously)\b"
+    r")",
+    re.IGNORECASE,
+)
+_LONG_HORIZON_CONTINUATION_RE = re.compile(
+    r"(?:"
+    r"\b(?:continue|resume|pick up|carry on|keep going)\b.{0,80}\b(?:long[- ]?(?:running|horizon)|multi[- ]?(?:turn|session|day)|setup|migration|implementation|project|task|workstream)\b|"
+    r"\b(?:continue|resume|pick up|carry on|keep going)\b.{0,80}\b(?:where we left off|from yesterday|from last time|the previous task|that task)\b|"
+    r"\b(?:long[- ]?(?:running|horizon)|multi[- ]?(?:turn|session|day))\b.{0,80}\b(?:continue|resume|task|setup|project)\b"
+    r")",
+    re.IGNORECASE,
+)
+
+
+def _contains_system_wrapper(value: str) -> bool:
+    return bool(_SYSTEM_WRAPPER_RE.search(value or ""))
+
+
+def _contains_personality_overlay(value: str) -> bool:
+    return bool(_PERSONALITY_OVERLAY_RE.search(value or ""))
+
+
+def _should_inject_dml_memory(query: str) -> bool:
+    """Gate high-token DML continuity/retrieval to explicit memory needs."""
+    text = _clean_text(query, 1600)
+    if not text:
+        return False
+    return bool(
+        _MEMORY_REHYDRATION_RE.search(text)
+        or _EXPLICIT_MEMORY_RECALL_RE.search(text)
+        or _LONG_HORIZON_CONTINUATION_RE.search(text)
+    )
+
+
+def _strip_system_wrapper_notes(value: str) -> str:
+    """Drop gateway/system wrapper notes before DML writeback or injection."""
+    text = value or ""
+    if not text:
+        return ""
+    kept = [line for line in text.splitlines() if not _contains_system_wrapper(line)]
+    return "\n".join(kept)
 
 
 def _strip_injected_context(value: str) -> str:
     """Remove API-time memory injection from text before writing DML handoffs."""
-    text = _MEMORY_CONTEXT_RE.sub(" ", value or "")
+    text = _strip_system_wrapper_notes(value or "")
+    text = _MEMORY_CONTEXT_RE.sub(" ", text)
     text = _DAYSTROM_BLOCK_RE.sub(" ", text)
     text = _ANY_ROLE_PREFIX_RE.sub("", text)
     return text
+
+
+def _looks_like_transcript_residue(value: str) -> bool:
+    """Return True for text that should never enter DML as semantic memory."""
+    text = value or ""
+    if _contains_system_wrapper(text):
+        return True
+    if _TRANSCRIPT_RESIDUE_RE.search(text):
+        return True
+    # Raw dialogue/checkpoint blobs often contain multiple role labels even if
+    # they do not start with repeated prefixes. DML should store state, not chat.
+    role_labels = len(re.findall(r"\b(?:user|assistant):", text, flags=re.IGNORECASE))
+    return role_labels >= 2
+
+
+def _safe_memory_text(value: str, *, limit: int = 700) -> str:
+    """Compact text to a DML-safe semantic fragment, rejecting transcript residue."""
+    text = _redact_sensitive(_fit_sentence_boundary(_clean_text(_strip_injected_context(value), limit), limit))
+    if not text or _looks_like_transcript_residue(text):
+        return ""
+    return text
+
+
+def _strip_dialogue_noise(value: str) -> str:
+    text = _strip_injected_context(value or "")
+    text = _DISCORD_PREFIX_RE.sub("", text)
+    text = re.sub(r"\b(?:user|assistant):\s*", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"\b(?:thread|state)\s*:\s*[^|;]*\|?", " ", text, flags=re.IGNORECASE)
+    text = text.replace("Citizen Snips durable turn memory.", " ")
+    text = re.sub(r"\b(?:User signal|Assistant outcome)\s*:\s*", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bRemember\s*:\s*", "", text, flags=re.IGNORECASE)
+    return _clean_text(text, 1200)
+
+
+def _semantic_value(value: str, *, limit: int = 220) -> str:
+    if _contains_system_wrapper(value) or _contains_personality_overlay(value):
+        return ""
+    text = _strip_dialogue_noise(value)
+    if not text or _LOG_STATUS_RE.search(text) or _TOOL_EXHAUST_RE.search(text):
+        return ""
+    text = re.split(r"```|<tool output>|Gateway received SIGTERM:?", text, maxsplit=1, flags=re.IGNORECASE)[0]
+    text = _fit_sentence_boundary(text.strip(" -;|"), limit)
+    if not text or _looks_like_transcript_residue(text):
+        return ""
+    return _redact_sensitive(text)
+
+
+def _semantic_label_value(label: str, value: str, *, limit: int = 220) -> str:
+    if _contains_system_wrapper(value) or _contains_personality_overlay(value):
+        return ""
+    safe = _semantic_value(value, limit=limit)
+    if not safe:
+        return ""
+    if label == "Memory policy":
+        safe = re.split(
+            r"\s*\|\s*task\s*:|\s*;\s*task\s*=|\s*;\s*(?:current_focus|next_action|next_step)\s*=",
+            safe,
+            maxsplit=1,
+            flags=re.IGNORECASE,
+        )[0].strip(" -;|")
+    elif label == "Current focus" and re.search(r"\boffload\b.*\bcodex\b|\bcodex\b.*\boffload\b", safe, re.IGNORECASE):
+        safe = "tighten DML continuity formatting through Codex-offloaded implementation."
+    return safe
+
+
+def _append_semantic_bullet(result: List[str], label: str, value: str, *, limit: int = 220) -> None:
+    safe = _semantic_label_value(label, value, limit=limit)
+    if safe:
+        result.append(f"- {label}: {safe}")
+
+
+def _bullet_parts(line: str) -> Tuple[str, str]:
+    match = re.match(r"^-\s*([^:]+):\s*(.*)$", line.strip())
+    if not match:
+        return "", ""
+    return match.group(1).strip(), match.group(2).strip()
+
+
+def _dedupe_equivalence_key(label: str, value: str) -> str:
+    text = value.lower()
+    text = re.sub(r"\.\.\.\s*(?:\[truncated\])?", " ", text)
+    text = re.sub(r"\b(?:please|can you|could you|great|thanks)\b", " ", text)
+    text = re.sub(r"\W+", " ", text).strip()
+    if label in {"Current focus", "Memory policy"}:
+        return label.lower()
+    return f"{label.lower()}:{text}"
+
+
+def _prefer_semantic_bullet(existing: str, candidate: str) -> str:
+    _, old_value = _bullet_parts(existing)
+    _, new_value = _bullet_parts(candidate)
+
+    def score(value: str) -> Tuple[int, int]:
+        ellipsis_penalty = -1 if "..." in value or "[truncated]" in value.lower() else 0
+        terminal_bonus = 1 if re.search(r"[.!?]$", value.strip()) else 0
+        return (ellipsis_penalty + terminal_bonus, len(value))
+
+    return candidate if score(new_value) > score(old_value) else existing
+
+
+def _dedupe_semantic_bullets(candidates: List[str], *, limit: int) -> List[str]:
+    ordered_keys: List[str] = []
+    chosen: Dict[str, str] = {}
+    for candidate in candidates:
+        label, value = _bullet_parts(candidate)
+        if not label:
+            key = re.sub(r"\W+", " ", candidate).strip().lower()
+        else:
+            key = _dedupe_equivalence_key(label, value)
+        if key in chosen:
+            chosen[key] = _prefer_semantic_bullet(chosen[key], candidate)
+            continue
+        ordered_keys.append(key)
+        chosen[key] = candidate
+    return [chosen[key] for key in ordered_keys[:limit]]
+
+
+def _semantic_memory_bullets(text: str, meta: Optional[Dict[str, Any]] = None, *, limit: int = 6) -> List[str]:
+    """Render arbitrary DML recall as compact semantic bullets only."""
+    raw = str(text or "")
+    meta = meta if isinstance(meta, dict) else {}
+    bullets: List[str] = []
+
+    existing_label, existing_value = _bullet_parts(raw)
+    if existing_label in {"Current focus", "Memory policy", "Preference", "Next step", "Memory"}:
+        _append_semantic_bullet(bullets, existing_label, existing_value, limit=320 if existing_label == "Memory policy" else 220)
+        return bullets
+
+    structured = raw
+    if re.search(r"\|\s*state\s*:", structured, re.IGNORECASE):
+        structured = re.split(r"\|\s*state\s*:", structured, maxsplit=1, flags=re.IGNORECASE)[1]
+    for match in _STRUCTURED_FIELD_RE.finditer(structured):
+        key = match.group("key").lower()
+        value = match.group("value")
+        if key == "current_focus":
+            _append_semantic_bullet(bullets, "Current focus", value)
+        elif key == "memory_policy":
+            _append_semantic_bullet(bullets, "Memory policy", value, limit=320)
+        elif key in {"next_action", "next_step", "task"}:
+            _append_semantic_bullet(bullets, "Next step", value)
+
+    if bullets:
+        return _dedupe_semantic_bullets(bullets, limit=limit)
+
+    memory_class = str(meta.get("memory_class") or "").lower()
+    safe = _semantic_value(raw, limit=300)
+    if not safe:
+        return []
+    if memory_class == "preference" or re.search(r"\b(?:prefers?|likes?|wants?)\b", safe, re.IGNORECASE):
+        return [f"- Preference: {safe}"]
+    if memory_class == "constraint" or re.search(r"\b(?:never|always|do not|don't|must|should)\b", safe, re.IGNORECASE):
+        return [f"- Memory policy: {safe}"]
+    if memory_class in {"checkpoint", "blocker", "artifact"}:
+        return [f"- Current focus: {safe}"]
+    return [f"- Memory: {safe}"]
+
+
+def _dedupe_memory_blocks(blocks: List[str]) -> str:
+    """Join memory blocks while removing repeated bullet/state lines across lanes."""
+    seen_line_index: Dict[str, Tuple[int, int]] = {}
+    output: List[str] = []
+    for block in blocks:
+        kept: List[str] = []
+        for line in block.splitlines():
+            stripped = line.strip()
+            if not stripped:
+                kept.append(line)
+                continue
+            if stripped.startswith("- "):
+                label, value = _bullet_parts(stripped)
+                key = _dedupe_equivalence_key(label, value) if label else re.sub(r"\W+", " ", stripped).strip().lower()
+                if key in seen_line_index:
+                    block_idx, line_idx = seen_line_index[key]
+                    existing = kept[line_idx].strip() if block_idx == len(output) else output[block_idx].splitlines()[line_idx].strip()
+                    if _prefer_semantic_bullet(existing, stripped) == stripped:
+                        if block_idx == len(output):
+                            kept[line_idx] = line
+                        else:
+                            previous_lines = output[block_idx].splitlines()
+                            previous_lines[line_idx] = line
+                            output[block_idx] = "\n".join(previous_lines)
+                    continue
+                seen_line_index[key] = (len(output), len(kept))
+            kept.append(line)
+        compact = "\n".join(kept).strip()
+        if compact and not compact.endswith("==="):
+            output.append(compact)
+    return "\n\n".join(output)
 
 
 def _sentenceish_fragments(text: str, *, limit: int = 4) -> List[str]:
@@ -127,6 +419,8 @@ def _classify_turn_memory(user_content: str, assistant_content: str) -> Dict[str
     combined = _clean_text(f"{raw_user}\n{raw_assistant}", 5000)
     if not combined:
         return {"keep": False, "score": 0.0, "memory_class": "empty", "reasons": ["empty"]}
+    if _looks_like_transcript_residue(combined):
+        return {"keep": False, "score": 0.0, "memory_class": "transcript_residue", "reasons": ["transcript_residue"]}
 
     score = 0.0
     classes: List[str] = []
@@ -181,7 +475,7 @@ def _classify_turn_memory(user_content: str, assistant_content: str) -> Dict[str
         summary_parts.append("User signal: " + _fit_sentence_boundary(" ".join(user_fragments), 360))
     if assistant_fragments and memory_class in {"artifact", "validation", "blocker", "checkpoint"}:
         summary_parts.append("Assistant outcome: " + _fit_sentence_boundary(" ".join(assistant_fragments), 520))
-    summary = _redact_sensitive(_fit_sentence_boundary(" ".join(summary_parts), 900))
+    summary = _safe_memory_text(" ".join(summary_parts), limit=700)
     if not summary:
         keep = False
     return {
@@ -205,12 +499,45 @@ def _handoff_fragment(role: str, content: str, *, limit: int = 900) -> str:
         # actual completed result is still captured via sync_turn/ingest.
         if role == "assistant" and _SCAFFOLD_RE.match(line):
             continue
+        if _looks_like_transcript_residue(line) or _TOOL_EXHAUST_RE.search(line):
+            continue
         key = re.sub(r"\W+", " ", line).strip().lower()
         if key in seen:
             continue
         seen.add(key)
         lines.append(line)
-    return _clean_text(" ".join(lines), limit)
+    return _safe_memory_text(" ".join(lines), limit=limit)
+
+
+def _continuity_state_from_messages(messages: List[Dict[str, Any]]) -> Tuple[str, str, str]:
+    """Build compact state/task/next-action fields, never a transcript tail."""
+    latest_user = ""
+    latest_assistant = ""
+    for msg in reversed(messages[-20:]):
+        role = msg.get("role")
+        content = msg.get("content")
+        if not isinstance(content, str):
+            continue
+        fragment = _handoff_fragment(str(role), content, limit=360)
+        if not fragment:
+            continue
+        if role == "user" and not latest_user:
+            latest_user = fragment
+        elif role == "assistant" and not latest_assistant:
+            latest_assistant = fragment
+        if latest_user and latest_assistant:
+            break
+
+    state_parts = []
+    if latest_user:
+        state_parts.append("current_focus=" + _fit_sentence_boundary(latest_user, 220))
+    if latest_assistant:
+        state_parts.append("last_confirmed_status=" + _fit_sentence_boundary(latest_assistant, 260))
+    state_parts.append("memory_policy=store compact semantic state only; never store transcripts, DML blocks, tool logs, or role-prefixed dialogue")
+    state = _safe_memory_text("; ".join(state_parts), limit=700)
+    task = _safe_memory_text(latest_user or "Maintain Citizen Snips continuity using compact DML state.", limit=220)
+    next_action = "Continue from compact DML state and retrieve only relevant durable facts."
+    return state, task, next_action
 
 
 class DaystromDMLProvider(MemoryProvider):
@@ -294,7 +621,7 @@ class DaystromDMLProvider(MemoryProvider):
             block = self._format_personality_overlay(overlay)
             if block:
                 blocks.append(block)
-        if self.enable_memory:
+        if self.enable_memory and _should_inject_dml_memory(query):
             # Resume preserves active continuity even when retrieval confidence is low.
             resume_block = self._resume_block(effective_session)
             if resume_block:
@@ -302,7 +629,7 @@ class DaystromDMLProvider(MemoryProvider):
             retrieve_block = self._retrieve_block(query, effective_session)
             if retrieve_block:
                 blocks.append(retrieve_block)
-        return self._fit("\n\n".join(blocks), self.max_context_chars)
+        return self._fit(_dedupe_memory_blocks(blocks), self.max_context_chars)
 
     def sync_turn(
         self,
@@ -363,35 +690,23 @@ class DaystromDMLProvider(MemoryProvider):
         return None
 
     def on_pre_compress(self, messages: List[Dict[str, Any]]) -> str:
+        if not self.sync_turns:
+            return ""
         try:
-            tail = []
-            for msg in messages[-16:]:
-                # Skip internal/ephemeral messages if the caller ever marks
-                # them explicitly. API-time memory injection is also stripped
-                # from content below before writing a DML checkpoint.
-                if any(str(key).startswith("_") for key in msg):
-                    continue
-                role = msg.get("role")
-                content = msg.get("content")
-                if isinstance(content, str) and role in {"user", "assistant"}:
-                    fragment = _handoff_fragment(role, content, limit=700)
-                    if fragment:
-                        tail.append(f"{role}: {fragment}")
-            tail = tail[-4:]
-            if not tail:
+            state, task, next_action = _continuity_state_from_messages(messages)
+            if not state:
                 return ""
-            state = _clean_text(" | ".join(tail), 2500)
             self._run_cli([
                 "handoff",
                 "--thread", self._thread_id or self._session_id or "snips2-hermes",
                 "--state", state,
-                "--task", "Preserve Citizen Snips DML memory/personality continuity across Hermes compression.",
-                "--next-action", "Resume from Daystrom DML and retrieve relevant context before continuing.",
+                "--task", task,
+                "--next-action", next_action,
                 "--session-id", self._session_id or "snips2-hermes-default",
                 "--tenant-id", self.tenant_id,
                 "--client-id", self.client_id,
             ], timeout=self.timeout)
-            return "Daystrom DML handoff checkpoint was written before compression."
+            return "Daystrom DML compact state checkpoint was written before compression."
         except Exception:
             return ""
 
@@ -432,10 +747,10 @@ class DaystromDMLProvider(MemoryProvider):
             data = self._run_cli(["resume", "--session-id", session_id, "--tenant-id", self.tenant_id], timeout=self.timeout)
         except Exception:
             return ""
-        raw = str(data.get("raw_context") or "").strip()
+        raw = self._safe_context_from_payload(data)
         if not raw:
             return ""
-        return "=== Daystrom DML Active Continuity ===\n" + self._fit(raw, 1600)
+        return "=== Daystrom DML Active Continuity ===\n" + self._fit(raw, 900)
 
     def _retrieve_block(self, query: str, session_id: str) -> str:
         try:
@@ -450,10 +765,29 @@ class DaystromDMLProvider(MemoryProvider):
             ], timeout=self.timeout)
         except Exception:
             return ""
-        raw = str(data.get("raw_context") or "").strip()
+        raw = self._safe_context_from_payload(data)
         if not raw:
             return ""
-        return "=== Daystrom DML Retrieved Memory ===\n" + self._fit(raw, 2800)
+        return "=== Daystrom DML Retrieved Memory ===\n" + self._fit(raw, 1400)
+
+    def _safe_context_from_payload(self, data: Dict[str, Any]) -> str:
+        candidates: List[str] = []
+        for item in data.get("items") or []:
+            if not isinstance(item, dict):
+                continue
+            meta = item.get("meta") if isinstance(item.get("meta"), dict) else {}
+            if meta.get("memory_state") == "quarantined":
+                continue
+            text = str(meta.get("summary") or item.get("summary") or item.get("text") or "")
+            candidates.extend(_semantic_memory_bullets(text, meta, limit=self.top_k))
+        if not candidates:
+            raw = str(data.get("raw_context") or "")
+            candidates.extend(_semantic_memory_bullets(raw, limit=self.top_k))
+            if not candidates:
+                for line in raw.splitlines():
+                    candidates.extend(_semantic_memory_bullets(line, limit=self.top_k))
+        result = _dedupe_semantic_bullets(candidates, limit=self.top_k)
+        return "\n".join(result)
 
     def _personality_overlay(self, prompt: str) -> Optional[Dict[str, Any]]:
         if not (self.venv_python.exists() and self.source_dir.exists()):

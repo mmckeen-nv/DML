@@ -110,6 +110,7 @@ Optional extras:
 - `dml_core/` – core lattice, APIs, adapters, scripts, and tests
 - `dml_mcp/` – MCP server entrypoints for DML/CMA
 - `examples/` – playground, demos, chatbot, benchmarks, visualiser, and NIM notes
+- `integrations/hermes/` – Hermes/Citizen Snips memory-provider plugin and smoke tests
 
 ### Helper scripts
 - `build_dml_core.sh` – build the CPU/runtime Docker image from `dml_core/Dockerfile`
@@ -312,6 +313,22 @@ The canonical configuration lives at `dml_core/daystrom_dml/config.yaml`. Key se
 ---
 
 ## Integration cookbook
+### Hermes / Citizen Snips memory provider
+The Hermes integration lives in `integrations/hermes/plugins/daystrom_dml/` and
+is versioned as a memory/personality provider rather than an inference route.
+Plugin version `0.2.0` uses a gated context shape:
+
+- normal turns get only the bounded Daystrom Personality Matrix / DPM overlay;
+- explicit rehydration, compaction recovery, memory recall, or long-horizon
+  continuation turns can also receive scoped `Active Continuity` and retrieved
+  semantic memory;
+- writeback and rendering strip transcript residue, gateway/system wrapper notes,
+  tool logs, DPM scaffolding, and credential-like sensitive fields.
+
+This keeps DML as a selective rehydration and long-horizon recall substrate, not
+a rolling transcript injected into every prompt. See
+`integrations/hermes/README.md` for installation notes and focused validation.
+
 ### Python client (requests-based)
 ```python
 from daystrom_dml import DMLClient
