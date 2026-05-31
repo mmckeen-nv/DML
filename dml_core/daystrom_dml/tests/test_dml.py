@@ -1043,6 +1043,60 @@ def test_personality_matrix_overlay_respects_token_budget(tmp_path) -> None:
     assert len(overlay["overlay"]["rendered_text"].split()) <= 8
 
 
+def test_personality_matrix_overlay_dedupes_and_cuts_on_boundaries(tmp_path) -> None:
+    overlay_path = tmp_path / "overlay.json"
+    overlay_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "dpm.replay-overlay.v1",
+                "overlay_id": "overlay:relationship:test:active-read",
+                "mode": "active-read",
+                "generated_at": "2026-05-18T00:00:00Z",
+                "scope": {"primary": "relationship", "relationship_id": "relationship:test"},
+                "retrieval_order_applied": ["relationship"],
+                "overlay": {
+                    "style_directives": ["Prefer direct answers.", "Prefer direct answers."],
+                    "do_not_do": ["Current-turn instructions override the DPM overlay."],
+                    "max_chars": 72,
+                    "rendered_text": (
+                        "Prefer direct answers. Prefer direct answers. "
+                        "Avoid decorative filler words while preserving useful context."
+                    ),
+                },
+                "sources": [],
+                "audit": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+    adapter = DMLAdapter(
+        config_overrides={
+            "model_name": "dummy",
+            "embedding_model": None,
+            "storage_dir": str(tmp_path / "storage"),
+            "persistence": {"enable": False},
+            "metrics_enabled": False,
+            "dpm": {
+                "enable": True,
+                "mode": "active-read",
+                "overlay_path": str(overlay_path),
+                "max_overlay_chars": 72,
+            },
+        },
+        embedder=RandomEmbedder(dim=48),
+        summarizer=DummySummarizer(),
+        start_aging_loop=False,
+    )
+
+    overlay = adapter.personality_overlay(prompt="Use more detail for this answer.")
+    body = overlay["overlay"]
+
+    assert body["style_directives"] == ["Prefer direct answers."]
+    assert body["do_not_do"] == ["Current-turn instructions override the DPM overlay."]
+    assert body["rendered_text"] == "Prefer direct answers. Avoid decorative filler words while preserving"
+    assert not body["rendered_text"].endswith("preserv")
+
+
 def test_ingest_memory_persists_scoped_items(tmp_path) -> None:
     storage_dir = tmp_path / "storage"
     config = {
