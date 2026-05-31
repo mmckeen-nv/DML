@@ -4,308 +4,297 @@
     <meta charset="utf-8" />
     <title>DML Playground</title>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <link rel="stylesheet" href="/static/styles.css" />
+    <link rel="stylesheet" href="/static/styles.css?v=lattice-camera" />
   </head>
   <body>
-    <div class="page-shell">
-      <header>
-        <h1>Daystrom Memory Lattice Playground</h1>
-        <p>Upload documents, run retrieval augmented generation, and compare model responses.</p>
-        <div class="header-actions">
-          <a
-            id="visualize-button"
-            class="link-button"
-            href="/visualizer/redirect"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Open Visualizer Page
-          </a>
+    <div class="app-shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Daystrom Memory Lattice</p>
+          <h1>Memory Demo</h1>
+        </div>
+        <div class="topbar-actions">
+          <span id="service-status" class="status-pill">checking</span>
+          <button id="refresh-status" class="secondary" type="button">Refresh</button>
+          <a class="button-link secondary" href="/visualizer" target="_blank" rel="noopener noreferrer">Full Visualizer</a>
         </div>
       </header>
 
-      <main>
-      <section class="panel panel--wide" id="nim-config">
-        <h2>NVIDIA NIM Setup</h2>
-        <p class="hint">
-          Select a NVIDIA Inference Microservice, provide your NGC API key, and let the playground
-          pull the container and configure the endpoints automatically.
-        </p>
-        <label for="nim-image">Input NIM for test</label>
-        <input
-          id="nim-image"
-          type="text"
-          placeholder="Input NIM for test. Example: nvcr.io/nim/openai/gpt-oss-20b:latest"
-          autocomplete="off"
-        />
-        <label for="ngc-api-key">NGC API key</label>
-        <input
-          id="ngc-api-key"
-          type="password"
-          placeholder="Paste your NGC API key"
-          autocomplete="off"
-        />
-        <div class="nim-actions">
-          <button id="configure-nim">Pull &amp; Configure</button>
-          <button id="start-nim">Start NIM</button>
-          <button id="stop-nim" class="secondary">Stop NIM</button>
-        </div>
-        <div id="nim-status" class="status"></div>
-        <div id="nim-runtime-status" class="status"></div>
-        <details id="nim-details" class="hidden">
-          <summary>Current configuration</summary>
-          <pre id="nim-config-summary"></pre>
-        </details>
-      </section>
+      <main class="dashboard">
+        <section class="overview-strip" aria-label="DML status">
+          <article class="metric-card">
+            <span>Memories</span>
+            <strong id="metric-memories">-</strong>
+          </article>
+          <article class="metric-card">
+            <span>Stored Tokens</span>
+            <strong id="metric-dml-tokens">-</strong>
+          </article>
+          <article class="metric-card">
+            <span>Avg Fidelity</span>
+            <strong id="metric-fidelity">-</strong>
+          </article>
+          <article class="metric-card">
+            <span>Visualizer</span>
+            <strong id="metric-visualizer">-</strong>
+          </article>
+        </section>
 
-      <section class="panel">
-        <h2>Document Upload</h2>
-        <p class="hint">
-          Upload individual files, drag in folders, or provide ZIP archives. Supported formats include PDF, TXT, Markdown,
-          CSV, JSON, HTML, and more—unsupported files are skipped automatically.
-        </p>
-        <form id="upload-form">
-          <input
-            id="file-input"
-            type="file"
-            multiple
-            webkitdirectory
-            mozdirectory
-            directory
-            accept=".txt,.pdf,.md,.markdown,.json,.csv,.tsv,.log,.yaml,.yml,.html,.htm,.zip"
-          />
-          <div id="file-drop-zone" class="file-drop-zone" tabindex="0">
-            <label for="file-input" class="file-label">
-              <strong>Select files or drop them here</strong>
-              <span>Choose multiple PDFs or text documents, or upload an entire directory at once.</span>
-            </label>
-            <p class="hint">Directory selection is supported in Chromium-based browsers.</p>
+        <section class="demo-stage">
+          <article class="panel ask-panel">
+            <div class="panel-heading">
+              <div>
+                <h2>Ask the Lattice</h2>
+                <p>Run a prompt and inspect what DML retrieves, how much context it sends, and how it compares with the RAG path.</p>
+              </div>
+              <span id="query-mode" class="mini-pill">idle</span>
+            </div>
+
+            <div class="prompt-presets" aria-label="Prompt presets">
+              <button class="preset-button secondary" type="button" data-prompt="For Asteria Crossing, who controls inventory, what medical stores are aboard, and what are the fuel reserves?">Inventory</button>
+              <button class="preset-button secondary" type="button" data-prompt="Summarize the Asteria Crossing propulsion stack, burn budget, and fuel reserve constraints.">Propulsion</button>
+              <button class="preset-button secondary" type="button" data-prompt="Which crew members are responsible for habitat, medical, comms, and inventory operations on Asteria Crossing?">Crew</button>
+            </div>
+
+            <label for="prompt">Prompt</label>
+            <textarea id="prompt" rows="7" spellcheck="true">For Asteria Crossing, who controls inventory, what medical stores are aboard, and what are the fuel reserves?</textarea>
+
+            <div class="control-row">
+              <label>
+                Top K
+                <input id="top-k" type="number" min="1" max="30" value="6" />
+              </label>
+              <label>
+                Max Tokens
+                <input id="max-tokens" type="number" min="32" max="4096" value="512" />
+              </label>
+              <button id="run-query" type="button">Run Demo</button>
+            </div>
+            <div id="query-status" class="status-line"></div>
+          </article>
+
+          <article class="panel lattice-panel">
+            <div class="panel-heading compact">
+              <h2>Live Lattice</h2>
+              <span id="visualizer-status" class="mini-pill">loading</span>
+            </div>
+            <div class="visualizer-preview">
+              <svg id="lattice-svg" class="lattice-svg" role="img" aria-label="DML lattice preview"></svg>
+              <div id="visualizer-placeholder">Loading lattice nodes.</div>
+            </div>
+            <div class="button-row">
+              <button id="launch-visualizer" type="button">Refresh Lattice</button>
+              <a id="open-visualizer" class="button-link secondary" href="/visualizer" target="_blank" rel="noopener noreferrer">Open Full View</a>
+            </div>
+          </article>
+        </section>
+
+        <section class="telemetry-panel panel" aria-label="Latest comparison telemetry">
+          <div class="panel-heading compact">
+            <h2>Telemetry</h2>
+            <span id="run-latency" class="mini-pill">-</span>
           </div>
-          <ul id="selected-files" class="selected-files"></ul>
-          <button type="submit">Upload &amp; Ingest</button>
-        </form>
-        <div id="upload-status" class="status"></div>
-      </section>
-
-      <section class="panel">
-        <h2>RAG Comparison</h2>
-        <label for="prompt">Prompt</label>
-        <textarea id="prompt" rows="6" placeholder="Ask a question..."></textarea>
-        <div class="controls">
-          <label for="top-k">Top K</label>
-          <input id="top-k" type="number" min="0" value="6" />
-          <label for="max-tokens">Max new tokens</label>
-          <input id="max-tokens" type="number" min="32" value="512" />
-          <button id="run-compare">Run Comparison</button>
-        </div>
-        <div id="compare-status" class="status"></div>
-      </section>
-
-      <section id="results" class="panel panel--wide hidden">
-        <h2>Generation Results</h2>
-        <ol id="pipeline-steps" class="pipeline-steps" aria-live="polite"></ol>
-        <div class="metrics-grid">
-          <article class="metric-card">
-            <h3>Token Overview</h3>
-            <dl class="metric-list">
-              <div><dt>Prompt</dt><dd id="metric-prompt-tokens">–</dd></div>
-              <div><dt>RAG Context</dt><dd id="metric-rag-tokens">–</dd></div>
-              <div><dt>DML Context</dt><dd id="metric-dml-tokens">–</dd></div>
-              <div><dt>Token Delta (DML vs RAG)</dt><dd id="metric-token-delta">–</dd></div>
-            </dl>
-          </article>
-          <article class="metric-card">
-            <h3>Quality Signals</h3>
-            <dl class="metric-list">
-              <div><dt>DML Avg. Fidelity</dt><dd id="metric-dml-fidelity">–</dd></div>
-              <div><dt>RAG Documents</dt><dd id="metric-rag-docs">–</dd></div>
-              <div><dt>DML Entries</dt><dd id="metric-dml-entries">–</dd></div>
-            </dl>
-            <p class="hint">Review the context panels below to see exactly what each system passes to the LLM.</p>
-          </article>
-          <article class="metric-card">
-            <h3>Response Times</h3>
-            <dl class="metric-list">
-              <div><dt>Base LLM</dt><dd id="metric-base-latency">–</dd></div>
-              <div><dt>DML Retrieval</dt><dd id="metric-dml-retrieval-latency">–</dd></div>
-              <div><dt>DML Generation</dt><dd id="metric-dml-generation-latency">–</dd></div>
-            </dl>
-            <div id="metric-rag-latencies" class="metric-sublist"></div>
-          </article>
-          <article class="metric-card metric-card--graph">
-            <h3>RAG Retrieval Tokens</h3>
-            <div id="rag-token-graph" class="token-graph" aria-live="polite"></div>
-            <p class="hint">Each bar represents the context token budget used by a RAG backend.</p>
-          </article>
-        </div>
-        <div class="response-grid">
-          <article class="response-card">
-            <header>LLM with DMT Knowledge</header>
-            <pre id="base-output"></pre>
-            <footer id="base-usage" class="usage"></footer>
-          </article>
-          <article class="response-card">
-            <header>LLM with RAG Knowledge</header>
-            <pre id="rag-aggregate-output"></pre>
-            <footer id="rag-aggregate-usage" class="usage"></footer>
-            <div id="rag-aggregate-source" class="response-card__note hidden"></div>
-          </article>
-          <article class="response-card">
-            <header>DML Response</header>
-            <pre id="dml-output"></pre>
-            <footer id="dml-usage" class="usage"></footer>
-          </article>
-        </div>
-        <section class="panel rag-panel" id="rag-results">
-          <h3>RAG Backends</h3>
-          <div class="rag-panel-shell">
-            <div class="rag-tab-column" role="tablist" id="rag-response-tablist" aria-label="RAG backends"></div>
-            <div class="rag-panel-body" id="rag-response-panel" role="tabpanel" aria-live="polite">
-              <div class="rag-panel-placeholder">
-                <p>Select a RAG backend to inspect its response and context.</p>
-              </div>
-              <div class="rag-backend-view hidden" id="rag-backend-view">
-                <header class="rag-backend-header">
-                  <div>
-                    <h4 id="rag-backend-title">–</h4>
-                    <p id="rag-backend-description" class="rag-backend-description"></p>
-                  </div>
-                  <div class="rag-grade" id="rag-grade">
-                    <span class="rag-grade-letter" id="rag-grade-letter">–</span>
-                    <div class="rag-grade-detail">
-                      <span id="rag-grade-score">–</span>
-                      <span id="rag-grade-explanation">Select a backend to view its evaluation.</span>
-                    </div>
-                  </div>
-                </header>
-                <div id="rag-backend-status" class="status hidden"></div>
-                <pre id="rag-output"></pre>
-                <footer id="rag-usage" class="usage"></footer>
-                <dl class="metric-list inline">
-                  <div><dt>Retrieval time</dt><dd id="rag-retrieval-latency">–</dd></div>
-                  <div><dt>Generation time</dt><dd id="rag-generation-latency">–</dd></div>
-                  <div><dt>Context tokens</dt><dd id="rag-context-tokens">–</dd></div>
-                  <div><dt>Documents</dt><dd id="rag-document-count">–</dd></div>
-                </dl>
-                <div class="rag-context-block">
-                  <h4>Context</h4>
-                  <pre id="rag-context"></pre>
+          <div class="telemetry-layout">
+            <div class="run-strip">
+              <article class="run-card">
+                <span>Base Model</span>
+                <strong id="metric-run-base-latency">-</strong>
+                <small id="metric-run-base-detail">prompt only</small>
+              </article>
+              <article class="run-card">
+                <span>DML Context</span>
+                <strong id="metric-run-dml-latency">-</strong>
+                <small id="metric-run-dml-latency-detail">retrieval + generation</small>
+              </article>
+              <article class="run-card">
+                <span>RAG Context</span>
+                <strong id="metric-run-rag-latency">-</strong>
+                <small id="metric-run-rag-latency-detail">retrieval + generation</small>
+              </article>
+              <article class="run-card">
+                <span>Inference Model</span>
+                <strong id="metric-inference-model">-</strong>
+                <small id="metric-inference-backend">LLM backend</small>
+              </article>
+            </div>
+            <div class="telemetry-graphs">
+              <div class="graph-block">
+                <div class="graph-heading">
+                  <span>Latency</span>
+                  <small>retrieval + generation</small>
                 </div>
-                <div class="table-scroll">
-                  <table id="rag-documents" class="data-table">
-                    <thead>
-                      <tr>
-                        <th>#</th>
-                        <th>Score</th>
-                        <th>Tokens</th>
-                        <th>Source</th>
-                      </tr>
-                    </thead>
-                    <tbody></tbody>
-                  </table>
+                <div class="bar-row">
+                  <span>Base</span>
+                  <div class="stack-bar" aria-hidden="true">
+                    <i id="bar-base-generation" class="bar-segment generation"></i>
+                  </div>
+                  <strong id="graph-base-latency">-</strong>
+                </div>
+                <div class="bar-row">
+                  <span>DML</span>
+                  <div class="stack-bar" aria-hidden="true">
+                    <i id="bar-dml-retrieval" class="bar-segment retrieval"></i>
+                    <i id="bar-dml-generation" class="bar-segment generation"></i>
+                  </div>
+                  <strong id="graph-dml-latency">-</strong>
+                </div>
+                <div class="bar-row">
+                  <span>RAG</span>
+                  <div class="stack-bar" aria-hidden="true">
+                    <i id="bar-rag-retrieval" class="bar-segment retrieval rag"></i>
+                    <i id="bar-rag-generation" class="bar-segment generation rag"></i>
+                  </div>
+                  <strong id="graph-rag-latency">-</strong>
                 </div>
               </div>
+              <div class="graph-block">
+                <div class="graph-heading">
+                  <span>Tokens</span>
+                  <small>input + output</small>
+                </div>
+                <div class="bar-row">
+                  <span>Base</span>
+                  <div class="stack-bar token-bar" aria-hidden="true">
+                    <i id="bar-base-input" class="bar-segment input"></i>
+                    <i id="bar-base-output" class="bar-segment output"></i>
+                  </div>
+                  <strong id="graph-base-tokens">-</strong>
+                </div>
+                <div class="bar-row">
+                  <span>DML</span>
+                  <div class="stack-bar token-bar" aria-hidden="true">
+                    <i id="bar-dml-input" class="bar-segment input"></i>
+                    <i id="bar-dml-output" class="bar-segment output"></i>
+                  </div>
+                  <strong id="graph-dml-tokens">-</strong>
+                </div>
+                <div class="bar-row">
+                  <span>RAG</span>
+                  <div class="stack-bar token-bar" aria-hidden="true">
+                    <i id="bar-rag-input" class="bar-segment input rag"></i>
+                    <i id="bar-rag-output" class="bar-segment output rag"></i>
+                  </div>
+                  <strong id="graph-rag-tokens">-</strong>
+                </div>
+              </div>
+              <div class="graph-block accuracy-block">
+                <div class="graph-heading">
+                  <span>Accuracy</span>
+                  <small>answer-key facts</small>
+                </div>
+                <div class="bar-row">
+                  <span>Base</span>
+                  <div class="stack-bar accuracy-bar" aria-hidden="true">
+                    <i id="bar-base-accuracy" class="bar-segment accuracy"></i>
+                  </div>
+                  <strong id="graph-base-accuracy">-</strong>
+                </div>
+                <div class="bar-row">
+                  <span>DML</span>
+                  <div class="stack-bar accuracy-bar" aria-hidden="true">
+                    <i id="bar-dml-accuracy" class="bar-segment accuracy"></i>
+                  </div>
+                  <strong id="graph-dml-accuracy">-</strong>
+                </div>
+                <div class="bar-row">
+                  <span>RAG</span>
+                  <div class="stack-bar accuracy-bar" aria-hidden="true">
+                    <i id="bar-rag-accuracy" class="bar-segment accuracy rag"></i>
+                  </div>
+                  <strong id="graph-rag-accuracy">-</strong>
+                </div>
+              </div>
+            </div>
+            <div class="telemetry-counts">
+              <span>DML nodes <strong id="metric-run-nodes">0</strong></span>
+              <span>DML context <strong id="metric-run-dml-tokens">-</strong></span>
+              <span>RAG docs <strong id="metric-run-docs">0</strong></span>
+              <span>RAG context <strong id="metric-run-rag-tokens">-</strong></span>
+              <span>Fact key <strong id="metric-accuracy-key">not scored</strong></span>
             </div>
           </div>
         </section>
-        <section class="panel panel--wide" id="dml-context-panel">
-          <h3>DML Context &amp; Insights</h3>
-          <div class="dml-context-shell">
-            <div class="dml-context-scroll">
-              <div class="context-summary">
-                <h4>Summaries</h4>
-                <ol id="dml-summary-list" class="summary-list"></ol>
+
+        <section class="comparison-panel panel">
+          <div class="panel-heading compact">
+            <h2>Comparison</h2>
+            <span id="comparison-status" class="mini-pill">waiting</span>
+          </div>
+          <div class="comparison-grid">
+            <article class="comparison-card">
+              <div class="panel-heading compact">
+                <h3>DML Context Sent to LLM</h3>
+                <span id="dml-context-count" class="mini-pill">0 tokens</span>
               </div>
-              <pre id="dml-context"></pre>
-              <div class="table-scroll">
-                <table id="dml-entries" class="data-table">
-                  <thead>
-                    <tr>
-                      <th>ID</th>
-                      <th>Level</th>
-                      <th>Fidelity</th>
-                      <th>Tokens</th>
-                      <th>Summary</th>
-                    </tr>
-                  </thead>
-                  <tbody></tbody>
-                </table>
+              <pre id="dml-context" class="output-box context-box empty">Run a prompt to inspect the compact DML context sent to the model.</pre>
+            </article>
+            <article class="comparison-card">
+              <div class="panel-heading compact">
+                <h3>RAG Context Sent to LLM</h3>
+                <span id="rag-context-count" class="mini-pill">0 tokens</span>
               </div>
-            </div>
-            <aside class="insight-copy">
-              <h4>Insights</h4>
-              <p id="insight-copy"></p>
-            </aside>
+              <pre id="rag-context" class="output-box context-box empty">Run a prompt to inspect the retrieved RAG document context sent to the model.</pre>
+            </article>
+            <article class="comparison-card">
+              <div class="panel-heading compact">
+                <h3>DML Response</h3>
+                <span id="response-mode" class="mini-pill">waiting</span>
+              </div>
+              <pre id="dml-response" class="output-box empty">Run a prompt to see the model response using DML context.</pre>
+            </article>
+            <article class="comparison-card">
+              <div class="panel-heading compact">
+                <h3>RAG Response</h3>
+                <span id="rag-mode" class="mini-pill">waiting</span>
+              </div>
+              <pre id="rag-response" class="output-box empty">Run a prompt to see the model response using RAG context.</pre>
+            </article>
           </div>
         </section>
-      </section>
 
-      <section class="panel panel--wide" id="knowledge-panel">
-        <h2>Knowledge Bases</h2>
-        <p class="hint">Review everything currently ingested into the playground.</p>
-        <div class="knowledge-metrics">
-          <article class="metric-card">
-            <h3>RAG Knowledge</h3>
-            <dl class="metric-list">
-              <div><dt>Documents</dt><dd id="knowledge-rag-count">0</dd></div>
-              <div><dt>Total Tokens</dt><dd id="knowledge-rag-tokens">0</dd></div>
-            </dl>
-          </article>
-          <article class="metric-card">
-            <h3>DML Knowledge</h3>
-            <dl class="metric-list">
-              <div><dt>Entries</dt><dd id="knowledge-dml-count">0</dd></div>
-              <div><dt>Total Tokens</dt><dd id="knowledge-dml-tokens">0</dd></div>
-            </dl>
-          </article>
-        </div>
-        <div id="knowledge-status" class="status"></div>
-        <div class="knowledge-grid">
-          <article class="context-card">
-            <header>RAG Documents</header>
-            <div class="table-scroll">
-              <table id="rag-knowledge" class="data-table">
-                <thead>
-                  <tr>
-                    <th>#</th>
-                    <th>Tokens</th>
-                    <th>Source</th>
-                  </tr>
-                </thead>
-                <tbody></tbody>
-              </table>
+        <section class="setup-grid">
+          <details class="panel setup-card">
+            <summary>Add Knowledge</summary>
+            <label for="memory-text">Memory text</label>
+            <textarea id="memory-text" rows="5" spellcheck="true">DML stores compressed, fidelity-scored memories and retrieves compact contextual history for agent sessions.</textarea>
+            <div class="control-row">
+              <label>
+                Source
+                <input id="memory-source" type="text" value="playground" />
+              </label>
+              <button id="ingest-memory" type="button">Ingest</button>
             </div>
-          </article>
-          <article class="context-card">
-            <header>DML Memories</header>
-            <div class="table-scroll">
-              <table id="dml-knowledge" class="data-table">
-                <thead>
-                  <tr>
-                    <th>ID</th>
-                    <th>Level</th>
-                    <th>Fidelity</th>
-                    <th>Tokens</th>
-                    <th>Summary</th>
-                  </tr>
-                </thead>
-                <tbody></tbody>
-              </table>
+            <form id="upload-form" class="upload-form">
+              <input
+                id="file-input"
+                name="files"
+                type="file"
+                multiple
+                accept=".txt,.pdf,.md,.markdown,.json,.csv,.tsv,.log,.yaml,.yml,.html,.htm,.zip"
+              />
+              <button class="secondary" type="submit">Upload Files</button>
+            </form>
+            <ul id="selected-files" class="file-list"></ul>
+            <div id="ingest-status" class="status-line"></div>
+          </details>
+
+          <details class="panel setup-card">
+            <summary>Knowledge Browser <span id="knowledge-status" class="mini-pill">loading</span></summary>
+            <div id="knowledge-list" class="knowledge-list"></div>
+          </details>
+
+          <details class="panel setup-card">
+            <summary>Provider Surface</summary>
+            <div class="provider-grid">
+              <code>daystrom-dml server --host 127.0.0.1 --port 8765</code>
+              <code>dml-ollama serve --host 127.0.0.1 --port 11435</code>
+              <code>curl http://127.0.0.1:8765/knowledge</code>
             </div>
-          </article>
-          <article class="context-card">
-            <header>RAG Backends</header>
-            <ul id="rag-backends" class="rag-backend-list"></ul>
-          </article>
-        </div>
-      </section>
+          </details>
+        </section>
       </main>
-
-      <footer>
-        <p>Use the controls above to select and configure a NVIDIA NIM endpoint for the playground.</p>
-      </footer>
     </div>
 
-    <script src="/static/app.js" type="module"></script>
+    <script src="/static/app.js?v=lattice-camera" defer></script>
   </body>
 </html>

@@ -36,6 +36,7 @@ from structlog.stdlib import ProcessorFormatter
 
 from . import utils, visualizer_bridge
 from .dml_adapter import DMLAdapter
+from .frontier_pipeline import FrontierCompressionPipeline, FrontierPipelineConfig
 from .metrics import latest_metrics, record_tokens
 
 try:  # httpx is required for proxying the visualizer through the API origin
@@ -97,6 +98,51 @@ DEFAULT_PYTHON = Path(sys.executable)
 VENV_DIR = REPO_ROOT / ".venv"
 VISUALIZER_LOG = REPO_ROOT / "visualizer.log"
 
+
+def _load_local_env_files() -> None:
+    """Load local .env files into os.environ without overriding shell values."""
+
+    candidates = [
+        REPO_ROOT / ".env",
+        REPO_ROOT / ".env.local",
+        REPO_ROOT / "dml_core" / ".env",
+        REPO_ROOT / "dml_core" / ".env.local",
+        Path.cwd() / ".env",
+        Path.cwd() / ".env.local",
+    ]
+    seen: set[Path] = set()
+    for candidate in candidates:
+        try:
+            resolved = candidate.resolve()
+        except OSError:
+            continue
+        if resolved in seen or not candidate.is_file():
+            continue
+        seen.add(resolved)
+        try:
+            lines = candidate.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            continue
+        for line in lines:
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            if stripped.lower().startswith("export "):
+                stripped = stripped[7:].lstrip()
+            if "=" not in stripped:
+                continue
+            key, value = stripped.split("=", 1)
+            key = key.strip()
+            value = value.strip()
+            if not key:
+                continue
+            if value and value[0] == value[-1] and value[0] in {"'", '"'}:
+                value = value[1:-1]
+            os.environ.setdefault(key, value)
+
+
+_load_local_env_files()
+
 MAX_ARCHIVE_MEMBER_SIZE = int(
     os.environ.get("DML_MAX_ARCHIVE_MEMBER_SIZE", str(5 * 1024 * 1024))
 )
@@ -108,6 +154,23 @@ if WEB_DIR.exists():
 ADAPTER_LOCK = Lock()
 adapter = DMLAdapter(start_aging_loop=False)
 SERVICE_START_TIME = time.time()
+SEEDED_INFERENCE_SCENARIOS: set[str] = set()
+
+
+def _adapter_inference_info(current: Any | None = None) -> dict[str, Any]:
+    """Expose the LLM backend/model used for demo inference."""
+
+    current = current or adapter
+    config = getattr(current, "config", {}) or {}
+    model = config.get("model_name")
+    backend = getattr(current, "llm_backend", None) or config.get("llm_backend")
+    runner = getattr(current, "runner", None)
+    if not any([model, backend]):
+        return {}
+    return {
+        "model": model,
+        "backend": backend,
+    }
 
 
 def _adapter_health() -> dict[str, Any]:
@@ -138,6 +201,7 @@ def _adapter_health() -> dict[str, Any]:
             "memories": len(current.store.items()),
             "metrics_enabled": bool(current.metrics_enabled),
             "storage_dir": str(current.storage_dir),
+            "inference": _adapter_inference_info(current),
             "rag_backends": current.rag_store.descriptors(),
             "persistent_rag": persistent_info,
             "persistence": {
@@ -298,10 +362,45 @@ class QueryPayload(BaseModel):
     session_id: Optional[str] = None
 
 
+class DPMPreferencePayload(BaseModel):
+    text: str
+    scope: str = "relationship"
+    source_id: str = "api:dpm"
+    explicit: bool = True
+    meta: Optional[dict] = None
+
+
+class DPMSuppressPayload(BaseModel):
+    reason: str = "suppressed_by_user"
+
+
 class ComparePayload(BaseModel):
     prompt: str
     top_k: Optional[int] = None
     max_new_tokens: Optional[int] = 512
+
+
+class InferencePipelinePayload(BaseModel):
+    prompt: str
+    tenant_id: str = "openclaw"
+    client_id: Optional[str] = None
+    session_id: Optional[str] = None
+    instance_id: Optional[str] = None
+    top_k: int = 8
+    include_local_draft: bool = True
+    local_max_tokens: int = 256
+    frontier_max_tokens: int = 512
+    direct_input_tokens_estimate: Optional[int] = None
+    direct_output_tokens_estimate: Optional[int] = None
+    model: str = "azure/openai/gpt-5.2-codex"
+    reasoning_effort: str = "low"
+
+
+class DirectInferencePayload(BaseModel):
+    prompt: str
+    model: str = "azure/openai/gpt-5.2-codex"
+    reasoning_effort: str = "low"
+    max_output_tokens: int = 2200
 
 
 class NimConfigurePayload(BaseModel):
@@ -331,9 +430,6 @@ def _visualizer_health() -> dict[str, Any]:
                 "running": True,
                 "url": VISUALIZER_URL,
             }
-            embed_path = _resolve_visualizer_embed_path()
-            if embed_path:
-                payload["embed_path"] = embed_path
             return payload
 
         process = VISUALIZER_STATE.get("process")
@@ -396,6 +492,14 @@ def home() -> HTMLResponse:
     if not index.exists():
         raise HTTPException(status_code=404, detail="Frontend bundle missing")
     return HTMLResponse(index.read_text(encoding="utf-8"))
+
+
+@app.get("/pipeline", response_class=HTMLResponse)
+def inference_pipeline_demo() -> HTMLResponse:
+    page = WEB_DIR / "pipeline.html"
+    if not page.exists():
+        raise HTTPException(status_code=404, detail="Inference pipeline demo missing")
+    return HTMLResponse(page.read_text(encoding="utf-8"))
 
 
 def _resolve_visualizer_url(request: Request) -> str:
@@ -1001,7 +1105,7 @@ def visualizer_url(request: Request) -> dict:
     """Expose the configured visualizer target for the frontend."""
 
     payload = {"url": _resolve_visualizer_url(request)}
-    embed_path = _resolve_visualizer_embed_path()
+    embed_path = None if VISUALIZER_URL else _resolve_visualizer_embed_path()
     if embed_path:
         payload["embed_url"] = embed_path
     return payload
@@ -1022,15 +1126,12 @@ def launch_visualizer(request: Request) -> dict:
     """Ensure the Streamlit visualizer is ready and return its URL."""
 
     target_url = _resolve_visualizer_url(request)
-    embed_path = _resolve_visualizer_embed_path()
     if VISUALIZER_URL:
         # External deployments are assumed to be managed separately.
         LOGGER.info("External visualizer configured, skipping local launch")
-        payload = {"status": "external", "url": target_url}
-        if embed_path:
-            payload["embed_url"] = embed_path
-        return payload
+        return {"status": "external", "url": target_url}
 
+    embed_path = _resolve_visualizer_embed_path()
     try:
         _launch_visualizer_server()
     except HTTPException as exc:
@@ -1148,6 +1249,53 @@ def reinforce(payload: TextPayload) -> dict:
     return {"status": "ok"}
 
 
+@app.get("/dpm/overlay")
+def dpm_overlay(prompt: str = "", thread_id: Optional[str] = None, project_id: Optional[str] = None, relationship_id: Optional[str] = None) -> dict:
+    overlay = adapter.personality_overlay(
+        prompt=prompt,
+        thread_id=thread_id,
+        project_id=project_id,
+        relationship_id=relationship_id,
+    )
+    return {"status": "ok", "overlay": overlay}
+
+
+@app.get("/dpm/graph")
+def dpm_graph() -> dict:
+    graph = adapter.personality_graph()
+    return {"status": "ok" if graph is not None else "missing", "graph": graph}
+
+
+@app.post("/dpm/preference")
+def dpm_preference(payload: DPMPreferencePayload) -> dict:
+    result = adapter.record_personality_preference(
+        payload.text,
+        scope=payload.scope,
+        source_id=payload.source_id,
+        explicit=payload.explicit,
+        meta=payload.meta,
+    )
+    if result is None:
+        return {"status": "inactive", "result": None}
+    return {"status": result.get("status", "ok"), "result": result}
+
+
+@app.post("/dpm/preference/{node_id}/suppress")
+def dpm_suppress_preference(node_id: str, payload: DPMSuppressPayload) -> dict:
+    result = adapter.suppress_personality_preference(node_id, reason=payload.reason)
+    if result is None:
+        return {"status": "inactive", "result": None}
+    return {"status": result.get("status", "ok"), "result": result}
+
+
+@app.delete("/dpm/preference/{node_id}")
+def dpm_delete_preference(node_id: str) -> dict:
+    result = adapter.delete_personality_preference(node_id)
+    if result is None:
+        return {"status": "inactive", "result": None}
+    return {"status": result.get("status", "ok"), "result": result}
+
+
 @app.post("/query")
 def query(payload: QueryPayload) -> dict:
     if adapter.enable_stm_controller:
@@ -1228,26 +1376,383 @@ def rag_retrieve(payload: QueryPayload) -> dict:
 @app.post("/rag/compare")
 def rag_compare(payload: ComparePayload) -> dict:
     try:
-        result = adapter.compare_responses(
-            payload.prompt,
-            top_k=payload.top_k,
-            max_new_tokens=payload.max_new_tokens or 512,
-        )
+        compare_kwargs = {
+            "top_k": payload.top_k,
+            "max_new_tokens": payload.max_new_tokens or 512,
+        }
+        if "allow_reinforce" in inspect.signature(adapter.compare_responses).parameters:
+            compare_kwargs["allow_reinforce"] = False
+        result = adapter.compare_responses(payload.prompt, **compare_kwargs)
     except Exception as exc:
         if requests and isinstance(exc, requests.RequestException):
             raise HTTPException(status_code=503, detail="NIM backend is unreachable. Start the container and try again.")
         raise
     prompt_tokens = utils.estimate_tokens(payload.prompt)
+    dml_entries = result.get("dml", {}).get("entries", [])
+    activated_ids = [
+        entry.get("id")
+        for entry in dml_entries
+        if isinstance(entry, dict) and entry.get("id") is not None
+    ]
     visualizer_bridge.queue_prompt(
         payload.prompt,
         top_k=payload.top_k or adapter.config.get("top_k", 6),
         mode="auto",
-        metadata={"source": "rag_compare"},
+        metadata={
+            "source": "rag_compare",
+            "activated_node_ids": activated_ids,
+            "activated_nodes": dml_entries,
+        },
     )
-    return {
+    response = {
         **result,
         "prompt_tokens_est": prompt_tokens,
     }
+    inference = _adapter_inference_info(adapter)
+    if inference:
+        response["inference"] = inference
+    return response
+
+
+def _local_draft_generator(prompt: str, max_tokens: int) -> str:
+    runner = getattr(adapter, "runner", None)
+    if runner is None or getattr(runner, "is_dummy", False):
+        return ""
+    return runner.generate(prompt, max_new_tokens=max_tokens)
+
+
+def _flappy_bird_agentic_scenario() -> dict[str, Any]:
+    """Seed and return a canned code-agent benchmark scenario."""
+
+    scenario_id = "flappy-bird-code-agent"
+    tenant_id = "openclaw"
+    session_id = "flappy-bird-canned-demo"
+    final_prompt = (
+        "Develop a clone of Flappy Bird in Python, test it, harden it, and deliver it to me. "
+        "Use the remembered run context instead of restating the whole transcript. Return a concise delivery with: "
+        "1) final architecture, 2) complete playable Python code in one file, 3) test plan or pytest smoke tests, "
+        "4) hardening notes, and 5) run instructions."
+    )
+    turns = [
+        (
+            "turn-01-requirements",
+            "User requested a Python Flappy Bird clone. Requirements: playable locally, keyboard controls, gravity, "
+            "pipe spawning, collision, score, restart after game over, no network assets, and simple installation."
+        ),
+        (
+            "turn-02-tech-choice",
+            "Agent selected pygame as the target runtime because it is common for small Python games and supports "
+            "keyboard input, frame timing, collision rects, and simple drawing without external art."
+        ),
+        (
+            "turn-03-architecture",
+            "Architecture decision FLAPPY-ARCH-042: one-file implementation with Game, Bird, PipePair, and Config "
+            "objects. Keep constants grouped, avoid global mutable gameplay state, and make collision/test helpers pure."
+        ),
+        (
+            "turn-04-physics",
+            "Physics decision FLAPPY-PHYSICS-117: bird velocity increases by gravity each frame, flap sets velocity "
+            "negative, y position integrates velocity, and pipe speed is frame-time adjusted."
+        ),
+        (
+            "turn-05-rendering",
+            "Rendering plan: draw sky, ground strip, bird circle/body, pipe rectangles, score text, game-over overlay, "
+            "and small restart instructions. Avoid loading files so the demo is self-contained."
+        ),
+        (
+            "turn-06-testing",
+            "Test plan FLAPPY-TEST-233: verify collision detection against pipes and bounds, scoring when a pipe pair "
+            "is passed once, pipe recycling/spawn spacing, restart resets score/game_over, and config sanity."
+        ),
+        (
+            "turn-07-hardening",
+            "Hardening decision FLAPPY-HARDEN-311: clamp delta time to avoid huge physics jumps after pause, handle "
+            "missing pygame with a clear message, keep deterministic helpers for tests, and guard main with __name__."
+        ),
+        (
+            "turn-08-delivery",
+            "Delivery expectation FLAPPY-DELIVER-909: final answer should include complete main.py code, optional "
+            "test_flappy.py snippets, pip install pygame, python main.py, and mention controls SPACE/click to flap."
+        ),
+    ]
+    long_transcript = []
+    for index in range(1, 17):
+        base_key, base_text = turns[(index - 1) % len(turns)]
+        long_transcript.append(
+            f"Traditional agent turn {index:02d} ({base_key}). {base_text} "
+            "Verbose scratchpad: considered sprite sheets, audio, menu screens, persistence, ECS architecture, "
+            "mobile touch controls, generated assets, and packaging; deferred them unless needed for a solid demo."
+        )
+    direct_prompt = (
+        "You are finishing this long coding-agent run without DML. Use the full transcript below and deliver the final "
+        "Flappy Bird clone.\n\n"
+        + "\n\n".join(long_transcript)
+        + "\n\nFinal user request:\n"
+        + final_prompt
+    )
+    memories = [
+        {
+            "text": text,
+            "meta": {
+                "tenant_id": tenant_id,
+                "session_id": session_id,
+                "kind": "code_agent_turn",
+                "source": "canned_flappy_bird_demo",
+                "scenario_id": scenario_id,
+                "step_id": key,
+                "no_merge": True,
+            },
+        }
+        for key, text in turns
+    ]
+    ledger = (
+        "Flappy Bird code-agent survival ledger. "
+        "FLAPPY-ARCH-042 = one-file pygame implementation with Game, Bird, PipePair, Config, pure helpers for tests. "
+        "FLAPPY-PHYSICS-117 = gravity integrates velocity, flap sets negative velocity, pipe speed uses delta time. "
+        "FLAPPY-TEST-233 = test collision, scoring once, pipe recycling, restart reset, config sanity. "
+        "FLAPPY-HARDEN-311 = clamp delta time, clear missing-pygame message, deterministic helpers, guarded main. "
+        "FLAPPY-DELIVER-909 = provide complete main.py, optional pytest smoke tests, install/run instructions, controls."
+    )
+    memories.append(
+        {
+            "text": ledger,
+            "meta": {
+                "tenant_id": tenant_id,
+                "session_id": session_id,
+                "kind": "survival_ledger",
+                "source": "canned_flappy_bird_demo",
+                "scenario_id": scenario_id,
+                "summary": ledger,
+                "no_merge": True,
+                "survival_ledger": True,
+                "anchors": [
+                    "FLAPPY-ARCH-042",
+                    "FLAPPY-PHYSICS-117",
+                    "FLAPPY-TEST-233",
+                    "FLAPPY-HARDEN-311",
+                    "FLAPPY-DELIVER-909",
+                ],
+            },
+        }
+    )
+    if scenario_id not in SEEDED_INFERENCE_SCENARIOS:
+        with ADAPTER_LOCK:
+            current = adapter
+        for memory in memories:
+            current.ingest(memory["text"], meta=memory["meta"])
+        SEEDED_INFERENCE_SCENARIOS.add(scenario_id)
+    return {
+        "id": scenario_id,
+        "title": "Build a Python Flappy Bird Clone",
+        "tenant_id": tenant_id,
+        "session_id": session_id,
+        "prompt": final_prompt,
+        "direct_prompt": direct_prompt,
+        "traditional_turns": len(long_transcript),
+        "dml_turns": 3,
+        "direct_input_tokens_estimate": utils.estimate_tokens(direct_prompt),
+        "direct_output_tokens_estimate": 3200,
+        "frontier_max_tokens": 2200,
+        "top_k": 8,
+        "memory_count": len(memories),
+        "seeded": True,
+    }
+
+
+@app.post("/inference/scenarios/flappy-bird")
+def inference_flappy_bird_scenario() -> dict[str, Any]:
+    return _flappy_bird_agentic_scenario()
+
+
+def _prepare_inference_pipeline(payload: InferencePipelinePayload) -> dict[str, Any]:
+    pipeline = FrontierCompressionPipeline(
+        adapter,
+        config=FrontierPipelineConfig(
+            top_k=payload.top_k,
+            local_max_tokens=payload.local_max_tokens,
+            frontier_max_tokens=payload.frontier_max_tokens,
+            include_local_draft=payload.include_local_draft,
+        ),
+        draft_generator=_local_draft_generator,
+    )
+    prepared = pipeline.prepare(
+        payload.prompt,
+        tenant_id=payload.tenant_id,
+        client_id=payload.client_id,
+        session_id=payload.session_id,
+        instance_id=payload.instance_id,
+        top_k=payload.top_k,
+        local_max_tokens=payload.local_max_tokens,
+        frontier_max_tokens=payload.frontier_max_tokens,
+        include_local_draft=payload.include_local_draft,
+        direct_input_tokens_estimate=payload.direct_input_tokens_estimate,
+    )
+    telemetry = dict(prepared.get("telemetry") or {})
+    direct_output = int(payload.direct_output_tokens_estimate or 0)
+    frontier_output = int(payload.frontier_max_tokens or 0)
+    if direct_output > 0:
+        saved_output = max(0, direct_output - frontier_output)
+        telemetry["direct_output_tokens_estimate"] = direct_output
+        telemetry["frontier_output_tokens_estimate"] = frontier_output
+        telemetry["output_tokens_saved_estimate"] = saved_output
+        telemetry["output_savings_pct_estimate"] = round(
+            (saved_output / max(1, direct_output)) * 100.0,
+            1,
+        )
+    prepared["telemetry"] = telemetry
+    prepared["frontier_request"] = {
+        "url": os.environ.get("DML_NVIDIA_INFERENCE_URL", "https://inference-api.nvidia.com/v1/responses"),
+        "model": payload.model,
+        "reasoning": {"effort": payload.reasoning_effort},
+        "input": prepared.get("frontier_prompt", ""),
+        "max_output_tokens": payload.frontier_max_tokens,
+    }
+    prepared["api_key_configured"] = bool(os.environ.get("DML_NVIDIA_API_KEY"))
+    return prepared
+
+
+@app.post("/inference/prepare")
+def inference_prepare(payload: InferencePipelinePayload) -> dict[str, Any]:
+    return _prepare_inference_pipeline(payload)
+
+
+@app.post("/inference/run")
+def inference_run(payload: InferencePipelinePayload) -> dict[str, Any]:
+    api_key = os.environ.get("DML_NVIDIA_API_KEY")
+    if not api_key:
+        raise HTTPException(
+            status_code=400,
+            detail="DML_NVIDIA_API_KEY is not set. Set it in the environment before running paid inference.",
+        )
+    if requests is None:
+        raise HTTPException(status_code=503, detail="Requests library unavailable; cannot call inference endpoint.")
+    prepared = _prepare_inference_pipeline(payload)
+    request_payload = {
+        "model": payload.model,
+        "input": prepared.get("frontier_prompt", ""),
+        "reasoning": {"effort": payload.reasoning_effort},
+        "max_output_tokens": payload.frontier_max_tokens,
+    }
+    started = time.perf_counter()
+    try:
+        response = requests.post(
+            os.environ.get("DML_NVIDIA_INFERENCE_URL", "https://inference-api.nvidia.com/v1/responses"),
+            json=request_payload,
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+            timeout=float(os.environ.get("DML_NVIDIA_INFERENCE_TIMEOUT", "180")),
+        )
+        response.raise_for_status()
+    except requests.RequestException as exc:
+        raise HTTPException(status_code=502, detail=f"Inference endpoint failed: {exc}") from exc
+    latency_ms = round((time.perf_counter() - started) * 1000.0, 2)
+    try:
+        inference_payload = response.json()
+    except ValueError:
+        inference_payload = {"text": response.text}
+    output_text = _extract_response_text(inference_payload)
+    telemetry = dict(prepared.get("telemetry") or {})
+    telemetry["frontier_latency_ms"] = latency_ms
+    telemetry["frontier_output_tokens_observed"] = utils.estimate_tokens(output_text)
+    return {
+        "prepared": prepared,
+        "inference": {
+            "status_code": response.status_code,
+            "latency_ms": latency_ms,
+            "output_text": output_text,
+            "raw": inference_payload,
+        },
+        "telemetry": telemetry,
+    }
+
+
+def _run_frontier_direct(payload: DirectInferencePayload) -> dict[str, Any]:
+    api_key = os.environ.get("DML_NVIDIA_API_KEY")
+    if not api_key:
+        raise HTTPException(
+            status_code=400,
+            detail="DML_NVIDIA_API_KEY is not set. Set it in the environment before running paid inference.",
+        )
+    if requests is None:
+        raise HTTPException(status_code=503, detail="Requests library unavailable; cannot call inference endpoint.")
+    request_payload = {
+        "model": payload.model,
+        "input": payload.prompt,
+        "reasoning": {"effort": payload.reasoning_effort},
+        "max_output_tokens": payload.max_output_tokens,
+    }
+    started = time.perf_counter()
+    try:
+        response = requests.post(
+            os.environ.get("DML_NVIDIA_INFERENCE_URL", "https://inference-api.nvidia.com/v1/responses"),
+            json=request_payload,
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+            timeout=float(os.environ.get("DML_NVIDIA_INFERENCE_TIMEOUT", "180")),
+        )
+        response.raise_for_status()
+    except requests.RequestException as exc:
+        raise HTTPException(status_code=502, detail=f"Inference endpoint failed: {exc}") from exc
+    latency_ms = round((time.perf_counter() - started) * 1000.0, 2)
+    try:
+        inference_payload = response.json()
+    except ValueError:
+        inference_payload = {"text": response.text}
+    output_text = _extract_response_text(inference_payload)
+    raw_usage = inference_payload.get("usage") if isinstance(inference_payload, dict) else {}
+    return {
+        "inference": {
+            "status_code": response.status_code,
+            "latency_ms": latency_ms,
+            "output_text": output_text,
+            "raw": inference_payload,
+        },
+        "telemetry": {
+            "direct_input_tokens_estimate": utils.estimate_tokens(payload.prompt),
+            "direct_output_tokens_observed": utils.estimate_tokens(output_text),
+            "frontier_latency_ms": latency_ms,
+            "usage": raw_usage or {},
+        },
+    }
+
+
+@app.post("/inference/direct/run")
+def inference_direct_run(payload: DirectInferencePayload) -> dict[str, Any]:
+    return _run_frontier_direct(payload)
+
+
+def _extract_response_text(payload: Any) -> str:
+    if isinstance(payload, str):
+        return payload
+    if not isinstance(payload, dict):
+        return str(payload)
+    if isinstance(payload.get("output_text"), str):
+        return payload["output_text"]
+    if isinstance(payload.get("text"), str):
+        return payload["text"]
+    output = payload.get("output")
+    if isinstance(output, list):
+        chunks: list[str] = []
+        for item in output:
+            if not isinstance(item, dict):
+                continue
+            content = item.get("content")
+            if isinstance(content, list):
+                for part in content:
+                    if isinstance(part, dict):
+                        text = part.get("text") or part.get("output_text")
+                        if isinstance(text, str):
+                            chunks.append(text)
+            text = item.get("text")
+            if isinstance(text, str):
+                chunks.append(text)
+        if chunks:
+            return "\n".join(chunks).strip()
+    return ""
 
 
 @app.get("/stats")

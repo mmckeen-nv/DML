@@ -126,6 +126,37 @@ dml-server --host 0.0.0.0 --port 8000
 ```
 Use `--reload` during development for hot reloading. The server honours `DML_HOST` and `DML_PORT` when set.
 
+### Provider mode
+```bash
+pip install .[server,mcp]
+dml serve --storage-dir ./data --host 127.0.0.1 --port 8765
+```
+Provider mode serves a local UI at `http://127.0.0.1:8765`, health at
+`/health`, and DML memory APIs under `/api/*` for recall, remember, resume,
+search, and fetch. It also exposes simple Ollama-shaped endpoints:
+`/api/tags`, `/api/show`, `/api/generate`, `/api/chat`, `/api/embed`,
+`/api/embeddings`, `/api/ps`, and `/api/version`.
+
+To run it as an Ollama-style memory clone:
+```bash
+dml-ollama --storage-dir ./data --host 127.0.0.1 --port 11435
+curl http://127.0.0.1:11435/api/tags
+curl http://127.0.0.1:11435/api/chat -d '{"model":"daystrom-dml:memory","messages":[{"role":"user","content":"current task"}]}'
+```
+
+Ollama-style client commands:
+```bash
+dml status
+dml remember --text "The active branch is provider-hardening." --meta '{"source":"cli"}'
+dml recall --query "active branch" --context-only
+dml search --query "provider"
+dml fetch 1
+```
+
+Use `scripts/install_daystrom_dml.sh --profile openclaw` or
+`--profile hermes` for an agent-app-ready local install that creates the venv,
+syncs the skill wrapper, writes a JSON app profile, and prints MCP/UI commands.
+
 ### Docker
 ```bash
 docker build -f dml_core/Dockerfile -t daystrom-dml .

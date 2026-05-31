@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from dataclasses import dataclass
 from typing import Iterable, Optional
 
@@ -17,7 +18,7 @@ class GPTRunner:
 
     The class attempts to instantiate a HuggingFace pipeline.  When the required
     dependencies or model weights are not available (as is often the case in
-    offline tests) it falls back to a deterministic dummy backend.
+    offline tests) it falls back to a deterministic local backend.
     """
 
     model_name: str
@@ -35,6 +36,10 @@ class GPTRunner:
     def __post_init__(self) -> None:
         self._backend = None
         self._last_usage: Optional[dict] = None
+        if str(self.model_name or "").strip().lower() == "dummy":
+            LOGGER.warning("Using deterministic local completion backend.")
+            self._backend = _DummyBackend()
+            return
         remote_base = os.getenv("DML_API_BASE") or os.getenv("OPENAI_API_BASE")
         remote_base = remote_base or os.getenv("NIM_API_BASE")
         remote_key = os.getenv("DML_API_KEY") or os.getenv("OPENAI_API_KEY")
@@ -95,7 +100,7 @@ class GPTRunner:
                 return
             except Exception as exc:  # pragma: no cover - executed in offline tests
                 LOGGER.warning("Transformers backend unavailable: %s", exc)
-        LOGGER.warning("Using DummyGPT backend.")
+        LOGGER.warning("Using deterministic local completion backend.")
         self._backend = _DummyBackend()
 
     def generate(
@@ -128,13 +133,24 @@ class GPTRunner:
             self._last_usage = usage
             return text
         if hasattr(self._backend, "generate"):
-            return self._backend.generate(
-                prompt=prompt,
-                max_new_tokens=max_new_tokens,
-                temperature=temperature if temperature is not None else self.temperature,
-                top_p=top_p if top_p is not None else self.top_p,
-                stop=stop,
-            )
+            try:
+                return self._backend.generate(
+                    prompt=prompt,
+                    max_new_tokens=max_new_tokens,
+                    temperature=temperature if temperature is not None else self.temperature,
+                    top_p=top_p if top_p is not None else self.top_p,
+                    stop=stop,
+                )
+            except requests.RequestException as exc:
+                if self._backend.__class__.__name__ != "OllamaBackend":
+                    raise
+                LOGGER.warning(
+                    "Ollama generation failed for model %s; using deterministic local completion backend: %s",
+                    self.model_name,
+                    exc,
+                )
+                self._backend = _DummyBackend()
+                return self._backend.generate(prompt, max_new_tokens=max_new_tokens)
         outputs = self._backend(prompt, max_new_tokens=max_new_tokens)
         if isinstance(outputs, list):
             return outputs[0]["generated_text"]
@@ -163,7 +179,7 @@ class GPTRunner:
 
     @property
     def is_dummy(self) -> bool:
-        """Expose whether the runner is using the dummy backend."""
+        """Expose whether the runner is using the deterministic local backend."""
 
         return isinstance(self._backend, _DummyBackend)
 
@@ -177,17 +193,55 @@ class _DummyBackend:
     """Fallback backend used during tests."""
 
     def generate(self, prompt: str, max_new_tokens: int = 256) -> str:
-        text = prompt.strip()
-        suffix = "\n[Dummy completion truncated]"
-        if len(text) > max_new_tokens:
-            text = text[: max_new_tokens]
-        return text + suffix
+        prompt_text = self._extract_user_prompt(prompt)
+        snippets = self._extract_context_snippets(prompt)
+        if snippets:
+            body = " ".join(snippets[:2])
+            text = body
+        else:
+            text = prompt_text or prompt.strip()
+        return self._truncate(text, max_new_tokens)
 
     def summarize(self, text: str, max_len: int = 128) -> str:
         text = text.strip().replace("\n", " ")
         if len(text) <= max_len:
             return text
         return text[: max_len - 3] + "..."
+
+    @staticmethod
+    def _extract_user_prompt(prompt: str) -> str:
+        marker = "=== User Prompt ==="
+        if marker not in prompt:
+            return prompt.strip()
+        return prompt.rsplit(marker, 1)[-1].strip()
+
+    @staticmethod
+    def _extract_context_snippets(prompt: str) -> list[str]:
+        context = prompt.split("=== User Prompt ===", 1)[0]
+        if "=== Private Grounding Notes ===" in context:
+            context = context.split("=== Private Grounding Notes ===", 1)[1]
+        snippets: list[str] = []
+        for raw_line in context.splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("==="):
+                continue
+            line = re.sub(r"^- L\d+ \(f=[^)]+\):\s*", "", line)
+            line = re.sub(r"^Document \d+[^\\n]*", "", line).strip()
+            if line.startswith(("Answer the user", "Treat the notes", "Do not mention", "Use only", "If the context")):
+                continue
+            if line.startswith(("Source:", "Prompt:", "Answer summary:")):
+                continue
+            if line:
+                snippets.append(line)
+        return snippets
+
+    @staticmethod
+    def _truncate(text: str, max_new_tokens: int) -> str:
+        max_chars = max(24, int(max_new_tokens or 256) * 4)
+        text = re.sub(r"\s+", " ", text).strip()
+        if len(text) <= max_chars:
+            return text
+        return text[: max_chars].rsplit(" ", 1)[0].strip()
 
 
 class _OpenAICompatibleBackend:

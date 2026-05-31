@@ -15,6 +15,7 @@ build-backend = "setuptools.build_meta"
 packages = [
     "daystrom_dml",
     "daystrom_dml.llm_backends",
+    "daystrom_dml.provider_web",
     "daystrom_dml.stm",
     "cma",
     "scripts",
@@ -25,6 +26,7 @@ packages = [
 "daystrom_dml" = [
     "web/*",
     "web/**/*",
+    "provider_web/*",
 ]
 
 [project]
@@ -78,8 +80,11 @@ dev = [
 ]
 
 [project.scripts]
+dml = "daystrom_dml.provider_cli:main"
 cma = "cma.cli:app"
+dml-ollama = "daystrom_dml.ollama_wrapper:main"
 dml-server = "daystrom_dml.server:main"
+dml-provider = "daystrom_dml.provider_server:main"
 dml-mcp-server = "dml_mcp.dml_mcp_server:main"
 
 [tool.pytest.ini_options]

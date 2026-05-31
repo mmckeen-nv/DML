@@ -25,7 +25,8 @@ MODE_COLORS: Dict[str, Tuple[int, int, int]] = {
 }
 DEFAULT_MODE = "literal"
 FRAME_DELAY = 0.35
-MAX_TOP_K = 8
+MAX_TOP_K = 16
+DEFAULT_TOP_K = 10
 NODE_SIZE_SCALE = 0.33
 PULSE_SEQUENCE = (0.25, 0.55, 0.95, 0.5)
 ACTIVATION_DECAY = 0.65
@@ -76,6 +77,21 @@ LAYOUT_CLUSTER_SPACING = 18.0
 LAYOUT_SIBLING_SPACING = 8.0
 LAYOUT_DEPTH_SPACING = 12.0
 LAYOUT_LEVEL_HEIGHT = 6.0
+LATTICE_NODE_SPACING = 7.0
+
+
+def _lattice_meta(item: MemoryItem) -> Dict:
+    meta = item.meta or {}
+    if meta.get("synthetic_lattice") != "square":
+        return {}
+    try:
+        return {
+            "row": int(meta["lattice_row"]),
+            "col": int(meta["lattice_col"]),
+            "size": int(meta.get("lattice_size") or 0),
+        }
+    except (KeyError, TypeError, ValueError):
+        return {}
 
 
 def _compute_layout(items: Iterable[MemoryItem]) -> Dict[int, Tuple[float, float, float]]:
@@ -84,6 +100,9 @@ def _compute_layout(items: Iterable[MemoryItem]) -> Dict[int, Tuple[float, float
     item_list = list(items)
     if not item_list:
         return {}
+    square_items = [item for item in item_list if _lattice_meta(item)]
+    if square_items:
+        return _compute_square_lattice_layout(item_list)
     item_map = {item.id: item for item in item_list}
     children_map: Dict[int, List[int]] = {}
     parent_counts: Dict[int, int] = {item.id: 0 for item in item_list}
@@ -155,6 +174,74 @@ def _compute_layout(items: Iterable[MemoryItem]) -> Dict[int, Tuple[float, float
     return layout
 
 
+def _compute_square_lattice_layout(items: List[MemoryItem]) -> Dict[int, Tuple[float, float, float]]:
+    """Position synthetic square lattice nodes on an actual grid."""
+
+    layout: Dict[int, Tuple[float, float, float]] = {}
+    max_col = 0
+    max_row = 0
+    square_items = []
+    for item in items:
+        meta = _lattice_meta(item)
+        if not meta:
+            continue
+        square_items.append((item, meta))
+        max_row = max(max_row, int(meta["row"]))
+        max_col = max(max_col, int(meta["col"]))
+
+    x_offset = -max_col * LATTICE_NODE_SPACING / 2.0
+    y_offset = max_row * LATTICE_NODE_SPACING / 2.0
+    for item, meta in square_items:
+        row = int(meta["row"])
+        col = int(meta["col"])
+        layout[item.id] = (
+            x_offset + col * LATTICE_NODE_SPACING,
+            y_offset - row * LATTICE_NODE_SPACING,
+            -int(item.level) * LAYOUT_LEVEL_HEIGHT,
+        )
+
+    spillover_x = (max_col + 2) * LATTICE_NODE_SPACING
+    spillover_idx = 0
+    for item in items:
+        if item.id in layout:
+            continue
+        layout[item.id] = (
+            spillover_x,
+            y_offset - spillover_idx * LATTICE_NODE_SPACING,
+            -int(item.level) * LAYOUT_LEVEL_HEIGHT,
+        )
+        spillover_idx += 1
+    return layout
+
+
+def _lattice_neighbors(node: Dict) -> List[int]:
+    raw = node.get("lattice_neighbors") or []
+    neighbors: List[int] = []
+    for value in raw:
+        try:
+            neighbor_id = int(value)
+        except (TypeError, ValueError):
+            continue
+        if neighbor_id != int(node.get("id", -1)):
+            neighbors.append(neighbor_id)
+    return neighbors
+
+
+def _edge_targets(node: Dict) -> List[int]:
+    targets: List[int] = []
+    for target_id in node.get("summary_of", []):
+        try:
+            parsed = int(target_id)
+        except (TypeError, ValueError):
+            continue
+        if parsed != int(node.get("id", -1)):
+            targets.append(parsed)
+    for target_id in _lattice_neighbors(node):
+        if target_id not in targets:
+            targets.append(target_id)
+    return targets
+
+
 def _shorten_text(text: str, limit: int = 140) -> str:
     cleaned = " ".join(text.strip().split())
     if len(cleaned) <= limit:
@@ -183,14 +270,14 @@ def _highlight_relationships(graph_state: Dict, node_id: int) -> None:
     if node is None:
         graph_state["active_edges"] = active_edges
         return
-    for child_id in node.get("summary_of", []):
+    for child_id in _edge_targets(node):
         child = nodes.get(child_id)
         if child is None:
             continue
         child["activation"] = max(child.get("activation", 0.0), 0.35)
         active_edges.append((node_id, child_id))
     for potential_parent in nodes.values():
-        if node_id in potential_parent.get("summary_of", []):
+        if node_id in _edge_targets(potential_parent):
             potential_parent["activation"] = max(
                 potential_parent.get("activation", 0.0), 0.45
             )
@@ -198,17 +285,35 @@ def _highlight_relationships(graph_state: Dict, node_id: int) -> None:
     graph_state["active_edges"] = active_edges
 
 
-def _animate_active_node(chart_placeholder, graph_state: Dict, node_id: int) -> None:
+def _render_graph(chart_placeholder, graph_state: Dict) -> None:
+    frame_index = int(graph_state.get("frame_index", 0))
+    chart_placeholder.plotly_chart(
+        build_figure(graph_state),
+        width="stretch",
+        key=f"lattice-frame-{frame_index}",
+    )
+    graph_state["frame_index"] = frame_index + 1
+
+
+def _animate_active_node(
+    chart_placeholder,
+    graph_state: Dict,
+    node_id: int,
+    *,
+    pulse: bool,
+) -> None:
     """Pulse the active node through multiple animation frames."""
 
     nodes = graph_state.get("nodes", {})
     node = nodes.get(node_id)
     if node is None:
-        chart_placeholder.plotly_chart(
-            build_figure(graph_state), use_container_width=True
-        )
+        _render_graph(chart_placeholder, graph_state)
         return
     peak = max(0.8, float(node.get("activation", 1.0)))
+    if not pulse:
+        node["activation"] = peak
+        _render_graph(chart_placeholder, graph_state)
+        return
     for phase in PULSE_SEQUENCE:
         node["activation"] = peak * phase
         for other_id, other in nodes.items():
@@ -216,9 +321,7 @@ def _animate_active_node(chart_placeholder, graph_state: Dict, node_id: int) -> 
                 continue
             decay = float(other.get("activation", 0.0)) * ACTIVATION_DECAY
             other["activation"] = decay if decay > 0.01 else 0.0
-        chart_placeholder.plotly_chart(
-            build_figure(graph_state), use_container_width=True
-        )
+        _render_graph(chart_placeholder, graph_state)
         time.sleep(FRAME_DELAY)
 
 
@@ -394,6 +497,9 @@ def _refresh_graph_state(
             "fidelity": float(item.fidelity),
             "level": int(item.level),
             "summary_of": list(item.summary_of),
+            "lattice_neighbors": list((item.meta or {}).get("lattice_neighbors") or []),
+            "lattice_row": (item.meta or {}).get("lattice_row"),
+            "lattice_col": (item.meta or {}).get("lattice_col"),
             "label": label,
             "merges": int(item.meta.get("merges", 0)) if item.meta else 0,
             "activation": activation,
@@ -424,7 +530,7 @@ def _build_edges(nodes: Dict[int, Dict]) -> Tuple[List[float], List[float], List
     z_coords: List[float] = []
     for node in nodes.values():
         start = node["position"]
-        for target_id in node["summary_of"]:
+        for target_id in _edge_targets(node):
             target = nodes.get(target_id)
             if target is None:
                 continue
@@ -549,16 +655,21 @@ def build_figure(graph_state: Dict) -> go.Figure:
             text=node_text,
             showlegend=False,
         )
-    )
+        )
     fig.update_layout(
+        height=int(graph_state.get("figure_height", 680)),
         margin=dict(l=10, r=10, t=10, b=10),
         scene=dict(
             xaxis=dict(showgrid=False, zeroline=False, visible=False),
             yaxis=dict(showgrid=False, zeroline=False, visible=False),
             zaxis=dict(showgrid=False, zeroline=False, visible=False),
+            aspectmode="data",
+            camera=dict(eye=dict(x=1.35, y=1.55, z=0.92)),
         ),
         paper_bgcolor="#0b0d17",
         plot_bgcolor="#0b0d17",
+        uirevision="dml-lattice-v1",
+        transition=dict(duration=120, easing="cubic-in-out"),
     )
     return fig
 
@@ -575,19 +686,27 @@ def get_adapter() -> DMLAdapter:
 
 def main() -> None:
     st.set_page_config(page_title="Daystrom Memory Lattice Live", layout="wide")
-    st.title("Daystrom Memory Lattice — Live Retrieval Visualizer")
-    left_col, centre_col, right_col = st.columns([1.2, 2.8, 1.0], gap="large")
 
     if "graph_state" not in st.session_state:
         st.session_state["graph_state"] = {"mode": DEFAULT_MODE, "nodes": {}}
 
     adapter = get_adapter()
 
-    query_params = st.experimental_get_query_params()
-    prompt_param = query_params.get("prompt", [""])[0]
-    top_k_param = query_params.get("top_k", [""])[0]
-    mode_param = query_params.get("mode", ["auto"])[0]
-    stamp_param = query_params.get("ts", [""])[0]
+    query_params = getattr(st, "query_params", None)
+    if query_params is None:
+        query_params = st.experimental_get_query_params()
+
+    def _query_param(name: str, default: str = "") -> str:
+        value = query_params.get(name, default)
+        if isinstance(value, list):
+            return str(value[0]) if value else default
+        return str(value) if value is not None else default
+
+    prompt_param = _query_param("prompt")
+    top_k_param = _query_param("top_k")
+    mode_param = _query_param("mode", "auto")
+    stamp_param = _query_param("ts")
+    embed_mode = _query_param("embed") in {"1", "true", "yes", "on"}
 
     latest_payload = None
     if prompt_param:
@@ -626,6 +745,35 @@ def main() -> None:
         st.session_state["auto_reason"] = latest_payload.get("reason")
         st.session_state["bridge_stamp"] = latest_payload["stamp"]
 
+    if embed_mode:
+        st.markdown(
+            """
+            <style>
+              .block-container {
+                padding: 0.25rem 0.25rem 0.1rem;
+                max-width: 100%;
+              }
+              header, footer, [data-testid="stToolbar"] {
+                display: none;
+              }
+            </style>
+            """,
+            unsafe_allow_html=True,
+        )
+        chart_placeholder = st.empty()
+        graph_state = st.session_state["graph_state"]
+        graph_state["figure_height"] = 520
+        _refresh_graph_state(
+            graph_state,
+            adapter.store.items(),
+            mode=graph_state.get("mode", DEFAULT_MODE),
+        )
+        _render_graph(chart_placeholder, graph_state)
+        return
+
+    st.title("Daystrom Memory Lattice — Live Retrieval Visualizer")
+    left_col, centre_col, right_col = st.columns([1.2, 2.8, 1.0], gap="large")
+
     with left_col:
         st.subheader("Controls")
         st.markdown(
@@ -645,12 +793,13 @@ def main() -> None:
             index=mode_index,
             help="Choose how the lattice should search. 'Auto' selects a mode heuristically.",
         )
-        default_top_k = int(st.session_state.get("auto_top_k", 6) or 6)
+        default_top_k = int(st.session_state.get("auto_top_k", DEFAULT_TOP_K) or DEFAULT_TOP_K)
         default_top_k = max(1, min(MAX_TOP_K, default_top_k))
         top_k = st.slider("Max nodes", min_value=1, max_value=MAX_TOP_K, value=default_top_k, step=1)
         st.session_state["auto_top_k"] = top_k
-        run_clicked = st.button("Run retrieval", type="primary", use_container_width=True)
-        st.caption("Nodes pulse as they are scored. Lower fidelity nodes dim over time.")
+        pulse_animation = st.toggle("Pulse animation", value=False)
+        run_clicked = st.button("Run retrieval", type="primary", width="stretch")
+        st.caption("Smooth mode renders one stable graph update per scored node.")
 
     chart_placeholder = centre_col.empty()
     summary_placeholder = centre_col.empty()
@@ -665,8 +814,9 @@ def main() -> None:
         token_bar = right_col.progress(0)
 
     graph_state = st.session_state["graph_state"]
+    graph_state["figure_height"] = 680
     _refresh_graph_state(graph_state, adapter.store.items(), mode=graph_state.get("mode", DEFAULT_MODE))
-    chart_placeholder.plotly_chart(build_figure(graph_state), use_container_width=True)
+    _render_graph(chart_placeholder, graph_state)
 
     auto_trigger = st.session_state.pop("auto_trigger", False)
     auto_reason = st.session_state.pop("auto_reason", None)
@@ -689,7 +839,8 @@ def main() -> None:
     summary_placeholder.info(
         f"Embedding prompt and preparing {actual_mode.title()} retrieval animation…"
     )
-    time.sleep(FRAME_DELAY)
+    if pulse_animation:
+        time.sleep(FRAME_DELAY)
 
     stream = retrieval_stream(adapter, prompt, actual_mode, top_k=top_k)
     try:
@@ -728,7 +879,12 @@ def main() -> None:
             f"**Step {step_index}:** Node `{step.item.id}` scored {step.score:.3f}"
             f" (rank {step.rank}, {step.tokens} tokens)\n\n{step.summary}"
         )
-        _animate_active_node(chart_placeholder, graph_state, step.item.id)
+        _animate_active_node(
+            chart_placeholder,
+            graph_state,
+            step.item.id,
+            pulse=pulse_animation,
+        )
         ordered_unique = list(dict.fromkeys(retrieved_ids))
         avg_fidelity = (
             sum(graph_state["nodes"][nid]["fidelity"] for nid in ordered_unique)
@@ -744,7 +900,7 @@ def main() -> None:
         )
         token_bar.progress(int(token_ratio * 100))
 
-    chart_placeholder.plotly_chart(build_figure(graph_state), use_container_width=True)
+    _render_graph(chart_placeholder, graph_state)
 
     total_time_ms = (time.time() - start_time) * 1000.0
     summary_placeholder.success(

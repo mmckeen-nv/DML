@@ -5,12 +5,14 @@ import contextlib
 import json
 import logging
 import os
+import re
 import threading
 import time
+from collections import OrderedDict
 from datetime import datetime, timezone
 from pathlib import Path
 from threading import Event, RLock
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 from .config import load_config
@@ -22,6 +24,7 @@ from .metrics import record_retrieval, update_memory_gauge
 from .multi_rag import MultiRAGStore, RAGBackendDescriptor
 from .persistence import load_state as load_persisted_memories
 from .persistence import save_state as save_persisted_memories
+from .personality_matrix import PersonalityMatrix, overlay_token_count
 from .summarizer import DummySummarizer, LLMSummarizer, Summarizer
 from .retrievers import LiteralRetriever
 from .router import decide_mode
@@ -30,7 +33,7 @@ from .stm.controller import STMController
 from .stm.policy import LTMWritePolicy, MemoryWrite
 from .stm.schema import STMState
 from . import utils
-from .agent_schema import AgenticMemorySchema, MemoryKind
+from .agent_schema import AgenticMemorySchema, MemoryKind, MemoryPhase
 from .promotion_pipeline import PromotionPipeline, MemoryEntry
 from .policy_router import PolicyRouter, TaskType, RouterDecision
 
@@ -63,20 +66,13 @@ class _PersistentRAGBackendAdapter:
 
 DEFAULT_DML_TOP_K = 8
 MAX_RETRIEVAL_TOP_K = 10
+SURVIVAL_LEDGER_KIND = "survival_ledger"
+SURVIVAL_ANCHOR_RE = re.compile(r"\b[A-Z][A-Z0-9]+(?:-[A-Z0-9]+)+\b")
 
 # Limit the amount of data returned by the knowledge endpoint to keep the
 # payload responsive even when the lattice contains thousands of memories.
 KNOWLEDGE_MAX_ENTRIES = 200
 KNOWLEDGE_ENTRY_PREVIEW_CHARS = 320
-
-STARFLEET_BANNER = "\n".join(
-    [
-        "Initializing Daystrom Memory Lattice v1.0",
-        "Semantic coherence field stabilized.",
-        "Cognitive resonance online.",
-    ]
-)
-
 
 class DMLAdapter:
     """Facade used by the CLI and service to interact with the DML."""
@@ -102,6 +98,15 @@ class DMLAdapter:
             self.config.get("enable_quality_on_retrieval", False)
         )
         self.metrics_enabled = bool(self.settings.metrics_enabled)
+        self.survival_ledger_enabled = bool(
+            self.config.get("survival_ledger_enabled", True)
+        )
+        self.survival_ledger_max_anchors = max(
+            8, int(self.config.get("survival_ledger_max_anchors", 80) or 80)
+        )
+        self.survival_ledger_summary_chars = max(
+            160, int(self.config.get("survival_ledger_summary_chars", 1200) or 1200)
+        )
         self.llm_backend = str(self.config.get("llm_backend", "auto"))
         strict_embedding_required = bool(self.config.get("strict_embedding_required", False))
         strict_llm_required = bool(self.config.get("strict_llm_required", False))
@@ -119,12 +124,16 @@ class DMLAdapter:
         )
         if strict_llm_required and self.runner.is_dummy:
             raise RuntimeError(
-                f"Failed to initialize LLM backend for model {self.config['model_name']!r}; DummyGPT fallback is disabled"
+                f"Failed to initialize LLM backend for model {self.config['model_name']!r}; local completion fallback is disabled"
             )
         self.embedder = embedder or create_embedder(
             self.config.get("embedding_model"),
             device=self.config.get("embedding_device"),
             allow_random_fallback=not strict_embedding_required,
+        )
+        self._query_embedding_cache: OrderedDict[str, np.ndarray] = OrderedDict()
+        self._query_embedding_cache_size = max(
+            0, int(self.config.get("query_embedding_cache_size", 64) or 0)
         )
         if summarizer is not None:
             self.summarizer = summarizer
@@ -134,15 +143,27 @@ class DMLAdapter:
             self.summarizer = LLMSummarizer(self.runner)
         self.storage_dir = self.settings.storage_dir.expanduser()
         self.storage_dir.mkdir(parents=True, exist_ok=True)
+        self.personality_matrix = PersonalityMatrix(
+            getattr(self.settings, "dpm", None),
+            storage_dir=self.storage_dir,
+        )
         persistence_settings = getattr(self.settings, "persistence", None)
         persistence_path = getattr(persistence_settings, "path", None) if persistence_settings else None
         if persistence_path:
             persistence_path = Path(persistence_path).expanduser()
         else:
             persistence_path = Path("dml_state.jsonl")
-        # Resolve persistence_path relative to storage_dir if it's relative
         if not persistence_path.is_absolute():
-            persistence_path = (self.storage_dir / persistence_path).resolve()
+            legacy_path = (self.storage_dir / persistence_path).resolve()
+            persistence_path = self._resolve_storage_path(persistence_path).resolve()
+            if legacy_path != persistence_path and legacy_path.exists() and not persistence_path.exists():
+                persistence_path.parent.mkdir(parents=True, exist_ok=True)
+                persistence_path.write_bytes(legacy_path.read_bytes())
+                LOGGER.info(
+                    "Copied legacy DML persistence state from %s to %s",
+                    legacy_path,
+                    persistence_path,
+                )
         self._persistence_path = persistence_path
         interval_value = getattr(persistence_settings, "interval_sec", 0) if persistence_settings else 0
         try:
@@ -300,13 +321,27 @@ class DMLAdapter:
     # ------------------------------------------------------------------
     # Memory operations
     # ------------------------------------------------------------------
-    def ingest(self, text: str, meta: Optional[Dict] = None) -> None:
+    def ingest(
+        self,
+        text: str,
+        meta: Optional[Dict] = None,
+        *,
+        persist: bool = True,
+    ) -> None:
         """Full DML ingest - generates embeddings and adds to all systems"""
         if not text:
             return
         embedding = self.embedder.embed(text)
         salience = self._estimate_salience(text)
         item, merged = self.store.ingest(text, embedding, salience=salience, meta=meta)
+        if merged and meta and str(meta.get("conflict_state") or "").strip():
+            item.meta.update(
+                {
+                    key: value
+                    for key, value in meta.items()
+                    if key.startswith("conflict") or key in {"claim_key", "claim_value"}
+                }
+            )
         rag_text = item.text if merged else text
         rag_embedding = item.embedding if merged else embedding
         rag_meta: Dict[str, Any] = dict(meta or {})
@@ -317,7 +352,8 @@ class DMLAdapter:
             with contextlib.suppress(Exception):
                 self.persistent_rag_store.add(rag_text, rag_embedding, meta=rag_meta)
         self.rag_store.add_document(rag_text, meta=rag_meta)
-        self._persist_all()
+        if persist:
+            self._persist_all()
         if self.metrics_enabled:
             update_memory_gauge(len(self.store.items()))
 
@@ -402,6 +438,7 @@ class DMLAdapter:
                 self.agentic_promotion.verified.add(memory_entry)
                 LOGGER.debug(f"Added {kind.value} to verified store")
 
+        self._maybe_update_survival_ledger(text, agentic_meta)
         self._persist_all()
         if self.metrics_enabled:
             update_memory_gauge(len(self.store.items()))
@@ -452,11 +489,69 @@ class DMLAdapter:
     def build_preamble(self, prompt: str, top_k: Optional[int] = None) -> str:
         items = self._retrieve_items(prompt, top_k)
         _, preamble, _ = self._prepare_context(prompt, items)
+        if getattr(self.settings.dpm, "include_in_preamble", True):
+            overlay = self.personality_overlay(prompt=prompt)
+            block = self.personality_matrix.render_context_block(overlay) if overlay else ""
+            if block:
+                preamble = f"{block}\n\n{preamble}" if preamble else block
         return preamble
+
+    def personality_overlay(
+        self,
+        *,
+        prompt: str = "",
+        thread_id: Optional[str] = None,
+        project_id: Optional[str] = None,
+        relationship_id: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Return the active Daystrom Personality Matrix overlay, if enabled."""
+
+        return self.personality_matrix.build_overlay(
+            prompt=prompt,
+            thread_id=thread_id,
+            project_id=project_id,
+            relationship_id=relationship_id,
+        )
+
+    def record_personality_preference(
+        self,
+        text: str,
+        *,
+        scope: str = "relationship",
+        source_id: str = "turn:current",
+        explicit: bool = True,
+        meta: Optional[Dict[str, Any]] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Record an explicit preference into the DPM graph in active-write mode."""
+
+        return self.personality_matrix.record_preference(
+            text,
+            scope=scope,
+            source_id=source_id,
+            explicit=explicit,
+            meta=meta,
+        )
+
+    def personality_graph(self) -> Optional[Dict[str, Any]]:
+        """Return the current DPM preference graph, if one exists."""
+
+        return self.personality_matrix.graph()
+
+    def suppress_personality_preference(
+        self, node_id: str, *, reason: str = "suppressed_by_user"
+    ) -> Optional[Dict[str, Any]]:
+        """Suppress a DPM preference node in active-write mode."""
+
+        return self.personality_matrix.suppress_preference(node_id, reason=reason)
+
+    def delete_personality_preference(self, node_id: str) -> Optional[Dict[str, Any]]:
+        """Delete a DPM preference node in active-write mode."""
+
+        return self.personality_matrix.delete_preference(node_id)
 
     def reinforce(self, prompt: str, response: str, meta: Optional[Dict] = None) -> None:
         prompt_text = (prompt or "").strip()
-        response_text = (response or "").strip()
+        response_text = self._clean_context_fragment(response)
         if not response_text:
             return
         response_summary = self.summarizer.summarize(response_text, max_len=220).strip()
@@ -477,6 +572,14 @@ class DMLAdapter:
         if response_text:
             memory_meta.setdefault("response_excerpt", response_text[:500])
         self.store.ingest(memory_text, embedding, salience=salience, meta=memory_meta)
+        explicit_dpm_preference = bool(memory_meta.get("dpm_preference"))
+        self.record_personality_preference(
+            prompt_text,
+            scope=str(memory_meta.get("dpm_scope") or "relationship"),
+            source_id=str(memory_meta.get("source") or "turn:current"),
+            explicit=explicit_dpm_preference,
+            meta=memory_meta,
+        )
         self._persist_dml_state()
         if self.metrics_enabled:
             update_memory_gauge(len(self.store.items()))
@@ -604,6 +707,7 @@ class DMLAdapter:
         *,
         top_k: Optional[int] = None,
         max_new_tokens: int = 512,
+        allow_reinforce: bool = True,
     ) -> Dict:
         step_counter = 0
         pipeline_trace: List[Dict[str, Any]] = []
@@ -627,7 +731,8 @@ class DMLAdapter:
         dml_response, dml_usage, dml_latency = self._generate_with_metrics(
             dml_prompt, max_new_tokens=max_new_tokens
         )
-        self.reinforce(prompt, dml_response)
+        if allow_reinforce and not self.runner.is_dummy:
+            self.reinforce(prompt, dml_response)
         step_counter += 1
         dml_sequence = step_counter
         pipeline_trace.append(
@@ -669,6 +774,10 @@ class DMLAdapter:
                 }
             )
 
+        answer_key = self._answer_key_for_prompt(prompt)
+        base_accuracy = self._evaluate_answer_accuracy(base_response, answer_key)
+        dml_accuracy = self._evaluate_answer_accuracy(dml_response, answer_key)
+
         rag_top_k = self.config.get("top_k", 6) if top_k is None else top_k
         rag_reports = self.rag_store.report_all(prompt, top_k=rag_top_k)
 
@@ -693,6 +802,7 @@ class DMLAdapter:
                     "sequence": None,
                     "generation_latency_ms": 0,
                     "retrieval_latency_ms": report.get("latency_ms", 0),
+                    "accuracy": self._evaluate_answer_accuracy("", answer_key),
                 }
                 if reference_available:
                     entry["grade"] = {
@@ -726,9 +836,12 @@ class DMLAdapter:
                 "documents": report.get("documents"),
                 "sequence": step_counter,
                 "retrieval_latency_ms": report.get("latency_ms", 0),
+                "embedding_latency_ms": report.get("embedding_latency_ms"),
+                "index_latency_ms": report.get("index_latency_ms"),
                 "generation_latency_ms": rag_latency,
                 "available": True,
                 "error": report.get("error"),
+                "accuracy": self._evaluate_answer_accuracy(rag_response, answer_key),
             }
 
             if reference_available:
@@ -765,6 +878,7 @@ class DMLAdapter:
                 "usage": base_usage,
                 "sequence": base_sequence,
                 "generation_latency_ms": base_latency,
+                "accuracy": base_accuracy,
             },
             "rag_backends": rag_results,
             "dml": {
@@ -778,7 +892,9 @@ class DMLAdapter:
                 "retrieval_latency_ms": dml_report.get("latency_ms", 0),
                 "generation_latency_ms": dml_latency,
                 "grade": dml_grade,
+                "accuracy": dml_accuracy,
             },
+            "answer_key": self._public_answer_key(answer_key),
             "rag_token_breakdown": [
                 {
                     "id": entry.get("id"),
@@ -873,6 +989,118 @@ class DMLAdapter:
             "score": score,
             "grade": grade,
             "explanation": f"Cosine similarity to DML response: {score:.2f}",
+        }
+
+    def _answer_key_for_prompt(self, prompt: str) -> Optional[Dict[str, Any]]:
+        normalized = str(prompt or "").lower()
+        keys: List[Dict[str, Any]] = []
+
+        def add_fuel() -> None:
+            keys.extend(
+                [
+                    {"label": "41,200 tonnes deuterium slush", "patterns": [r"41,?200", r"deuterium"]},
+                    {"label": "7,900 tonnes helium-3", "patterns": [r"7,?900", r"helium[- ]?3|he[- ]?3"]},
+                    {"label": "320 kilograms antimatter catalyst", "patterns": [r"320", r"antimatter"]},
+                    {"label": "8,400 tonnes argon", "patterns": [r"8,?400", r"argon"]},
+                    {"label": "19,000 tonnes shield ice", "patterns": [r"19,?000", r"shield ice|ice"]},
+                ]
+            )
+
+        def add_inventory_medical() -> None:
+            keys.extend(
+                [
+                    {"label": "Quartermaster Jun Park controls inventory", "patterns": [r"jun park", r"inventory|quartermaster"]},
+                    {"label": "Dr. Mateo Velasquez owns medical stores/care", "patterns": [r"velasquez|velásquez|mateo", r"medical|hibernation|surgical"]},
+                    {"label": "1,200 trauma kits", "patterns": [r"1,?200", r"trauma kit"]},
+                    {"label": "44 surgical nanofiber packs", "patterns": [r"\b44\b", r"surgical nanofiber"]},
+                    {"label": "18 organ scaffold cartridges", "patterns": [r"\b18\b", r"organ scaffold"]},
+                    {"label": "900 hibernation stabilizer vials", "patterns": [r"\b900\b", r"hibernation stabilizer"]},
+                    {"label": "6,400 antiviral courses", "patterns": [r"6,?400", r"antiviral"]},
+                ]
+            )
+
+        def add_landing_site() -> None:
+            keys.extend(
+                [
+                    {"label": "Morrow Basin", "patterns": [r"morrow basin"]},
+                    {"label": "shelter ceramics", "patterns": [r"shelter ceramic"]},
+                    {"label": "landing beacon anchors", "patterns": [r"beacon anchor|landing beacon"]},
+                ]
+            )
+
+        def add_failure_modes() -> None:
+            keys.extend(
+                [
+                    {"label": "Fusion Injector Flutter", "patterns": [r"fusion injector flutter"]},
+                    {"label": "Garden Fungal Bloom", "patterns": [r"garden fungal bloom"]},
+                    {"label": "Optical Bus Desync", "patterns": [r"optical bus desync"]},
+                    {"label": "Crawler Adhesion Loss", "patterns": [r"crawler adhesion loss"]},
+                    {"label": "Hibernation Pod Cascade", "patterns": [r"hibernation pod cascade"]},
+                ]
+            )
+
+        if "fuel" in normalized or "reserves" in normalized:
+            add_fuel()
+        if "inventory" in normalized or "medical" in normalized or "stores" in normalized:
+            add_inventory_medical()
+        if "shelter ceramics" in normalized or "beacon anchors" in normalized or "landing site" in normalized:
+            add_landing_site()
+        if "failure mode" in normalized or "failure modes" in normalized:
+            add_failure_modes()
+
+        if not keys:
+            return None
+        deduped: List[Dict[str, Any]] = []
+        seen: set[str] = set()
+        for fact in keys:
+            label = str(fact["label"])
+            if label in seen:
+                continue
+            seen.add(label)
+            deduped.append(fact)
+        return {"name": "Asteria deterministic answer key", "facts": deduped}
+
+    def _public_answer_key(self, answer_key: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        if not answer_key:
+            return None
+        return {
+            "name": answer_key.get("name"),
+            "facts": [fact.get("label") for fact in answer_key.get("facts", [])],
+        }
+
+    def _evaluate_answer_accuracy(
+        self, response: str, answer_key: Optional[Dict[str, Any]]
+    ) -> Dict[str, Any]:
+        if not answer_key:
+            return {
+                "scored": False,
+                "score": None,
+                "grade": "N/A",
+                "matched": [],
+                "missing": [],
+                "explanation": "No deterministic answer key matched this prompt.",
+            }
+        text = str(response or "").lower()
+        matched: List[str] = []
+        missing: List[str] = []
+        for fact in answer_key.get("facts", []):
+            patterns = fact.get("patterns") or []
+            found = all(re.search(pattern, text, flags=re.IGNORECASE) for pattern in patterns)
+            label = str(fact.get("label") or "")
+            if found:
+                matched.append(label)
+            else:
+                missing.append(label)
+        total = len(matched) + len(missing)
+        score = (len(matched) / total) if total else 0.0
+        return {
+            "scored": True,
+            "score": score,
+            "grade": self._score_to_grade(score),
+            "matched": matched,
+            "missing": missing,
+            "required": total,
+            "explanation": f"Matched {len(matched)} of {total} required Asteria facts.",
         }
 
     @staticmethod
@@ -995,6 +1223,7 @@ class DMLAdapter:
             data = self.store.export_state()
             tmp = self.dml_state_path.with_suffix(".tmp")
             try:
+                self.dml_state_path.parent.mkdir(parents=True, exist_ok=True)
                 tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
                 tmp.replace(self.dml_state_path)
             except Exception:
@@ -1010,6 +1239,7 @@ class DMLAdapter:
             data = self.rag_store.export_state()
             tmp = self.rag_state_path.with_suffix(".tmp")
             try:
+                self.rag_state_path.parent.mkdir(parents=True, exist_ok=True)
                 tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
                 tmp.replace(self.rag_state_path)
             except Exception:
@@ -1292,7 +1522,7 @@ class DMLAdapter:
             raise ValueError(f"Unsupported mode: {mode}")
         selected_mode = mode if mode != "auto" else decide_mode(prompt)
         start = time.perf_counter()
-        query_embedding = self.embedder.embed(prompt)
+        query_embedding = self._embed_query(prompt)
         items = self.store.items()
         dml_limit = self._resolve_dml_top_k(None)
         top_k = min(len(items), dml_limit)
@@ -1388,76 +1618,21 @@ class DMLAdapter:
         if meta:
             enriched_meta.update(meta)
         embedding = self.embedder.embed(text)
-        return self.store.add(text=text, embedding=embedding, meta=enriched_meta)
-
-    def retrieve_context(
-        self,
-        query: str,
-        *,
-        tenant_id: str,
-        client_id: Optional[str] = None,
-        session_id: Optional[str] = None,
-        instance_id: Optional[str] = None,
-        kinds: Optional[List[str]] = None,
-        top_k: Optional[int] = None,
-    ) -> Dict[str, Any]:
-        start = time.perf_counter()
-        try:
-            limit = int(top_k) if top_k is not None else int(self.config.get("dml_top_k", DEFAULT_DML_TOP_K))
-        except (TypeError, ValueError):
-            limit = int(self.config.get("dml_top_k", DEFAULT_DML_TOP_K))
-        limit = max(1, min(MAX_RETRIEVAL_TOP_K, limit))
-        query_embedding = self.embedder.embed(query)
-        candidates = self.store.retrieve_filtered(
-            query_embedding,
-            tenant_id=tenant_id,
-            client_id=client_id,
-            session_id=session_id,
-            instance_id=instance_id,
-            kinds=kinds,
-            top_k=limit,
-        )
-        if not candidates:
-            candidates = self.store.retrieve_filtered(
-                query_embedding,
-                tenant_id=None,
-                client_id=None,
-                session_id=None,
-                instance_id=None,
-                kinds=kinds,
-                top_k=limit,
-            )
-
-        budget = int(self.config.get("token_budget", 600))
-        consumed = 0
-        lines: List[str] = [STARFLEET_BANNER, "=== Daystrom Memory Lattice ==="]
-        entries: List[Dict[str, Any]] = []
-        for item in candidates:
-            summary = item.cached_summary(max_len=180)
-            tokens = utils.estimate_tokens(summary)
-            if consumed + tokens > budget:
-                break
-            consumed += tokens
-            lines.append(f"- L{item.level} (f={item.fidelity:.2f}): {summary}")
-            entries.append(
-                {
-                    "id": str(item.id),
-                    "summary": summary,
-                    "meta": item.meta or {},
-                    "level": item.level,
-                    "fidelity": item.fidelity,
-                    "tokens": tokens,
-                }
-            )
-
-        raw_context = "\n".join(lines)
-        latency_ms = int((time.perf_counter() - start) * 1000.0)
-        return {
-            "entries": entries,
-            "context_tokens": consumed,
-            "raw_context": raw_context,
-            "latency_ms": latency_ms,
-        }
+        salience = self._estimate_salience(text)
+        item, merged = self.store.ingest(text, embedding, salience=salience, meta=enriched_meta)
+        rag_text = item.text if merged else text
+        rag_embedding = item.embedding if merged else embedding
+        rag_meta: Dict[str, Any] = dict(enriched_meta)
+        rag_meta.setdefault("memory_id", item.id)
+        if self.persistent_rag_store is not None:
+            with contextlib.suppress(Exception):
+                self.persistent_rag_store.add(rag_text, rag_embedding, meta=rag_meta)
+        self.rag_store.add_document(rag_text, meta=rag_meta)
+        self._maybe_update_survival_ledger(text, enriched_meta)
+        self._persist_all()
+        if self.metrics_enabled:
+            update_memory_gauge(len(self.store.items()))
+        return item
 
     def collect_instance_scratch(
         self,
@@ -1551,18 +1726,6 @@ class DMLAdapter:
             filtered.append(item)
         return filtered
 
-    def _format_context_items(self, items: Any, kinds: Optional[List[str]] = None) -> str:
-        """Format retrieved items into context string."""
-        if not items:
-            return ""
-        lines = ["=== Retrieved Context ==="]
-        for item in items:
-            meta = item.meta or {}
-            source = meta.get("source", "unknown")
-            summary = item.cached_summary(max_len=220)
-            lines.append(f"- [{source}] {summary[:200]}")
-        return "\n".join(lines)
-
     def retrieve_context(
         self,
         prompt: str,
@@ -1572,6 +1735,11 @@ class DMLAdapter:
         instance_id: Optional[str] = None,
         kinds: Optional[List[str]] = None,
         top_k: Optional[int] = None,
+        phase: Optional[str | MemoryPhase] = None,
+        dpm_thread_id: Optional[str] = None,
+        dpm_project_id: Optional[str] = None,
+        dpm_relationship_id: Optional[str] = None,
+        include_quarantined: bool = False,
     ) -> Dict[str, Any]:
         """
         Retrieve context with agentic-aware routing.
@@ -1580,9 +1748,11 @@ class DMLAdapter:
         """
         start = time.perf_counter()
         decision: Optional[RouterDecision] = None
+        phase_enum = self._coerce_memory_phase(phase)
         if self.agentic_mode_enabled and self.agentic_router:
             decision = self.agentic_router.decide(
                 meta={"prompt": prompt[:100]},  # Sample for task detection
+                phase=phase_enum,
                 token_pressure=0.0,
             )
 
@@ -1599,8 +1769,10 @@ class DMLAdapter:
         final_kinds = kinds
         if final_kinds is None and decision and decision.overrides.allowed_kinds:
             final_kinds = decision.overrides.allowed_kinds
+        if final_kinds is None and phase_enum in {MemoryPhase.EXECUTE, MemoryPhase.DEBUG}:
+            final_kinds = ["action", "observation", "error"]
 
-        query_embedding = self.embedder.embed(prompt)
+        query_embedding = self._embed_query(prompt)
         scoped = any(value is not None for value in (tenant_id, client_id, session_id, instance_id))
         if scoped:
             items = self.store.retrieve_filtered(
@@ -1612,6 +1784,18 @@ class DMLAdapter:
                 kinds=final_kinds,
                 top_k=final_top_k,
             )
+            items = self._filter_retrievable_items(items, include_quarantined=include_quarantined)
+            if not items:
+                items = self._recent_context_items(
+                    tenant_id=tenant_id,
+                    client_id=client_id,
+                    session_id=session_id,
+                    instance_id=instance_id,
+                    kinds=final_kinds,
+                    phase=phase_enum,
+                    top_k=final_top_k,
+                    include_quarantined=include_quarantined,
+                )
             if not items:
                 items = self.store.retrieve_filtered(
                     query_embedding,
@@ -1622,18 +1806,79 @@ class DMLAdapter:
                     kinds=final_kinds,
                     top_k=final_top_k,
                 )
+                items = self._filter_retrievable_items(items, include_quarantined=include_quarantined)
+            if not items:
+                items = self._recent_context_items(
+                    tenant_id=None,
+                    client_id=None,
+                    session_id=None,
+                    instance_id=None,
+                    kinds=final_kinds,
+                    phase=phase_enum,
+                    top_k=final_top_k,
+                    require_unscoped=True,
+                    include_quarantined=include_quarantined,
+                )
         else:
-            items = self._retrieve_items(prompt, final_top_k, kinds=final_kinds)
+            items = self._retrieve_items(
+                prompt,
+                final_top_k,
+                phase=phase_enum.value if phase_enum else None,
+                kinds=final_kinds,
+                include_quarantined=include_quarantined,
+            )
+            if not items:
+                items = self._recent_context_items(
+                    tenant_id=None,
+                    client_id=None,
+                    session_id=None,
+                    instance_id=None,
+                    kinds=final_kinds,
+                    phase=phase_enum,
+                    top_k=final_top_k,
+                    include_quarantined=include_quarantined,
+                )
 
-        context = self._format_context_items(items, final_kinds)
+        ledger_item = self._survival_ledger_for_scope(
+            tenant_id=tenant_id,
+            client_id=client_id,
+            session_id=session_id,
+            instance_id=instance_id,
+        )
+        ledger_included = False
+        if ledger_item is not None:
+            items = [ledger_item] + [item for item in items if item.id != ledger_item.id]
+            ledger_included = True
+
+        entries, context, tokens_used = self._compact_context_items(items)
+        personality_overlay = None
+        if getattr(self.settings.dpm, "include_in_context", True):
+            personality_overlay = self.personality_overlay(
+                prompt=prompt,
+                thread_id=dpm_thread_id or session_id,
+                project_id=dpm_project_id,
+                relationship_id=dpm_relationship_id or tenant_id,
+            )
+            personality_block = (
+                self.personality_matrix.render_context_block(personality_overlay)
+                if personality_overlay
+                else ""
+            )
+            if personality_block:
+                context = f"{personality_block}\n\n{context}" if context else personality_block
+                tokens_used += overlay_token_count(personality_overlay)
         latency_ms = int((time.perf_counter() - start) * 1000.0)
 
         report = {
             "raw_context": context,
-            "context_tokens": len(context.split()),
+            "context_tokens": tokens_used,
             "top_k": final_top_k,
             "kinds": final_kinds,
-            "items": [item.to_dict() for item in items],
+            "phase": phase_enum.value if phase_enum else None,
+            "include_quarantined": include_quarantined,
+            "items": entries,
+            "survival_ledger_included": ledger_included,
+            "personality_overlay": personality_overlay,
             "latency_ms": latency_ms,
         }
 
@@ -1642,18 +1887,367 @@ class DMLAdapter:
 
         return report
 
-    def _format_context_items(self, items: List, kinds: Optional[List] = None) -> str:
-        """Format retrieved items into context string."""
-        if not items:
-            return ""
-        lines: List[str] = ["=== Retrieved Context ==="]
-        for item in items:
+    def _maybe_update_survival_ledger(self, text: str, meta: Optional[Dict[str, Any]]) -> None:
+        if not self.survival_ledger_enabled or not text:
+            return
+        metadata = dict(meta or {})
+        if metadata.get("kind") == SURVIVAL_LEDGER_KIND:
+            return
+        tenant_id = metadata.get("tenant_id")
+        session_id = metadata.get("session_id")
+        if not tenant_id or not session_id:
+            return
+        if not self._is_survival_ledger_event(text, metadata):
+            return
+        anchors = self._extract_survival_anchors(text, metadata)
+        if not anchors:
+            return
+        self._upsert_survival_ledger(
+            anchors,
+            tenant_id=str(tenant_id),
+            client_id=metadata.get("client_id"),
+            session_id=str(session_id),
+            instance_id=metadata.get("instance_id"),
+            source_meta=metadata,
+        )
+
+    def _is_survival_ledger_event(self, text: str, meta: Dict[str, Any]) -> bool:
+        if any(
+            key in meta
+            for key in (
+                "compaction_cycle",
+                "virtual_tokens",
+                "survival_ledger",
+                "long_horizon",
+                "continuity_checkpoint",
+            )
+        ):
+            return True
+        marker_text = " ".join(
+            str(value)
+            for key, value in meta.items()
+            if key in {"source", "tool", "kind", "phase", "task_id", "episode_id"}
+        )
+        haystack = f"{text} {marker_text}".lower()
+        return any(
+            marker in haystack
+            for marker in (
+                "compaction",
+                "compact survival ledger",
+                "survival ledger",
+                "long-horizon",
+                "long horizon",
+                "continuity checkpoint",
+                "handoff",
+            )
+        )
+
+    def _extract_survival_anchors(self, text: str, meta: Dict[str, Any]) -> List[str]:
+        values: List[str] = []
+        values.extend(SURVIVAL_ANCHOR_RE.findall(text or ""))
+        for key in (
+            "anchor",
+            "anchors",
+            "decision",
+            "blocker",
+            "next_step",
+            "objective",
+            "invariant",
+        ):
+            value = meta.get(key)
+            if isinstance(value, str):
+                values.extend(SURVIVAL_ANCHOR_RE.findall(value))
+            elif isinstance(value, list):
+                for entry in value:
+                    values.extend(SURVIVAL_ANCHOR_RE.findall(str(entry)))
+        seen = set()
+        ordered: List[str] = []
+        for value in values:
+            if value not in seen:
+                seen.add(value)
+                ordered.append(value)
+        return ordered
+
+    def _survival_scope_key(
+        self,
+        *,
+        tenant_id: Optional[str],
+        client_id: Optional[str],
+        session_id: Optional[str],
+        instance_id: Optional[str],
+    ) -> Tuple[Optional[str], Optional[str], Optional[str], Optional[str]]:
+        return (
+            str(tenant_id) if tenant_id is not None else None,
+            str(client_id) if client_id is not None else None,
+            str(session_id) if session_id is not None else None,
+            str(instance_id) if instance_id is not None else None,
+        )
+
+    def _survival_ledger_for_scope(
+        self,
+        *,
+        tenant_id: Optional[str],
+        client_id: Optional[str],
+        session_id: Optional[str],
+        instance_id: Optional[str],
+    ) -> Optional[MemoryItem]:
+        if not self.survival_ledger_enabled or not tenant_id or not session_id:
+            return None
+        target = self._survival_scope_key(
+            tenant_id=tenant_id,
+            client_id=client_id,
+            session_id=session_id,
+            instance_id=instance_id,
+        )
+        candidates: List[MemoryItem] = []
+        for item in self.store.items():
             meta = item.meta or {}
+            if meta.get("kind") != SURVIVAL_LEDGER_KIND:
+                continue
+            scope = self._survival_scope_key(
+                tenant_id=meta.get("tenant_id"),
+                client_id=meta.get("client_id"),
+                session_id=meta.get("session_id"),
+                instance_id=meta.get("instance_id"),
+            )
+            if scope == target:
+                candidates.append(item)
+        if not candidates:
+            return None
+        return max(candidates, key=lambda item: item.timestamp)
+
+    def _upsert_survival_ledger(
+        self,
+        anchors: List[str],
+        *,
+        tenant_id: str,
+        client_id: Optional[str],
+        session_id: str,
+        instance_id: Optional[str],
+        source_meta: Dict[str, Any],
+    ) -> None:
+        existing = self._survival_ledger_for_scope(
+            tenant_id=tenant_id,
+            client_id=client_id,
+            session_id=session_id,
+            instance_id=instance_id,
+        )
+        previous: List[str] = []
+        if existing is not None:
+            previous = list((existing.meta or {}).get("anchors") or [])
+        combined = self._merge_survival_anchors(previous, anchors)
+        text = self._render_survival_ledger_text(
+            tenant_id=tenant_id,
+            session_id=session_id,
+            anchors=combined,
+            source_meta=source_meta,
+        )
+        summary = text[: self.survival_ledger_summary_chars].rstrip()
+        if len(text) > len(summary):
+            summary = summary.rstrip() + "..."
+        now = time.time()
+        meta: Dict[str, Any] = {
+            "kind": SURVIVAL_LEDGER_KIND,
+            "source": "dml_survival_ledger",
+            "tenant_id": tenant_id,
+            "client_id": client_id,
+            "session_id": session_id,
+            "instance_id": instance_id,
+            "anchors": combined,
+            "anchor_count": len(combined),
+            "summary": summary,
+            "survival_ledger": True,
+            "updated_at": now,
+            "last_step_id": source_meta.get("step_id"),
+            "last_task_id": source_meta.get("task_id"),
+            "last_virtual_tokens": source_meta.get("virtual_tokens"),
+            "last_compaction_cycle": source_meta.get("compaction_cycle"),
+            "no_merge": True,
+        }
+        embedding = self.embedder.embed(text)
+        if existing is None:
+            self.store.ingest(
+                text,
+                embedding,
+                salience=2.0,
+                fidelity=1.0,
+                level=0,
+                meta=meta,
+            )
+            return
+        with self.store._lock:
+            existing.text = text
+            existing.embedding = np.asarray(embedding, dtype=np.float32)
+            existing.timestamp = now
+            existing.salience = max(float(existing.salience), 2.0)
+            existing.fidelity = 1.0
+            existing.meta = meta
+            self.store._cache_summary(existing, text)
+            self.store._invalidate_embedding_cache()
+
+    def _merge_survival_anchors(self, previous: List[str], incoming: List[str]) -> List[str]:
+        ordered: List[str] = []
+        seen = set()
+        for value in list(previous) + list(incoming):
+            if not value or value in seen:
+                continue
+            seen.add(value)
+            ordered.append(value)
+        if len(ordered) > self.survival_ledger_max_anchors:
+            ordered = ordered[-self.survival_ledger_max_anchors :]
+        return ordered
+
+    def _render_survival_ledger_text(
+        self,
+        *,
+        tenant_id: str,
+        session_id: str,
+        anchors: List[str],
+        source_meta: Dict[str, Any],
+    ) -> str:
+        anchor_text = " ".join(anchors)
+        parts = [
+            f"Survival ledger anchors: {anchor_text}.",
+            f"Scope tenant={tenant_id} session={session_id}.",
+        ]
+        if source_meta.get("virtual_tokens") is not None:
+            parts.append(f"Last virtual token count: {source_meta.get('virtual_tokens')}.")
+        if source_meta.get("compaction_cycle") is not None:
+            parts.append(f"Last compaction cycle: {source_meta.get('compaction_cycle')}.")
+        parts.append("Use this ledger as high-priority continuity state for long-horizon agent recovery.")
+        return " ".join(parts)
+
+    def _coerce_memory_phase(self, phase: Optional[str | MemoryPhase]) -> Optional[MemoryPhase]:
+        if phase is None:
+            return None
+        if isinstance(phase, MemoryPhase):
+            return phase
+        try:
+            return MemoryPhase(str(phase).strip().lower())
+        except ValueError:
+            LOGGER.debug("Ignoring unknown memory phase %r", phase)
+            return None
+
+    def _embed_query(self, prompt: str) -> np.ndarray:
+        key = re.sub(r"\s+", " ", str(prompt or "").strip()).lower()
+        if self._query_embedding_cache_size > 0 and key in self._query_embedding_cache:
+            embedding = self._query_embedding_cache.pop(key)
+            self._query_embedding_cache[key] = embedding
+            return embedding
+        embedding = self.embedder.embed(prompt)
+        if self._query_embedding_cache_size > 0 and key:
+            self._query_embedding_cache[key] = embedding
+            while len(self._query_embedding_cache) > self._query_embedding_cache_size:
+                self._query_embedding_cache.popitem(last=False)
+        return embedding
+
+    def _compact_context_items(
+        self, items: List[MemoryItem]
+    ) -> tuple[List[Dict[str, Any]], str, int]:
+        if not items:
+            return [], "", 0
+        budget = int(self.config.get("token_budget", 600))
+        item_limit = self._context_item_limit(len(items))
+        summary_chars = self._context_summary_chars()
+        consumed = 0
+        lines: List[str] = ["=== Retrieved Context ==="]
+        entries: List[Dict[str, Any]] = []
+        for item in items[:item_limit]:
+            meta = item.meta or {}
+            max_len = summary_chars
+            if meta.get("kind") == SURVIVAL_LEDGER_KIND:
+                max_len = max(summary_chars, self.survival_ledger_summary_chars)
+            summary = item.cached_summary(max_len=max_len)
+            tokens = utils.estimate_tokens(summary)
+            if consumed + tokens > budget:
+                if entries:
+                    break
+                approx_chars = max(32, budget * 4)
+                summary = summary[:approx_chars].rstrip()
+                if len(item.cached_summary(max_len=max_len)) > len(summary):
+                    summary = summary.rstrip() + "..."
+                tokens = min(max(1, utils.estimate_tokens(summary)), budget)
+            consumed += tokens
             source = meta.get("source", "unknown")
             timestamp = time.strftime("%Y-%m-%d", time.gmtime(item.timestamp))
-            summary = item.cached_summary(max_len=220)
             lines.append(f"- ({timestamp}) [source={source}]\n  {summary}")
-        return "\n".join(lines)
+            entries.append(
+                {
+                    "id": str(item.id),
+                    "text": summary,
+                    "summary": summary,
+                    "meta": meta,
+                    "timestamp": float(item.timestamp),
+                    "level": item.level,
+                    "fidelity": float(item.fidelity),
+                    "salience": float(item.salience),
+                    "tokens": tokens,
+                }
+            )
+        if not entries:
+            return [], "", 0
+        return entries, "\n".join(lines), consumed
+
+    @staticmethod
+    def _is_quarantined_or_suppressed(item: MemoryItem) -> bool:
+        meta = item.meta or {}
+        state = str(meta.get("memory_state") or meta.get("lifecycle_state") or "").strip().lower()
+        namespace = str(meta.get("namespace") or "").strip().lower()
+        if state in {"quarantine", "quarantined", "suppressed", "deleted"}:
+            return True
+        return namespace in {"quarantine", "quarantined"}
+
+    def _filter_retrievable_items(
+        self, items: List[MemoryItem], *, include_quarantined: bool = False
+    ) -> List[MemoryItem]:
+        if include_quarantined:
+            return list(items)
+        return [item for item in items if not self._is_quarantined_or_suppressed(item)]
+
+    def _recent_context_items(
+        self,
+        *,
+        tenant_id: Optional[str],
+        client_id: Optional[str],
+        session_id: Optional[str],
+        instance_id: Optional[str],
+        kinds: Optional[List[str]],
+        phase: Optional[MemoryPhase],
+        top_k: int,
+        require_unscoped: bool = False,
+        include_quarantined: bool = False,
+    ) -> List[MemoryItem]:
+        allowed_kinds = set(kinds or [])
+        if not allowed_kinds and phase in {MemoryPhase.EXECUTE, MemoryPhase.DEBUG}:
+            allowed_kinds = {"action", "observation", "error"}
+        candidates: List[MemoryItem] = []
+        for item in self.store.items():
+            if not include_quarantined and self._is_quarantined_or_suppressed(item):
+                continue
+            meta = item.meta or {}
+            if require_unscoped and any(
+                meta.get(scope_key) is not None
+                for scope_key in ("tenant_id", "client_id", "session_id", "instance_id")
+            ):
+                continue
+            if tenant_id is not None and meta.get("tenant_id") != tenant_id:
+                continue
+            if client_id is not None and meta.get("client_id") != client_id:
+                continue
+            if session_id is not None and meta.get("session_id") != session_id:
+                continue
+            if instance_id is not None and meta.get("instance_id") != instance_id:
+                continue
+            if phase is not None:
+                item_phase = meta.get("phase")
+                if item_phase is not None and str(item_phase).strip().lower() != phase.value:
+                    continue
+            item_kind = str(meta.get("kind") or "memory").lower()
+            if allowed_kinds and item_kind not in allowed_kinds:
+                continue
+            candidates.append(item)
+        candidates.sort(key=lambda item: item.timestamp, reverse=True)
+        return candidates[: max(1, top_k)]
 
     def _format_ltm_entries(self, items: List[MemoryStore.MemoryItem]) -> str:
         if not items:
@@ -1715,12 +2309,29 @@ class DMLAdapter:
     def _format_dml_context(self, entries: List[Dict]) -> str:
         if not entries:
             return ""
-        lines = [STARFLEET_BANNER, "=== Daystrom Memory Lattice ==="]
+        lines = ["=== Daystrom Memory Lattice ==="]
         for entry in entries:
+            summary = self._clean_context_fragment(entry["summary"])
             lines.append(
-                f"- L{entry['level']} (f={entry['fidelity']:.2f}): {entry['summary']}"
+                f"- L{entry['level']} (f={entry['fidelity']:.2f}): {summary}"
             )
         return "\n".join(lines)
+
+    @staticmethod
+    def _clean_context_fragment(value: object) -> str:
+        text = str(value or "").strip()
+        text = re.sub(r"\n?\[[^\]]*completion truncated\]", "", text)
+        return text.strip()
+
+    @classmethod
+    def _clean_meta(cls, meta: Dict[str, Any]) -> Dict[str, Any]:
+        cleaned: Dict[str, Any] = {}
+        for key, value in meta.items():
+            if isinstance(value, str):
+                cleaned[key] = cls._clean_context_fragment(value)
+            else:
+                cleaned[key] = value
+        return cleaned
 
     def _format_workflow_text(
         self, task_description: str, steps: List[str], outcome: str
@@ -1737,10 +2348,38 @@ class DMLAdapter:
     def _compose_prompt(self, prompt: str, context: str) -> str:
         blocks: List[str] = []
         if context:
-            blocks.append(context.strip())
+            blocks.append(
+                "Answer the user directly and naturally. "
+                "Treat the notes below as private grounding, not as something to announce. "
+                "Do not mention DML, RAG, retrieved context, background notes, or say "
+                "'according to' unless the user explicitly asks for provenance. "
+                "Use only the relevant details. "
+                "If the context is insufficient, say what is missing."
+            )
+            blocks.append("=== Private Grounding Notes ===")
+            blocks.append(self._silent_context_for_model(context))
         blocks.append("=== User Prompt ===")
         blocks.append(prompt.strip())
         return "\n\n".join(blocks)
+
+    @staticmethod
+    def _silent_context_for_model(context: str) -> str:
+        """Strip retrieval branding from context before it reaches the generator."""
+
+        text = str(context or "").strip()
+        if not text:
+            return ""
+        text = text.split("=== User Prompt ===", 1)[0].strip()
+        replacements = {
+            "=== Daystrom Memory Lattice ===": "",
+            "=== RAG Retrieval ===": "",
+            "=== Retrieved Context ===": "",
+            "=== Retrieved Memory ===": "",
+        }
+        for needle, replacement in replacements.items():
+            text = text.replace(needle, replacement)
+        text = re.sub(r"\n{3,}", "\n\n", text)
+        return text.strip()
 
     def _resolve_storage_path(self, candidate: Path) -> Path:
         path = candidate.expanduser()
@@ -1778,11 +2417,39 @@ class DMLAdapter:
         top_k: Optional[int] = None,
         phase: Optional[str] = None,
         kinds: Optional[List[str]] = None,
+        include_quarantined: bool = False,
     ) -> List[MemoryStore.MemoryItem]:
         """Retrieve items with phase-aware filtering."""
         limit = self._resolve_dml_top_k(top_k)
-        prompt_embedding = self.embedder.embed(prompt)
-        items = self.store.retrieve(prompt_embedding, top_k=limit)
+        prompt_embedding = self._embed_query(prompt)
+        semantic_items = self.store.retrieve(prompt_embedding, top_k=limit)
+        literal_items: List[MemoryStore.MemoryItem] = []
+        with contextlib.suppress(Exception):
+            literal_items = [
+                result.item
+                for result in self.literal_retriever.retrieve(
+                    prompt,
+                    self.store.items(),
+                    prompt_embedding,
+                    top_k=limit,
+                )
+                if result.literal_score > 0.0
+            ]
+        items = []
+        seen_ids: set[int] = set()
+        for item in [*literal_items, *semantic_items]:
+            raw_item_id = getattr(item, "id", id(item))
+            try:
+                item_id = int(raw_item_id)
+            except (TypeError, ValueError):
+                item_id = id(item)
+            if item_id in seen_ids:
+                continue
+            seen_ids.add(item_id)
+            items.append(item)
+            if len(items) >= limit:
+                break
+        items = self._filter_retrievable_items(items, include_quarantined=include_quarantined)
 
         # Apply phase-aware filtering
         if phase in ["execute", "debug"]:
@@ -1790,6 +2457,9 @@ class DMLAdapter:
             for item in items:
                 meta = item.meta or {}
                 item_kind = str(meta.get("kind", "memory")).lower()
+                item_phase = str(meta.get("phase") or "").strip().lower()
+                if item_phase and item_phase != phase:
+                    continue
                 if item_kind in ["action", "observation", "error"]:
                     filtered.append(item)
             items = filtered
@@ -1830,15 +2500,33 @@ class DMLAdapter:
             return DEFAULT_DML_TOP_K
         return parsed
 
+    def _context_item_limit(self, available: int) -> int:
+        if available <= 0:
+            return 0
+        try:
+            configured = int(self.config.get("dml_context_max_items", 4) or 4)
+        except (TypeError, ValueError):
+            configured = 4
+        return max(1, min(available, configured))
+
+    def _context_summary_chars(self) -> int:
+        try:
+            configured = int(self.config.get("dml_context_summary_chars", 140) or 140)
+        except (TypeError, ValueError):
+            configured = 140
+        return max(64, min(320, configured))
+
     def _prepare_context(
         self, prompt: str, items: List[MemoryStore.MemoryItem]
     ) -> tuple[List[Dict], str, int]:
         budget = int(self.config.get("token_budget", 600))
+        item_limit = self._context_item_limit(len(items))
+        summary_chars = self._context_summary_chars()
         consumed = 0
-        lines: List[str] = [STARFLEET_BANNER, "=== Daystrom Memory Lattice ==="]
+        lines: List[str] = ["=== Daystrom Memory Lattice ==="]
         entries: List[Dict] = []
-        for item in items:
-            summary = item.cached_summary(max_len=180)
+        for item in items[:item_limit]:
+            summary = self._clean_context_fragment(item.cached_summary(max_len=summary_chars))
             tokens = utils.estimate_tokens(summary)
             if consumed + tokens > budget:
                 break
@@ -1851,7 +2539,7 @@ class DMLAdapter:
                     "level": item.level,
                     "fidelity": float(item.fidelity),
                     "salience": float(item.salience),
-                    "meta": item.meta or {},
+                    "meta": self._clean_meta(item.meta or {}),
                     "tokens": tokens,
                 }
             )
@@ -1904,10 +2592,9 @@ class DMLAdapter:
         if self.persistent_rag_store is not None:
             with contextlib.suppress(Exception):
                 store_matches = self.persistent_rag_store.search(query_embedding, top_k=top_k)
-        if store_matches:
-            return self._format_rag_matches(store_matches)
-        fallback = self.literal_retriever.retrieve(prompt, items, query_embedding, top_k=top_k)
         formatted: List[Dict[str, Any]] = []
+        formatted.extend(self._format_rag_matches(store_matches))
+        fallback = self.literal_retriever.retrieve(prompt, items, query_embedding, top_k=top_k)
         for result in fallback:
             meta = result.item.meta if getattr(result, "item", None) else {}
             formatted.append(
@@ -1921,7 +2608,24 @@ class DMLAdapter:
                     "origin": "literal",
                 }
             )
-        return formatted
+        formatted.sort(
+            key=lambda result: (
+                float(result.get("literal_score", 0.0)),
+                float(result.get("semantic_score", 0.0)),
+            ),
+            reverse=True,
+        )
+        deduped: List[Dict[str, Any]] = []
+        seen: set[str] = set()
+        for result in formatted:
+            key = "|".join(str(segment) for segment in result.get("context", []))
+            if key in seen:
+                continue
+            seen.add(key)
+            deduped.append(result)
+            if len(deduped) >= top_k:
+                break
+        return deduped
 
     def _format_rag_matches(self, matches: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         formatted: List[Dict[str, Any]] = []
@@ -1975,11 +2679,11 @@ class DMLAdapter:
                     "id": match.get("id"),
                     "text": text,
                     "meta": meta,
-                    "literal_score": float(match.get("score", 0.0)),
-                    "semantic_score": 0.0,
+                    "literal_score": 0.0,
+                    "semantic_score": float(match.get("score", 0.0)),
                     "source": source,
                     "context": deduped,
-                    "origin": "literal",
+                    "origin": "semantic",
                 }
             )
         return formatted
@@ -2018,7 +2722,10 @@ class DMLAdapter:
         for entry in blended:
             semantic_score = entry.get("semantic_score", 0.0)
             literal_score = entry.get("literal_score", 0.0)
-            entry["final_score"] = alpha * semantic_score + (1 - alpha) * literal_score
+            blended_score = alpha * semantic_score + (1 - alpha) * literal_score
+            if literal_score > 0.0:
+                blended_score = max(blended_score, literal_score)
+            entry["final_score"] = blended_score
         blended.sort(key=lambda x: x.get("final_score", 0.0), reverse=True)
         seen: set[str] = set()
         deduped: List[Dict[str, Any]] = []

@@ -122,7 +122,17 @@ setup(
         "dev": ["pytest>=7.4", "ruff>=0.1.9", "mypy>=1.6.0"],
         "cuda": ["pybind11>=2.10"],
     },
-    package_data={"daystrom_dml": ["web/*", "web/**/*"]},
+    package_data={"daystrom_dml": ["web/*", "web/**/*", "provider_web/*"]},
+    entry_points={
+        "console_scripts": [
+            "dml=daystrom_dml.provider_cli:main",
+            "cma=cma.cli:app",
+            "dml-ollama=daystrom_dml.ollama_wrapper:main",
+            "dml-server=daystrom_dml.server:main",
+            "dml-provider=daystrom_dml.provider_server:main",
+            "dml-mcp-server=dml_mcp.dml_mcp_server:main",
+        ]
+    },
     ext_modules=[cuda_extension],
     cmdclass={"build_ext": CUDABuildExt},
 )

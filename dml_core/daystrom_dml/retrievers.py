@@ -68,6 +68,8 @@ class LiteralRetriever:
         doc_index = self._build_doc_index(search_space)
         for item in search_space:
             snippet, regex_boost = self._extract_snippet(item.text, phrase_pattern)
+            if phrase_pattern is not None and regex_boost <= 0.0:
+                continue
             similarity = utils.cosine_similarity(item.embedding, query_embedding)
             literal_score = self._score_literal(regex_boost, similarity)
             if literal_score == 0.0:
@@ -91,7 +93,45 @@ class LiteralRetriever:
     # helpers
     # ------------------------------------------------------------------
     def _build_pattern(self, query: str) -> re.Pattern | None:
-        tokens = [tok for tok in re.findall(r"[A-Za-z0-9_]+", query) if len(tok) >= 3]
+        stopwords = {
+            "about",
+            "aboard",
+            "after",
+            "also",
+            "and",
+            "are",
+            "does",
+            "from",
+            "for",
+            "how",
+            "into",
+            "the",
+            "what",
+            "when",
+            "where",
+            "which",
+            "who",
+            "with",
+            "would",
+            "could",
+            "should",
+            "show",
+            "tell",
+            "give",
+            "find",
+            "this",
+            "that",
+            "there",
+            "their",
+            "have",
+            "memory",
+            "remember",
+        }
+        tokens = [
+            tok
+            for tok in re.findall(r"[A-Za-z0-9_]+", query)
+            if len(tok) >= 3 and tok.lower() not in stopwords
+        ]
         if not tokens:
             return None
         pattern = "|".join(re.escape(tok) for tok in tokens)
@@ -112,7 +152,7 @@ class LiteralRetriever:
                 start = max(0, first.start() - 80)
                 end = min(len(text), first.end() + 80)
                 snippet = text[start:end].strip()
-                boost = len(matches)
+                boost = len({match.group(0).lower() for match in matches})
         if len(snippet) > self.max_snippet_chars:
             snippet = snippet[: self.max_snippet_chars - 3] + "..."
         return snippet, float(boost)

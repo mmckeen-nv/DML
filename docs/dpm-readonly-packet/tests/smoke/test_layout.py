@@ -4,6 +4,7 @@ ROOT = Path(__file__).resolve().parents[2]
 EXCLUDED_CACHE_DIRS = {'.pytest_cache', '__pycache__'}
 EXCLUDED_CACHE_SUFFIXES = {'.pyc', '.pyo'}
 PYTEST_SELF_CACHE_ROOTS = {
+    ROOT / 'scripts',
     ROOT / 'tests' / 'smoke',
     ROOT / 'tests' / 'unit',
     ROOT / 'tests',

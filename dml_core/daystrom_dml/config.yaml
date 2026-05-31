@@ -11,8 +11,8 @@ top_k: 6
 dml_top_k: 8
 similarity_threshold: 0.32
 token_budget: 600
-model_name: mistralai/Mistral-7B-Instruct-v0.2
-llm_backend: auto
+model_name: llama3:8b
+llm_backend: ollama
 llm_device: null
 llm_dtype: auto
 load_in_4bit: false
@@ -21,7 +21,7 @@ trust_remote_code: false
 use_fast_tokenizer: true
 llm_temperature: 0.2
 llm_top_p: 1.0
-embedding_model: sentence-transformers/all-MiniLM-L6-v2
+embedding_model: ollama:qwen3-embedding:0.6b
 embedding_device: null
 enable_stm_controller: false
 commitment_threshold: 0.75
@@ -53,4 +53,4 @@ rag_store:
   path: ./data/rag_index.faiss
   meta_path: ./data/rag_meta.json
   backend: faiss
-  dim: 384
+  dim: 1024

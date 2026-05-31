@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Daystrom Inference Pipeline</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="/static/styles.css?v=inference-pipeline-cost" />
+  </head>
+  <body>
+    <div class="app-shell pipeline-shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Daystrom Memory Lattice</p>
+          <h1>Inference Pipeline</h1>
+        </div>
+        <div class="topbar-actions">
+          <span id="pipeline-status" class="status-pill">idle</span>
+          <a class="button-link secondary" href="/">Memory Demo</a>
+        </div>
+      </header>
+
+      <main class="pipeline-dashboard">
+        <section class="overview-strip" aria-label="Pipeline telemetry">
+          <article class="metric-card">
+            <span>Scenario</span>
+            <strong id="metric-mode">-</strong>
+          </article>
+          <article class="metric-card">
+            <span>Turns DML / Direct</span>
+            <strong id="metric-turns">-</strong>
+          </article>
+          <article class="metric-card">
+            <span>DML Input</span>
+            <strong id="metric-frontier-input">-</strong>
+          </article>
+          <article class="metric-card">
+            <span>Est. Input Saved</span>
+            <strong id="metric-input-saved">-</strong>
+          </article>
+          <article class="metric-card">
+            <span>Est. Budget Saved</span>
+            <strong id="metric-output-saved">-</strong>
+          </article>
+        </section>
+
+        <section class="pipeline-grid">
+          <article class="panel pipeline-control">
+            <div class="panel-heading">
+              <div>
+                <h2>Flappy Bird Agent Run</h2>
+                <p>A canned long-horizon coding task comparing DML-assisted inference with a direct full-transcript baseline.</p>
+              </div>
+              <span id="api-key-state" class="mini-pill">checking</span>
+            </div>
+
+            <label for="pipeline-prompt">Prompt</label>
+            <textarea id="pipeline-prompt" rows="8" spellcheck="true">Develop a clone of Flappy Bird in Python, test it, harden it, and deliver it to me.</textarea>
+
+            <div class="form-grid">
+              <label>
+                Model
+                <input id="pipeline-model" value="azure/openai/gpt-5.2-codex" />
+              </label>
+              <label>
+                Reasoning
+                <select id="pipeline-effort">
+                  <option value="low" selected>low</option>
+                  <option value="medium">medium</option>
+                  <option value="high">high</option>
+                </select>
+              </label>
+              <label>
+                Top K
+                <input id="pipeline-top-k" type="number" min="1" max="30" value="8" />
+              </label>
+              <label>
+                DML Output Budget
+                <input id="pipeline-frontier-max" type="number" min="32" max="8192" value="2200" />
+              </label>
+              <label>
+                Direct Baseline Input
+                <input id="pipeline-direct-input" type="number" min="0" value="0" />
+              </label>
+              <label>
+                Direct Output Budget
+                <input id="pipeline-direct-output" type="number" min="0" value="0" />
+              </label>
+              <label>
+                Input $ / 1M
+                <input id="pipeline-input-rate" type="number" min="0" step="0.01" value="1.25" />
+              </label>
+              <label>
+                Output $ / 1M
+                <input id="pipeline-output-rate" type="number" min="0" step="0.01" value="10.00" />
+              </label>
+            </div>
+
+            <label class="toggle-row">
+              <input id="pipeline-local-draft" type="checkbox" checked />
+              <span>Use local draft when a local model is configured</span>
+            </label>
+
+            <div class="button-row">
+              <button id="load-flappy-demo" class="secondary" type="button">Reset Canned Demo</button>
+              <button id="prepare-pipeline" type="button">Prepare Pipeline</button>
+              <button id="run-paid-inference" class="secondary" type="button">Run Paid Inference</button>
+              <button id="run-direct-inference" class="secondary" type="button">Run Direct Baseline</button>
+            </div>
+            <div id="pipeline-message" class="status-line"></div>
+          </article>
+
+          <article class="panel">
+            <div class="panel-heading compact">
+              <h2>Token Flow</h2>
+              <span id="pipeline-latency" class="mini-pill">-</span>
+            </div>
+            <table class="token-flow-table">
+              <thead>
+                <tr>
+                  <th>Path</th>
+                  <th>Input</th>
+                  <th>Output Budget</th>
+                  <th>Total Budget</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <th scope="row">Direct baseline</th>
+                  <td id="table-direct-input">-</td>
+                  <td id="table-direct-output">-</td>
+                  <td id="table-direct-total">-</td>
+                </tr>
+                <tr>
+                  <th scope="row">DML-assisted</th>
+                  <td id="table-dml-input">-</td>
+                  <td id="table-dml-output">-</td>
+                  <td id="table-dml-total">-</td>
+                </tr>
+              </tbody>
+            </table>
+            <h3 class="table-section-title">Token Cost</h3>
+            <table class="token-flow-table cost-flow-table">
+              <thead>
+                <tr>
+                  <th>Path</th>
+                  <th>Input Tokens</th>
+                  <th>Output Tokens</th>
+                  <th>Est. Cost</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <th scope="row">Direct baseline</th>
+                  <td id="cost-direct-input">-</td>
+                  <td id="cost-direct-output">-</td>
+                  <td id="cost-direct-total">-</td>
+                </tr>
+                <tr>
+                  <th scope="row">DML-assisted</th>
+                  <td id="cost-dml-input">-</td>
+                  <td id="cost-dml-output">-</td>
+                  <td id="cost-dml-total">-</td>
+                </tr>
+                <tr>
+                  <th scope="row">Estimated savings</th>
+                  <td id="cost-saved-input">-</td>
+                  <td id="cost-saved-output">-</td>
+                  <td id="cost-saved-total">-</td>
+                </tr>
+              </tbody>
+            </table>
+            <div id="cost-rate-note" class="table-note"></div>
+            <div class="telemetry-counts pipeline-counts">
+              <span>DML context <strong id="count-dml-context">-</strong></span>
+              <span>Local draft <strong id="count-local-draft">-</strong></span>
+              <span>Retrieved nodes <strong id="count-retrieved">-</strong></span>
+              <span>Ledger <strong id="count-ledger">-</strong></span>
+            </div>
+          </article>
+        </section>
+
+        <section class="comparison-panel panel">
+          <div class="panel-heading compact">
+            <h2>Pipeline Artifacts</h2>
+            <span id="artifact-status" class="mini-pill">waiting</span>
+          </div>
+          <div class="comparison-grid pipeline-artifacts">
+            <article class="comparison-card">
+              <div class="panel-heading compact">
+                <h3>DML Context</h3>
+                <span id="dml-pipeline-count" class="mini-pill">0 tokens</span>
+              </div>
+              <pre id="pipeline-dml-context" class="output-box context-box empty">Prepare the pipeline to inspect compact DML context.</pre>
+            </article>
+            <article class="comparison-card">
+              <div class="panel-heading compact">
+                <h3>Local Draft</h3>
+                <span id="local-draft-count" class="mini-pill">0 tokens</span>
+              </div>
+              <pre id="pipeline-local-output" class="output-box empty">Local draft output appears here when available.</pre>
+            </article>
+            <article class="comparison-card">
+              <div class="panel-heading compact">
+                <h3>Frontier Prompt</h3>
+                <span id="frontier-prompt-count" class="mini-pill">0 tokens</span>
+              </div>
+              <pre id="pipeline-frontier-prompt" class="output-box context-box empty">The verifier/finalizer prompt sent to the paid endpoint appears here.</pre>
+            </article>
+            <article class="comparison-card">
+              <div class="panel-heading compact">
+                <h3>Frontier Response</h3>
+                <span id="frontier-response-count" class="mini-pill">0 tokens</span>
+              </div>
+              <pre id="pipeline-frontier-response" class="output-box empty">Run paid inference to see the endpoint response.</pre>
+            </article>
+            <article class="comparison-card">
+              <div class="panel-heading compact">
+                <h3>Direct Baseline Prompt</h3>
+                <span id="direct-prompt-count" class="mini-pill">0 tokens</span>
+              </div>
+              <pre id="pipeline-direct-prompt" class="output-box context-box empty">Load the canned demo to inspect the no-DML transcript prompt.</pre>
+            </article>
+            <article class="comparison-card">
+              <div class="panel-heading compact">
+                <h3>Direct Baseline Response</h3>
+                <span id="direct-response-count" class="mini-pill">0 tokens</span>
+              </div>
+              <pre id="pipeline-direct-response" class="output-box empty">Run the direct baseline to compare output without DML-assisted context compression.</pre>
+            </article>
+          </div>
+        </section>
+      </main>
+    </div>
+    <script src="/static/pipeline.js?v=inference-pipeline-cost"></script>
+  </body>
+</html>

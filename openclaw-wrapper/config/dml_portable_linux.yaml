@@ -1,0 +1,34 @@
+# Portable Linux DML profile for bolt-on installs
+# Use with: --config-path openclaw-wrapper/config/dml_portable_linux.yaml
+# Runtime storage should be provided explicitly with --storage-dir <path>.
+
+# Core retrieval behavior
+capacity: 4000
+dml_top_k: 8
+token_budget: 800
+
+# Ollama-backed embeddings/summarization remain the proven path.
+embedding_model: ollama:qwen3-embedding:0.6b
+embedding_device: cuda
+llm_backend: ollama
+model_name: llama3:8b
+strict_embedding_required: true
+strict_llm_required: true
+
+# Persistence paths are bundle-agnostic; runtime state should live under --storage-dir.
+storage_dir: ./dml-runtime
+persistence:
+  enable: true
+  path: ./dml_state.jsonl
+  interval_sec: 120
+
+# Enable agentic mode for richer metadata routing
+"dml.agentic_mode.enabled": true
+
+# Keep explicit persistent RAG indexes beside lattice memory for ground truth lookups
+rag_store:
+  enable: true
+  path: ./rag_index.faiss
+  meta_path: ./rag_meta.json
+  backend: faiss
+  dim: 384

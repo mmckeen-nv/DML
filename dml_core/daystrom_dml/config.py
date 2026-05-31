@@ -17,7 +17,7 @@ _RESERVED_ENV_KEYS = {
     f"{ENV_PREFIX}CONFIG",
     f"{ENV_PREFIX}CONFIG_PATH",
 }
-_NESTED_ROOTS = {"persistence", "rag_store", "literal", "budgets"}
+_NESTED_ROOTS = {"persistence", "rag_store", "literal", "budgets", "dpm"}
 
 
 def load_config(

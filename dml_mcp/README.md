@@ -9,6 +9,13 @@ pip install .[mcp]
 dml-mcp-server --transport stdio
 ```
 
+Tools:
+- `search`: return memory result handles for provider-style retrieval
+- `fetch`: return one memory by id
+- `query`: query the lattice and receive structured context
+- `ingest`: ingest local files/directories
+- `stats`: return adapter stats
+
 HTTP transport example:
 ```bash
 dml-mcp-server --transport streamable-http --host 0.0.0.0 --port 8001

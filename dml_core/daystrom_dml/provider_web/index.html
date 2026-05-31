@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>DML</title>
+    <link rel="stylesheet" href="/assets/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-mark">D</div>
+          <div>
+            <h1>DML</h1>
+            <p>local memory provider</p>
+          </div>
+        </div>
+
+        <button class="nav-item active" data-view="chat-view" title="Chat with memory">
+          <span>Chat</span>
+        </button>
+        <button class="nav-item" data-view="memory-view" title="Search and store memories">
+          <span>Memory</span>
+        </button>
+        <button class="nav-item" data-view="setup-view" title="Copy provider endpoints">
+          <span>Setup</span>
+        </button>
+
+        <section class="sidebar-card">
+          <div class="status-row">
+            <span class="status-dot" id="status-dot"></span>
+            <span id="status-line">checking</span>
+          </div>
+          <dl class="mini-stats">
+            <div><dt>model</dt><dd id="model-name">daystrom-dml:memory</dd></div>
+            <div><dt>memories</dt><dd id="memory-count">0</dd></div>
+            <div><dt>uptime</dt><dd id="uptime">0s</dd></div>
+          </dl>
+        </section>
+      </aside>
+
+      <main class="main">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">Ollama-compatible endpoint</p>
+            <h2 id="view-title">Chat</h2>
+          </div>
+          <div class="top-actions">
+            <button id="copy-base" class="secondary">Copy URL</button>
+            <button id="refresh">Refresh</button>
+          </div>
+        </header>
+
+        <section class="view active" id="chat-view">
+          <div class="chat-layout">
+            <section class="chat-panel">
+              <div class="chat-log" id="chat-log" aria-live="polite"></div>
+              <form id="chat-form" class="composer">
+                <textarea id="chat-prompt" rows="3" placeholder="Ask DML what it remembers..."></textarea>
+                <div class="composer-actions">
+                  <label>Tenant <input id="tenant" value="openclaw" /></label>
+                  <label>Session <input id="session" placeholder="optional" /></label>
+                  <button type="submit">Send</button>
+                </div>
+              </form>
+            </section>
+
+            <aside class="model-card">
+              <div class="model-icon">M</div>
+              <h3>daystrom-dml:memory</h3>
+              <p>DML returns compact retrieved context through Ollama-style chat and generate routes.</p>
+              <dl>
+                <div><dt>base url</dt><dd id="base-url"></dd></div>
+                <div><dt>family</dt><dd>memory-provider</dd></div>
+                <div><dt>mode</dt><dd>local</dd></div>
+              </dl>
+            </aside>
+          </div>
+        </section>
+
+        <section class="view" id="memory-view">
+          <div class="memory-grid">
+            <form id="remember-form" class="panel">
+              <h3>Remember</h3>
+              <textarea id="memory-text" rows="7" placeholder="Write a memory..."></textarea>
+              <div class="form-grid">
+                <label>Kind <input id="kind" value="note" /></label>
+                <label>Source <input id="source" value="provider-ui" /></label>
+              </div>
+              <button type="submit">Store Memory</button>
+            </form>
+
+            <form id="search-form" class="panel">
+              <h3>Search</h3>
+              <textarea id="search-query" rows="7" placeholder="Search durable memory..."></textarea>
+              <div class="form-grid">
+                <label>Top K <input id="topk" type="number" min="1" max="20" value="6" /></label>
+              </div>
+              <button type="submit">Search</button>
+            </form>
+          </div>
+          <section class="panel">
+            <h3>Results</h3>
+            <div id="memory-results" class="result-list"></div>
+          </section>
+        </section>
+
+        <section class="view" id="setup-view">
+          <div class="setup-grid">
+            <article class="endpoint-card">
+              <span>Ollama Base URL</span>
+              <code id="setup-base-url"></code>
+              <button class="copy" data-copy-target="setup-base-url">Copy</button>
+            </article>
+            <article class="endpoint-card">
+              <span>Run Server</span>
+              <code>dml-ollama --storage-dir "$DML_STORE" --host 127.0.0.1 --port 11435</code>
+              <button class="copy">Copy</button>
+            </article>
+            <article class="endpoint-card">
+              <span>CLI Recall</span>
+              <code>dml --base-url http://127.0.0.1:11435 recall --query "current task" --context-only</code>
+              <button class="copy">Copy</button>
+            </article>
+            <article class="endpoint-card">
+              <span>Generate</span>
+              <code>curl /api/generate -d '{"model":"daystrom-dml:memory","prompt":"current task"}'</code>
+              <button class="copy">Copy</button>
+            </article>
+          </div>
+        </section>
+      </main>
+    </div>
+    <script src="/assets/provider.js"></script>
+  </body>
+</html>
