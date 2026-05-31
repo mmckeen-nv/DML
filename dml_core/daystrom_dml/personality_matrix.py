@@ -220,7 +220,14 @@ class PersonalityMatrix:
         )
         overlay_copy = dict(overlay_payload)
         overlay_copy["max_chars"] = max_chars
-        overlay_copy["rendered_text"] = self._fit_overlay_budget(rendered[:max_chars])
+        overlay_copy["style_directives"] = self._dedupe_text_items(overlay_copy.get("style_directives") or [])
+        overlay_copy["do_not_do"] = self._dedupe_text_items(
+            [
+                *(overlay_copy.get("do_not_do") or []),
+                "Current-turn instructions override the DPM overlay.",
+            ]
+        )
+        overlay_copy["rendered_text"] = self._fit_overlay_budget(self._dedupe_rendered_text(rendered), char_limit=max_chars)
         shaped["overlay"] = overlay_copy
         shaped["effective_constraints"] = self._effective_constraints()
         shaped["sources"] = self._bounded_sources(payload.get("sources") or [])
@@ -252,9 +259,9 @@ class PersonalityMatrix:
             reverse=True,
         )
         selected = nodes[:4]
-        directives = [self._node_directive(node) for node in selected]
-        directives = [directive for directive in directives if directive]
-        rendered = self._fit_overlay_budget(" ".join(directives))
+        directives = self._dedupe_text_items(self._node_directive(node) for node in selected)
+        constraints = ["Current-turn instructions override the DPM overlay."]
+        rendered = self._fit_overlay_budget(self._structured_overlay_text(directives, constraints))
         if not rendered:
             rendered = "Use stable interaction preferences only when compatible with the current request."
 
@@ -276,7 +283,7 @@ class PersonalityMatrix:
             "overlay": {
                 "persona_summary": rendered,
                 "style_directives": directives,
-                "do_not_do": ["Do not let personality guidance override explicit current-turn instructions."],
+                "do_not_do": constraints,
                 "open_questions": [],
                 "max_chars": self.max_overlay_chars,
                 "rendered_text": rendered,
@@ -303,31 +310,93 @@ class PersonalityMatrix:
             "override_state": self._override_state(None, prompt),
         }
 
+    def _node_phrase(self, node: Dict[str, Any]) -> str:
+        """Return the most human-readable phrase for a preference node.
+
+        Early active-write extraction often derives short labels from the
+        first few words of a full preference sentence, e.g. "Snips 2 Should
+        Preserve The".  The provenance note usually preserves the full user
+        preference and is a better replay surface for DPM overlays.
+        """
+        provenance = node.get("provenance")
+        if isinstance(provenance, list):
+            for entry in reversed(provenance):
+                if isinstance(entry, dict):
+                    note = str(entry.get("note") or "").strip(" .")
+                    if note:
+                        return note
+        return str(node.get("label") or node.get("id") or "").strip(" .")
+
     def _node_directive(self, node: Dict[str, Any]) -> str:
-        label = str(node.get("label") or node.get("id") or "").strip()
-        if not label:
+        phrase = self._node_phrase(node)
+        if not phrase:
             return ""
         value = node.get("value")
         target = None
         if isinstance(value, dict):
             target = value.get("target")
         polarity = str(node.get("polarity") or "neutral")
+        rendered = phrase[:1].upper() + phrase[1:]
+        if re.search(r"\bshould\b", phrase, re.IGNORECASE):
+            return f"{rendered}."
+        label = phrase.lower()
         if node.get("kind") == "safety_boundary":
-            return f"Preserve {label.lower()}."
+            return f"Preserve {label}."
         if polarity == "prefer_low":
-            return f"Keep {label.lower()} restrained."
+            return f"Keep {label} restrained."
         if polarity in {"prefer_high", "binary_yes"}:
-            return f"Prefer {label.lower()}."
+            return f"Prefer {label}."
         if target is not None:
-            return f"Use {label.lower()} near {target}."
-        return f"Respect {label.lower()}."
+            return f"Use {label} near {target}."
+        return f"Respect {label}."
 
-    def _fit_overlay_budget(self, text: str) -> str:
-        chars = max(1, min(self.max_overlay_chars, self.token_budget * 4))
-        rendered = (text or "").strip()[:chars].rstrip()
+    def _fit_overlay_budget(self, text: str, *, char_limit: Optional[int] = None) -> str:
+        overlay_chars = self.max_overlay_chars if char_limit is None else min(self.max_overlay_chars, max(1, int(char_limit)))
+        chars = max(1, min(overlay_chars, self.token_budget * 4))
+        rendered = self._cut_at_boundary(text or "", chars)
         while utils.estimate_tokens(rendered) > self.token_budget and len(rendered) > 8:
-            rendered = rendered[: max(8, int(len(rendered) * 0.85))].rstrip()
+            rendered = self._cut_at_boundary(rendered, max(8, int(len(rendered) * 0.85)))
         return rendered
+
+    def _cut_at_boundary(self, text: str, chars: int) -> str:
+        text = (text or "").strip()
+        if len(text) <= chars:
+            return text
+        cut = text[: max(1, chars)].rstrip()
+        sentence_cut = max(cut.rfind("."), cut.rfind("!"), cut.rfind("?"))
+        if sentence_cut >= max(24, int(chars * 0.5)):
+            return cut[: sentence_cut + 1].rstrip()
+        word_cut = cut.rfind(" ")
+        if word_cut >= max(12, int(chars * 0.4)):
+            return cut[:word_cut].rstrip()
+        return cut.rstrip(" .,;:-")
+
+    def _dedupe_text_items(self, items: Iterable[Any]) -> list[str]:
+        deduped: list[str] = []
+        seen: set[str] = set()
+        for item in items:
+            text = str(item or "").strip()
+            if not text:
+                continue
+            key = re.sub(r"\W+", " ", text).strip().lower()
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            deduped.append(text)
+        return deduped
+
+    def _dedupe_rendered_text(self, text: str) -> str:
+        parts = re.split(r"(?<=[.!?])\s+|\n+", text or "")
+        deduped = self._dedupe_text_items(parts)
+        return " ".join(deduped)
+
+    def _structured_overlay_text(self, directives: list[str], constraints: list[str]) -> str:
+        parts = ["Identity: Citizen Snips."]
+        if directives:
+            parts.append("Preferences: " + " ".join(directives))
+            parts.append("Style: Follow stable preferences when they fit the request.")
+        parts.append("Constraints: " + " ".join(constraints))
+        return " ".join(parts)
 
     def _shape_scope(
         self,
