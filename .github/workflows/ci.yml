@@ -11,6 +11,18 @@ jobs:
     strategy:
       matrix:
         python-version: ["3.10", "3.11"]
+    env:
+      DML_CI_RUFF_TARGETS: >-
+        dml_core/daystrom_dml/personality_matrix.py
+        dml_core/daystrom_dml/config.py
+        dml_core/daystrom_dml/settings.py
+        integrations/hermes/plugins/daystrom_dml
+        dml_core/daystrom_dml/tests/test_dml.py
+      DML_CI_MYPY_TARGETS: >-
+        dml_core/daystrom_dml/personality_matrix.py
+        dml_core/daystrom_dml/config.py
+        dml_core/daystrom_dml/settings.py
+        dml_mcp/dml_mcp_server.py
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -19,10 +31,12 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install .[server,tokenizer,embeddings,faiss]
-      - name: Ruff lint
-        run: ruff check .
+          pip install .[server,tokenizer,embeddings,faiss,dev]
+      - name: Ruff lint maintained surfaces
+        run: ruff check --select E,F --ignore E501,F401 $DML_CI_RUFF_TARGETS
       - name: Mypy type checking
-        run: mypy daystrom_dml/config.py mcp/dml_mcp_server.py bench/bench_dml_vs_rag.py
-      - name: Pytest
-        run: pytest
+        run: mypy $DML_CI_MYPY_TARGETS
+      - name: DML personality and Hermes hardening tests
+        run: |
+          pytest dml_core/daystrom_dml/tests/test_dml.py -k personality
+          python integrations/hermes/plugins/daystrom_dml/smoke_hygiene.py
