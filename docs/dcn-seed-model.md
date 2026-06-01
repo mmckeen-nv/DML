@@ -53,6 +53,15 @@ Use the seed model as an offline candidate proposer, not as live policy authorit
 dml dcn seed-trial --input sanitized-feedback.json --output dcn-seed-trial-artifact.json
 ```
 
+For an active local seed-model path, run:
+
+```bash
+dml dcn seed-propose --input sanitized-feedback.json --output dcn-seed-proposal.json
+dml dcn seed-loop --input sanitized-feedback.json --output dcn-seed-loop-artifact.json
+```
+
+`seed-propose` uses the local seed model to propose allowlisted procedural candidates and unsupported schema pressure. `seed-loop` immediately validates that model proposal through `seed-trial`. Both commands are non-promoting and keep `active_learn` behind the existing checkpoint/eval/hygiene promotion gates.
+
 The artifact is non-promoting. It contains accepted procedural overlay candidates, rejected updates, unsupported policy-pressure reports, and a candidate policy snapshot. Unsupported pressure is the path for schema growth: if the current allowlist is too small for useful learning, record the missing typed capability instead of silently broadening runtime authority.
 
 ## Promotion guardrails

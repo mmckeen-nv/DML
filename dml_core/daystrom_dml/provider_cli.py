@@ -11,6 +11,7 @@ from typing import Any
 import httpx
 
 from . import provider_server
+from .cognition.seed_proposer import DEFAULT_OLLAMA_BASE_URL, propose_seed_updates, run_seed_loop
 from .cognition.seed_trial import run_seed_trial
 
 
@@ -262,6 +263,38 @@ def cmd_dcn_seed_trial(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_dcn_seed_propose(args: argparse.Namespace) -> int:
+    payload = _read_json_file(args.input)
+    proposal = propose_seed_updates(
+        payload,
+        model=args.model,
+        ollama_base_url=args.ollama_base_url,
+        timeout=args.timeout,
+    )
+    if args.output:
+        _write_json_file(args.output, proposal)
+    _print_json(proposal)
+    return 0
+
+
+def cmd_dcn_seed_loop(args: argparse.Namespace) -> int:
+    payload = _read_json_file(args.input)
+    artifact = run_seed_loop(
+        payload,
+        model=args.model,
+        ollama_base_url=args.ollama_base_url,
+        timeout=args.timeout,
+    )
+    if args.output:
+        _write_json_file(args.output, artifact)
+    if args.proposal_output:
+        _write_json_file(args.proposal_output, artifact["proposal"])
+    if args.trial_output:
+        _write_json_file(args.trial_output, artifact["trial"])
+    _print_json(artifact)
+    return 0
+
+
 def cmd_remember(args: argparse.Namespace) -> int:
     payload = {
         "text": args.text,
@@ -364,6 +397,8 @@ def _app_profile(app: str, *, base_url: str, tenant_id: str, storage_dir: str | 
             "dcn_audit_tail": "dml dcn audit-tail --limit 20",
             "dcn_eval_smoke": "dml dcn eval-smoke --output dcn-eval-artifact.json --artifact-only",
             "dcn_seed_trial": "dml dcn seed-trial --input sanitized-feedback.json --output dcn-seed-trial-artifact.json",
+            "dcn_seed_propose": "dml dcn seed-propose --input sanitized-feedback.json --output dcn-seed-proposal.json",
+            "dcn_seed_loop": "dml dcn seed-loop --input sanitized-feedback.json --output dcn-seed-loop-artifact.json",
             "frontier_prepare": "python skills/daystrom-dml/scripts/dml_frontier_prepare.py --prompt-file task.md --telemetry-only",
         },
         "mcp": {
@@ -489,6 +524,30 @@ def build_parser() -> argparse.ArgumentParser:
     dcn_seed_trial.add_argument("--input", required=True, help="Sanitized seed-trial feedback/proposal JSON")
     dcn_seed_trial.add_argument("--output", help="Write the sanitized seed-trial artifact JSON")
     dcn_seed_trial.set_defaults(func=cmd_dcn_seed_trial)
+
+    dcn_seed_propose = dcn_sub.add_parser(
+        "seed-propose",
+        help="Ask the local seed model for sanitized DCN procedural candidates without promotion",
+    )
+    dcn_seed_propose.add_argument("--input", required=True, help="Sanitized feedback batch JSON")
+    dcn_seed_propose.add_argument("--output", help="Write the sanitized model proposal JSON")
+    dcn_seed_propose.add_argument("--model", default="llama3:8b")
+    dcn_seed_propose.add_argument("--ollama-base-url", default=DEFAULT_OLLAMA_BASE_URL)
+    dcn_seed_propose.add_argument("--timeout", type=float, default=60.0)
+    dcn_seed_propose.set_defaults(func=cmd_dcn_seed_propose)
+
+    dcn_seed_loop = dcn_sub.add_parser(
+        "seed-loop",
+        help="Run seed-propose then seed-trial validation without import or promotion",
+    )
+    dcn_seed_loop.add_argument("--input", required=True, help="Sanitized feedback batch JSON")
+    dcn_seed_loop.add_argument("--output", help="Write combined sanitized loop artifact JSON")
+    dcn_seed_loop.add_argument("--proposal-output", help="Write proposal JSON separately")
+    dcn_seed_loop.add_argument("--trial-output", help="Write seed-trial artifact JSON separately")
+    dcn_seed_loop.add_argument("--model", default="llama3:8b")
+    dcn_seed_loop.add_argument("--ollama-base-url", default=DEFAULT_OLLAMA_BASE_URL)
+    dcn_seed_loop.add_argument("--timeout", type=float, default=60.0)
+    dcn_seed_loop.set_defaults(func=cmd_dcn_seed_loop)
 
     dcn_observe = dcn_sub.add_parser("observe", help="Inspect the deterministic DCN plan for text")
     _add_dcn_request_args(dcn_observe)
