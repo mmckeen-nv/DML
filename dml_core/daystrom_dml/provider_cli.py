@@ -58,6 +58,21 @@ def cmd_status(args: argparse.Namespace) -> int:
     return 0
 
 
+def _dcn_eval_smoke_passed(payload: dict[str, Any]) -> bool:
+    report = payload.get("report")
+    return bool(payload.get("status") == "ok" and isinstance(report, dict) and report.get("passed") is True)
+
+
+def cmd_dcn_eval_smoke(args: argparse.Namespace) -> int:
+    """Run the provider-hosted offline DCN eval smoke readiness probe."""
+    with _client(args) as client:
+        response = client.get("/api/dcn/eval/smoke")
+        response.raise_for_status()
+        payload = response.json()
+    _print_json(payload)
+    return 0 if isinstance(payload, dict) and _dcn_eval_smoke_passed(payload) else 1
+
+
 def cmd_remember(args: argparse.Namespace) -> int:
     payload = {
         "text": args.text,
@@ -146,6 +161,7 @@ def _app_profile(app: str, *, base_url: str, tenant_id: str, storage_dir: str | 
             "remember": "dml remember --text '...' --meta '{\"source\":\"agent\"}'",
             "recall": "dml recall --query 'current task' --context-only",
             "resume": "dml resume --context-only",
+            "dcn_eval_smoke": "dml dcn eval-smoke",
             "frontier_prepare": "python skills/daystrom-dml/scripts/dml_frontier_prepare.py --prompt-file task.md --telemetry-only",
         },
         "mcp": {
@@ -153,6 +169,7 @@ def _app_profile(app: str, *, base_url: str, tenant_id: str, storage_dir: str | 
             "args": ["--transport", "stdio", "--storage", storage_dir or "$DML_STORE"],
         },
         "endpoints": {
+            "dcn_eval_smoke": f"{base_url.rstrip('/')}/api/dcn/eval/smoke",
             "frontier_prepare": f"{base_url.rstrip('/')}/api/frontier/prepare",
         },
     }
@@ -213,6 +230,17 @@ def build_parser() -> argparse.ArgumentParser:
     status = sub.add_parser("status", help="Check provider health")
     _add_provider_args(status)
     status.set_defaults(func=cmd_status)
+
+    dcn = sub.add_parser("dcn", help="Daystrom Cognition Network operator probes")
+    dcn_sub = dcn.add_subparsers(dest="dcn_cmd", required=True)
+
+    dcn_eval_smoke = dcn_sub.add_parser(
+        "eval-smoke",
+        aliases=["readiness"],
+        help="Run the offline fixture-only DCN eval smoke readiness probe",
+    )
+    _add_provider_args(dcn_eval_smoke)
+    dcn_eval_smoke.set_defaults(func=cmd_dcn_eval_smoke)
 
     remember = sub.add_parser("remember", help="Store a memory through the provider")
     _add_provider_args(remember)

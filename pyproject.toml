@@ -17,6 +17,8 @@ packages = [
     "daystrom_dml.llm_backends",
     "daystrom_dml.provider_web",
     "daystrom_dml.stm",
+    "daystrom_dml.cognition",
+    "daystrom_dml.inference",
     "cma",
     "scripts",
     "dml_mcp",

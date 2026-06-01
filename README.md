@@ -134,9 +134,11 @@ dml serve --storage-dir ./data --host 127.0.0.1 --port 8765
 ```
 Provider mode serves a local UI at `http://127.0.0.1:8765`, health at
 `/health`, and DML memory APIs under `/api/*` for recall, remember, resume,
-search, and fetch. It also exposes simple Ollama-shaped endpoints:
-`/api/tags`, `/api/show`, `/api/generate`, `/api/chat`, `/api/embed`,
-`/api/embeddings`, `/api/ps`, and `/api/version`.
+search, and fetch. DCN operator probes live under `/api/dcn/*`, including the
+read-only offline fixture readiness probe at `/api/dcn/eval/smoke`. It also
+exposes simple Ollama-shaped endpoints: `/api/tags`, `/api/show`,
+`/api/generate`, `/api/chat`, `/api/embed`, `/api/embeddings`, `/api/ps`, and
+`/api/version`.
 
 To run it as an Ollama-style memory clone:
 ```bash
@@ -152,7 +154,11 @@ dml remember --text "The active branch is provider-hardening." --meta '{"source"
 dml recall --query "active branch" --context-only
 dml search --query "provider"
 dml fetch 1
+dml dcn eval-smoke  # offline fixture-only DCN readiness probe
 ```
+
+See [`docs/dcn-operator-guide.md`](docs/dcn-operator-guide.md) for DCN mode
+boundaries, the `/api/dcn/eval/smoke` readiness gate, and promotion stoplines.
 
 Use `scripts/install_daystrom_dml.sh --profile openclaw` or
 `--profile hermes` for an agent-app-ready local install that creates the venv,

@@ -8,6 +8,7 @@ context, then mirrors completed turns back into DML.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -27,6 +28,8 @@ from hermes_cli.config import cfg_get, load_config
 logger = logging.getLogger(__name__)
 
 _DEFAULT_INTEGRATION_DIR = Path("/Users/markmckeen/.hermes/hermes-agent/integrations/daystrom-dml")
+_DCN_MODES = {"disabled", "observe_only", "active_read", "active_learn"}
+_DCN_DECISIONS = {"legacy", "overlay_only", "retrieve", "suppress_overlay"}
 
 
 def _clean_text(value: str, limit: int = 4000) -> str:
@@ -560,6 +563,7 @@ class DaystromDMLProvider(MemoryProvider):
         self.sync_turns = bool(self._cfg.get("sync_turns", True))
         self.enable_personality = bool(self._cfg.get("enable_personality", True))
         self.enable_memory = bool(self._cfg.get("enable_memory", True))
+        self.dcn_mode = self._load_dcn_mode()
         self.no_require_gpu = bool(self._cfg.get("no_require_gpu", True))
         self._session_id = ""
         self._thread_id = ""
@@ -568,6 +572,7 @@ class DaystromDMLProvider(MemoryProvider):
         self._project_id = str(self._cfg.get("project_id") or "project:snips2")
         self._last_sync_key = ""
         self._lock = threading.Lock()
+        self._dcn_observations: List[Dict[str, Any]] = []
 
     @property
     def name(self) -> str:
@@ -580,6 +585,15 @@ class DaystromDMLProvider(MemoryProvider):
             return block if isinstance(block, dict) else {}
         except Exception:
             return {}
+
+    def _load_dcn_mode(self) -> str:
+        env_mode = os.environ.get("DAYSTROM_DCN_MODE")
+        dcn_cfg = self._cfg.get("dcn") if isinstance(self._cfg.get("dcn"), dict) else {}
+        assert isinstance(dcn_cfg, dict)
+        mode = str(env_mode or dcn_cfg.get("mode") or self._cfg.get("dcn_mode") or "disabled").strip().lower().replace("-", "_")
+        if mode not in _DCN_MODES:
+            raise ValueError(f"Invalid Daystrom DCN mode {mode!r}; expected one of {sorted(_DCN_MODES)}")
+        return mode
 
     def is_available(self) -> bool:
         return self.launcher.exists() and os.access(self.launcher, os.X_OK) and self.store_dir.exists()
@@ -610,18 +624,118 @@ class DaystromDMLProvider(MemoryProvider):
             "The DML inference/frontier pipeline is intentionally not active."
         )
 
+    def _observe_dcn(self, query: str, *, session_id: str, should_inject_memory: bool) -> None:
+        if self.dcn_mode != "observe_only":
+            return
+        event = {
+            "event": "dcn.observe",
+            "mode": self.dcn_mode,
+            "query_hash": hashlib.sha256(query.encode("utf-8", errors="ignore")).hexdigest()[:16],
+            "query_chars": len(query),
+            "session_id": session_id,
+            "would_apply_dpm": bool(self.enable_personality),
+            "would_inject_dml": bool(self.enable_memory and should_inject_memory),
+            "would_call_resume": bool(self.enable_memory and should_inject_memory),
+            "would_call_retrieve": bool(self.enable_memory and should_inject_memory),
+        }
+        self._record_dcn_event(event)
+        logger.info("Daystrom DCN observe-only: %s", json.dumps(event, sort_keys=True))
+
+    def _record_dcn_event(self, event: Dict[str, Any]) -> None:
+        self._dcn_observations.append(event)
+        self._dcn_observations = self._dcn_observations[-50:]
+
+    def _dcn_policy_decision(self, query: str) -> Dict[str, Any]:
+        """Return deterministic active-read gates for DPM and DML.
+
+        Phase 9 keeps this in-process and rules-first. The method is small and
+        intentionally overridable in smokes so DCN failure paths are testable
+        without changing plugin globals.
+        """
+        text = _clean_text(query, 1600).lower()
+        if not text:
+            return {"decision": "legacy", "reason_codes": ["empty_query"]}
+        contradiction_terms = (
+            "don't use personality",
+            "do not use personality",
+            "ignore personality",
+            "override personality",
+            "contradicts your personality",
+            "stale personality",
+            "that preference is wrong",
+            "not my preference",
+            "forget that preference",
+            "current-turn contradiction",
+        )
+        if any(term in text for term in contradiction_terms):
+            return {"decision": "suppress_overlay", "reason_codes": ["current_turn_contradiction", "suppress_dpm"]}
+        if _should_inject_dml_memory(query):
+            return {"decision": "retrieve", "reason_codes": ["long_horizon_or_resume", "retrieve_dml"]}
+        return {"decision": "overlay_only", "reason_codes": ["casual_short_turn", "no_dml_retrieval"]}
+
+    def _active_read_gates(self, query: str, *, session_id: str) -> Dict[str, Any]:
+        try:
+            decision = self._dcn_policy_decision(query)
+            name = str(decision.get("decision") or "").strip().lower()
+            if name not in _DCN_DECISIONS:
+                raise ValueError(f"unknown DCN decision {name!r}")
+            include_dpm = bool(self.enable_personality and name in {"overlay_only", "retrieve", "legacy"})
+            retrieve_dml = bool(self.enable_memory and name == "retrieve")
+            event = {
+                "event": "dcn.active_read",
+                "mode": self.dcn_mode,
+                "decision": name,
+                "query_hash": hashlib.sha256(query.encode("utf-8", errors="ignore")).hexdigest()[:16],
+                "query_chars": len(query),
+                "session_id": session_id,
+                "include_dpm": include_dpm,
+                "retrieve_dml": retrieve_dml,
+                "reason_codes": list(decision.get("reason_codes") or []),
+            }
+            self._record_dcn_event(event)
+            logger.info("Daystrom DCN active-read: %s", json.dumps(event, sort_keys=True))
+            return {"fallback": False, "include_dpm": include_dpm, "retrieve_dml": retrieve_dml, "event": event}
+        except Exception as exc:
+            should_inject_memory = _should_inject_dml_memory(query)
+            event = {
+                "event": "dcn.active_read_fallback",
+                "mode": self.dcn_mode,
+                "fallback": True,
+                "reason": exc.__class__.__name__,
+                "query_hash": hashlib.sha256(query.encode("utf-8", errors="ignore")).hexdigest()[:16],
+                "query_chars": len(query),
+                "session_id": session_id,
+                "include_dpm": bool(self.enable_personality),
+                "retrieve_dml": bool(self.enable_memory and should_inject_memory),
+            }
+            self._record_dcn_event(event)
+            logger.warning("Daystrom DCN active-read fallback: %s", json.dumps(event, sort_keys=True))
+            return {"fallback": True, "include_dpm": event["include_dpm"], "retrieve_dml": event["retrieve_dml"], "event": event}
+
+    def dcn_observations(self) -> List[Dict[str, Any]]:
+        return list(self._dcn_observations)
+
     def prefetch(self, query: str, *, session_id: str = "") -> str:
         query = _clean_text(query, 1200)
         if not query:
             return ""
         effective_session = self._session_id or session_id or "snips2-hermes-default"
+        if self.dcn_mode == "active_read":
+            gates = self._active_read_gates(query, session_id=effective_session)
+            include_dpm = bool(gates.get("include_dpm"))
+            retrieve_dml = bool(gates.get("retrieve_dml"))
+        else:
+            should_inject_memory = _should_inject_dml_memory(query)
+            self._observe_dcn(query, session_id=effective_session, should_inject_memory=should_inject_memory)
+            include_dpm = bool(self.enable_personality)
+            retrieve_dml = bool(self.enable_memory and should_inject_memory)
         blocks: List[str] = []
-        if self.enable_personality:
+        if include_dpm:
             overlay = self._personality_overlay(query)
             block = self._format_personality_overlay(overlay)
             if block:
                 blocks.append(block)
-        if self.enable_memory and _should_inject_dml_memory(query):
+        if retrieve_dml:
             # Resume preserves active continuity even when retrieval confidence is low.
             resume_block = self._resume_block(effective_session)
             if resume_block:

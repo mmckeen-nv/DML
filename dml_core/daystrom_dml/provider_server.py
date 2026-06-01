@@ -11,6 +11,10 @@ from fastapi.responses import HTMLResponse, PlainTextResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from .api_contracts import DaystromScope
+from .cognition.controller import CognitionController
+from .cognition.evaluation import DCNEvalHarness, smoke_eval_cases
+from .cognition.schema import CognitionConstraints, CognitionEvent, CognitionFeedback
 from .dml_adapter import DMLAdapter
 from .frontier_pipeline import FrontierCompressionPipeline, FrontierPipelineConfig
 
@@ -59,6 +63,24 @@ class FrontierPrepareRequest(BaseModel):
     direct_input_tokens_estimate: Optional[int] = None
 
 
+class DCNRequest(BaseModel):
+    event: dict[str, Any] | str | None = None
+    content: Optional[str] = None
+    type: str = "user_message"
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    scope: dict[str, Any] = Field(default_factory=dict)
+    constraints: dict[str, Any] = Field(default_factory=dict)
+
+
+class DCNFeedbackRequest(BaseModel):
+    decision_id: str = ""
+    outcome: str = "accepted"
+    signals: dict[str, Any] = Field(default_factory=dict)
+    notes: str = ""
+    latency_ms: float = 0.0
+    plan_fidelity: Optional[float] = None
+
+
 def _build_adapter(config_path: str | None, storage_dir: str | None) -> DMLAdapter:
     overrides: dict[str, Any] = {}
     if storage_dir:
@@ -103,6 +125,22 @@ def _jsonl(payload: dict[str, Any]):
     return json.dumps(payload, sort_keys=True, default=str) + "\n"
 
 
+def _dcn_event(payload: DCNRequest) -> CognitionEvent:
+    if isinstance(payload.event, dict):
+        return CognitionEvent.from_dict(payload.event)
+    if isinstance(payload.event, str):
+        return CognitionEvent(content=payload.event, type=payload.type, metadata=dict(payload.metadata or {}))
+    return CognitionEvent(content=payload.content or "", type=payload.type, metadata=dict(payload.metadata or {}))
+
+
+def _dcn_scope(payload: DCNRequest) -> DaystromScope:
+    return DaystromScope.from_dict(payload.scope)
+
+
+def _dcn_constraints(payload: DCNRequest) -> CognitionConstraints:
+    return CognitionConstraints.from_dict(payload.constraints)
+
+
 def create_app(
     *,
     adapter_factory: Callable[[], DMLAdapter] | None = None,
@@ -111,6 +149,7 @@ def create_app(
 ) -> FastAPI:
     app = FastAPI(title="Daystrom DML Provider")
     app.state.adapter = adapter_factory() if adapter_factory else _build_adapter(config_path, storage_dir)
+    app.state.dcn_controller = CognitionController(adapter=app.state.adapter)
     app.state.started_at = time.time()
 
     if WEB_DIR.exists():
@@ -164,6 +203,83 @@ def create_app(
     @app.get("/api/stats")
     def stats() -> dict[str, Any]:
         return app.state.adapter.stats()
+
+    @app.get("/api/dcn/policy")
+    def dcn_policy() -> dict[str, Any]:
+        controller = app.state.dcn_controller
+        return {
+            "status": "ok",
+            "component": "daystrom-cognition-network",
+            "policy_version": controller.policy.policy_version,
+            "mode": "deterministic_v0",
+            "capabilities": [
+                "observe",
+                "plan_context",
+                "cognitive_packet",
+                "feedback",
+                "eval_smoke",
+            ],
+            "writeback_forbidden_classes": ["raw_transcript", "tool_log", "secret", "prompt_scaffold"],
+        }
+
+    @app.get("/api/dcn/audit")
+    def dcn_audit(limit: int = 50) -> dict[str, Any]:
+        controller = app.state.dcn_controller
+        entries = controller.audit_tail(limit)
+        return {"status": "ok", "count": len(entries), "entries": entries}
+
+    @app.post("/api/dcn/observe")
+    def dcn_observe(payload: DCNRequest) -> dict[str, Any]:
+        plan = app.state.dcn_controller.observe(
+            _dcn_event(payload),
+            scope=_dcn_scope(payload),
+            constraints=_dcn_constraints(payload),
+        )
+        return {"status": "ok", "plan": plan.to_dict()}
+
+    @app.post("/api/dcn/plan-context")
+    def dcn_plan_context(payload: DCNRequest) -> dict[str, Any]:
+        plan = app.state.dcn_controller.plan_context(
+            _dcn_event(payload),
+            scope=_dcn_scope(payload),
+            constraints=_dcn_constraints(payload),
+        )
+        return {"status": "ok", "plan": plan.to_dict()}
+
+    @app.post("/api/dcn/cognitive-packet")
+    def dcn_cognitive_packet(payload: DCNRequest) -> dict[str, Any]:
+        packet = app.state.dcn_controller.cognitive_packet(
+            _dcn_event(payload),
+            scope=_dcn_scope(payload),
+            constraints=_dcn_constraints(payload),
+        )
+        return {"status": "ok", "packet": packet.to_dict()}
+
+    @app.post("/api/dcn/feedback")
+    def dcn_feedback(payload: DCNFeedbackRequest) -> dict[str, Any]:
+        payload_dict = payload.model_dump() if hasattr(payload, "model_dump") else payload.dict()
+        feedback = CognitionFeedback.from_dict(payload_dict)
+        result = app.state.dcn_controller.feedback(feedback)
+        return {"status": "ok", **result}
+
+    @app.get("/api/dcn/eval/smoke")
+    def dcn_eval_smoke() -> dict[str, Any]:
+        """Run the built-in offline DCN eval smoke suite.
+
+        This intentionally exposes only deterministic fixture metrics and hashes.
+        It does not touch the provider's live adapter/store, DPM state, DIP, or
+        frontier inference, so it is safe as a readiness/promotion probe.
+        """
+        report = DCNEvalHarness(clock=lambda: 0.0).run_suite(
+            smoke_eval_cases(),
+            suite_id="provider-dcn-eval-smoke",
+        )
+        return {
+            "status": "ok" if report.passed else "failed",
+            "component": "daystrom-cognition-network",
+            "mode": "offline_fixture_smoke",
+            "report": report.to_dict(),
+        }
 
     @app.get("/api/tags")
     def ollama_tags() -> dict[str, Any]:

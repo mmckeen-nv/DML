@@ -47,6 +47,10 @@ def _load_plugin():
 
 def main() -> int:
     plugin = _load_plugin()
+    plugin_yaml = PLUGIN_PATH.with_name("plugin.yaml").read_text()
+    for fragment in ("dcn:", "observe_only", "active_read", "active_learn", "default: disabled"):
+        assert fragment in plugin_yaml, fragment
+    assert plugin.DaystromDMLProvider().dcn_mode == "disabled"
     forbidden_fragments = (
         "Completed Snips_2 turn",
         "thread: 1510575377045524580 | state:",
