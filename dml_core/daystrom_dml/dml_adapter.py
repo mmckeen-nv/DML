@@ -12,7 +12,7 @@ from collections import OrderedDict
 from datetime import datetime, timezone
 from pathlib import Path
 from threading import Event, RLock
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 from .config import load_config
@@ -373,7 +373,7 @@ class DMLAdapter:
     def ingest_agentic(
         self,
         text: str,
-        kind: MemoryKind,
+        kind: Union[MemoryKind, str],
         meta: Optional[Dict] = None,
     ) -> None:
         """
@@ -387,10 +387,16 @@ class DMLAdapter:
         if not text:
             return
 
-        # Add agentic metadata
+        # Add agentic metadata. Public callers historically pass both
+        # MemoryKind enum members and raw string values; normalize once so the
+        # validation path, MemoryEntry shape, and promotion routing agree.
         agentic_meta = dict(meta or {})
-        # Handle both Enum and string values for kind
-        agentic_meta["kind"] = kind.value if hasattr(kind, 'value') else kind
+        kind_value = kind.value if isinstance(kind, MemoryKind) else str(kind)
+        try:
+            kind_enum: Optional[MemoryKind] = kind if isinstance(kind, MemoryKind) else MemoryKind(kind_value)
+        except ValueError:
+            kind_enum = None
+        agentic_meta["kind"] = kind_value
 
         # Validate schema in agentic mode
         if self.agentic_mode_enabled:
@@ -423,25 +429,42 @@ class DMLAdapter:
                 embedding=embedding,
                 timestamp=time.time(),
                 meta=agentic_meta,
-                kind=kind.value,
+                kind=kind_value,
                 phase=agentic_meta.get("phase"),
                 tool=agentic_meta.get("tool"),
                 outcome=agentic_meta.get("outcome"),
             )
 
             # Route through promotion pipeline
-            if kind in [MemoryKind.ACTION, MemoryKind.OBSERVATION, MemoryKind.ERROR]:
+            if kind_enum in [MemoryKind.ACTION, MemoryKind.OBSERVATION, MemoryKind.ERROR]:
                 self.agentic_promotion.ingest_to_scratch(memory_entry)
-                LOGGER.debug(f"Added {kind.value} to scratch store")
+                LOGGER.debug(f"Added {kind_value} to scratch store")
             else:
                 # Plans and artifacts go directly to verified
                 self.agentic_promotion.verified.add(memory_entry)
-                LOGGER.debug(f"Added {kind.value} to verified store")
+                LOGGER.debug(f"Added {kind_value} to verified store")
 
         self._maybe_update_survival_ledger(text, agentic_meta)
         self._persist_all()
         if self.metrics_enabled:
             update_memory_gauge(len(self.store.items()))
+
+    def get_context(self, query: str, max_tokens: int = 1000) -> str:
+        """Return formatted retrieval context, truncated to an approximate token cap."""
+        report = self.retrieve_context(query)
+        raw_context = str(report.get("raw_context", ""))
+        estimated_tokens = len(raw_context) // 4
+        if estimated_tokens > max_tokens:
+            return raw_context[: max_tokens * 4]
+        return raw_context
+
+    def memory_count(self) -> int:
+        """Return the number of currently stored DML memories.
+
+        Kept as a small compatibility API for legacy scripts and wrappers that
+        predate direct access to ``adapter.store.items()``.
+        """
+        return len(self.store.items())
 
     def _enqueue_for_dml(self, text: str, meta: Optional[Dict] = None) -> None:
         """Queue documents for background DML processing"""
