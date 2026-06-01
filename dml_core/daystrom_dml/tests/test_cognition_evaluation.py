@@ -12,11 +12,17 @@ def test_eval_smoke_suite_passes_and_is_deterministic():
     assert first.passed is True
     assert second.passed is True
     assert first.deterministic_hash == second.deterministic_hash
-    assert first.summary["case_count"] == 7
+    assert first.summary["case_count"] == 9
     assert first.summary["max_pollution_score"] == 0.0
-    assert first.summary["blocked_polluting_items"] == 2
+    assert first.summary["blocked_polluting_items"] == 3
     case_ids = {case.case_id for case in first.cases}
-    assert {"code_verification_tool_policy", "setup_retrieval_semantic", "debugging_requires_verification"} <= case_ids
+    assert {
+        "code_verification_tool_policy",
+        "setup_retrieval_semantic",
+        "debugging_requires_verification",
+        "side_effect_merge_requires_confirmation",
+        "metadata_long_horizon_memory",
+    } <= case_ids
 
 
 def test_eval_artifact_is_deterministic_sanitized_and_coverage_rich():
@@ -29,11 +35,11 @@ def test_eval_artifact_is_deterministic_sanitized_and_coverage_rich():
     assert artifact == second.artifact()
     assert artifact["schema_version"] == "dcn-eval-artifact-v1"
     assert artifact["artifact_hash"]
-    assert artifact["summary"]["case_count"] == 7
+    assert artifact["summary"]["case_count"] == 9
     assert artifact["coverage"]["case_ids"] == [case.case_id for case in first.cases]
     readiness = artifact["readiness"]
     assert readiness["ready"] is True
-    assert readiness["gate_count"] == 9
+    assert readiness["gate_count"] == 15
     assert readiness["failed_gates"] == []
     gate_names = {gate["name"] for gate in readiness["gates"]}
     assert {
@@ -44,11 +50,23 @@ def test_eval_artifact_is_deterministic_sanitized_and_coverage_rich():
         "task_type_coverage",
         "retrieval_mode_coverage",
         "writeback_mode_coverage",
+        "frontier_mode_coverage",
+        "risk_level_coverage",
+        "reason_code_coverage",
+        "tool_recommendation_exercised",
+        "verification_required_exercised",
+        "confirmation_required_exercised",
         "redaction_policy_closed",
     } <= gate_names
-    assert {"code_change", "debugging", "admin"} <= set(artifact["coverage"]["task_types"])
+    assert {"code_change", "debugging", "admin", "answer"} <= set(artifact["coverage"]["task_types"])
     assert {"none", "hybrid", "resume", "semantic"} <= set(artifact["coverage"]["retrieval_modes"])
     assert {"durable_signal_only", "preference_candidate", "none"} <= set(artifact["coverage"]["writeback_modes"])
+    assert {"direct", "dml_context"} <= set(artifact["coverage"]["frontier_modes"])
+    assert {"low", "medium"} <= set(artifact["coverage"]["risk_levels"])
+    assert {"side_effect", "tool_needed", "verification_needed"} <= set(artifact["coverage"]["reason_codes"])
+    assert artifact["coverage"]["tool_recommendation_cases"] >= 3
+    assert artifact["coverage"]["verification_required_cases"] >= 3
+    assert artifact["coverage"]["confirmation_required_cases"] >= 1
     assert all(flag is False for flag in artifact["redaction_policy"].values())
     rendered = json.dumps(artifact, sort_keys=True).lower()
     assert "raw_transcript" not in rendered
@@ -79,6 +97,12 @@ def test_eval_artifact_readiness_gates_fail_closed_for_insufficient_coverage():
         "task_type_coverage",
         "retrieval_mode_coverage",
         "writeback_mode_coverage",
+        "frontier_mode_coverage",
+        "risk_level_coverage",
+        "reason_code_coverage",
+        "tool_recommendation_exercised",
+        "verification_required_exercised",
+        "confirmation_required_exercised",
     } <= set(readiness["failed_gates"])
 
 

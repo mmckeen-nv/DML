@@ -136,13 +136,20 @@ class EvalReport(SerializableDataclass):
         task_types = sorted({str(case["policy_outcome"].get("task_type") or "") for case in cases if case["policy_outcome"].get("task_type")})
         retrieval_modes = sorted({str(case["policy_outcome"].get("retrieval_mode") or "") for case in cases if case["policy_outcome"].get("retrieval_mode")})
         writeback_modes = sorted({str(case["policy_outcome"].get("writeback_mode") or "") for case in cases if case["policy_outcome"].get("writeback_mode")})
+        frontier_modes = sorted({str(case["policy_outcome"].get("frontier_mode") or "") for case in cases if case["policy_outcome"].get("frontier_mode")})
+        risk_levels = sorted({str(case["policy_outcome"].get("risk_level") or "") for case in cases if case["policy_outcome"].get("risk_level")})
         reason_codes = sorted({str(code) for case in cases for code in (case["policy_outcome"].get("reason_codes") or [])})
         coverage = {
             "case_ids": [case["case_id"] for case in cases],
             "task_types": task_types,
             "retrieval_modes": retrieval_modes,
             "writeback_modes": writeback_modes,
+            "frontier_modes": frontier_modes,
+            "risk_levels": risk_levels,
             "reason_codes": reason_codes,
+            "tool_recommendation_cases": sum(1 for case in cases if case["policy_outcome"].get("needs_tools")),
+            "verification_required_cases": sum(1 for case in cases if case["policy_outcome"].get("needs_verification")),
+            "confirmation_required_cases": sum(1 for case in cases if case["policy_outcome"].get("requires_confirmation")),
         }
         redaction_policy = {
             "prompts_included": False,
@@ -177,9 +184,24 @@ class EvalReport(SerializableDataclass):
         Gates intentionally use only summary counts and coverage labels so they
         remain safe to persist in promotion audit metadata.
         """
-        required_task_types = ["admin", "code_change", "debugging", "planning", "recall"]
+        required_task_types = ["admin", "answer", "code_change", "debugging", "planning", "recall"]
         required_retrieval_modes = ["hybrid", "none", "resume", "semantic"]
         required_writeback_modes = ["durable_signal_only", "none", "preference_candidate"]
+        required_frontier_modes = ["direct", "dml_context"]
+        required_risk_levels = ["low", "medium"]
+        required_reason_codes = [
+            "code_task",
+            "debug_task",
+            "low_risk",
+            "medium_risk",
+            "memory_request",
+            "preference_signal",
+            "resume_request",
+            "setup_task",
+            "side_effect",
+            "tool_needed",
+            "verification_needed",
+        ]
         summary = dict(self.summary)
 
         def gate(name: str, passed: bool, observed: Any, required: Any) -> Dict[str, Any]:
@@ -194,15 +216,24 @@ class EvalReport(SerializableDataclass):
         task_types = set(coverage.get("task_types") or [])
         retrieval_modes = set(coverage.get("retrieval_modes") or [])
         writeback_modes = set(coverage.get("writeback_modes") or [])
+        frontier_modes = set(coverage.get("frontier_modes") or [])
+        risk_levels = set(coverage.get("risk_levels") or [])
+        reason_codes = set(coverage.get("reason_codes") or [])
         return [
             gate("suite_passed", bool(self.passed), bool(self.passed), True),
             gate("all_cases_passed", summary.get("failed_count") == 0, summary.get("failed_count"), 0),
-            gate("minimum_case_count", int(summary.get("case_count") or 0) >= 7, summary.get("case_count"), ">=7"),
+            gate("minimum_case_count", int(summary.get("case_count") or 0) >= 9, summary.get("case_count"), ">=9"),
             gate("zero_pollution", float(summary.get("max_pollution_score") or 0.0) == 0.0, summary.get("max_pollution_score"), 0.0),
-            gate("pollution_filter_exercised", int(summary.get("blocked_polluting_items") or 0) >= 2, summary.get("blocked_polluting_items"), ">=2"),
+            gate("pollution_filter_exercised", int(summary.get("blocked_polluting_items") or 0) >= 3, summary.get("blocked_polluting_items"), ">=3"),
             gate("task_type_coverage", set(required_task_types) <= task_types, sorted(task_types), required_task_types),
             gate("retrieval_mode_coverage", set(required_retrieval_modes) <= retrieval_modes, sorted(retrieval_modes), required_retrieval_modes),
             gate("writeback_mode_coverage", set(required_writeback_modes) <= writeback_modes, sorted(writeback_modes), required_writeback_modes),
+            gate("frontier_mode_coverage", set(required_frontier_modes) <= frontier_modes, sorted(frontier_modes), required_frontier_modes),
+            gate("risk_level_coverage", set(required_risk_levels) <= risk_levels, sorted(risk_levels), required_risk_levels),
+            gate("reason_code_coverage", set(required_reason_codes) <= reason_codes, sorted(reason_codes), required_reason_codes),
+            gate("tool_recommendation_exercised", int(coverage.get("tool_recommendation_cases") or 0) >= 3, coverage.get("tool_recommendation_cases"), ">=3"),
+            gate("verification_required_exercised", int(coverage.get("verification_required_cases") or 0) >= 3, coverage.get("verification_required_cases"), ">=3"),
+            gate("confirmation_required_exercised", int(coverage.get("confirmation_required_cases") or 0) >= 1, coverage.get("confirmation_required_cases"), ">=1"),
             gate("redaction_policy_closed", all(value is False for value in redaction_policy.values()), dict(redaction_policy), "all false"),
         ]
 
@@ -295,6 +326,13 @@ class DCNEvalHarness:
             "task_type": packet.dcn_plan.intent.task_type,
             "retrieval_mode": packet.dcn_plan.retrieval_plan.mode,
             "writeback_mode": packet.dcn_plan.writeback_plan.mode,
+            "frontier_mode": packet.dcn_plan.frontier_plan.mode,
+            "risk_level": packet.dcn_plan.risk.level,
+            "requires_confirmation": packet.dcn_plan.risk.requires_confirmation,
+            "needs_tools": packet.dcn_plan.intent.needs_tools,
+            "needs_verification": packet.dcn_plan.intent.needs_verification,
+            "recommended_tools": list(packet.dcn_plan.tool_plan.recommended_tools),
+            "verification_required": list(packet.dcn_plan.tool_plan.verification_required),
             "policy_version": packet.dcn_plan.policy_version,
             "reason_codes": list(packet.dcn_plan.reason_codes),
         }
@@ -470,5 +508,34 @@ def smoke_eval_cases() -> List[EvalCase]:
             max_pollution_score=0.0,
             min_precision_at_k=1.0,
             min_recall_at_k=1.0,
+        ),
+        EvalCase(
+            case_id="side_effect_merge_requires_confirmation",
+            prompt="implement the final fix, run tests, push the branch, and merge it",
+            corpus=[EvalMemoryItem("unsafe", "authorization: bearer placeholdertoken raw_transcript", ["unsafe"])],
+            relevant_ids=[],
+            expected_task_type="code_change",
+            expected_retrieval_mode="none",
+            expected_writeback_mode="durable_signal_only",
+            max_pollution_score=0.0,
+            min_precision_at_k=1.0,
+            min_recall_at_k=1.0,
+        ),
+        EvalCase(
+            case_id="metadata_long_horizon_memory",
+            prompt="summarize the architecture decision from earlier",
+            corpus=[
+                EvalMemoryItem("architecture", "architecture decision dcn seed model governed promotion", ["dcn", "architecture"]),
+                EvalMemoryItem("unsafe_arch", "tool_log raw_transcript authorization: bearer placeholdertoken", ["unsafe"]),
+                EvalMemoryItem("noise", "vacation packing list", ["personal"]),
+            ],
+            relevant_ids=["architecture"],
+            expected_task_type="answer",
+            expected_retrieval_mode="hybrid",
+            expected_writeback_mode="none",
+            max_pollution_score=0.0,
+            min_precision_at_k=1.0,
+            min_recall_at_k=1.0,
+            metadata={"long_horizon": True},
         ),
     ]

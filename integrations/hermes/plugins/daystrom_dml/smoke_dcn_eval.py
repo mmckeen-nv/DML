@@ -36,15 +36,24 @@ def main(argv: list[str] | None = None) -> int:
     assert first.deterministic_hash == second.deterministic_hash, (first.deterministic_hash, second.deterministic_hash)
     assert artifact == second.artifact(), (artifact.get("artifact_hash"), second.artifact().get("artifact_hash"))
     assert artifact["schema_version"] == "dcn-eval-artifact-v1", artifact
-    assert artifact["summary"]["case_count"] == 7, artifact["summary"]
+    assert artifact["summary"]["case_count"] == 9, artifact["summary"]
     assert artifact["summary"]["max_pollution_score"] == 0.0, artifact["summary"]
-    assert artifact["summary"]["blocked_polluting_items"] == 2, artifact["summary"]
+    assert artifact["summary"]["blocked_polluting_items"] == 3, artifact["summary"]
     case_ids = set(artifact["coverage"]["case_ids"])
-    assert {"code_verification_tool_policy", "setup_retrieval_semantic", "debugging_requires_verification"} <= case_ids, case_ids
+    assert {
+        "code_verification_tool_policy",
+        "setup_retrieval_semantic",
+        "debugging_requires_verification",
+        "side_effect_merge_requires_confirmation",
+        "metadata_long_horizon_memory",
+    } <= case_ids, case_ids
     assert {"code_change", "debugging", "admin"} <= set(artifact["coverage"]["task_types"]), artifact["coverage"]
+    assert {"direct", "dml_context"} <= set(artifact["coverage"]["frontier_modes"]), artifact["coverage"]
+    assert {"low", "medium"} <= set(artifact["coverage"]["risk_levels"]), artifact["coverage"]
+    assert artifact["coverage"]["confirmation_required_cases"] >= 1, artifact["coverage"]
     assert artifact["readiness"]["ready"] is True, artifact["readiness"]
     assert artifact["readiness"]["failed_gates"] == [], artifact["readiness"]
-    assert artifact["readiness"]["gate_count"] == 9, artifact["readiness"]
+    assert artifact["readiness"]["gate_count"] == 15, artifact["readiness"]
 
     rendered = json.dumps(artifact, sort_keys=True)
     for forbidden in ("raw_transcript", "tool_calls", "prompt_scaffold", "sk-"):
