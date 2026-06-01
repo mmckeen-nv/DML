@@ -161,6 +161,9 @@ dml dcn audit-tail --limit 20
 dml dcn policy show
 dml dcn policy export --output dcn-policy.json --snapshot-only
 dml dcn policy import --input dcn-policy.json
+dml dcn policy checkpoint --label before-active-learn
+dml dcn policy checkpoints
+dml dcn policy rollback --checkpoint-id <checkpoint-id>
 dml dcn eval-smoke  # offline fixture-only DCN readiness probe
 ```
 

@@ -203,3 +203,34 @@ def test_provider_cli_dcn_policy_show_export_import(tmp_path, capsys, monkeypatc
     assert provider_cli.main(["dcn", "policy", "import", "--input", str(snapshot_path)]) == 0
     assert json.loads(capsys.readouterr().out)["imported"] is True
     assert seen == ["/api/dcn/policy", "/api/dcn/policy/export", "/api/dcn/policy/import"]
+
+
+def test_provider_cli_dcn_policy_checkpoint_list_and_rollback(capsys, monkeypatch) -> None:
+    real_client = httpx.Client
+    seen = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append((request.method, request.url.path))
+        if request.url.path == "/api/dcn/policy/checkpoint":
+            payload = json.loads(request.content.decode("utf-8"))
+            assert payload == {"label": "before-active-learn"}
+            return httpx.Response(200, json={"status": "ok", "checkpoint_id": "cp1", "label": "before-active-learn"})
+        if request.url.path == "/api/dcn/policy/checkpoints":
+            return httpx.Response(200, json={"status": "ok", "count": 1, "checkpoints": [{"checkpoint_id": "cp1"}]})
+        assert request.url.path == "/api/dcn/policy/rollback"
+        payload = json.loads(request.content.decode("utf-8"))
+        assert payload == {"checkpoint_id": "cp1"}
+        return httpx.Response(200, json={"status": "ok", "rolled_back": True, "checkpoint_id": "cp1"})
+
+    monkeypatch.setattr(provider_cli.httpx, "Client", lambda **kwargs: real_client(transport=_transport(handler), **kwargs))
+    assert provider_cli.main(["dcn", "policy", "checkpoint", "--label", "before-active-learn"]) == 0
+    assert json.loads(capsys.readouterr().out)["checkpoint_id"] == "cp1"
+    assert provider_cli.main(["dcn", "policy", "checkpoints"]) == 0
+    assert json.loads(capsys.readouterr().out)["count"] == 1
+    assert provider_cli.main(["dcn", "policy", "rollback", "--checkpoint-id", "cp1"]) == 0
+    assert json.loads(capsys.readouterr().out)["rolled_back"] is True
+    assert seen == [
+        ("POST", "/api/dcn/policy/checkpoint"),
+        ("GET", "/api/dcn/policy/checkpoints"),
+        ("POST", "/api/dcn/policy/rollback"),
+    ]

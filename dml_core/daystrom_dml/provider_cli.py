@@ -193,6 +193,31 @@ def cmd_dcn_policy_import(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_dcn_policy_checkpoints(args: argparse.Namespace) -> int:
+    with _client(args) as client:
+        response = client.get("/api/dcn/policy/checkpoints")
+        response.raise_for_status()
+        _print_json(response.json())
+    return 0
+
+
+def cmd_dcn_policy_checkpoint(args: argparse.Namespace) -> int:
+    with _client(args) as client:
+        response = client.post("/api/dcn/policy/checkpoint", json={"label": args.label})
+        response.raise_for_status()
+        _print_json(response.json())
+    return 0
+
+
+def cmd_dcn_policy_rollback(args: argparse.Namespace) -> int:
+    payload = {"checkpoint_id": args.checkpoint_id} if args.checkpoint_id else {}
+    with _client(args) as client:
+        response = client.post("/api/dcn/policy/rollback", json=payload)
+        response.raise_for_status()
+        _print_json(response.json())
+    return 0
+
+
 def cmd_remember(args: argparse.Namespace) -> int:
     payload = {
         "text": args.text,
@@ -287,6 +312,9 @@ def _app_profile(app: str, *, base_url: str, tenant_id: str, storage_dir: str | 
             "dcn_policy_show": "dml dcn policy show",
             "dcn_policy_export": "dml dcn policy export --output dcn-policy.json --snapshot-only",
             "dcn_policy_import": "dml dcn policy import --input dcn-policy.json",
+            "dcn_policy_checkpoint": "dml dcn policy checkpoint --label before-active-learn",
+            "dcn_policy_checkpoints": "dml dcn policy checkpoints",
+            "dcn_policy_rollback": "dml dcn policy rollback --checkpoint-id ...",
             "dcn_audit_tail": "dml dcn audit-tail --limit 20",
             "dcn_eval_smoke": "dml dcn eval-smoke",
             "frontier_prepare": "python skills/daystrom-dml/scripts/dml_frontier_prepare.py --prompt-file task.md --telemetry-only",
@@ -299,6 +327,9 @@ def _app_profile(app: str, *, base_url: str, tenant_id: str, storage_dir: str | 
             "dcn_policy": f"{base_url.rstrip('/')}/api/dcn/policy",
             "dcn_policy_export": f"{base_url.rstrip('/')}/api/dcn/policy/export",
             "dcn_policy_import": f"{base_url.rstrip('/')}/api/dcn/policy/import",
+            "dcn_policy_checkpoints": f"{base_url.rstrip('/')}/api/dcn/policy/checkpoints",
+            "dcn_policy_checkpoint": f"{base_url.rstrip('/')}/api/dcn/policy/checkpoint",
+            "dcn_policy_rollback": f"{base_url.rstrip('/')}/api/dcn/policy/rollback",
             "dcn_audit": f"{base_url.rstrip('/')}/api/dcn/audit",
             "dcn_eval_smoke": f"{base_url.rstrip('/')}/api/dcn/eval/smoke",
             "frontier_prepare": f"{base_url.rstrip('/')}/api/frontier/prepare",
@@ -424,6 +455,20 @@ def build_parser() -> argparse.ArgumentParser:
     _add_provider_args(dcn_policy_import)
     dcn_policy_import.add_argument("--input", required=True)
     dcn_policy_import.set_defaults(func=cmd_dcn_policy_import)
+
+    dcn_policy_checkpoints = dcn_policy_sub.add_parser("checkpoints", help="List redacted procedural policy checkpoints")
+    _add_provider_args(dcn_policy_checkpoints)
+    dcn_policy_checkpoints.set_defaults(func=cmd_dcn_policy_checkpoints)
+
+    dcn_policy_checkpoint = dcn_policy_sub.add_parser("checkpoint", help="Create a procedural policy rollback checkpoint")
+    _add_provider_args(dcn_policy_checkpoint)
+    dcn_policy_checkpoint.add_argument("--label", default="operator")
+    dcn_policy_checkpoint.set_defaults(func=cmd_dcn_policy_checkpoint)
+
+    dcn_policy_rollback = dcn_policy_sub.add_parser("rollback", help="Rollback procedural policy overlay to a checkpoint or baseline")
+    _add_provider_args(dcn_policy_rollback)
+    dcn_policy_rollback.add_argument("--checkpoint-id")
+    dcn_policy_rollback.set_defaults(func=cmd_dcn_policy_rollback)
 
     remember = sub.add_parser("remember", help="Store a memory through the provider")
     _add_provider_args(remember)
