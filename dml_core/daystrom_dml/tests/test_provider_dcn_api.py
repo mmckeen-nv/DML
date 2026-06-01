@@ -110,3 +110,45 @@ def test_existing_frontier_prepare_shape_still_works_with_dcn_routes_present():
     assert "frontier_prompt" in payload
     assert "Provider memory text" in payload["dml_context"]
     assert payload["telemetry"]["frontier_input_tokens"] > 0
+
+
+def test_dcn_policy_export_import_roundtrip_applies_explicit_overlay():
+    client = TestClient(create_app(adapter_factory=DummyAdapter))
+
+    before = client.post("/api/dcn/plan-context", json={"content": "what is the status?"}).json()["plan"]
+    exported = client.post("/api/dcn/policy/export").json()
+    snapshot = exported["snapshot"]
+    snapshot["mutable_overlay"] = {
+        "answer": {
+            "task_type": "answer",
+            "memory_mode_preference": "hybrid",
+            "version": 1,
+            "updated_at": 0.0,
+            "provenance": {"source": "test"},
+        }
+    }
+    imported = client.post("/api/dcn/policy/import", json={"snapshot": snapshot}).json()
+    after = client.post("/api/dcn/plan-context", json={"content": "what is the status?"}).json()["plan"]
+
+    assert exported["status"] == "ok"
+    assert snapshot["schema_version"] == "dcn-procedural-learning-v1"
+    assert imported["status"] == "ok"
+    assert imported["imported"] is True
+    assert before["retrieval_plan"]["mode"] == "none"
+    assert after["retrieval_plan"]["mode"] == "hybrid"
+    assert after["policy_version"] == "dcn-policy-v0+procedural-v1"
+
+
+def test_dcn_policy_import_rejects_wrong_schema_without_mutating_policy():
+    client = TestClient(create_app(adapter_factory=DummyAdapter))
+
+    response = client.post(
+        "/api/dcn/policy/import",
+        json={"snapshot": {"schema_version": "wrong", "base_policy_ref": "dcn-policy-v0", "mutable_overlay": {}}},
+    )
+    plan = client.post("/api/dcn/plan-context", json={"content": "what is the status?"}).json()["plan"]
+
+    assert response.status_code == 400
+    assert "unsupported procedural learning schema_version" in response.json()["detail"]
+    assert plan["retrieval_plan"]["mode"] == "none"
+    assert plan["policy_version"] == "dcn-policy-v0"

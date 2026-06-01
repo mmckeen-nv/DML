@@ -12,8 +12,11 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from .api_contracts import DaystromScope
+from .api_contracts import ContractError
 from .cognition.controller import CognitionController
 from .cognition.evaluation import DCNEvalHarness, smoke_eval_cases
+from .cognition.learning import ProceduralLearningPolicy
+from .cognition.policy import DeterministicCognitionPolicy
 from .cognition.schema import CognitionConstraints, CognitionEvent, CognitionFeedback
 from .dml_adapter import DMLAdapter
 from .frontier_pipeline import FrontierCompressionPipeline, FrontierPipelineConfig
@@ -149,7 +152,11 @@ def create_app(
 ) -> FastAPI:
     app = FastAPI(title="Daystrom DML Provider")
     app.state.adapter = adapter_factory() if adapter_factory else _build_adapter(config_path, storage_dir)
-    app.state.dcn_controller = CognitionController(adapter=app.state.adapter)
+    app.state.dcn_learning = ProceduralLearningPolicy()
+    app.state.dcn_controller = CognitionController(
+        adapter=app.state.adapter,
+        policy=DeterministicCognitionPolicy(learning=app.state.dcn_learning),
+    )
     app.state.started_at = time.time()
 
     if WEB_DIR.exists():
@@ -217,6 +224,8 @@ def create_app(
                 "plan_context",
                 "cognitive_packet",
                 "feedback",
+                "policy_export",
+                "policy_import",
                 "eval_smoke",
             ],
             "writeback_forbidden_classes": ["raw_transcript", "tool_log", "secret", "prompt_scaffold"],
@@ -227,6 +236,32 @@ def create_app(
         controller = app.state.dcn_controller
         entries = controller.audit_tail(limit)
         return {"status": "ok", "count": len(entries), "entries": entries}
+
+    @app.post("/api/dcn/policy/export")
+    def dcn_policy_export() -> dict[str, Any]:
+        """Export the explicit procedural-learning overlay snapshot.
+
+        The deterministic v0 policy remains the immutable baseline. This exports
+        only allowlisted routing/gating overlay fields and redacted audit digests;
+        it does not include raw prompts, memory context, DPM state, or secrets.
+        """
+        snapshot = app.state.dcn_learning.export_policy()
+        return {"status": "ok", "snapshot": snapshot}
+
+    @app.post("/api/dcn/policy/import")
+    def dcn_policy_import(payload: dict[str, Any]) -> dict[str, Any]:
+        """Import an explicit procedural-learning overlay snapshot.
+
+        Import remains bounded by ProceduralLearningPolicy validation: wrong
+        schema/base refs fail, and forbidden identity/preference/safety fields
+        are never accepted into the mutable overlay.
+        """
+        snapshot = payload.get("snapshot") if isinstance(payload.get("snapshot"), dict) else payload
+        try:
+            result = app.state.dcn_learning.import_policy(snapshot)
+        except ContractError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {"status": "ok", **result}
 
     @app.post("/api/dcn/observe")
     def dcn_observe(payload: DCNRequest) -> dict[str, Any]:

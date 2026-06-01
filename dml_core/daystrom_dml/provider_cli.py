@@ -36,6 +36,60 @@ def _meta_from_args(raw: str | None) -> dict[str, Any]:
     return payload
 
 
+def _json_object(raw: str | None, *, label: str) -> dict[str, Any]:
+    if not raw:
+        return {}
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise SystemExit(f"{label} must be a JSON object: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise SystemExit(f"{label} must be a JSON object")
+    return payload
+
+
+def _read_json_file(path: str) -> dict[str, Any]:
+    try:
+        payload = json.loads(Path(path).expanduser().read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise SystemExit(f"{path} must contain a JSON object: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise SystemExit(f"{path} must contain a JSON object")
+    return payload
+
+
+def _write_json_file(path: str, payload: Any) -> None:
+    output = Path(path).expanduser()
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps(payload, indent=2, sort_keys=True, default=str) + "\n", encoding="utf-8")
+
+
+def _dcn_payload(args: argparse.Namespace) -> dict[str, Any]:
+    constraints: dict[str, Any] = {}
+    if getattr(args, "max_total_context_tokens", None) is not None:
+        constraints["max_total_context_tokens"] = args.max_total_context_tokens
+    if getattr(args, "max_memory_tokens", None) is not None:
+        constraints["max_memory_tokens"] = args.max_memory_tokens
+    if getattr(args, "max_personality_tokens", None) is not None:
+        constraints["max_personality_tokens"] = args.max_personality_tokens
+    if getattr(args, "no_tools", False):
+        constraints["allow_tools"] = False
+    if getattr(args, "allow_learning", False):
+        constraints["allow_learning"] = True
+    return {
+        "content": args.text,
+        "type": args.event_type,
+        "metadata": _json_object(args.metadata, label="--metadata"),
+        "scope": {
+            "tenant_id": args.tenant_id,
+            "client_id": args.client_id,
+            "session_id": args.session_id,
+            "instance_id": args.instance_id,
+        },
+        "constraints": constraints,
+    }
+
+
 def cmd_serve(args: argparse.Namespace) -> int:
     provider_server.main(
         [
@@ -71,6 +125,72 @@ def cmd_dcn_eval_smoke(args: argparse.Namespace) -> int:
         payload = response.json()
     _print_json(payload)
     return 0 if isinstance(payload, dict) and _dcn_eval_smoke_passed(payload) else 1
+
+
+def cmd_dcn_observe(args: argparse.Namespace) -> int:
+    with _client(args) as client:
+        response = client.post("/api/dcn/observe", json=_dcn_payload(args))
+        response.raise_for_status()
+        _print_json(response.json())
+    return 0
+
+
+def cmd_dcn_packet(args: argparse.Namespace) -> int:
+    with _client(args) as client:
+        response = client.post("/api/dcn/cognitive-packet", json=_dcn_payload(args))
+        response.raise_for_status()
+        _print_json(response.json())
+    return 0
+
+
+def cmd_dcn_feedback(args: argparse.Namespace) -> int:
+    payload = {
+        "decision_id": args.decision_id,
+        "outcome": args.outcome,
+        "signals": _json_object(args.signals, label="--signals"),
+        "notes": args.notes or "",
+    }
+    with _client(args) as client:
+        response = client.post("/api/dcn/feedback", json=payload)
+        response.raise_for_status()
+        _print_json(response.json())
+    return 0
+
+
+def cmd_dcn_audit_tail(args: argparse.Namespace) -> int:
+    with _client(args) as client:
+        response = client.get("/api/dcn/audit", params={"limit": args.limit})
+        response.raise_for_status()
+        _print_json(response.json())
+    return 0
+
+
+def cmd_dcn_policy_show(args: argparse.Namespace) -> int:
+    with _client(args) as client:
+        response = client.get("/api/dcn/policy")
+        response.raise_for_status()
+        _print_json(response.json())
+    return 0
+
+
+def cmd_dcn_policy_export(args: argparse.Namespace) -> int:
+    with _client(args) as client:
+        response = client.post("/api/dcn/policy/export")
+        response.raise_for_status()
+        payload = response.json()
+    if args.output:
+        _write_json_file(args.output, payload.get("snapshot") if args.snapshot_only else payload)
+    _print_json(payload)
+    return 0
+
+
+def cmd_dcn_policy_import(args: argparse.Namespace) -> int:
+    snapshot = _read_json_file(args.input)
+    with _client(args) as client:
+        response = client.post("/api/dcn/policy/import", json={"snapshot": snapshot})
+        response.raise_for_status()
+        _print_json(response.json())
+    return 0
 
 
 def cmd_remember(args: argparse.Namespace) -> int:
@@ -161,6 +281,13 @@ def _app_profile(app: str, *, base_url: str, tenant_id: str, storage_dir: str | 
             "remember": "dml remember --text '...' --meta '{\"source\":\"agent\"}'",
             "recall": "dml recall --query 'current task' --context-only",
             "resume": "dml resume --context-only",
+            "dcn_observe": "dml dcn observe --text 'continue the DML work'",
+            "dcn_packet": "dml dcn packet --text 'continue the DML work' --session-id abc",
+            "dcn_feedback": "dml dcn feedback --decision-id ... --outcome verified --signals '{\"tests_passed\":true}'",
+            "dcn_policy_show": "dml dcn policy show",
+            "dcn_policy_export": "dml dcn policy export --output dcn-policy.json --snapshot-only",
+            "dcn_policy_import": "dml dcn policy import --input dcn-policy.json",
+            "dcn_audit_tail": "dml dcn audit-tail --limit 20",
             "dcn_eval_smoke": "dml dcn eval-smoke",
             "frontier_prepare": "python skills/daystrom-dml/scripts/dml_frontier_prepare.py --prompt-file task.md --telemetry-only",
         },
@@ -169,6 +296,10 @@ def _app_profile(app: str, *, base_url: str, tenant_id: str, storage_dir: str | 
             "args": ["--transport", "stdio", "--storage", storage_dir or "$DML_STORE"],
         },
         "endpoints": {
+            "dcn_policy": f"{base_url.rstrip('/')}/api/dcn/policy",
+            "dcn_policy_export": f"{base_url.rstrip('/')}/api/dcn/policy/export",
+            "dcn_policy_import": f"{base_url.rstrip('/')}/api/dcn/policy/import",
+            "dcn_audit": f"{base_url.rstrip('/')}/api/dcn/audit",
             "dcn_eval_smoke": f"{base_url.rstrip('/')}/api/dcn/eval/smoke",
             "frontier_prepare": f"{base_url.rstrip('/')}/api/frontier/prepare",
         },
@@ -215,6 +346,19 @@ def _add_scope_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--instance-id")
 
 
+def _add_dcn_request_args(parser: argparse.ArgumentParser) -> None:
+    _add_provider_args(parser)
+    _add_scope_args(parser)
+    parser.add_argument("--text", required=True, help="User/event text to evaluate")
+    parser.add_argument("--event-type", default="user_message")
+    parser.add_argument("--metadata", help="JSON object with event metadata")
+    parser.add_argument("--max-total-context-tokens", type=int)
+    parser.add_argument("--max-memory-tokens", type=int)
+    parser.add_argument("--max-personality-tokens", type=int)
+    parser.add_argument("--no-tools", action="store_true")
+    parser.add_argument("--allow-learning", action="store_true")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="dml", description="Daystrom DML provider client")
     _add_provider_args(parser, defaults=True)
@@ -241,6 +385,45 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_provider_args(dcn_eval_smoke)
     dcn_eval_smoke.set_defaults(func=cmd_dcn_eval_smoke)
+
+    dcn_observe = dcn_sub.add_parser("observe", help="Inspect the deterministic DCN plan for text")
+    _add_dcn_request_args(dcn_observe)
+    dcn_observe.set_defaults(func=cmd_dcn_observe)
+
+    dcn_packet = dcn_sub.add_parser("packet", help="Build a DCN cognitive packet for text")
+    _add_dcn_request_args(dcn_packet)
+    dcn_packet.set_defaults(func=cmd_dcn_packet)
+
+    dcn_feedback = dcn_sub.add_parser("feedback", help="Record DCN outcome feedback")
+    _add_provider_args(dcn_feedback)
+    dcn_feedback.add_argument("--decision-id", required=True)
+    dcn_feedback.add_argument("--outcome", required=True)
+    dcn_feedback.add_argument("--signals", help="JSON object with feedback signals")
+    dcn_feedback.add_argument("--notes")
+    dcn_feedback.set_defaults(func=cmd_dcn_feedback)
+
+    dcn_audit_tail = dcn_sub.add_parser("audit-tail", help="Read recent DCN audit/feedback entries")
+    _add_provider_args(dcn_audit_tail)
+    dcn_audit_tail.add_argument("--limit", type=int, default=20)
+    dcn_audit_tail.set_defaults(func=cmd_dcn_audit_tail)
+
+    dcn_policy = dcn_sub.add_parser("policy", help="Inspect or move explicit DCN procedural policy overlays")
+    dcn_policy_sub = dcn_policy.add_subparsers(dest="policy_cmd", required=True)
+
+    dcn_policy_show = dcn_policy_sub.add_parser("show", help="Show active DCN policy metadata")
+    _add_provider_args(dcn_policy_show)
+    dcn_policy_show.set_defaults(func=cmd_dcn_policy_show)
+
+    dcn_policy_export = dcn_policy_sub.add_parser("export", help="Export explicit procedural-learning overlay snapshot")
+    _add_provider_args(dcn_policy_export)
+    dcn_policy_export.add_argument("--output")
+    dcn_policy_export.add_argument("--snapshot-only", action="store_true", help="Write only the snapshot object when --output is set")
+    dcn_policy_export.set_defaults(func=cmd_dcn_policy_export)
+
+    dcn_policy_import = dcn_policy_sub.add_parser("import", help="Import explicit procedural-learning overlay snapshot")
+    _add_provider_args(dcn_policy_import)
+    dcn_policy_import.add_argument("--input", required=True)
+    dcn_policy_import.set_defaults(func=cmd_dcn_policy_import)
 
     remember = sub.add_parser("remember", help="Store a memory through the provider")
     _add_provider_args(remember)

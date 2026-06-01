@@ -102,3 +102,104 @@ def test_provider_cli_install_app_writes_profile(tmp_path, capsys) -> None:
     assert written["commands"]["dcn_eval_smoke"] == "dml dcn eval-smoke"
     assert written["endpoints"]["dcn_eval_smoke"] == "http://127.0.0.1:8765/api/dcn/eval/smoke"
     assert json.loads(capsys.readouterr().out)["written_to"] == str(output)
+
+
+def test_provider_cli_dcn_observe_posts_scoped_request(capsys, monkeypatch) -> None:
+    real_client = httpx.Client
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "POST"
+        assert request.url.path == "/api/dcn/observe"
+        payload = json.loads(request.content.decode("utf-8"))
+        assert payload["content"] == "continue sprint"
+        assert payload["scope"]["tenant_id"] == "openclaw"
+        assert payload["scope"]["session_id"] == "s1"
+        assert payload["metadata"] == {"compaction_resume": True}
+        assert payload["constraints"]["allow_tools"] is False
+        return httpx.Response(200, json={"status": "ok", "plan": {"decision_id": "d1"}})
+
+    monkeypatch.setattr(provider_cli.httpx, "Client", lambda **kwargs: real_client(transport=_transport(handler), **kwargs))
+    rc = provider_cli.main([
+        "dcn",
+        "observe",
+        "--text",
+        "continue sprint",
+        "--session-id",
+        "s1",
+        "--metadata",
+        '{"compaction_resume": true}',
+        "--no-tools",
+    ])
+
+    assert rc == 0
+    assert json.loads(capsys.readouterr().out)["plan"]["decision_id"] == "d1"
+
+
+def test_provider_cli_dcn_packet_posts_scoped_request(capsys, monkeypatch) -> None:
+    real_client = httpx.Client
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "POST"
+        assert request.url.path == "/api/dcn/cognitive-packet"
+        payload = json.loads(request.content.decode("utf-8"))
+        assert payload["content"] == "continue provider memory work"
+        assert payload["constraints"]["max_memory_tokens"] == 333
+        return httpx.Response(200, json={"status": "ok", "packet": {"packet_version": "daystrom-cognitive-packet-v1"}})
+
+    monkeypatch.setattr(provider_cli.httpx, "Client", lambda **kwargs: real_client(transport=_transport(handler), **kwargs))
+    rc = provider_cli.main(["dcn", "packet", "--text", "continue provider memory work", "--max-memory-tokens", "333"])
+
+    assert rc == 0
+    assert json.loads(capsys.readouterr().out)["packet"]["packet_version"] == "daystrom-cognitive-packet-v1"
+
+
+def test_provider_cli_dcn_feedback_and_audit_tail(capsys, monkeypatch) -> None:
+    real_client = httpx.Client
+    seen = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request.url.path)
+        if request.url.path == "/api/dcn/feedback":
+            payload = json.loads(request.content.decode("utf-8"))
+            assert payload["decision_id"] == "d1"
+            assert payload["outcome"] == "verified"
+            assert payload["signals"] == {"tests_passed": True}
+            return httpx.Response(200, json={"status": "ok", "accepted": True})
+        assert request.url.path == "/api/dcn/audit"
+        assert request.url.params["limit"] == "7"
+        return httpx.Response(200, json={"status": "ok", "count": 1, "entries": [{"decision_id": "d1"}]})
+
+    monkeypatch.setattr(provider_cli.httpx, "Client", lambda **kwargs: real_client(transport=_transport(handler), **kwargs))
+    assert provider_cli.main(["dcn", "feedback", "--decision-id", "d1", "--outcome", "verified", "--signals", '{"tests_passed": true}']) == 0
+    assert json.loads(capsys.readouterr().out)["accepted"] is True
+    assert provider_cli.main(["dcn", "audit-tail", "--limit", "7"]) == 0
+    assert json.loads(capsys.readouterr().out)["count"] == 1
+    assert seen == ["/api/dcn/feedback", "/api/dcn/audit"]
+
+
+def test_provider_cli_dcn_policy_show_export_import(tmp_path, capsys, monkeypatch) -> None:
+    real_client = httpx.Client
+    snapshot_path = tmp_path / "policy.json"
+    snapshot = {"schema_version": "dcn-procedural-learning-v1", "base_policy_ref": "dcn-policy-v0", "mutable_overlay": {}}
+    seen = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request.url.path)
+        if request.url.path == "/api/dcn/policy" and request.method == "GET":
+            return httpx.Response(200, json={"status": "ok", "policy_version": "dcn-policy-v0"})
+        if request.url.path == "/api/dcn/policy/export":
+            return httpx.Response(200, json={"status": "ok", "snapshot": snapshot})
+        assert request.url.path == "/api/dcn/policy/import"
+        payload = json.loads(request.content.decode("utf-8"))
+        assert payload["snapshot"] == snapshot
+        return httpx.Response(200, json={"status": "ok", "imported": True, "profiles": 0})
+
+    monkeypatch.setattr(provider_cli.httpx, "Client", lambda **kwargs: real_client(transport=_transport(handler), **kwargs))
+    assert provider_cli.main(["dcn", "policy", "show"]) == 0
+    assert json.loads(capsys.readouterr().out)["policy_version"] == "dcn-policy-v0"
+    assert provider_cli.main(["dcn", "policy", "export", "--output", str(snapshot_path), "--snapshot-only"]) == 0
+    assert json.loads(capsys.readouterr().out)["snapshot"] == snapshot
+    assert json.loads(snapshot_path.read_text(encoding="utf-8")) == snapshot
+    assert provider_cli.main(["dcn", "policy", "import", "--input", str(snapshot_path)]) == 0
+    assert json.loads(capsys.readouterr().out)["imported"] is True
+    assert seen == ["/api/dcn/policy", "/api/dcn/policy/export", "/api/dcn/policy/import"]

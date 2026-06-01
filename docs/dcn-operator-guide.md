@@ -18,6 +18,32 @@ The Hermes plugin exposes `dcn.mode` with these values:
 - `active_read`: DCN can gate bounded DPM overlay and DML retrieval, with fallback to legacy behavior on DCN failure.
 - `active_learn`: reserved for later phases; do not promote without rollbackable policy overlays and eval evidence.
 
+## Operator CLI surfaces
+
+When the provider is running, inspect plans and packets without changing DML/DPM/DIP state:
+
+```bash
+dml dcn observe --text "continue the DML work" --session-id abc
+dml dcn packet --text "continue the DML work" --session-id abc
+```
+
+Record outcome feedback and inspect recent audit/feedback entries:
+
+```bash
+dml dcn feedback --decision-id <decision-id> --outcome verified --signals '{"tests_passed":true}'
+dml dcn audit-tail --limit 20
+```
+
+Inspect and move explicit procedural-learning overlays:
+
+```bash
+dml dcn policy show
+dml dcn policy export --output dcn-policy.json --snapshot-only
+dml dcn policy import --input dcn-policy.json
+```
+
+Policy import/export is bounded to the DCN procedural overlay. The deterministic v0 policy remains the immutable baseline, and validation rejects wrong schemas/base refs. Overlay fields remain allowlist-only routing/gating fields such as memory mode preference, query templates, verification requirement, tool recommendation, context budget adjustment, and writeback strictness. Do not use policy import/export for identity, values, user preferences, autonomy permissions, safety boundaries, secret-handling rules, raw prompts, raw memory context, or DPM state.
+
 ## Provider eval smoke readiness probe
 
 When the provider is running, use the read-only readiness probe:
