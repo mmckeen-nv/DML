@@ -185,14 +185,15 @@ def _parse_json_object(text: str) -> Dict[str, Any]:
 
 def _normalize_proposal(parsed: Dict[str, Any], original: Dict[str, Any], *, model: str) -> Dict[str, Any]:
     candidate_updates, rejected_updates = _candidate_updates(parsed.get("candidate_updates") or parsed.get("updates") or [])
-    pressures = _policy_pressure(parsed.get("unsupported_policy_pressure") or parsed.get("policy_pressure") or [])
+    model_pressures = _policy_pressure(parsed.get("unsupported_policy_pressure") or parsed.get("policy_pressure") or [])
+    input_pressures = _policy_pressure(original.get("unsupported_policy_pressure") or original.get("policy_pressure") or [])
     proposal = {
         "schema_version": PROPOSAL_SCHEMA_VERSION,
         "seed_model": str(original.get("seed_model") or model),
         "embedding_model": str(original.get("embedding_model") or DEFAULT_EMBEDDING_MODEL),
         "feedback": original.get("feedback") or original.get("feedback_items") or [],
         "candidate_updates": candidate_updates,
-        "unsupported_policy_pressure": pressures,
+        "unsupported_policy_pressure": input_pressures + model_pressures,
         "rejected_model_items": rejected_updates,
         "non_promoting": True,
     }
