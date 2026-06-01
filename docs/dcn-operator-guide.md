@@ -78,42 +78,50 @@ Expected successful shape:
     "passed": true,
     "suite_id": "provider-dcn-eval-smoke",
     "summary": {
-      "case_count": 7,
-      "passed_count": 7,
+      "case_count": 9,
+      "passed_count": 9,
       "failed_count": 0,
       "avg_precision_at_k": 1.0,
       "avg_recall_at_k": 1.0,
       "max_pollution_score": 0.0,
-      "blocked_polluting_items": 2
+      "blocked_polluting_items": 3
     }
   },
   "artifact": {
     "schema_version": "dcn-eval-artifact-v1",
     "passed": true,
     "summary": {
-      "case_count": 7,
-      "passed_count": 7,
+      "case_count": 9,
+      "passed_count": 9,
       "failed_count": 0,
       "avg_precision_at_k": 1.0,
       "avg_recall_at_k": 1.0,
       "max_pollution_score": 0.0,
-      "blocked_polluting_items": 2
+      "blocked_polluting_items": 3
     },
     "coverage": {
       "case_ids": ["clean_resume_retrieval", "..."],
       "task_types": ["admin", "answer", "code_change", "debugging", "planning", "recall"],
       "retrieval_modes": ["hybrid", "none", "resume", "semantic"],
-      "writeback_modes": ["durable_signal_only", "none", "preference_candidate"]
+      "writeback_modes": ["durable_signal_only", "none", "preference_candidate"],
+      "frontier_modes": ["direct", "dml_context"],
+      "risk_levels": ["low", "medium"],
+      "reason_codes": ["code_task", "...", "verification_needed"],
+      "tool_recommendation_cases": 5,
+      "verification_required_cases": 4,
+      "confirmation_required_cases": 1
     },
     "readiness": {
       "ready": true,
-      "gate_count": 9,
+      "gate_count": 15,
       "failed_gates": [],
       "gates": [
         {"name": "suite_passed", "passed": true, "severity": "blocker", "observed": true, "required": true},
-        {"name": "minimum_case_count", "passed": true, "severity": "blocker", "observed": 7, "required": ">=7"},
+        {"name": "minimum_case_count", "passed": true, "severity": "blocker", "observed": 9, "required": ">=9"},
         {"name": "zero_pollution", "passed": true, "severity": "blocker", "observed": 0.0, "required": 0.0},
-        {"name": "pollution_filter_exercised", "passed": true, "severity": "blocker", "observed": 2, "required": ">=2"}
+        {"name": "pollution_filter_exercised", "passed": true, "severity": "blocker", "observed": 3, "required": ">=3"},
+        {"name": "frontier_mode_coverage", "passed": true, "severity": "blocker", "observed": ["direct", "dml_context"], "required": ["direct", "dml_context"]},
+        {"name": "confirmation_required_exercised", "passed": true, "severity": "blocker", "observed": 1, "required": ">=1"}
       ]
     },
     "artifact_hash": "<stable sha256 prefix>",

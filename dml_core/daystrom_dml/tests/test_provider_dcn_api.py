@@ -87,19 +87,21 @@ def test_dcn_eval_smoke_endpoint_runs_offline_safe_fixture_suite():
     report = payload["report"]
     assert report["passed"] is True
     assert report["suite_id"] == "provider-dcn-eval-smoke"
-    assert report["summary"]["case_count"] == 7
-    assert report["summary"]["passed_count"] == 7
+    assert report["summary"]["case_count"] == 9
+    assert report["summary"]["passed_count"] == 9
     assert report["summary"]["max_pollution_score"] == 0.0
-    assert report["summary"]["blocked_polluting_items"] == 2
+    assert report["summary"]["blocked_polluting_items"] == 3
     artifact = payload["artifact"]
     assert artifact["schema_version"] == "dcn-eval-artifact-v1"
     assert artifact["summary"] == report["summary"]
     assert artifact["artifact_hash"]
     assert artifact["readiness"]["ready"] is True
     assert artifact["readiness"]["failed_gates"] == []
-    assert artifact["readiness"]["gate_count"] == 9
+    assert artifact["readiness"]["gate_count"] == 15
     assert "code_change" in artifact["coverage"]["task_types"]
     assert "debugging_requires_verification" in artifact["coverage"]["case_ids"]
+    assert "side_effect_merge_requires_confirmation" in artifact["coverage"]["case_ids"]
+    assert artifact["coverage"]["confirmation_required_cases"] >= 1
     assert all(flag is False for flag in artifact["redaction_policy"].values())
     assert "provider memory text" not in rendered
     assert "raw_transcript" not in rendered

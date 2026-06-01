@@ -54,12 +54,12 @@ def test_provider_cli_dcn_eval_smoke_is_readiness_gate(tmp_path, capsys, monkeyp
                 "status": "ok",
                 "component": "daystrom-cognition-network",
                 "mode": "offline_fixture_smoke",
-                "report": {"passed": True, "summary": {"case_count": 7, "blocked_polluting_items": 2}},
+                "report": {"passed": True, "summary": {"case_count": 9, "blocked_polluting_items": 3}},
                 "artifact": {
                     "schema_version": "dcn-eval-artifact-v1",
                     "artifact_hash": "artifact123",
-                    "summary": {"case_count": 7},
-                    "readiness": {"ready": True, "failed_gates": [], "gate_count": 9},
+                    "summary": {"case_count": 9},
+                    "readiness": {"ready": True, "failed_gates": [], "gate_count": 15},
                 },
             },
         )
