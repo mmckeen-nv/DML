@@ -25,9 +25,11 @@ def main() -> int:
 
     assert first.passed is True, first.to_dict()
     assert first.deterministic_hash == second.deterministic_hash, (first.deterministic_hash, second.deterministic_hash)
-    assert first.summary["case_count"] == 3, first.summary
+    assert first.summary["case_count"] == 7, first.summary
     assert first.summary["max_pollution_score"] == 0.0, first.summary
-    assert first.summary["blocked_polluting_items"] == 1, first.summary
+    assert first.summary["blocked_polluting_items"] == 2, first.summary
+    case_ids = {case.case_id for case in first.cases}
+    assert {"code_verification_tool_policy", "setup_retrieval_semantic", "debugging_requires_verification"} <= case_ids, case_ids
 
     rendered = json.dumps(first.to_dict(), sort_keys=True)
     for forbidden in ("raw_transcript", "tool_calls", "prompt_scaffold", "sk-"):

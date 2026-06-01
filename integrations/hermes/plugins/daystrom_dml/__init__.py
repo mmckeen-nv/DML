@@ -563,7 +563,10 @@ class DaystromDMLProvider(MemoryProvider):
         self.sync_turns = bool(self._cfg.get("sync_turns", True))
         self.enable_personality = bool(self._cfg.get("enable_personality", True))
         self.enable_memory = bool(self._cfg.get("enable_memory", True))
-        self.dcn_mode = self._load_dcn_mode()
+        self.dcn_requested_mode = self._configured_dcn_mode()
+        self.dcn_promotion = self._load_dcn_promotion()
+        self.dcn_promotion_gate_reason = self._promotion_gate_reason(self.dcn_promotion)
+        self.dcn_mode = self._effective_dcn_mode()
         self.no_require_gpu = bool(self._cfg.get("no_require_gpu", True))
         self._session_id = ""
         self._thread_id = ""
@@ -586,14 +589,63 @@ class DaystromDMLProvider(MemoryProvider):
         except Exception:
             return {}
 
-    def _load_dcn_mode(self) -> str:
-        env_mode = os.environ.get("DAYSTROM_DCN_MODE")
+    def _dcn_config(self) -> Dict[str, Any]:
         dcn_cfg = self._cfg.get("dcn") if isinstance(self._cfg.get("dcn"), dict) else {}
         assert isinstance(dcn_cfg, dict)
+        return dcn_cfg
+
+    def _configured_dcn_mode(self) -> str:
+        env_mode = os.environ.get("DAYSTROM_DCN_MODE")
+        dcn_cfg = self._dcn_config()
         mode = str(env_mode or dcn_cfg.get("mode") or self._cfg.get("dcn_mode") or "disabled").strip().lower().replace("-", "_")
         if mode not in _DCN_MODES:
             raise ValueError(f"Invalid Daystrom DCN mode {mode!r}; expected one of {sorted(_DCN_MODES)}")
         return mode
+
+    def _load_dcn_promotion(self) -> Dict[str, Any]:
+        raw_env = os.environ.get("DAYSTROM_DCN_PROMOTION_EVIDENCE")
+        if raw_env:
+            try:
+                payload = json.loads(raw_env)
+            except json.JSONDecodeError:
+                return {}
+            return payload if isinstance(payload, dict) else {}
+        dcn_cfg = self._dcn_config()
+        promotion = dcn_cfg.get("promotion") or dcn_cfg.get("promotion_evidence")
+        return promotion if isinstance(promotion, dict) else {}
+
+    def _promotion_gate_reason(self, promotion: Dict[str, Any]) -> str:
+        if self.dcn_requested_mode != "active_learn":
+            return "not_requested"
+        checkpoint_id = str(promotion.get("checkpoint_id") or "").strip()
+        rollback_command = str(promotion.get("rollback_command") or "")
+        eval_raw = promotion.get("eval")
+        hygiene_raw = promotion.get("hygiene")
+        eval_evidence = eval_raw if isinstance(eval_raw, dict) else {}
+        hygiene = hygiene_raw if isinstance(hygiene_raw, dict) else {}
+        runtime_mode = str(promotion.get("runtime_mode") or promotion.get("target_mode") or "").strip().lower().replace("-", "_")
+        if promotion.get("promoted") is not True:
+            return "promotion_missing"
+        if runtime_mode != "active_learn":
+            return "runtime_mode_not_active_learn"
+        if not checkpoint_id:
+            return "checkpoint_missing"
+        if checkpoint_id not in rollback_command:
+            return "rollback_command_missing_checkpoint"
+        if eval_evidence.get("passed") is not True:
+            return "eval_not_passed"
+        if hygiene.get("passed") is not True:
+            return "hygiene_not_passed"
+        return "ok"
+
+    def _effective_dcn_mode(self) -> str:
+        if self.dcn_requested_mode == "active_learn" and self.dcn_promotion_gate_reason != "ok":
+            logger.warning(
+                "Daystrom DCN active_learn requested without valid governed promotion evidence; falling back to active_read: %s",
+                self.dcn_promotion_gate_reason,
+            )
+            return "active_read"
+        return self.dcn_requested_mode
 
     def is_available(self) -> bool:
         return self.launcher.exists() and os.access(self.launcher, os.X_OK) and self.store_dir.exists()
@@ -682,8 +734,9 @@ class DaystromDMLProvider(MemoryProvider):
             include_dpm = bool(self.enable_personality and name in {"overlay_only", "retrieve", "legacy"})
             retrieve_dml = bool(self.enable_memory and name == "retrieve")
             event = {
-                "event": "dcn.active_read",
+                "event": "dcn.active_learn" if self.dcn_mode == "active_learn" else "dcn.active_read",
                 "mode": self.dcn_mode,
+                "requested_mode": self.dcn_requested_mode,
                 "decision": name,
                 "query_hash": hashlib.sha256(query.encode("utf-8", errors="ignore")).hexdigest()[:16],
                 "query_chars": len(query),
@@ -692,6 +745,12 @@ class DaystromDMLProvider(MemoryProvider):
                 "retrieve_dml": retrieve_dml,
                 "reason_codes": list(decision.get("reason_codes") or []),
             }
+            if self.dcn_mode == "active_learn":
+                event.update({
+                    "promotion_id": str(self.dcn_promotion.get("promotion_id") or ""),
+                    "checkpoint_id": str(self.dcn_promotion.get("checkpoint_id") or ""),
+                    "promotion_gate": self.dcn_promotion_gate_reason,
+                })
             self._record_dcn_event(event)
             logger.info("Daystrom DCN active-read: %s", json.dumps(event, sort_keys=True))
             return {"fallback": False, "include_dpm": include_dpm, "retrieve_dml": retrieve_dml, "event": event}
@@ -700,6 +759,7 @@ class DaystromDMLProvider(MemoryProvider):
             event = {
                 "event": "dcn.active_read_fallback",
                 "mode": self.dcn_mode,
+                "requested_mode": self.dcn_requested_mode,
                 "fallback": True,
                 "reason": exc.__class__.__name__,
                 "query_hash": hashlib.sha256(query.encode("utf-8", errors="ignore")).hexdigest()[:16],
@@ -720,7 +780,7 @@ class DaystromDMLProvider(MemoryProvider):
         if not query:
             return ""
         effective_session = self._session_id or session_id or "snips2-hermes-default"
-        if self.dcn_mode == "active_read":
+        if self.dcn_mode in {"active_read", "active_learn"}:
             gates = self._active_read_gates(query, session_id=effective_session)
             include_dpm = bool(gates.get("include_dpm"))
             retrieve_dml = bool(gates.get("retrieve_dml"))
