@@ -95,6 +95,9 @@ def test_dcn_eval_smoke_endpoint_runs_offline_safe_fixture_suite():
     assert artifact["schema_version"] == "dcn-eval-artifact-v1"
     assert artifact["summary"] == report["summary"]
     assert artifact["artifact_hash"]
+    assert artifact["readiness"]["ready"] is True
+    assert artifact["readiness"]["failed_gates"] == []
+    assert artifact["readiness"]["gate_count"] == 9
     assert "code_change" in artifact["coverage"]["task_types"]
     assert "debugging_requires_verification" in artifact["coverage"]["case_ids"]
     assert all(flag is False for flag in artifact["redaction_policy"].values())
@@ -259,6 +262,8 @@ def test_dcn_active_learn_promotion_records_rollbackable_audit_without_raw_evide
     assert audit["rollback_command"].endswith(checkpoint["checkpoint_id"])
     assert audit["eval"]["passed"] is True
     assert audit["eval"]["artifact_hash"]
+    assert audit["eval"]["readiness"]["ready"] is True
+    assert audit["eval"]["readiness"]["failed_gates"] == []
     assert "debugging_requires_verification" in audit["eval"]["coverage"]["case_ids"]
     assert audit["eval"]["summary"]["max_pollution_score"] == 0.0
     assert audit["hygiene"]["passed"] is True

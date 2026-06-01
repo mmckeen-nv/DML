@@ -105,6 +105,17 @@ Expected successful shape:
       "retrieval_modes": ["hybrid", "none", "resume", "semantic"],
       "writeback_modes": ["durable_signal_only", "none", "preference_candidate"]
     },
+    "readiness": {
+      "ready": true,
+      "gate_count": 9,
+      "failed_gates": [],
+      "gates": [
+        {"name": "suite_passed", "passed": true, "severity": "blocker", "observed": true, "required": true},
+        {"name": "minimum_case_count", "passed": true, "severity": "blocker", "observed": 7, "required": ">=7"},
+        {"name": "zero_pollution", "passed": true, "severity": "blocker", "observed": 0.0, "required": 0.0},
+        {"name": "pollution_filter_exercised", "passed": true, "severity": "blocker", "observed": 2, "required": ">=2"}
+      ]
+    },
     "artifact_hash": "<stable sha256 prefix>",
     "redaction_policy": {
       "prompts_included": false,
@@ -117,7 +128,7 @@ Expected successful shape:
 }
 ```
 
-The CLI exits `0` only when the provider returns `status: ok` and `report.passed: true`; otherwise it prints the response and exits `1`. Transport/HTTP failures exit through the existing provider CLI error path. Use `--output ... --artifact-only` when you need a portable promotion/readiness artifact; it writes only deterministic coverage, metrics, outcome metadata, and hashes.
+The CLI exits `0` only when the provider returns `status: ok`, `report.passed: true`, and `artifact.readiness.ready: true`; otherwise it prints the response and exits `1`. Transport/HTTP failures exit through the existing provider CLI error path. Use `--output ... --artifact-only` when you need a portable promotion/readiness artifact; it writes only deterministic coverage, metrics, outcome metadata, gate verdicts, and hashes.
 
 ## Safety invariants
 

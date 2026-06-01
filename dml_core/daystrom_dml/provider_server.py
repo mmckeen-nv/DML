@@ -356,9 +356,10 @@ def create_app(
             "deterministic_hash": eval_report.deterministic_hash,
             "artifact_hash": eval_artifact["artifact_hash"],
             "coverage": eval_artifact["coverage"],
+            "readiness": eval_artifact["readiness"],
             "summary": eval_summary,
         }
-        if not eval_report.passed:
+        if not eval_report.passed or not eval_artifact["readiness"].get("ready"):
             failure = _promotion_failure(target_mode=target_mode, reason="eval_smoke_failed", checkpoint_id=checkpoint_id, extra={"eval": eval_evidence})
             raise HTTPException(status_code=400, detail=failure)
 
@@ -431,8 +432,9 @@ def create_app(
         """
         report = _run_dcn_eval_smoke_report()
         artifact = report.artifact()
+        ready = bool(artifact["readiness"].get("ready"))
         return {
-            "status": "ok" if report.passed else "failed",
+            "status": "ok" if report.passed and ready else "failed",
             "component": "daystrom-cognition-network",
             "mode": "offline_fixture_smoke",
             "report": report.to_dict(),
