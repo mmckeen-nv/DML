@@ -12,9 +12,11 @@ def test_eval_smoke_suite_passes_and_is_deterministic():
     assert first.passed is True
     assert second.passed is True
     assert first.deterministic_hash == second.deterministic_hash
-    assert first.summary["case_count"] == 3
+    assert first.summary["case_count"] == 7
     assert first.summary["max_pollution_score"] == 0.0
-    assert first.summary["blocked_polluting_items"] == 1
+    assert first.summary["blocked_polluting_items"] == 2
+    case_ids = {case.case_id for case in first.cases}
+    assert {"code_verification_tool_policy", "setup_retrieval_semantic", "debugging_requires_verification"} <= case_ids
 
 
 def test_eval_report_excludes_raw_fixture_text_and_secret_like_values():

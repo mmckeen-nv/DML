@@ -49,7 +49,7 @@ dml dcn promotions --limit 20
 
 Policy import/export is bounded to the DCN procedural overlay. The deterministic v0 policy remains the immutable baseline, and validation rejects wrong schemas/base refs, unknown profile fields, invalid enum values, and runaway context-budget drift. Overlay fields remain allowlist-only routing/gating fields such as memory mode preference, query templates, verification requirement, tool recommendation, context budget adjustment, and writeback strictness. Do not use policy import/export for identity, values, user preferences, autonomy permissions, safety boundaries, secret-handling rules, raw prompts, raw memory context, or DPM state. Create a checkpoint before importing or promoting stronger modes, and use rollback to return to a known checkpoint or baseline if eval/readiness fails.
 
-Active-learn promotion is fail-closed. `dml dcn promote --mode active_learn` requires an existing checkpoint ID, a passing built-in provider eval smoke report, and explicit hygiene evidence such as the artifact hash from `smoke_hygiene.py`. Promotion records only sanitized audit metadata: previous/target mode, checkpoint ID, rollback command, policy digest, eval summary/hash, hygiene evidence, operator, and reason digest. Raw transcripts, raw prompts, tool logs, secrets, and raw memory context must never appear in promotion evidence.
+Active-learn promotion is fail-closed. `dml dcn promote --mode active_learn` requires an existing checkpoint ID, a passing built-in provider eval smoke report, and explicit hygiene evidence such as the artifact hash from `smoke_hygiene.py`. Promotion records only sanitized audit metadata: previous/target mode, checkpoint ID, rollback command, policy digest, eval summary/hash, hygiene evidence, operator, and reason digest. Raw transcripts, raw prompts, tool logs, secrets, and raw memory context must never appear in promotion evidence. The Hermes plugin only honors `active_learn` when that sanitized promotion evidence is configured under `memory.daystrom_dml.dcn.promotion` or supplied as `DAYSTROM_DCN_PROMOTION_EVIDENCE`; otherwise it falls back closed to `active_read` while recording the requested mode.
 
 ## Provider eval smoke readiness probe
 
@@ -78,13 +78,13 @@ Expected successful shape:
     "passed": true,
     "suite_id": "provider-dcn-eval-smoke",
     "summary": {
-      "case_count": 3,
-      "passed_count": 3,
+      "case_count": 7,
+      "passed_count": 7,
       "failed_count": 0,
       "avg_precision_at_k": 1.0,
       "avg_recall_at_k": 1.0,
       "max_pollution_score": 0.0,
-      "blocked_polluting_items": 1
+      "blocked_polluting_items": 2
     }
   }
 }

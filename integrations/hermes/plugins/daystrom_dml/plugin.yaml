@@ -17,4 +17,12 @@ config:
         would recommend while leaving existing prompt injection and retrieval
         behavior authoritative. active_read lets deterministic DCN policy gate
         bounded DPM overlay and DML retrieval with fallback to existing behavior
-        on DCN failure. active_learn is reserved for later phases.
+        on DCN failure. active_learn requires governed promotion evidence from
+        `dml dcn promote` and otherwise falls back closed to active_read.
+    promotion:
+      type: object
+      default: {}
+      description: >-
+        Sanitized metadata from a successful governed `dml dcn promote` response.
+        Required for active_learn to become the effective runtime mode; otherwise
+        the provider falls back to active_read.

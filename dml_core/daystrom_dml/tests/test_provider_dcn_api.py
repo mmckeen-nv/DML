@@ -87,10 +87,10 @@ def test_dcn_eval_smoke_endpoint_runs_offline_safe_fixture_suite():
     report = payload["report"]
     assert report["passed"] is True
     assert report["suite_id"] == "provider-dcn-eval-smoke"
-    assert report["summary"]["case_count"] == 3
-    assert report["summary"]["passed_count"] == 3
+    assert report["summary"]["case_count"] == 7
+    assert report["summary"]["passed_count"] == 7
     assert report["summary"]["max_pollution_score"] == 0.0
-    assert report["summary"]["blocked_polluting_items"] == 1
+    assert report["summary"]["blocked_polluting_items"] == 2
     assert "provider memory text" not in rendered
     assert "raw_transcript" not in rendered
     assert "tool_calls" not in rendered

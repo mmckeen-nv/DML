@@ -47,7 +47,7 @@ def _load_plugin(config_block=None):
     return module
 
 
-def _provider(plugin, *, mode="disabled", decision=None, fail_dcn=False):
+def _provider(plugin, *, mode="disabled", decision=None, fail_dcn=False, promotion=None):
     class FakeProvider(plugin.DaystromDMLProvider):
         def __init__(self):
             super().__init__()
@@ -83,7 +83,13 @@ def _provider(plugin, *, mode="disabled", decision=None, fail_dcn=False):
             return super()._dcn_policy_decision(query)
 
     old = os.environ.get("DAYSTROM_DCN_MODE")
+    old_promotion = os.environ.get("DAYSTROM_DCN_PROMOTION_EVIDENCE")
     os.environ["DAYSTROM_DCN_MODE"] = mode
+    if promotion is None:
+        os.environ.pop("DAYSTROM_DCN_PROMOTION_EVIDENCE", None)
+    else:
+        import json
+        os.environ["DAYSTROM_DCN_PROMOTION_EVIDENCE"] = json.dumps(promotion, sort_keys=True)
     try:
         return FakeProvider()
     finally:
@@ -91,6 +97,10 @@ def _provider(plugin, *, mode="disabled", decision=None, fail_dcn=False):
             os.environ.pop("DAYSTROM_DCN_MODE", None)
         else:
             os.environ["DAYSTROM_DCN_MODE"] = old
+        if old_promotion is None:
+            os.environ.pop("DAYSTROM_DCN_PROMOTION_EVIDENCE", None)
+        else:
+            os.environ["DAYSTROM_DCN_PROMOTION_EVIDENCE"] = old_promotion
 
 
 def main() -> int:
@@ -178,11 +188,36 @@ def main() -> int:
     assert fallback_event["event"] == "dcn.active_read_fallback", fallback_event
     assert fallback_event["fallback"] is True, fallback_event
 
-    # Active-learn is still legacy/pass-through in Phase 9.
-    active_learn = _provider(plugin, mode="active_learn")
-    active_learn.prefetch("hello")
-    assert active_learn.policy_calls == 0, active_learn.policy_calls
-    assert active_learn.dcn_observations() == []
+    # Active-learn fails closed to active-read without governed promotion evidence.
+    active_learn_ungated = _provider(plugin, mode="active_learn")
+    ungated_prefetch = active_learn_ungated.prefetch("hello")
+    assert "Daystrom Personality Matrix Overlay" in ungated_prefetch, ungated_prefetch
+    assert active_learn_ungated.dcn_requested_mode == "active_learn", active_learn_ungated.dcn_requested_mode
+    assert active_learn_ungated.dcn_mode == "active_read", active_learn_ungated.dcn_mode
+    ungated_event = active_learn_ungated.dcn_observations()[0]
+    assert ungated_event["event"] == "dcn.active_read", ungated_event
+    assert ungated_event["requested_mode"] == "active_learn", ungated_event
+
+    promotion = {
+        "promoted": True,
+        "runtime_mode": "active_learn",
+        "promotion_id": "promotion-123",
+        "checkpoint_id": "chk-123",
+        "rollback_command": "dml dcn policy rollback --checkpoint-id chk-123",
+        "eval": {"passed": True, "deterministic_hash": "evalhash", "summary": {"failed_count": 0}},
+        "hygiene": {"passed": True, "artifact_hash": "hyghash"},
+    }
+    active_learn = _provider(plugin, mode="active_learn", promotion=promotion)
+    learned_prefetch = active_learn.prefetch("resume from the previous task where we left off")
+    assert "Daystrom Personality Matrix Overlay" in learned_prefetch, learned_prefetch
+    assert "DML Active Continuity" in learned_prefetch, learned_prefetch
+    assert active_learn.dcn_mode == "active_learn", active_learn.dcn_mode
+    assert active_learn.policy_calls == 1, active_learn.policy_calls
+    learn_event = active_learn.dcn_observations()[0]
+    assert learn_event["event"] == "dcn.active_learn", learn_event
+    assert learn_event["promotion_id"] == "promotion-123", learn_event
+    assert learn_event["checkpoint_id"] == "chk-123", learn_event
+    assert learn_event["promotion_gate"] == "ok", learn_event
 
     old = os.environ.get("DAYSTROM_DCN_MODE")
     os.environ["DAYSTROM_DCN_MODE"] = "banana"
