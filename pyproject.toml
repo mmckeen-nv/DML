@@ -79,6 +79,7 @@ dev = [
     "pytest>=7.4",
     "ruff>=0.1.9",
     "mypy>=1.6.0",
+    "httpx2>=2.3.0",
 ]
 
 [project.scripts]
