@@ -6,8 +6,9 @@ import hashlib
 import json
 import time
 import uuid
+from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any, AsyncIterator, Callable, Optional
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, PlainTextResponse, StreamingResponse
@@ -185,8 +186,17 @@ def create_app(
     config_path: str | None = None,
     storage_dir: str | None = None,
 ) -> FastAPI:
-    app = FastAPI(title="Daystrom DML Provider")
-    app.state.adapter = adapter_factory() if adapter_factory else _build_adapter(config_path, storage_dir)
+    adapter = adapter_factory() if adapter_factory else _build_adapter(config_path, storage_dir)
+
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+        try:
+            yield
+        finally:
+            adapter.close()
+
+    app = FastAPI(title="Daystrom DML Provider", lifespan=lifespan)
+    app.state.adapter = adapter
     app.state.dcn_learning = ProceduralLearningPolicy()
     app.state.dcn_controller = CognitionController(
         adapter=app.state.adapter,
@@ -198,10 +208,6 @@ def create_app(
 
     if WEB_DIR.exists():
         app.mount("/assets", StaticFiles(directory=WEB_DIR), name="provider-assets")
-
-    @app.on_event("shutdown")
-    def _close_adapter() -> None:
-        app.state.adapter.close()
 
     @app.get("/")
     def index(request: Request):

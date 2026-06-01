@@ -16,6 +16,7 @@ import sys
 import time
 import uuid
 import zipfile
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from threading import Lock
@@ -147,7 +148,13 @@ MAX_ARCHIVE_MEMBER_SIZE = int(
     os.environ.get("DML_MAX_ARCHIVE_MEMBER_SIZE", str(5 * 1024 * 1024))
 )
 
-app = FastAPI(title="Daystrom Memory Lattice")
+@asynccontextmanager
+async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    _auto_launch_visualizer()
+    yield
+
+
+app = FastAPI(title="Daystrom Memory Lattice", lifespan=_lifespan)
 if WEB_DIR.exists():
     app.mount("/static", StaticFiles(directory=WEB_DIR), name="static")
 
@@ -164,7 +171,6 @@ def _adapter_inference_info(current: Any | None = None) -> dict[str, Any]:
     config = getattr(current, "config", {}) or {}
     model = config.get("model_name")
     backend = getattr(current, "llm_backend", None) or config.get("llm_backend")
-    runner = getattr(current, "runner", None)
     if not any([model, backend]):
         return {}
     return {
@@ -335,7 +341,6 @@ VISUALIZER_LOCK = Lock()
 VISUALIZER_PROXY_METHODS = ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
 
 
-@app.on_event("startup")
 def _auto_launch_visualizer() -> None:
     """Ensure the visualizer is running when the service starts."""
 
