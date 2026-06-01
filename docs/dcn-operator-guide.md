@@ -43,9 +43,13 @@ dml dcn policy import --input dcn-policy.json
 dml dcn policy checkpoint --label before-active-learn
 dml dcn policy checkpoints
 dml dcn policy rollback --checkpoint-id <checkpoint-id>
+dml dcn promote --mode active_learn --checkpoint-id <checkpoint-id> --hygiene-evidence '{"passed":true,"artifact_hash":"..."}'
+dml dcn promotions --limit 20
 ```
 
 Policy import/export is bounded to the DCN procedural overlay. The deterministic v0 policy remains the immutable baseline, and validation rejects wrong schemas/base refs, unknown profile fields, invalid enum values, and runaway context-budget drift. Overlay fields remain allowlist-only routing/gating fields such as memory mode preference, query templates, verification requirement, tool recommendation, context budget adjustment, and writeback strictness. Do not use policy import/export for identity, values, user preferences, autonomy permissions, safety boundaries, secret-handling rules, raw prompts, raw memory context, or DPM state. Create a checkpoint before importing or promoting stronger modes, and use rollback to return to a known checkpoint or baseline if eval/readiness fails.
+
+Active-learn promotion is fail-closed. `dml dcn promote --mode active_learn` requires an existing checkpoint ID, a passing built-in provider eval smoke report, and explicit hygiene evidence such as the artifact hash from `smoke_hygiene.py`. Promotion records only sanitized audit metadata: previous/target mode, checkpoint ID, rollback command, policy digest, eval summary/hash, hygiene evidence, operator, and reason digest. Raw transcripts, raw prompts, tool logs, secrets, and raw memory context must never appear in promotion evidence.
 
 ## Provider eval smoke readiness probe
 

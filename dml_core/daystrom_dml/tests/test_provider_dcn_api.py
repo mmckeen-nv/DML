@@ -200,3 +200,77 @@ def test_dcn_policy_rollback_rejects_unknown_checkpoint_without_mutating_overlay
     assert response.status_code == 400
     assert "unknown checkpoint_id" in response.json()["detail"]
     assert plan["retrieval_plan"]["mode"] == "hybrid"
+
+
+def test_dcn_active_learn_promotion_requires_checkpoint_and_hygiene_evidence():
+    client = TestClient(create_app(adapter_factory=DummyAdapter))
+
+    missing_checkpoint = client.post(
+        "/api/dcn/mode/promote",
+        json={"target_mode": "active_learn", "hygiene_evidence": {"passed": True}},
+    )
+    checkpoint = client.post("/api/dcn/policy/checkpoint", json={"label": "before-active-learn"}).json()
+    missing_hygiene = client.post(
+        "/api/dcn/mode/promote",
+        json={"target_mode": "active_learn", "checkpoint_id": checkpoint["checkpoint_id"]},
+    )
+    policy = client.get("/api/dcn/policy").json()
+
+    assert missing_checkpoint.status_code == 400
+    assert missing_checkpoint.json()["detail"]["reason"] == "checkpoint_required"
+    assert missing_hygiene.status_code == 400
+    assert missing_hygiene.json()["detail"]["reason"] == "hygiene_evidence_required"
+    assert policy["runtime_mode"] == "deterministic_v0"
+    assert policy["last_promotion"] is None
+
+
+def test_dcn_active_learn_promotion_records_rollbackable_audit_without_raw_evidence():
+    client = TestClient(create_app(adapter_factory=DummyAdapter))
+    checkpoint = client.post("/api/dcn/policy/checkpoint", json={"label": "before-active-learn"}).json()
+
+    promoted = client.post(
+        "/api/dcn/mode/promote",
+        json={
+            "target_mode": "active_learn",
+            "checkpoint_id": checkpoint["checkpoint_id"],
+            "hygiene_evidence": {"passed": True, "artifact_hash": "abc123", "raw_transcript": "secret transcript", "token": "secret-token"},
+            "operator": "pytest",
+            "reason": "enable active learn after smoke gates",
+        },
+    ).json()
+    policy = client.get("/api/dcn/policy").json()
+    promotions = client.get("/api/dcn/mode/promotions").json()
+    rendered = str(promoted).lower()
+
+    assert promoted["status"] == "ok"
+    assert promoted["promoted"] is True
+    assert promoted["runtime_mode"] == "active_learn"
+    audit = promoted["audit"]
+    assert audit["previous_mode"] == "deterministic_v0"
+    assert audit["target_mode"] == "active_learn"
+    assert audit["checkpoint_id"] == checkpoint["checkpoint_id"]
+    assert audit["rollback_command"].endswith(checkpoint["checkpoint_id"])
+    assert audit["eval"]["passed"] is True
+    assert audit["eval"]["summary"]["max_pollution_score"] == 0.0
+    assert audit["hygiene"]["passed"] is True
+    assert audit["hygiene"]["artifact_hash"] == "abc123"
+    assert "secret transcript" not in rendered
+    assert "secret-token" not in rendered
+    assert policy["runtime_mode"] == "active_learn"
+    assert policy["last_promotion"]["promotion_id"] == audit["promotion_id"]
+    assert promotions["count"] == 1
+    assert promotions["entries"][0]["promotion_id"] == audit["promotion_id"]
+
+
+def test_dcn_active_learn_promotion_rejects_unknown_checkpoint_without_mode_change():
+    client = TestClient(create_app(adapter_factory=DummyAdapter))
+
+    response = client.post(
+        "/api/dcn/mode/promote",
+        json={"target_mode": "active_learn", "checkpoint_id": "missing", "hygiene_evidence": {"passed": True}},
+    )
+    policy = client.get("/api/dcn/policy").json()
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["reason"] == "unknown_checkpoint"
+    assert policy["runtime_mode"] == "deterministic_v0"

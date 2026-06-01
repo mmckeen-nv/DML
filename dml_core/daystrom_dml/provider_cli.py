@@ -218,6 +218,30 @@ def cmd_dcn_policy_rollback(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_dcn_promote(args: argparse.Namespace) -> int:
+    payload = {
+        "target_mode": args.mode,
+        "checkpoint_id": args.checkpoint_id,
+        "hygiene_evidence": _json_object(args.hygiene_evidence, label="--hygiene-evidence"),
+        "operator": args.operator,
+        "reason": args.reason or "",
+    }
+    with _client(args) as client:
+        response = client.post("/api/dcn/mode/promote", json=payload)
+        response.raise_for_status()
+        result = response.json()
+        _print_json(result)
+    return 0 if isinstance(result, dict) and result.get("promoted") is True else 1
+
+
+def cmd_dcn_promotions(args: argparse.Namespace) -> int:
+    with _client(args) as client:
+        response = client.get("/api/dcn/mode/promotions", params={"limit": args.limit})
+        response.raise_for_status()
+        _print_json(response.json())
+    return 0
+
+
 def cmd_remember(args: argparse.Namespace) -> int:
     payload = {
         "text": args.text,
@@ -315,6 +339,8 @@ def _app_profile(app: str, *, base_url: str, tenant_id: str, storage_dir: str | 
             "dcn_policy_checkpoint": "dml dcn policy checkpoint --label before-active-learn",
             "dcn_policy_checkpoints": "dml dcn policy checkpoints",
             "dcn_policy_rollback": "dml dcn policy rollback --checkpoint-id ...",
+            "dcn_promote_active_learn": "dml dcn promote --mode active_learn --checkpoint-id ... --hygiene-evidence '{\"passed\":true}'",
+            "dcn_promotions": "dml dcn promotions --limit 20",
             "dcn_audit_tail": "dml dcn audit-tail --limit 20",
             "dcn_eval_smoke": "dml dcn eval-smoke",
             "frontier_prepare": "python skills/daystrom-dml/scripts/dml_frontier_prepare.py --prompt-file task.md --telemetry-only",
@@ -330,6 +356,8 @@ def _app_profile(app: str, *, base_url: str, tenant_id: str, storage_dir: str | 
             "dcn_policy_checkpoints": f"{base_url.rstrip('/')}/api/dcn/policy/checkpoints",
             "dcn_policy_checkpoint": f"{base_url.rstrip('/')}/api/dcn/policy/checkpoint",
             "dcn_policy_rollback": f"{base_url.rstrip('/')}/api/dcn/policy/rollback",
+            "dcn_mode_promote": f"{base_url.rstrip('/')}/api/dcn/mode/promote",
+            "dcn_mode_promotions": f"{base_url.rstrip('/')}/api/dcn/mode/promotions",
             "dcn_audit": f"{base_url.rstrip('/')}/api/dcn/audit",
             "dcn_eval_smoke": f"{base_url.rstrip('/')}/api/dcn/eval/smoke",
             "frontier_prepare": f"{base_url.rstrip('/')}/api/frontier/prepare",
@@ -416,6 +444,20 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_provider_args(dcn_eval_smoke)
     dcn_eval_smoke.set_defaults(func=cmd_dcn_eval_smoke)
+
+    dcn_promote = dcn_sub.add_parser("promote", help="Promote DCN runtime mode behind checkpoint/eval/hygiene gates")
+    _add_provider_args(dcn_promote)
+    dcn_promote.add_argument("--mode", default="active_learn", choices=["active_learn"])
+    dcn_promote.add_argument("--checkpoint-id", required=True)
+    dcn_promote.add_argument("--hygiene-evidence", required=True, help="JSON object proving hygiene smoke passed, e.g. '{\"passed\":true}'")
+    dcn_promote.add_argument("--operator", default="operator")
+    dcn_promote.add_argument("--reason")
+    dcn_promote.set_defaults(func=cmd_dcn_promote)
+
+    dcn_promotions = dcn_sub.add_parser("promotions", help="List recent DCN mode promotion audit records")
+    _add_provider_args(dcn_promotions)
+    dcn_promotions.add_argument("--limit", type=int, default=20)
+    dcn_promotions.set_defaults(func=cmd_dcn_promotions)
 
     dcn_observe = dcn_sub.add_parser("observe", help="Inspect the deterministic DCN plan for text")
     _add_dcn_request_args(dcn_observe)
