@@ -111,6 +111,7 @@ def test_provider_cli_install_app_writes_profile(tmp_path, capsys) -> None:
     assert written["app"] == "hermes"
     assert written["environment"]["HERMES_MEMORY_PROVIDER"] == "daystrom-dml"
     assert written["commands"]["dcn_eval_smoke"] == "dml dcn eval-smoke --output dcn-eval-artifact.json --artifact-only"
+    assert written["commands"]["dcn_seed_trial"] == "dml dcn seed-trial --input sanitized-feedback.json --output dcn-seed-trial-artifact.json"
     assert written["endpoints"]["dcn_eval_smoke"] == "http://127.0.0.1:8765/api/dcn/eval/smoke"
     assert json.loads(capsys.readouterr().out)["written_to"] == str(output)
 
@@ -162,6 +163,33 @@ def test_provider_cli_dcn_packet_posts_scoped_request(capsys, monkeypatch) -> No
 
     assert rc == 0
     assert json.loads(capsys.readouterr().out)["packet"]["packet_version"] == "daystrom-cognitive-packet-v1"
+
+
+def test_provider_cli_dcn_seed_trial_writes_non_promoting_artifact(tmp_path, capsys) -> None:
+    input_path = tmp_path / "seed-input.json"
+    output_path = tmp_path / "seed-artifact.json"
+    input_path.write_text(
+        json.dumps({
+            "candidate_updates": [
+                {"task_type": "debugging", "field": "verification_requirement", "value": "strict"}
+            ],
+            "unsupported_policy_pressure": [
+                {"task_type": "debugging", "needed_capability": "tool_sequence_policy"}
+            ],
+        }),
+        encoding="utf-8",
+    )
+
+    rc = provider_cli.main(["dcn", "seed-trial", "--input", str(input_path), "--output", str(output_path)])
+
+    assert rc == 0
+    payload = json.loads(capsys.readouterr().out)
+    written = json.loads(output_path.read_text(encoding="utf-8"))
+    assert payload["schema_version"] == "dcn-seed-trial-artifact-v1"
+    assert payload["non_promoting"] is True
+    assert payload["summary"]["accepted_update_count"] == 1
+    assert payload["summary"]["unsupported_policy_pressure_count"] == 1
+    assert written["artifact_hash"] == payload["artifact_hash"]
 
 
 def test_provider_cli_dcn_feedback_and_audit_tail(capsys, monkeypatch) -> None:

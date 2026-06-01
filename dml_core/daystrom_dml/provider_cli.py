@@ -11,6 +11,7 @@ from typing import Any
 import httpx
 
 from . import provider_server
+from .cognition.seed_trial import run_seed_trial
 
 
 DEFAULT_BASE_URL = os.environ.get("DML_PROVIDER_URL", "http://127.0.0.1:8765")
@@ -252,6 +253,15 @@ def cmd_dcn_promotions(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_dcn_seed_trial(args: argparse.Namespace) -> int:
+    payload = _read_json_file(args.input)
+    artifact = run_seed_trial(payload)
+    if args.output:
+        _write_json_file(args.output, artifact)
+    _print_json(artifact)
+    return 0
+
+
 def cmd_remember(args: argparse.Namespace) -> int:
     payload = {
         "text": args.text,
@@ -353,6 +363,7 @@ def _app_profile(app: str, *, base_url: str, tenant_id: str, storage_dir: str | 
             "dcn_promotions": "dml dcn promotions --limit 20",
             "dcn_audit_tail": "dml dcn audit-tail --limit 20",
             "dcn_eval_smoke": "dml dcn eval-smoke --output dcn-eval-artifact.json --artifact-only",
+            "dcn_seed_trial": "dml dcn seed-trial --input sanitized-feedback.json --output dcn-seed-trial-artifact.json",
             "frontier_prepare": "python skills/daystrom-dml/scripts/dml_frontier_prepare.py --prompt-file task.md --telemetry-only",
         },
         "mcp": {
@@ -470,6 +481,14 @@ def build_parser() -> argparse.ArgumentParser:
     _add_provider_args(dcn_promotions)
     dcn_promotions.add_argument("--limit", type=int, default=20)
     dcn_promotions.set_defaults(func=cmd_dcn_promotions)
+
+    dcn_seed_trial = dcn_sub.add_parser(
+        "seed-trial",
+        help="Run an offline non-promoting seed-model learning candidate trial from sanitized feedback JSON",
+    )
+    dcn_seed_trial.add_argument("--input", required=True, help="Sanitized seed-trial feedback/proposal JSON")
+    dcn_seed_trial.add_argument("--output", help="Write the sanitized seed-trial artifact JSON")
+    dcn_seed_trial.set_defaults(func=cmd_dcn_seed_trial)
 
     dcn_observe = dcn_sub.add_parser("observe", help="Inspect the deterministic DCN plan for text")
     _add_dcn_request_args(dcn_observe)
