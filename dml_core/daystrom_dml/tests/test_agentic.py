@@ -1,7 +1,9 @@
 """Unit tests for agentic memory infrastructure."""
-import unittest
-from unittest.mock import Mock, patch
+import tempfile
 import time
+import unittest
+from pathlib import Path
+from unittest.mock import Mock, patch
 
 from daystrom_dml.agent_schema import (
     AgenticMemorySchema,
@@ -319,6 +321,37 @@ class TestEndToEndSmokeTest(unittest.TestCase):
 
         finally:
             adapter.close()
+
+    def test_string_kind_ingest_routes_through_agentic_promotion(self):
+        """String memory kinds should normalize like MemoryKind enum values."""
+        from daystrom_dml.dml_adapter import DMLAdapter
+
+        with tempfile.TemporaryDirectory(prefix="dml-agentic-string-kind-") as tmpdir:
+            adapter = DMLAdapter(
+                config_overrides={
+                    "storage_dir": str(Path(tmpdir) / "store"),
+                    "model_name": "dummy",
+                    "embedding_model": None,
+                    "dml.agentic_mode.enabled": True,
+                },
+                start_aging_loop=False,
+            )
+
+            try:
+                adapter.ingest_agentic(
+                    text="Container crashed with exit code 1",
+                    kind="error",
+                    meta={"phase": "debug", "outcome": "fail"},
+                )
+
+                items = adapter.store.items()
+                self.assertIsNotNone(items[0].meta)
+                self.assertEqual(items[0].meta["kind"], "error")
+                self.assertEqual(adapter.memory_count(), 1)
+                self.assertEqual(len(adapter.agentic_promotion.scratch.entries), 1)
+                self.assertEqual(adapter.agentic_promotion.scratch.entries[0].kind, "error")
+            finally:
+                adapter.close()
 
 
 if __name__ == "__main__":

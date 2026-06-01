@@ -90,23 +90,23 @@ print("-" * 70)
 
 scenario_steps = [
     ("Plan phase: Deploy microservices to production", "plan", "plan", "deployment"),
-    ("Execute phase: Starting deployment process", "execute", "execute", "starting_deployment"),
+    ("Execute phase: Starting deployment process", "action", "execute", "starting_deployment"),
     ("Execute phase: Container 'app-api' deployed successfully", "action", "execute", "app_api_deployed"),
     ("Execute phase: Container 'app-worker' deployed successfully", "action", "execute", "app_worker_deployed"),
-    ("Execute phase: Health check passed for both services", "result", "execute", "health_check_passed"),
+    ("Execute phase: Health check passed for both services", "observation", "execute", "health_check_passed"),
     ("Execute phase: Container 'app-api' crashed unexpectedly", "error", "execute", "app_api_crashed"),
     ("Debug phase: Checking logs for app-api", "observation", "debug", "checking_logs"),
-    ("Debug phase: Found memory leak in app-api", "result", "debug", "memory_leak_found"),
+    ("Debug phase: Found memory leak in app-api", "observation", "debug", "memory_leak_found"),
     ("Debug phase: Applied patch to fix memory leak", "action", "debug", "patch_applied"),
     ("Execute phase: Restarted app-api with patch", "action", "execute", "app_api_restarted"),
-    ("Execute phase: Health check passed after patch", "result", "execute", "health_check_passed"),
+    ("Execute phase: Health check passed after patch", "observation", "execute", "health_check_passed"),
 ]
 
 for text, kind, phase, metadata in scenario_steps:
     adapter.ingest_agentic(
         text=text,
         kind=kind,
-        meta={"phase": phase, **metadata}
+        meta={"phase": phase, "scenario_step": metadata}
     )
     stats["memories_ingested"] += 1
 
@@ -127,7 +127,7 @@ advanced_queries = [
 
 for query in advanced_queries:
     start = time.time()
-    report = adapter.retrieve_context(query, top_k=8, use_summary=True)
+    report = adapter.retrieve_context(query, top_k=8)
     latency = time.time() - start
 
     stats["retrievals"] += 1
