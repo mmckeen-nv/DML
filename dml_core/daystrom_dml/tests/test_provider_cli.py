@@ -234,3 +234,65 @@ def test_provider_cli_dcn_policy_checkpoint_list_and_rollback(capsys, monkeypatc
         ("GET", "/api/dcn/policy/checkpoints"),
         ("POST", "/api/dcn/policy/rollback"),
     ]
+
+
+def test_provider_cli_dcn_promote_and_promotions(capsys, monkeypatch) -> None:
+    real_client = httpx.Client
+    seen = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append((request.method, request.url.path))
+        if request.url.path == "/api/dcn/mode/promote":
+            payload = json.loads(request.content.decode("utf-8"))
+            assert payload == {
+                "target_mode": "active_learn",
+                "checkpoint_id": "cp1",
+                "hygiene_evidence": {"passed": True, "artifact_hash": "abc123"},
+                "operator": "pytest",
+                "reason": "promotion test",
+            }
+            return httpx.Response(200, json={"status": "ok", "promoted": True, "runtime_mode": "active_learn", "audit": {"promotion_id": "p1"}})
+        assert request.url.path == "/api/dcn/mode/promotions"
+        assert request.url.params["limit"] == "3"
+        return httpx.Response(200, json={"status": "ok", "runtime_mode": "active_learn", "count": 1, "entries": [{"promotion_id": "p1"}]})
+
+    monkeypatch.setattr(provider_cli.httpx, "Client", lambda **kwargs: real_client(transport=_transport(handler), **kwargs))
+    assert provider_cli.main([
+        "dcn",
+        "promote",
+        "--mode",
+        "active_learn",
+        "--checkpoint-id",
+        "cp1",
+        "--hygiene-evidence",
+        '{"passed": true, "artifact_hash": "abc123"}',
+        "--operator",
+        "pytest",
+        "--reason",
+        "promotion test",
+    ]) == 0
+    assert json.loads(capsys.readouterr().out)["promoted"] is True
+    assert provider_cli.main(["dcn", "promotions", "--limit", "3"]) == 0
+    assert json.loads(capsys.readouterr().out)["entries"][0]["promotion_id"] == "p1"
+    assert seen == [("POST", "/api/dcn/mode/promote"), ("GET", "/api/dcn/mode/promotions")]
+
+
+def test_provider_cli_dcn_promote_returns_nonzero_when_provider_refuses(capsys, monkeypatch) -> None:
+    real_client = httpx.Client
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/api/dcn/mode/promote"
+        return httpx.Response(200, json={"status": "failed", "promoted": False, "reason": "hygiene_evidence_required"})
+
+    monkeypatch.setattr(provider_cli.httpx, "Client", lambda **kwargs: real_client(transport=_transport(handler), **kwargs))
+    rc = provider_cli.main([
+        "dcn",
+        "promote",
+        "--checkpoint-id",
+        "cp1",
+        "--hygiene-evidence",
+        '{"passed": false}',
+    ])
+
+    assert rc == 1
+    assert json.loads(capsys.readouterr().out)["promoted"] is False

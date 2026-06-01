@@ -243,6 +243,17 @@ class ProceduralLearningPolicy:
             )
         ]
 
+    def policy_digest(self) -> str:
+        """Return a stable redacted digest of the current mutable overlay."""
+        return _redacted_digest({
+            "schema_version": SCHEMA_VERSION,
+            "base_policy_ref": BASE_POLICY_REF,
+            "mutable_overlay": self._profiles_dict(),
+        })
+
+    def has_checkpoint(self, checkpoint_id: str) -> bool:
+        return bool(checkpoint_id and checkpoint_id in self._checkpoints)
+
     def export_policy(self) -> Dict[str, Any]:
         profiles = self._profiles_dict()
         audit_digest = _redacted_digest(self.audit_log)

@@ -2,7 +2,10 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
 import time
+import uuid
 from pathlib import Path
 from typing import Any, Callable, Optional
 
@@ -13,6 +16,7 @@ from pydantic import BaseModel, Field
 
 from .api_contracts import DaystromScope
 from .api_contracts import ContractError
+from .cognition.audit import sanitize_audit_payload
 from .cognition.controller import CognitionController
 from .cognition.evaluation import DCNEvalHarness, smoke_eval_cases
 from .cognition.learning import ProceduralLearningPolicy
@@ -84,6 +88,14 @@ class DCNFeedbackRequest(BaseModel):
     plan_fidelity: Optional[float] = None
 
 
+class DCNModePromotionRequest(BaseModel):
+    target_mode: str = "active_learn"
+    checkpoint_id: str = ""
+    hygiene_evidence: dict[str, Any] = Field(default_factory=dict)
+    operator: str = "operator"
+    reason: str = ""
+
+
 def _build_adapter(config_path: str | None, storage_dir: str | None) -> DMLAdapter:
     overrides: dict[str, Any] = {}
     if storage_dir:
@@ -128,6 +140,29 @@ def _jsonl(payload: dict[str, Any]):
     return json.dumps(payload, sort_keys=True, default=str) + "\n"
 
 
+def _stable_digest(payload: Any) -> str:
+    data = json.dumps(sanitize_audit_payload(payload), sort_keys=True, default=str, separators=(",", ":"))
+    return hashlib.sha256(data.encode("utf-8")).hexdigest()[:16]
+
+
+def _run_dcn_eval_smoke_report() -> Any:
+    return DCNEvalHarness(clock=lambda: 0.0).run_suite(
+        smoke_eval_cases(),
+        suite_id="provider-dcn-eval-smoke",
+    )
+
+
+def _promotion_failure(*, target_mode: str, reason: str, checkpoint_id: str = "", extra: dict[str, Any] | None = None) -> dict[str, Any]:
+    return sanitize_audit_payload({
+        "status": "failed",
+        "promoted": False,
+        "target_mode": target_mode,
+        "checkpoint_id": checkpoint_id,
+        "reason": reason,
+        **(extra or {}),
+    })
+
+
 def _dcn_event(payload: DCNRequest) -> CognitionEvent:
     if isinstance(payload.event, dict):
         return CognitionEvent.from_dict(payload.event)
@@ -158,6 +193,8 @@ def create_app(
         policy=DeterministicCognitionPolicy(learning=app.state.dcn_learning),
     )
     app.state.started_at = time.time()
+    app.state.dcn_runtime_mode = "deterministic_v0"
+    app.state.dcn_promotion_audit = []
 
     if WEB_DIR.exists():
         app.mount("/assets", StaticFiles(directory=WEB_DIR), name="provider-assets")
@@ -219,6 +256,8 @@ def create_app(
             "component": "daystrom-cognition-network",
             "policy_version": controller.policy.policy_version,
             "mode": "deterministic_v0",
+            "runtime_mode": app.state.dcn_runtime_mode,
+            "last_promotion": (app.state.dcn_promotion_audit[-1] if app.state.dcn_promotion_audit else None),
             "capabilities": [
                 "observe",
                 "plan_context",
@@ -229,6 +268,8 @@ def create_app(
                 "policy_checkpoints",
                 "policy_checkpoint",
                 "policy_rollback",
+                "mode_promote",
+                "promotion_audit",
                 "eval_smoke",
             ],
             "writeback_forbidden_classes": ["raw_transcript", "tool_log", "secret", "prompt_scaffold"],
@@ -286,6 +327,63 @@ def create_app(
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return {"status": "ok", **result}
 
+    @app.get("/api/dcn/mode/promotions")
+    def dcn_mode_promotions(limit: int = 20) -> dict[str, Any]:
+        entries = list(app.state.dcn_promotion_audit)[-max(0, min(limit, 100)):]
+        return {"status": "ok", "runtime_mode": app.state.dcn_runtime_mode, "count": len(entries), "entries": entries}
+
+    @app.post("/api/dcn/mode/promote")
+    def dcn_mode_promote(payload: DCNModePromotionRequest) -> dict[str, Any]:
+        target_mode = str(payload.target_mode or "").strip().lower().replace("-", "_")
+        checkpoint_id = str(payload.checkpoint_id or "").strip()
+        previous_mode = str(app.state.dcn_runtime_mode)
+        if target_mode != "active_learn":
+            failure = _promotion_failure(target_mode=target_mode, reason="unsupported_target_mode", checkpoint_id=checkpoint_id)
+            raise HTTPException(status_code=400, detail=failure)
+        if not checkpoint_id:
+            failure = _promotion_failure(target_mode=target_mode, reason="checkpoint_required")
+            raise HTTPException(status_code=400, detail=failure)
+        if not app.state.dcn_learning.has_checkpoint(checkpoint_id):
+            failure = _promotion_failure(target_mode=target_mode, reason="unknown_checkpoint", checkpoint_id=checkpoint_id)
+            raise HTTPException(status_code=400, detail=failure)
+
+        eval_report = _run_dcn_eval_smoke_report()
+        eval_summary = dict(eval_report.summary)
+        eval_evidence = {
+            "passed": bool(eval_report.passed),
+            "suite_id": eval_report.suite_id,
+            "deterministic_hash": eval_report.deterministic_hash,
+            "summary": eval_summary,
+        }
+        if not eval_report.passed:
+            failure = _promotion_failure(target_mode=target_mode, reason="eval_smoke_failed", checkpoint_id=checkpoint_id, extra={"eval": eval_evidence})
+            raise HTTPException(status_code=400, detail=failure)
+
+        hygiene = sanitize_audit_payload(dict(payload.hygiene_evidence or {}))
+        if hygiene.get("passed") is not True:
+            failure = _promotion_failure(target_mode=target_mode, reason="hygiene_evidence_required", checkpoint_id=checkpoint_id, extra={"eval": eval_evidence, "hygiene": hygiene})
+            raise HTTPException(status_code=400, detail=failure)
+
+        audit_record = sanitize_audit_payload({
+            "promotion_id": str(uuid.uuid4()),
+            "timestamp": time.time(),
+            "event": "dcn.mode_promotion",
+            "promoted": True,
+            "previous_mode": previous_mode,
+            "target_mode": target_mode,
+            "checkpoint_id": checkpoint_id,
+            "rollback_command": f"dml dcn policy rollback --checkpoint-id {checkpoint_id}",
+            "policy_digest": app.state.dcn_learning.policy_digest(),
+            "eval": eval_evidence,
+            "hygiene": hygiene,
+            "operator": payload.operator or "operator",
+            "reason_digest": _stable_digest(payload.reason or ""),
+        })
+        app.state.dcn_runtime_mode = target_mode
+        app.state.dcn_promotion_audit.append(audit_record)
+        app.state.dcn_promotion_audit = app.state.dcn_promotion_audit[-100:]
+        return {"status": "ok", "promoted": True, "runtime_mode": app.state.dcn_runtime_mode, "audit": audit_record}
+
     @app.post("/api/dcn/observe")
     def dcn_observe(payload: DCNRequest) -> dict[str, Any]:
         plan = app.state.dcn_controller.observe(
@@ -328,10 +426,7 @@ def create_app(
         It does not touch the provider's live adapter/store, DPM state, DIP, or
         frontier inference, so it is safe as a readiness/promotion probe.
         """
-        report = DCNEvalHarness(clock=lambda: 0.0).run_suite(
-            smoke_eval_cases(),
-            suite_id="provider-dcn-eval-smoke",
-        )
+        report = _run_dcn_eval_smoke_report()
         return {
             "status": "ok" if report.passed else "failed",
             "component": "daystrom-cognition-network",
