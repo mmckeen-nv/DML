@@ -228,6 +228,21 @@ class ProceduralLearningPolicy:
         self._audit("rollback", "*", "mutable_overlay", "rollback", target, None, reason="rollback")
         return {"rolled_back": True, "checkpoint_id": target, "profiles": len(self.profiles)}
 
+    def checkpoints(self) -> List[Dict[str, Any]]:
+        """Return redacted checkpoint metadata without mutable overlay contents."""
+        return [
+            {
+                "checkpoint_id": str(item.get("checkpoint_id") or checkpoint_id),
+                "label": str(item.get("label") or "checkpoint"),
+                "created_at": float(item.get("created_at") or 0.0),
+                "profiles": len(item.get("profiles") or {}),
+            }
+            for checkpoint_id, item in sorted(
+                self._checkpoints.items(),
+                key=lambda pair: float(pair[1].get("created_at") or 0.0),
+            )
+        ]
+
     def export_policy(self) -> Dict[str, Any]:
         profiles = self._profiles_dict()
         audit_digest = _redacted_digest(self.audit_log)
@@ -248,7 +263,12 @@ class ProceduralLearningPolicy:
         overlay = snapshot.get("mutable_overlay") or {}
         if not isinstance(overlay, dict):
             raise ContractError("mutable_overlay must be a dict")
-        profiles = { _task_type(key): ProceduralProfile.from_dict(value) for key, value in overlay.items() }
+        profiles = {}
+        for key, value in overlay.items():
+            if not isinstance(value, dict):
+                raise ContractError("mutable_overlay profiles must be dicts")
+            profile = self._profile_from_import(_task_type(key), value)
+            profiles[profile.task_type] = profile
         self.profiles = profiles
         checkpoint_id = self.checkpoint("import")
         self._audit("import", "*", "mutable_overlay", "import", str(snapshot.get("checkpoint_id") or ""), None, reason="import")
@@ -259,6 +279,46 @@ class ProceduralLearningPolicy:
 
     def _profiles_dict(self) -> Dict[str, Dict[str, Any]]:
         return {key: profile.to_dict() for key, profile in sorted(self.profiles.items())}
+
+    def _profile_from_import(self, task: str, data: Dict[str, Any]) -> ProceduralProfile:
+        allowed_profile_fields = {
+            "task_type",
+            "retrieval_query_template",
+            "memory_mode_preference",
+            "verification_requirement",
+            "tool_recommendations",
+            "context_budget_adjustment",
+            "writeback_strictness",
+            "version",
+            "updated_at",
+            "provenance",
+        }
+        unknown = set(data) - allowed_profile_fields
+        if unknown:
+            raise ContractError(f"unsupported mutable_overlay profile fields: {', '.join(sorted(unknown))}")
+        profile = ProceduralProfile(task_type=_task_type(data.get("task_type") or task))
+        if data.get("retrieval_query_template") is not None:
+            profile.retrieval_query_template = self._normalize_value("retrieval_query_template", data.get("retrieval_query_template"))
+        if data.get("memory_mode_preference") is not None:
+            profile.memory_mode_preference = self._normalize_value("memory_mode_preference", data.get("memory_mode_preference"))
+        if data.get("verification_requirement") is not None:
+            profile.verification_requirement = self._normalize_value("verification_requirement", data.get("verification_requirement"))
+        if data.get("tool_recommendations"):
+            profile.tool_recommendations = self._normalize_value("tool_recommendation", data.get("tool_recommendations"))
+        if data.get("context_budget_adjustment") is not None:
+            profile.context_budget_adjustment = self._normalize_value("context_budget_adjustment", data.get("context_budget_adjustment"))
+        if data.get("writeback_strictness"):
+            profile.writeback_strictness = self._normalize_value("writeback_strictness", data.get("writeback_strictness"))
+        profile.version = max(0, int(data.get("version") or 0))
+        profile.updated_at = float(data.get("updated_at") or self.clock())
+        provenance_raw = data.get("provenance")
+        provenance: Dict[str, Any] = provenance_raw if isinstance(provenance_raw, dict) else {}
+        profile.provenance = sanitize_audit_payload({
+            "source": provenance.get("source") or "import",
+            "decision_id": provenance.get("decision_id") or "",
+            "field": provenance.get("field") or "mutable_overlay",
+        })
+        return profile
 
     def _updates_from_outcome(self, feedback: CognitionFeedback, task: str) -> List[Dict[str, Any]]:
         outcome = str(feedback.outcome or "").lower()

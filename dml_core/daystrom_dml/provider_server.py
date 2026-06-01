@@ -226,6 +226,9 @@ def create_app(
                 "feedback",
                 "policy_export",
                 "policy_import",
+                "policy_checkpoints",
+                "policy_checkpoint",
+                "policy_rollback",
                 "eval_smoke",
             ],
             "writeback_forbidden_classes": ["raw_transcript", "tool_log", "secret", "prompt_scaffold"],
@@ -259,6 +262,26 @@ def create_app(
         snapshot = payload.get("snapshot") if isinstance(payload.get("snapshot"), dict) else payload
         try:
             result = app.state.dcn_learning.import_policy(snapshot)
+        except ContractError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {"status": "ok", **result}
+
+    @app.get("/api/dcn/policy/checkpoints")
+    def dcn_policy_checkpoints() -> dict[str, Any]:
+        checkpoints = app.state.dcn_learning.checkpoints()
+        return {"status": "ok", "count": len(checkpoints), "checkpoints": checkpoints}
+
+    @app.post("/api/dcn/policy/checkpoint")
+    def dcn_policy_checkpoint(payload: dict[str, Any] | None = None) -> dict[str, Any]:
+        label = str((payload or {}).get("label") or "operator")
+        checkpoint_id = app.state.dcn_learning.checkpoint(label)
+        return {"status": "ok", "checkpoint_id": checkpoint_id, "label": label}
+
+    @app.post("/api/dcn/policy/rollback")
+    def dcn_policy_rollback(payload: dict[str, Any] | None = None) -> dict[str, Any]:
+        checkpoint_id = str((payload or {}).get("checkpoint_id") or "") or None
+        try:
+            result = app.state.dcn_learning.rollback(checkpoint_id)
         except ContractError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return {"status": "ok", **result}

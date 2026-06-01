@@ -141,3 +141,75 @@ def test_import_rejects_wrong_schema_or_base_ref():
         learning.import_policy({"schema_version": "wrong", "base_policy_ref": "dcn-policy-v0"})
     with pytest.raises(ContractError):
         learning.import_policy({"schema_version": "dcn-procedural-learning-v1", "base_policy_ref": "identity-policy"})
+
+
+def test_checkpoints_are_metadata_only_and_rollback_to_named_checkpoint():
+    tick = 0.0
+
+    def clock() -> float:
+        nonlocal tick
+        tick += 1.0
+        return tick
+
+    learning = ProceduralLearningPolicy(clock=clock)
+    base_id = learning.base_checkpoint_id
+    learning.apply_update("answer", {"field": "memory_mode_preference", "value": "hybrid"})
+    checkpoint_id = learning.checkpoint("before-strict")
+    learning.apply_update("answer", {"field": "verification_requirement", "value": "strict"})
+
+    checkpoints = learning.checkpoints()
+    rolled_back = learning.rollback(checkpoint_id)
+    exported = learning.export_policy()
+    baseline = learning.rollback(base_id)
+
+    assert checkpoints[0]["checkpoint_id"] == base_id
+    assert checkpoints[0]["profiles"] == 0
+    assert {"checkpoint_id", "label", "created_at", "profiles"} == set(checkpoints[0])
+    assert rolled_back["profiles"] == 1
+    assert exported["mutable_overlay"]["answer"]["memory_mode_preference"] == "hybrid"
+    assert exported["mutable_overlay"]["answer"]["verification_requirement"] is None
+    assert baseline["profiles"] == 0
+
+
+def test_import_rejects_unknown_overlay_fields_and_invalid_values():
+    learning = ProceduralLearningPolicy(clock=lambda: 1.0)
+    base = {"schema_version": "dcn-procedural-learning-v1", "base_policy_ref": "dcn-policy-v0"}
+
+    with pytest.raises(ContractError, match="unsupported mutable_overlay profile fields"):
+        learning.import_policy({**base, "mutable_overlay": {"answer": {"identity": "Other Bot"}}})
+    with pytest.raises(ContractError, match="invalid memory mode preference"):
+        learning.import_policy({**base, "mutable_overlay": {"answer": {"memory_mode_preference": "always"}}})
+    with pytest.raises(ContractError, match="context budget adjustment exceeds drift ceiling"):
+        learning.import_policy({**base, "mutable_overlay": {"answer": {"context_budget_adjustment": MAX_BUDGET_DELTA + 1}}})
+    assert learning.profiles == {}
+
+
+def test_import_sanitizes_profile_provenance_before_reexport():
+    learning = ProceduralLearningPolicy(clock=lambda: 1.0)
+    snapshot = {
+        "schema_version": "dcn-procedural-learning-v1",
+        "base_policy_ref": "dcn-policy-v0",
+        "mutable_overlay": {
+            "answer": {
+                "memory_mode_preference": "hybrid",
+                "provenance": {
+                    "source": "import",
+                    "decision_id": "d1",
+                    "field": "memory_mode_preference",
+                    "api_key": "secret-value",
+                    "raw_context": "raw private text",
+                },
+            }
+        },
+    }
+
+    learning.import_policy(snapshot)
+    exported = learning.export_policy()
+
+    assert "secret-value" not in str(exported)
+    assert "raw private text" not in str(exported)
+    assert exported["mutable_overlay"]["answer"]["provenance"] == {
+        "source": "import",
+        "decision_id": "d1",
+        "field": "memory_mode_preference",
+    }

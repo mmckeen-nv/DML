@@ -40,9 +40,12 @@ Inspect and move explicit procedural-learning overlays:
 dml dcn policy show
 dml dcn policy export --output dcn-policy.json --snapshot-only
 dml dcn policy import --input dcn-policy.json
+dml dcn policy checkpoint --label before-active-learn
+dml dcn policy checkpoints
+dml dcn policy rollback --checkpoint-id <checkpoint-id>
 ```
 
-Policy import/export is bounded to the DCN procedural overlay. The deterministic v0 policy remains the immutable baseline, and validation rejects wrong schemas/base refs. Overlay fields remain allowlist-only routing/gating fields such as memory mode preference, query templates, verification requirement, tool recommendation, context budget adjustment, and writeback strictness. Do not use policy import/export for identity, values, user preferences, autonomy permissions, safety boundaries, secret-handling rules, raw prompts, raw memory context, or DPM state.
+Policy import/export is bounded to the DCN procedural overlay. The deterministic v0 policy remains the immutable baseline, and validation rejects wrong schemas/base refs, unknown profile fields, invalid enum values, and runaway context-budget drift. Overlay fields remain allowlist-only routing/gating fields such as memory mode preference, query templates, verification requirement, tool recommendation, context budget adjustment, and writeback strictness. Do not use policy import/export for identity, values, user preferences, autonomy permissions, safety boundaries, secret-handling rules, raw prompts, raw memory context, or DPM state. Create a checkpoint before importing or promoting stronger modes, and use rollback to return to a known checkpoint or baseline if eval/readiness fails.
 
 ## Provider eval smoke readiness probe
 

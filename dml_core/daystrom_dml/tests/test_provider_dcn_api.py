@@ -152,3 +152,51 @@ def test_dcn_policy_import_rejects_wrong_schema_without_mutating_policy():
     assert "unsupported procedural learning schema_version" in response.json()["detail"]
     assert plan["retrieval_plan"]["mode"] == "none"
     assert plan["policy_version"] == "dcn-policy-v0"
+
+
+def test_dcn_policy_checkpoint_and_rollback_endpoints_restore_overlay():
+    client = TestClient(create_app(adapter_factory=DummyAdapter))
+
+    snapshot = client.post("/api/dcn/policy/export").json()["snapshot"]
+    snapshot["mutable_overlay"] = {
+        "answer": {
+            "task_type": "answer",
+            "memory_mode_preference": "hybrid",
+            "version": 1,
+            "updated_at": 0.0,
+            "provenance": {"source": "test"},
+        }
+    }
+    imported = client.post("/api/dcn/policy/import", json={"snapshot": snapshot}).json()
+    checkpoint = client.post("/api/dcn/policy/checkpoint", json={"label": "before-strict"}).json()
+    snapshot["mutable_overlay"]["answer"]["verification_requirement"] = "strict"
+    client.post("/api/dcn/policy/import", json={"snapshot": snapshot})
+
+    learned = client.post("/api/dcn/plan-context", json={"content": "what is the status?"}).json()["plan"]
+    rollback = client.post("/api/dcn/policy/rollback", json={"checkpoint_id": checkpoint["checkpoint_id"]}).json()
+    restored = client.post("/api/dcn/plan-context", json={"content": "what is the status?"}).json()["plan"]
+    checkpoints = client.get("/api/dcn/policy/checkpoints").json()
+
+    assert imported["status"] == "ok"
+    assert checkpoint["label"] == "before-strict"
+    assert "real_tool_output" in learned["tool_plan"]["verification_required"]
+    assert rollback["status"] == "ok"
+    assert rollback["rolled_back"] is True
+    assert restored["retrieval_plan"]["mode"] == "hybrid"
+    assert "real_tool_output" not in restored["tool_plan"]["verification_required"]
+    assert checkpoints["count"] >= 2
+    assert all("mutable_overlay" not in checkpoint for checkpoint in checkpoints["checkpoints"])
+
+
+def test_dcn_policy_rollback_rejects_unknown_checkpoint_without_mutating_overlay():
+    client = TestClient(create_app(adapter_factory=DummyAdapter))
+    snapshot = client.post("/api/dcn/policy/export").json()["snapshot"]
+    snapshot["mutable_overlay"] = {"answer": {"task_type": "answer", "memory_mode_preference": "hybrid"}}
+    client.post("/api/dcn/policy/import", json={"snapshot": snapshot})
+
+    response = client.post("/api/dcn/policy/rollback", json={"checkpoint_id": "missing"})
+    plan = client.post("/api/dcn/plan-context", json={"content": "what is the status?"}).json()["plan"]
+
+    assert response.status_code == 400
+    assert "unknown checkpoint_id" in response.json()["detail"]
+    assert plan["retrieval_plan"]["mode"] == "hybrid"
