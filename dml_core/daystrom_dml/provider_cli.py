@@ -123,6 +123,8 @@ def cmd_dcn_eval_smoke(args: argparse.Namespace) -> int:
         response = client.get("/api/dcn/eval/smoke")
         response.raise_for_status()
         payload = response.json()
+    if args.output:
+        _write_json_file(args.output, payload.get("artifact") if args.artifact_only else payload)
     _print_json(payload)
     return 0 if isinstance(payload, dict) and _dcn_eval_smoke_passed(payload) else 1
 
@@ -342,7 +344,7 @@ def _app_profile(app: str, *, base_url: str, tenant_id: str, storage_dir: str | 
             "dcn_promote_active_learn": "dml dcn promote --mode active_learn --checkpoint-id ... --hygiene-evidence '{\"passed\":true}'",
             "dcn_promotions": "dml dcn promotions --limit 20",
             "dcn_audit_tail": "dml dcn audit-tail --limit 20",
-            "dcn_eval_smoke": "dml dcn eval-smoke",
+            "dcn_eval_smoke": "dml dcn eval-smoke --output dcn-eval-artifact.json --artifact-only",
             "frontier_prepare": "python skills/daystrom-dml/scripts/dml_frontier_prepare.py --prompt-file task.md --telemetry-only",
         },
         "mcp": {
@@ -443,6 +445,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="Run the offline fixture-only DCN eval smoke readiness probe",
     )
     _add_provider_args(dcn_eval_smoke)
+    dcn_eval_smoke.add_argument("--output", help="Write the eval response or artifact JSON to this file")
+    dcn_eval_smoke.add_argument("--artifact-only", action="store_true", help="With --output, write only the sanitized artifact object")
     dcn_eval_smoke.set_defaults(func=cmd_dcn_eval_smoke)
 
     dcn_promote = dcn_sub.add_parser("promote", help="Promote DCN runtime mode behind checkpoint/eval/hygiene gates")

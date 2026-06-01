@@ -115,6 +115,53 @@ class EvalReport(SerializableDataclass):
     summary: Dict[str, Any]
     cases: List[EvalCaseResult]
 
+    def artifact(self) -> Dict[str, Any]:
+        """Return a deterministic, sanitized operator artifact.
+
+        The artifact is suitable for promotion/readiness evidence: it contains
+        aggregate coverage, per-case metrics/outcomes, and stable hashes, but no
+        raw prompts, raw fixture memory text, transcripts, tool logs, or secrets.
+        """
+        cases = [
+            {
+                "case_id": case.case_id,
+                "passed": case.passed,
+                "metrics": dict(case.metrics),
+                "policy_outcome": sanitize_audit_payload(dict(case.policy_outcome)),
+                "violations": list(case.violations),
+                "artifact_hashes": dict(case.artifact_hashes),
+            }
+            for case in self.cases
+        ]
+        task_types = sorted({str(case["policy_outcome"].get("task_type") or "") for case in cases if case["policy_outcome"].get("task_type")})
+        retrieval_modes = sorted({str(case["policy_outcome"].get("retrieval_mode") or "") for case in cases if case["policy_outcome"].get("retrieval_mode")})
+        writeback_modes = sorted({str(case["policy_outcome"].get("writeback_mode") or "") for case in cases if case["policy_outcome"].get("writeback_mode")})
+        reason_codes = sorted({str(code) for case in cases for code in (case["policy_outcome"].get("reason_codes") or [])})
+        body: Dict[str, Any] = {
+            "schema_version": "dcn-eval-artifact-v1",
+            "suite_id": self.suite_id,
+            "passed": self.passed,
+            "deterministic_hash": self.deterministic_hash,
+            "summary": dict(self.summary),
+            "coverage": {
+                "case_ids": [case["case_id"] for case in cases],
+                "task_types": task_types,
+                "retrieval_modes": retrieval_modes,
+                "writeback_modes": writeback_modes,
+                "reason_codes": reason_codes,
+            },
+            "cases": cases,
+            "redaction_policy": {
+                "prompts_included": False,
+                "fixture_text_included": False,
+                "transcripts_included": False,
+                "tool_logs_included": False,
+                "secrets_included": False,
+            },
+        }
+        body["artifact_hash"] = _stable_hash(body)
+        return body
+
 
 class _FixtureAdapter:
     """Deterministic in-memory retrieval adapter with pollution filtering."""

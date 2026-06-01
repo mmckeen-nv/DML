@@ -56,9 +56,9 @@ Active-learn promotion is fail-closed. `dml dcn promote --mode active_learn` req
 When the provider is running, use the read-only readiness probe:
 
 ```bash
-dml dcn eval-smoke
+dml dcn eval-smoke --output dcn-eval-artifact.json --artifact-only
 # Alias:
-dml dcn readiness
+dml dcn readiness --output dcn-eval-artifact.json --artifact-only
 ```
 
 The CLI calls:
@@ -86,11 +86,38 @@ Expected successful shape:
       "max_pollution_score": 0.0,
       "blocked_polluting_items": 2
     }
+  },
+  "artifact": {
+    "schema_version": "dcn-eval-artifact-v1",
+    "passed": true,
+    "summary": {
+      "case_count": 7,
+      "passed_count": 7,
+      "failed_count": 0,
+      "avg_precision_at_k": 1.0,
+      "avg_recall_at_k": 1.0,
+      "max_pollution_score": 0.0,
+      "blocked_polluting_items": 2
+    },
+    "coverage": {
+      "case_ids": ["clean_resume_retrieval", "..."],
+      "task_types": ["admin", "answer", "code_change", "debugging", "planning", "recall"],
+      "retrieval_modes": ["hybrid", "none", "resume", "semantic"],
+      "writeback_modes": ["durable_signal_only", "none", "preference_candidate"]
+    },
+    "artifact_hash": "<stable sha256 prefix>",
+    "redaction_policy": {
+      "prompts_included": false,
+      "fixture_text_included": false,
+      "transcripts_included": false,
+      "tool_logs_included": false,
+      "secrets_included": false
+    }
   }
 }
 ```
 
-The CLI exits `0` only when the provider returns `status: ok` and `report.passed: true`; otherwise it prints the response and exits `1`. Transport/HTTP failures exit through the existing provider CLI error path.
+The CLI exits `0` only when the provider returns `status: ok` and `report.passed: true`; otherwise it prints the response and exits `1`. Transport/HTTP failures exit through the existing provider CLI error path. Use `--output ... --artifact-only` when you need a portable promotion/readiness artifact; it writes only deterministic coverage, metrics, outcome metadata, and hashes.
 
 ## Safety invariants
 
@@ -108,8 +135,8 @@ Do not promote DCN to a stronger runtime mode unless all of these pass in the ta
 
 ```bash
 uv run --with pytest python -m pytest dml_core/daystrom_dml/tests/test_provider_dcn_api.py dml_core/daystrom_dml/tests/test_cognition_evaluation.py dml_core/daystrom_dml/tests/test_provider_cli.py -q
-uv run python integrations/hermes/plugins/daystrom_dml/smoke_dcn_eval.py
-dml dcn eval-smoke
+uv run python integrations/hermes/plugins/daystrom_dml/smoke_dcn_eval.py --output dcn-eval-artifact.json
+dml dcn eval-smoke --output dcn-eval-artifact.json --artifact-only
 ```
 
 For broader readiness, also run:

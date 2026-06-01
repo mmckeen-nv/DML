@@ -41,8 +41,9 @@ def test_provider_cli_recall_context_only(capsys, monkeypatch) -> None:
     assert capsys.readouterr().out.strip() == "context block"
 
 
-def test_provider_cli_dcn_eval_smoke_is_readiness_gate(capsys, monkeypatch) -> None:
+def test_provider_cli_dcn_eval_smoke_is_readiness_gate(tmp_path, capsys, monkeypatch) -> None:
     real_client = httpx.Client
+    artifact_path = tmp_path / "dcn-eval-artifact.json"
 
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.method == "GET"
@@ -53,18 +54,22 @@ def test_provider_cli_dcn_eval_smoke_is_readiness_gate(capsys, monkeypatch) -> N
                 "status": "ok",
                 "component": "daystrom-cognition-network",
                 "mode": "offline_fixture_smoke",
-                "report": {"passed": True, "summary": {"case_count": 3, "blocked_polluting_items": 1}},
+                "report": {"passed": True, "summary": {"case_count": 7, "blocked_polluting_items": 2}},
+                "artifact": {"schema_version": "dcn-eval-artifact-v1", "artifact_hash": "artifact123", "summary": {"case_count": 7}},
             },
         )
 
     monkeypatch.setattr(provider_cli.httpx, "Client", lambda **kwargs: real_client(transport=_transport(handler), **kwargs))
-    rc = provider_cli.main(["dcn", "eval-smoke"])
+    rc = provider_cli.main(["dcn", "eval-smoke", "--output", str(artifact_path), "--artifact-only"])
 
     rendered = capsys.readouterr().out
     assert rc == 0
     payload = json.loads(rendered)
     assert payload["mode"] == "offline_fixture_smoke"
     assert payload["report"]["passed"] is True
+    written = json.loads(artifact_path.read_text(encoding="utf-8"))
+    assert written["schema_version"] == "dcn-eval-artifact-v1"
+    assert written["artifact_hash"] == "artifact123"
 
 
 def test_provider_cli_dcn_eval_smoke_fails_closed(capsys, monkeypatch) -> None:
@@ -99,7 +104,7 @@ def test_provider_cli_install_app_writes_profile(tmp_path, capsys) -> None:
     written = json.loads(output.read_text(encoding="utf-8"))
     assert written["app"] == "hermes"
     assert written["environment"]["HERMES_MEMORY_PROVIDER"] == "daystrom-dml"
-    assert written["commands"]["dcn_eval_smoke"] == "dml dcn eval-smoke"
+    assert written["commands"]["dcn_eval_smoke"] == "dml dcn eval-smoke --output dcn-eval-artifact.json --artifact-only"
     assert written["endpoints"]["dcn_eval_smoke"] == "http://127.0.0.1:8765/api/dcn/eval/smoke"
     assert json.loads(capsys.readouterr().out)["written_to"] == str(output)
 
