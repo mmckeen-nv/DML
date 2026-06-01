@@ -22,6 +22,14 @@ PROPOSAL_SCHEMA_VERSION = "dcn-seed-proposal-v1"
 LOOP_SCHEMA_VERSION = "dcn-seed-loop-artifact-v1"
 DEFAULT_OLLAMA_BASE_URL = "http://127.0.0.1:11434"
 _ALLOWED_TASK_HINTS = ["answer", "admin", "code_change", "debugging"]
+_POLICY_PRESSURE_ALIASES = {
+    "preferred_tool_sequence": "tool_sequence_policy",
+    "prefer_tool_sequence": "tool_sequence_policy",
+    "preferred_retrieval_mode": "retrieval_mode_policy",
+    "prefer_retrieval_mode": "retrieval_mode_policy",
+    "retrieval_mode_preference": "retrieval_mode_policy",
+    "context_budget_adjustment": "context_budget_policy",
+}
 
 GenerateFn = Callable[[str, str, str, float], str]
 
@@ -102,12 +110,76 @@ def run_seed_loop(
 def _sanitize_seed_input(payload: Dict[str, Any]) -> Dict[str, Any]:
     clean = sanitize_audit_payload(payload if isinstance(payload, dict) else {})
     keep: Dict[str, Any] = {}
-    for key in ("seed_model", "embedding_model", "feedback", "feedback_items", "candidate_updates", "unsupported_policy_pressure"):
+    for key in (
+        "seed_model",
+        "embedding_model",
+        "candidate_updates",
+        "unsupported_policy_pressure",
+        "policy_pressure",
+    ):
         if key in clean:
             keep[key] = clean[key]
+    if "feedback" in clean:
+        keep["feedback"] = _sanitize_feedback_items(clean.get("feedback"))
+    if "feedback_items" in clean:
+        keep["feedback_items"] = _sanitize_feedback_items(clean.get("feedback_items"))
     keep.setdefault("seed_model", DEFAULT_SEED_MODEL)
     keep.setdefault("embedding_model", DEFAULT_EMBEDDING_MODEL)
     return keep
+
+
+def _sanitize_feedback_items(raw: Any) -> List[Dict[str, Any]]:
+    if isinstance(raw, dict):
+        raw = [raw]
+    items: List[Dict[str, Any]] = []
+    for item in raw if isinstance(raw, list) else []:
+        if not isinstance(item, dict):
+            continue
+        clean = sanitize_audit_payload(item)
+        kept: Dict[str, Any] = {}
+        for key in ("decision_id", "outcome", "task_type", "signals", "candidate_updates"):
+            if key in clean:
+                kept[key] = clean[key]
+        if "unsupported_policy_pressure" in clean:
+            kept["unsupported_policy_pressure"] = _sanitize_policy_pressure_items(clean.get("unsupported_policy_pressure"))
+        if "policy_pressure" in clean:
+            kept["policy_pressure"] = _sanitize_policy_pressure_items(clean.get("policy_pressure"))
+        items.append(kept)
+    return items
+
+
+def _sanitize_policy_pressure_items(raw: Any) -> Any:
+    if isinstance(raw, dict):
+        items = [raw]
+        single = True
+    elif isinstance(raw, list):
+        items = raw
+        single = False
+    else:
+        return []
+    cleaned_items: List[Dict[str, Any]] = []
+    allowed = {
+        "task_type",
+        "needed_capability",
+        "field",
+        "type",
+        "bounds",
+        "evidence",
+        "proposed_schema_extension",
+        "reason",
+        "count",
+        *_POLICY_PRESSURE_ALIASES.keys(),
+    }
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        clean = sanitize_audit_payload(item)
+        kept = {key: clean[key] for key in allowed if key in clean}
+        if kept:
+            cleaned_items.append(kept)
+    if single:
+        return cleaned_items[0] if cleaned_items else {}
+    return cleaned_items
 
 
 def _build_prompt(payload: Dict[str, Any], *, model: str) -> str:
@@ -232,6 +304,13 @@ def _policy_pressure(raw: Any) -> List[Dict[str, Any]]:
             continue
         clean = sanitize_audit_payload(item)
         needed = str(clean.get("needed_capability") or clean.get("field") or "").strip()
+        source_field = ""
+        if not needed:
+            for field_name, capability in _POLICY_PRESSURE_ALIASES.items():
+                if field_name in clean:
+                    needed = capability
+                    source_field = field_name
+                    break
         if not needed:
             continue
         pressure: Dict[str, Any] = {
@@ -239,6 +318,9 @@ def _policy_pressure(raw: Any) -> List[Dict[str, Any]]:
             "needed_capability": needed[:120],
             "reason": str(clean.get("reason") or "")[:300],
         }
+        if source_field:
+            pressure["field"] = source_field
+            pressure["evidence"] = {"source_keys": [source_field]}
         extension = clean.get("proposed_schema_extension")
         if isinstance(extension, dict):
             pressure["proposed_schema_extension"] = extension

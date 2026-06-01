@@ -39,6 +39,15 @@ _POLICY_PRESSURE_KEYS = {
     "count",
 }
 
+_POLICY_PRESSURE_ALIASES = {
+    "preferred_tool_sequence": "tool_sequence_policy",
+    "prefer_tool_sequence": "tool_sequence_policy",
+    "preferred_retrieval_mode": "retrieval_mode_policy",
+    "prefer_retrieval_mode": "retrieval_mode_policy",
+    "retrieval_mode_preference": "retrieval_mode_policy",
+    "context_budget_adjustment": "context_budget_policy",
+}
+
 
 def run_seed_trial(payload: Dict[str, Any], *, clock: Any = None) -> Dict[str, Any]:
     """Validate an offline seed-trial batch without promotion or live mutation.
@@ -170,12 +179,35 @@ def _policy_pressures(payload: Dict[str, Any], *, default_task: str) -> List[Dic
         if not isinstance(item, dict):
             continue
         clean = sanitize_audit_payload({key: item.get(key) for key in _POLICY_PRESSURE_KEYS if key in item})
+        if "needed_capability" not in clean and "field" not in clean:
+            shorthand = _pressure_from_shorthand(item, default_task=default_task)
+            if shorthand:
+                out.append(shorthand)
+                continue
         if not clean:
             continue
         clean.setdefault("task_type", default_task)
         clean["pressure_hash"] = _digest(clean)
         out.append(clean)
     return out
+
+
+def _pressure_from_shorthand(item: Dict[str, Any], *, default_task: str) -> Optional[Dict[str, Any]]:
+    clean_item = sanitize_audit_payload(item)
+    for field_name, capability in _POLICY_PRESSURE_ALIASES.items():
+        if field_name not in clean_item:
+            continue
+        pressure: Dict[str, Any] = {
+            "task_type": _task_type(clean_item.get("task_type") or default_task),
+            "needed_capability": capability,
+            "field": field_name,
+            "evidence": {"source_keys": [field_name]},
+        }
+        if clean_item.get("reason"):
+            pressure["reason"] = str(clean_item.get("reason"))[:300]
+        pressure["pressure_hash"] = _digest(pressure)
+        return pressure
+    return None
 
 
 def _append_result(result: Dict[str, Any], accepted: List[Dict[str, Any]], rejected: List[Dict[str, Any]]) -> None:

@@ -69,3 +69,31 @@ def test_seed_trial_rejects_forbidden_and_unknown_updates_without_snapshot_mutat
     assert reasons == {"forbidden_field", "unknown_or_unclassified_field"}
     assert "Other Bot" not in str(artifact)
     assert "secret" not in str(artifact)
+
+
+def test_seed_trial_preserves_shorthand_policy_pressure_without_raw_payload():
+    artifact = run_seed_trial(
+        {
+            "feedback": [
+                {
+                    "decision_id": "d3",
+                    "outcome": "needs_fix",
+                    "signals": {"task_type": "debugging"},
+                    "policy_pressure": {
+                        "preferred_tool_sequence": ["terminal", "file"],
+                        "raw_prompt": "do not persist this prompt",
+                    },
+                }
+            ],
+            "policy_pressure": {"prefer_retrieval_mode": "semantic", "task_type": "admin"},
+        },
+        clock=lambda: 1.0,
+    )
+
+    assert artifact["summary"]["unsupported_policy_pressure_count"] == 2
+    capabilities = {item["needed_capability"] for item in artifact["unsupported_policy_pressure"]}
+    assert capabilities == {"tool_sequence_policy", "retrieval_mode_policy"}
+    fields = {item["field"] for item in artifact["unsupported_policy_pressure"]}
+    assert fields == {"preferred_tool_sequence", "prefer_retrieval_mode"}
+    assert "raw_prompt" not in str(artifact)
+    assert "do not persist" not in str(artifact)

@@ -64,6 +64,34 @@ def test_seed_proposer_normalizes_model_updates_and_policy_pressure():
     assert "must not persist" not in str(proposal)
 
 
+def test_seed_proposer_preserves_shorthand_policy_pressure():
+    def fake_generate(base_url: str, model: str, prompt: str, timeout: float) -> str:
+        return json.dumps({"candidate_updates": [], "unsupported_policy_pressure": []})
+
+    proposal = propose_seed_updates(
+        {
+            "policy_pressure": {
+                "preferred_tool_sequence": ["terminal", "file"],
+                "raw_prompt": "must not persist",
+            }
+        },
+        generate_fn=fake_generate,
+        clock=lambda: 1.0,
+    )
+
+    assert proposal["unsupported_policy_pressure"] == [
+        {
+            "task_type": "*",
+            "needed_capability": "tool_sequence_policy",
+            "reason": "",
+            "field": "preferred_tool_sequence",
+            "evidence": {"source_keys": ["preferred_tool_sequence"]},
+        }
+    ]
+    assert "raw_prompt" not in str(proposal)
+    assert "must not persist" not in str(proposal)
+
+
 def test_seed_loop_runs_proposal_through_trial_without_promotion():
     ticks = iter([1.0 + i for i in range(20)])
 
