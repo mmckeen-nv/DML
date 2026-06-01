@@ -166,7 +166,7 @@ dml dcn policy checkpoints
 dml dcn policy rollback --checkpoint-id <checkpoint-id>
 dml dcn promote --mode active_learn --checkpoint-id <checkpoint-id> --hygiene-evidence '{"passed":true,"artifact_hash":"..."}'
 dml dcn promotions --limit 20
-dml dcn eval-smoke  # offline fixture-only DCN readiness probe
+dml dcn eval-smoke --output dcn-eval-artifact.json --artifact-only  # offline fixture-only readiness artifact
 ```
 
 See [`docs/dcn-operator-guide.md`](docs/dcn-operator-guide.md) for DCN mode

@@ -91,6 +91,13 @@ def test_dcn_eval_smoke_endpoint_runs_offline_safe_fixture_suite():
     assert report["summary"]["passed_count"] == 7
     assert report["summary"]["max_pollution_score"] == 0.0
     assert report["summary"]["blocked_polluting_items"] == 2
+    artifact = payload["artifact"]
+    assert artifact["schema_version"] == "dcn-eval-artifact-v1"
+    assert artifact["summary"] == report["summary"]
+    assert artifact["artifact_hash"]
+    assert "code_change" in artifact["coverage"]["task_types"]
+    assert "debugging_requires_verification" in artifact["coverage"]["case_ids"]
+    assert all(flag is False for flag in artifact["redaction_policy"].values())
     assert "provider memory text" not in rendered
     assert "raw_transcript" not in rendered
     assert "tool_calls" not in rendered
@@ -251,6 +258,8 @@ def test_dcn_active_learn_promotion_records_rollbackable_audit_without_raw_evide
     assert audit["checkpoint_id"] == checkpoint["checkpoint_id"]
     assert audit["rollback_command"].endswith(checkpoint["checkpoint_id"])
     assert audit["eval"]["passed"] is True
+    assert audit["eval"]["artifact_hash"]
+    assert "debugging_requires_verification" in audit["eval"]["coverage"]["case_ids"]
     assert audit["eval"]["summary"]["max_pollution_score"] == 0.0
     assert audit["hygiene"]["passed"] is True
     assert audit["hygiene"]["artifact_hash"] == "abc123"

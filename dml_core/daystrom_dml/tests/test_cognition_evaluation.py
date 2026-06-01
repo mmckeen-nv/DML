@@ -19,6 +19,30 @@ def test_eval_smoke_suite_passes_and_is_deterministic():
     assert {"code_verification_tool_policy", "setup_retrieval_semantic", "debugging_requires_verification"} <= case_ids
 
 
+def test_eval_artifact_is_deterministic_sanitized_and_coverage_rich():
+    harness = DCNEvalHarness(clock=lambda: 0.0)
+
+    first = harness.run_suite(smoke_eval_cases())
+    second = harness.run_suite(smoke_eval_cases())
+    artifact = first.artifact()
+
+    assert artifact == second.artifact()
+    assert artifact["schema_version"] == "dcn-eval-artifact-v1"
+    assert artifact["artifact_hash"]
+    assert artifact["summary"]["case_count"] == 7
+    assert artifact["coverage"]["case_ids"] == [case.case_id for case in first.cases]
+    assert {"code_change", "debugging", "admin"} <= set(artifact["coverage"]["task_types"])
+    assert {"none", "hybrid", "resume", "semantic"} <= set(artifact["coverage"]["retrieval_modes"])
+    assert {"durable_signal_only", "preference_candidate", "none"} <= set(artifact["coverage"]["writeback_modes"])
+    assert all(flag is False for flag in artifact["redaction_policy"].values())
+    rendered = json.dumps(artifact, sort_keys=True).lower()
+    assert "raw_transcript" not in rendered
+    assert "tool_calls" not in rendered
+    assert "prompt_scaffold" not in rendered
+    assert "sk-" not in rendered
+    assert "continue the phase eleven" not in rendered
+
+
 def test_eval_report_excludes_raw_fixture_text_and_secret_like_values():
     case = EvalCase(
         case_id="secret_block",

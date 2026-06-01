@@ -348,11 +348,14 @@ def create_app(
             raise HTTPException(status_code=400, detail=failure)
 
         eval_report = _run_dcn_eval_smoke_report()
+        eval_artifact = eval_report.artifact()
         eval_summary = dict(eval_report.summary)
         eval_evidence = {
             "passed": bool(eval_report.passed),
             "suite_id": eval_report.suite_id,
             "deterministic_hash": eval_report.deterministic_hash,
+            "artifact_hash": eval_artifact["artifact_hash"],
+            "coverage": eval_artifact["coverage"],
             "summary": eval_summary,
         }
         if not eval_report.passed:
@@ -427,11 +430,13 @@ def create_app(
         frontier inference, so it is safe as a readiness/promotion probe.
         """
         report = _run_dcn_eval_smoke_report()
+        artifact = report.artifact()
         return {
             "status": "ok" if report.passed else "failed",
             "component": "daystrom-cognition-network",
             "mode": "offline_fixture_smoke",
             "report": report.to_dict(),
+            "artifact": artifact,
         }
 
     @app.get("/api/tags")
