@@ -45,6 +45,16 @@ strict_llm_required: true
 strict_embedding_required: true
 ```
 
+## Learning-loop bridge
+
+Use the seed model as an offline candidate proposer, not as live policy authority. The current bridge is:
+
+```bash
+dml dcn seed-trial --input sanitized-feedback.json --output dcn-seed-trial-artifact.json
+```
+
+The artifact is non-promoting. It contains accepted procedural overlay candidates, rejected updates, unsupported policy-pressure reports, and a candidate policy snapshot. Unsupported pressure is the path for schema growth: if the current allowlist is too small for useful learning, record the missing typed capability instead of silently broadening runtime authority.
+
 ## Promotion guardrails
 
 Before using this as a DCN `active_learn` seed, require:
