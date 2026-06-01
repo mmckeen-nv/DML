@@ -44,6 +44,8 @@ dml dcn policy checkpoint --label before-active-learn
 dml dcn policy checkpoints
 dml dcn policy rollback --checkpoint-id <checkpoint-id>
 dml dcn seed-trial --input sanitized-feedback.json --output dcn-seed-trial-artifact.json
+dml dcn seed-propose --input sanitized-feedback.json --output dcn-seed-proposal.json
+dml dcn seed-loop --input sanitized-feedback.json --output dcn-seed-loop-artifact.json
 dml dcn promote --mode active_learn --checkpoint-id <checkpoint-id> --hygiene-evidence '{"passed":true,"artifact_hash":"..."}'
 dml dcn promotions --limit 20
 ```
@@ -53,6 +55,8 @@ Policy import/export is bounded to the DCN procedural overlay. The deterministic
 Active-learn promotion is fail-closed. `dml dcn promote --mode active_learn` requires an existing checkpoint ID, a passing built-in provider eval smoke report, and explicit hygiene evidence such as the artifact hash from `smoke_hygiene.py`. Promotion records only sanitized audit metadata: previous/target mode, checkpoint ID, rollback command, policy digest, eval summary/hash, hygiene evidence, operator, and reason digest. Raw transcripts, raw prompts, tool logs, secrets, and raw memory context must never appear in promotion evidence. The Hermes plugin only honors `active_learn` when that sanitized promotion evidence is configured under `memory.daystrom_dml.dcn.promotion` or supplied as `DAYSTROM_DCN_PROMOTION_EVIDENCE`; otherwise it falls back closed to `active_read` while recording the requested mode.
 
 `dml dcn seed-trial` is the non-promoting learning-loop bridge. It consumes sanitized feedback/proposal JSON, validates candidate procedural overlay updates through the same allowlisted learning policy used by DCN, and emits a portable artifact with accepted updates, rejected updates, unsupported policy-pressure reports, and a candidate policy snapshot. It does not import the policy, promote runtime mode, call live provider APIs, or persist raw prompts/transcripts/tool logs/secrets. Use unsupported policy-pressure entries when the current schema is too small, e.g. a proposed `preferred_tool_sequence` field for future human-reviewed schema expansion.
+
+`dml dcn seed-propose` activates the local seed model as an offline candidate proposer. By default it calls Ollama `llama3:8b`, asks for JSON-only procedural candidates over the current allowlist, rejects model items outside that allowlist, and preserves unsupported schema pressure separately. `dml dcn seed-loop` runs `seed-propose` and `seed-trial` in one command so the model-generated proposal is immediately validated into a non-promoting trial artifact. These commands make the new learning path active while preserving the promotion boundary: no policy import or `active_learn` mode change happens until the artifact passes eval, hygiene, checkpoint, and operator promotion gates.
 
 ## Provider eval smoke readiness probe
 

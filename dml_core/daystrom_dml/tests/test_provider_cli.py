@@ -112,6 +112,8 @@ def test_provider_cli_install_app_writes_profile(tmp_path, capsys) -> None:
     assert written["environment"]["HERMES_MEMORY_PROVIDER"] == "daystrom-dml"
     assert written["commands"]["dcn_eval_smoke"] == "dml dcn eval-smoke --output dcn-eval-artifact.json --artifact-only"
     assert written["commands"]["dcn_seed_trial"] == "dml dcn seed-trial --input sanitized-feedback.json --output dcn-seed-trial-artifact.json"
+    assert written["commands"]["dcn_seed_propose"] == "dml dcn seed-propose --input sanitized-feedback.json --output dcn-seed-proposal.json"
+    assert written["commands"]["dcn_seed_loop"] == "dml dcn seed-loop --input sanitized-feedback.json --output dcn-seed-loop-artifact.json"
     assert written["endpoints"]["dcn_eval_smoke"] == "http://127.0.0.1:8765/api/dcn/eval/smoke"
     assert json.loads(capsys.readouterr().out)["written_to"] == str(output)
 
@@ -190,6 +192,44 @@ def test_provider_cli_dcn_seed_trial_writes_non_promoting_artifact(tmp_path, cap
     assert payload["summary"]["accepted_update_count"] == 1
     assert payload["summary"]["unsupported_policy_pressure_count"] == 1
     assert written["artifact_hash"] == payload["artifact_hash"]
+
+
+def test_provider_cli_dcn_seed_propose_and_loop_write_active_artifacts(tmp_path, capsys, monkeypatch) -> None:
+    input_path = tmp_path / "feedback.json"
+    proposal_path = tmp_path / "proposal.json"
+    loop_path = tmp_path / "loop.json"
+    input_path.write_text(json.dumps({"feedback": [{"decision_id": "d1", "outcome": "verified"}]}), encoding="utf-8")
+
+    def fake_propose(payload, *, model, ollama_base_url, timeout):
+        assert payload["feedback"][0]["decision_id"] == "d1"
+        assert model == "llama3:8b"
+        return {
+            "schema_version": "dcn-seed-proposal-v1",
+            "proposal_hash": "p1",
+            "non_promoting": True,
+            "candidate_updates": [],
+            "unsupported_policy_pressure": [],
+        }
+
+    def fake_loop(payload, *, model, ollama_base_url, timeout):
+        return {
+            "schema_version": "dcn-seed-loop-artifact-v1",
+            "artifact_hash": "l1",
+            "non_promoting": True,
+            "proposal": {"proposal_hash": "p1"},
+            "trial": {"artifact_hash": "t1"},
+        }
+
+    monkeypatch.setattr(provider_cli, "propose_seed_updates", fake_propose)
+    monkeypatch.setattr(provider_cli, "run_seed_loop", fake_loop)
+
+    assert provider_cli.main(["dcn", "seed-propose", "--input", str(input_path), "--output", str(proposal_path)]) == 0
+    assert json.loads(capsys.readouterr().out)["proposal_hash"] == "p1"
+    assert json.loads(proposal_path.read_text(encoding="utf-8"))["proposal_hash"] == "p1"
+
+    assert provider_cli.main(["dcn", "seed-loop", "--input", str(input_path), "--output", str(loop_path)]) == 0
+    assert json.loads(capsys.readouterr().out)["artifact_hash"] == "l1"
+    assert json.loads(loop_path.read_text(encoding="utf-8"))["schema_version"] == "dcn-seed-loop-artifact-v1"
 
 
 def test_provider_cli_dcn_feedback_and_audit_tail(capsys, monkeypatch) -> None:
