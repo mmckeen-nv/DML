@@ -24,8 +24,8 @@ jobs:
         dml_core/daystrom_dml/settings.py
         dml_mcp/dml_mcp_server.py
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
       - name: Install dependencies
