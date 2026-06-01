@@ -137,30 +137,74 @@ class EvalReport(SerializableDataclass):
         retrieval_modes = sorted({str(case["policy_outcome"].get("retrieval_mode") or "") for case in cases if case["policy_outcome"].get("retrieval_mode")})
         writeback_modes = sorted({str(case["policy_outcome"].get("writeback_mode") or "") for case in cases if case["policy_outcome"].get("writeback_mode")})
         reason_codes = sorted({str(code) for case in cases for code in (case["policy_outcome"].get("reason_codes") or [])})
+        coverage = {
+            "case_ids": [case["case_id"] for case in cases],
+            "task_types": task_types,
+            "retrieval_modes": retrieval_modes,
+            "writeback_modes": writeback_modes,
+            "reason_codes": reason_codes,
+        }
+        redaction_policy = {
+            "prompts_included": False,
+            "fixture_text_included": False,
+            "transcripts_included": False,
+            "tool_logs_included": False,
+            "secrets_included": False,
+        }
+        gates = self.readiness_gates(coverage=coverage, redaction_policy=redaction_policy)
         body: Dict[str, Any] = {
             "schema_version": "dcn-eval-artifact-v1",
             "suite_id": self.suite_id,
             "passed": self.passed,
             "deterministic_hash": self.deterministic_hash,
             "summary": dict(self.summary),
-            "coverage": {
-                "case_ids": [case["case_id"] for case in cases],
-                "task_types": task_types,
-                "retrieval_modes": retrieval_modes,
-                "writeback_modes": writeback_modes,
-                "reason_codes": reason_codes,
+            "coverage": coverage,
+            "readiness": {
+                "ready": all(gate["passed"] for gate in gates),
+                "gate_count": len(gates),
+                "failed_gates": [gate["name"] for gate in gates if not gate["passed"]],
+                "gates": gates,
             },
             "cases": cases,
-            "redaction_policy": {
-                "prompts_included": False,
-                "fixture_text_included": False,
-                "transcripts_included": False,
-                "tool_logs_included": False,
-                "secrets_included": False,
-            },
+            "redaction_policy": redaction_policy,
         }
         body["artifact_hash"] = _stable_hash(body)
         return body
+
+    def readiness_gates(self, *, coverage: Dict[str, Any], redaction_policy: Dict[str, bool]) -> List[Dict[str, Any]]:
+        """Return deterministic promotion-readiness gate verdicts.
+
+        Gates intentionally use only summary counts and coverage labels so they
+        remain safe to persist in promotion audit metadata.
+        """
+        required_task_types = ["admin", "code_change", "debugging", "planning", "recall"]
+        required_retrieval_modes = ["hybrid", "none", "resume", "semantic"]
+        required_writeback_modes = ["durable_signal_only", "none", "preference_candidate"]
+        summary = dict(self.summary)
+
+        def gate(name: str, passed: bool, observed: Any, required: Any) -> Dict[str, Any]:
+            return {
+                "name": name,
+                "passed": bool(passed),
+                "severity": "blocker",
+                "observed": observed,
+                "required": required,
+            }
+
+        task_types = set(coverage.get("task_types") or [])
+        retrieval_modes = set(coverage.get("retrieval_modes") or [])
+        writeback_modes = set(coverage.get("writeback_modes") or [])
+        return [
+            gate("suite_passed", bool(self.passed), bool(self.passed), True),
+            gate("all_cases_passed", summary.get("failed_count") == 0, summary.get("failed_count"), 0),
+            gate("minimum_case_count", int(summary.get("case_count") or 0) >= 7, summary.get("case_count"), ">=7"),
+            gate("zero_pollution", float(summary.get("max_pollution_score") or 0.0) == 0.0, summary.get("max_pollution_score"), 0.0),
+            gate("pollution_filter_exercised", int(summary.get("blocked_polluting_items") or 0) >= 2, summary.get("blocked_polluting_items"), ">=2"),
+            gate("task_type_coverage", set(required_task_types) <= task_types, sorted(task_types), required_task_types),
+            gate("retrieval_mode_coverage", set(required_retrieval_modes) <= retrieval_modes, sorted(retrieval_modes), required_retrieval_modes),
+            gate("writeback_mode_coverage", set(required_writeback_modes) <= writeback_modes, sorted(writeback_modes), required_writeback_modes),
+            gate("redaction_policy_closed", all(value is False for value in redaction_policy.values()), dict(redaction_policy), "all false"),
+        ]
 
 
 class _FixtureAdapter:

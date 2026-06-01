@@ -42,6 +42,9 @@ def main(argv: list[str] | None = None) -> int:
     case_ids = set(artifact["coverage"]["case_ids"])
     assert {"code_verification_tool_policy", "setup_retrieval_semantic", "debugging_requires_verification"} <= case_ids, case_ids
     assert {"code_change", "debugging", "admin"} <= set(artifact["coverage"]["task_types"]), artifact["coverage"]
+    assert artifact["readiness"]["ready"] is True, artifact["readiness"]
+    assert artifact["readiness"]["failed_gates"] == [], artifact["readiness"]
+    assert artifact["readiness"]["gate_count"] == 9, artifact["readiness"]
 
     rendered = json.dumps(artifact, sort_keys=True)
     for forbidden in ("raw_transcript", "tool_calls", "prompt_scaffold", "sk-"):

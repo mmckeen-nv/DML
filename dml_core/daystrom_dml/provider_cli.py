@@ -114,7 +114,15 @@ def cmd_status(args: argparse.Namespace) -> int:
 
 def _dcn_eval_smoke_passed(payload: dict[str, Any]) -> bool:
     report = payload.get("report")
-    return bool(payload.get("status") == "ok" and isinstance(report, dict) and report.get("passed") is True)
+    artifact = payload.get("artifact")
+    readiness = artifact.get("readiness") if isinstance(artifact, dict) else {}
+    return bool(
+        payload.get("status") == "ok"
+        and isinstance(report, dict)
+        and report.get("passed") is True
+        and isinstance(readiness, dict)
+        and readiness.get("ready") is True
+    )
 
 
 def cmd_dcn_eval_smoke(args: argparse.Namespace) -> int:

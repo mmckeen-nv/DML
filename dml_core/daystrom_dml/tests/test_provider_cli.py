@@ -55,7 +55,12 @@ def test_provider_cli_dcn_eval_smoke_is_readiness_gate(tmp_path, capsys, monkeyp
                 "component": "daystrom-cognition-network",
                 "mode": "offline_fixture_smoke",
                 "report": {"passed": True, "summary": {"case_count": 7, "blocked_polluting_items": 2}},
-                "artifact": {"schema_version": "dcn-eval-artifact-v1", "artifact_hash": "artifact123", "summary": {"case_count": 7}},
+                "artifact": {
+                    "schema_version": "dcn-eval-artifact-v1",
+                    "artifact_hash": "artifact123",
+                    "summary": {"case_count": 7},
+                    "readiness": {"ready": True, "failed_gates": [], "gate_count": 9},
+                },
             },
         )
 
@@ -70,6 +75,7 @@ def test_provider_cli_dcn_eval_smoke_is_readiness_gate(tmp_path, capsys, monkeyp
     written = json.loads(artifact_path.read_text(encoding="utf-8"))
     assert written["schema_version"] == "dcn-eval-artifact-v1"
     assert written["artifact_hash"] == "artifact123"
+    assert written["readiness"]["ready"] is True
 
 
 def test_provider_cli_dcn_eval_smoke_fails_closed(capsys, monkeypatch) -> None:

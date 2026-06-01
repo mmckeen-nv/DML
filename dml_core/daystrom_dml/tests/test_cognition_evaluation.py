@@ -31,6 +31,21 @@ def test_eval_artifact_is_deterministic_sanitized_and_coverage_rich():
     assert artifact["artifact_hash"]
     assert artifact["summary"]["case_count"] == 7
     assert artifact["coverage"]["case_ids"] == [case.case_id for case in first.cases]
+    readiness = artifact["readiness"]
+    assert readiness["ready"] is True
+    assert readiness["gate_count"] == 9
+    assert readiness["failed_gates"] == []
+    gate_names = {gate["name"] for gate in readiness["gates"]}
+    assert {
+        "suite_passed",
+        "minimum_case_count",
+        "zero_pollution",
+        "pollution_filter_exercised",
+        "task_type_coverage",
+        "retrieval_mode_coverage",
+        "writeback_mode_coverage",
+        "redaction_policy_closed",
+    } <= gate_names
     assert {"code_change", "debugging", "admin"} <= set(artifact["coverage"]["task_types"])
     assert {"none", "hybrid", "resume", "semantic"} <= set(artifact["coverage"]["retrieval_modes"])
     assert {"durable_signal_only", "preference_candidate", "none"} <= set(artifact["coverage"]["writeback_modes"])
@@ -41,6 +56,30 @@ def test_eval_artifact_is_deterministic_sanitized_and_coverage_rich():
     assert "prompt_scaffold" not in rendered
     assert "sk-" not in rendered
     assert "continue the phase eleven" not in rendered
+
+
+def test_eval_artifact_readiness_gates_fail_closed_for_insufficient_coverage():
+    case = EvalCase(
+        case_id="too_small",
+        prompt="hello again",
+        expected_task_type="answer",
+        expected_retrieval_mode="none",
+        expected_writeback_mode="none",
+    )
+
+    report = DCNEvalHarness(clock=lambda: 0.0).run_suite([case])
+    artifact = report.artifact()
+    readiness = artifact["readiness"]
+
+    assert report.passed is True
+    assert readiness["ready"] is False
+    assert {
+        "minimum_case_count",
+        "pollution_filter_exercised",
+        "task_type_coverage",
+        "retrieval_mode_coverage",
+        "writeback_mode_coverage",
+    } <= set(readiness["failed_gates"])
 
 
 def test_eval_report_excludes_raw_fixture_text_and_secret_like_values():
