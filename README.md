@@ -154,11 +154,19 @@ dml remember --text "The active branch is provider-hardening." --meta '{"source"
 dml recall --query "active branch" --context-only
 dml search --query "provider"
 dml fetch 1
+dml dcn observe --text "continue the DML work"
+dml dcn packet --text "continue the DML work" --session-id abc
+dml dcn feedback --decision-id ... --outcome verified --signals '{"tests_passed":true}'
+dml dcn audit-tail --limit 20
+dml dcn policy show
+dml dcn policy export --output dcn-policy.json --snapshot-only
+dml dcn policy import --input dcn-policy.json
 dml dcn eval-smoke  # offline fixture-only DCN readiness probe
 ```
 
 See [`docs/dcn-operator-guide.md`](docs/dcn-operator-guide.md) for DCN mode
-boundaries, the `/api/dcn/eval/smoke` readiness gate, and promotion stoplines.
+boundaries, operator commands, policy import/export invariants, the
+`/api/dcn/eval/smoke` readiness gate, and promotion stoplines.
 
 Use `scripts/install_daystrom_dml.sh --profile openclaw` or
 `--profile hermes` for an agent-app-ready local install that creates the venv,
