@@ -35,7 +35,12 @@ def test_seed_proposer_normalizes_model_updates_and_policy_pressure():
         )
 
     proposal = propose_seed_updates(
-        {"feedback": [{"decision_id": "d1", "outcome": "verified", "signals": {"task_type": "debugging"}}]},
+        {
+            "feedback": [{"decision_id": "d1", "outcome": "verified", "signals": {"task_type": "debugging"}}],
+            "unsupported_policy_pressure": [
+                {"task_type": "answer", "needed_capability": "operator_review_queue", "raw_prompt": "drop me"}
+            ],
+        },
         model="llama3:8b",
         ollama_base_url="http://local",
         generate_fn=fake_generate,
@@ -53,7 +58,8 @@ def test_seed_proposer_normalizes_model_updates_and_policy_pressure():
         }
     ]
     assert proposal["rejected_model_items"][0]["reason"] == "field_not_allowed"
-    assert proposal["unsupported_policy_pressure"][0]["needed_capability"] == "tool_sequence_policy"
+    assert proposal["unsupported_policy_pressure"][0]["needed_capability"] == "operator_review_queue"
+    assert proposal["unsupported_policy_pressure"][1]["needed_capability"] == "tool_sequence_policy"
     assert "raw_prompt" not in str(proposal)
     assert "must not persist" not in str(proposal)
 
@@ -74,7 +80,10 @@ def test_seed_loop_runs_proposal_through_trial_without_promotion():
         )
 
     artifact = run_seed_loop(
-        {"feedback": [{"decision_id": "d1", "outcome": "verified", "signals": {"task_type": "debugging"}}]},
+        {
+            "feedback": [{"decision_id": "d1", "outcome": "verified", "signals": {"task_type": "debugging"}}],
+            "unsupported_policy_pressure": [{"task_type": "debugging", "needed_capability": "operator_review_queue"}],
+        },
         generate_fn=fake_generate,
         clock=lambda: next(ticks),
     )
@@ -82,5 +91,7 @@ def test_seed_loop_runs_proposal_through_trial_without_promotion():
     assert artifact["schema_version"] == "dcn-seed-loop-artifact-v1"
     assert artifact["non_promoting"] is True
     assert artifact["proposal_summary"]["candidate_update_count"] == 1
+    assert artifact["proposal_summary"]["unsupported_policy_pressure_count"] == 2
     assert artifact["trial_summary"]["accepted_update_count"] == 1
+    assert artifact["trial_summary"]["unsupported_policy_pressure_count"] == 2
     assert artifact["trial"]["candidate_policy_snapshot"]["mutable_overlay"]["debugging"]["verification_requirement"] == "strict"
