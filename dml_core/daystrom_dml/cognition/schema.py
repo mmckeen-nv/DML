@@ -15,6 +15,7 @@ from daystrom_dml.api_contracts import (
     SerializableDataclass,
     TokenBudget,
 )
+from daystrom_dml.contracts import COGNITIVE_PACKET_V1
 
 FORBIDDEN_WRITEBACK_CLASSES = ["raw_transcript", "tool_log", "secret", "prompt_scaffold"]
 
@@ -171,7 +172,7 @@ class CognitionPlan(SerializableDataclass):
 
 @dataclass
 class CognitivePacket(SerializableDataclass):
-    packet_version: str = "daystrom-cognitive-packet-v1"
+    packet_version: str = COGNITIVE_PACKET_V1
     scope: DaystromScope = field(default_factory=DaystromScope)
     dcn_plan: CognitionPlan = field(default_factory=CognitionPlan)
     dml_context: Dict[str, Any] = field(default_factory=dict)
@@ -183,11 +184,17 @@ class CognitivePacket(SerializableDataclass):
     packet_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     created_at: float = field(default_factory=time.time)
 
+    def __post_init__(self) -> None:
+        if self.packet_version != COGNITIVE_PACKET_V1:
+            raise ContractError(
+                f"packet_version must be {COGNITIVE_PACKET_V1!r}, got {self.packet_version!r}"
+            )
+
     @classmethod
     def from_dict(cls, data: Optional[Dict[str, Any]]) -> "CognitivePacket":
         data = data or {}
         return cls(
-            packet_version=data.get("packet_version", "daystrom-cognitive-packet-v1"),
+            packet_version=data.get("packet_version", COGNITIVE_PACKET_V1),
             scope=DaystromScope.from_dict(data.get("scope")),
             dcn_plan=CognitionPlan.from_dict(data.get("dcn_plan")),
             dml_context=dict(data.get("dml_context") or {}),

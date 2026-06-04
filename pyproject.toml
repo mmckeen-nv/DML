@@ -19,6 +19,8 @@ packages = [
     "daystrom_dml.stm",
     "daystrom_dml.cognition",
     "daystrom_dml.inference",
+    "daystrom_dml.contracts",
+    "daystrom_dml.contracts.schemas",
     "cma",
     "scripts",
     "dml_mcp",
@@ -30,6 +32,7 @@ packages = [
     "web/**/*",
     "provider_web/*",
 ]
+"daystrom_dml.contracts.schemas" = ["*.json"]
 
 [project]
 name = "cma"

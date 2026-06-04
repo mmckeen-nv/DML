@@ -1,0 +1,225 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.daystrom.local/daystrom/cognitive-packet-v1.schema.json",
+  "title": "Daystrom Cognitive Packet v1",
+  "description": "Formal starter schema for the existing daystrom_dml.cognition.schema.CognitivePacket wire shape. This is intentionally forward-compatible and mirrors the current dataclass contract without changing runtime behavior.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "packet_version",
+    "scope",
+    "dcn_plan",
+    "dml_context",
+    "dpm_overlay",
+    "assembled_context",
+    "guardrails",
+    "telemetry",
+    "audit",
+    "packet_id",
+    "created_at"
+  ],
+  "properties": {
+    "packet_version": {
+      "type": "string",
+      "const": "daystrom-cognitive-packet-v1"
+    },
+    "packet_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "created_at": {
+      "type": "number",
+      "minimum": 0,
+      "description": "Unix epoch seconds as emitted by time.time()."
+    },
+    "scope": {
+      "$ref": "#/$defs/daystrom_scope"
+    },
+    "dcn_plan": {
+      "$ref": "#/$defs/cognition_plan"
+    },
+    "dml_context": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "DML retrieval envelope. V1 keeps this open for adapter compatibility; recommended properties are listed here.",
+      "properties": {
+        "raw_context": {"type": "string"},
+        "context": {"type": "string"},
+        "items": {"type": "array", "items": {"type": "object", "additionalProperties": true}},
+        "context_tokens": {"type": "integer", "minimum": 0},
+        "conflict_count": {"type": "integer", "minimum": 0},
+        "scope": {"$ref": "#/$defs/daystrom_scope"},
+        "telemetry": {"type": "object", "additionalProperties": true},
+        "audit": {"$ref": "#/$defs/audit_info"}
+      }
+    },
+    "dpm_overlay": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "DPM overlay envelope. V1 keeps this open for adapter compatibility; recommended properties are listed here.",
+      "properties": {
+        "overlay_text": {"type": "string"},
+        "text": {"type": "string"},
+        "directives": {"type": "array", "items": {"type": "string"}},
+        "suppressed": {"type": "array", "items": {"type": "object", "additionalProperties": true}},
+        "conflicts": {"type": "array", "items": {"type": "object", "additionalProperties": true}},
+        "budget": {"$ref": "#/$defs/token_budget"},
+        "mode": {"$ref": "#/$defs/component_mode"},
+        "audit": {"$ref": "#/$defs/audit_info"}
+      }
+    },
+    "assembled_context": {
+      "type": "string"
+    },
+    "guardrails": {
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "telemetry": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "audit": {
+      "$ref": "#/$defs/audit_info"
+    }
+  },
+  "$defs": {
+    "component_mode": {
+      "type": "string",
+      "enum": ["disabled", "observe_only", "active_read", "active_write", "active_learn"]
+    },
+    "daystrom_scope": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["tenant_id"],
+      "properties": {
+        "tenant_id": {"type": "string", "minLength": 1},
+        "client_id": {"type": ["string", "null"]},
+        "session_id": {"type": ["string", "null"]},
+        "instance_id": {"type": ["string", "null"]},
+        "thread_id": {"type": ["string", "null"]},
+        "project_id": {"type": ["string", "null"]},
+        "relationship_id": {"type": ["string", "null"]}
+      }
+    },
+    "token_budget": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "limit_tokens": {"type": "integer", "minimum": 0},
+        "used_tokens": {"type": "integer", "minimum": 0},
+        "reserved_tokens": {"type": "integer", "minimum": 0}
+      }
+    },
+    "audit_info": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "reason": {"type": "string"},
+        "policy": {"type": "string"},
+        "reason_codes": {"type": "array", "items": {"type": "string"}},
+        "trace_id": {"type": ["string", "null"]},
+        "schema_version": {"type": "string"},
+        "metadata": {"type": "object", "additionalProperties": true}
+      }
+    },
+    "risk_info": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["level"],
+      "properties": {
+        "level": {"type": "string", "enum": ["low", "medium", "high", "blocked"]},
+        "reasons": {"type": "array", "items": {"type": "string"}},
+        "requires_confirmation": {"type": "boolean"},
+        "side_effect_classes": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "cognition_plan": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "intent",
+        "risk",
+        "retrieval_plan",
+        "personality_plan",
+        "tool_plan",
+        "writeback_plan",
+        "frontier_plan",
+        "reason_codes",
+        "policy_version",
+        "decision_id"
+      ],
+      "properties": {
+        "decision_id": {"type": "string", "format": "uuid"},
+        "policy_version": {"type": "string"},
+        "reason_codes": {"type": "array", "items": {"type": "string"}},
+        "intent": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "task_type": {"type": "string"},
+            "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+            "needs_memory": {"type": "boolean"},
+            "needs_personality": {"type": "boolean"},
+            "needs_tools": {"type": "boolean"},
+            "needs_verification": {"type": "boolean"}
+          }
+        },
+        "risk": {"$ref": "#/$defs/risk_info"},
+        "retrieval_plan": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "mode": {"type": "string", "enum": ["none", "resume", "semantic", "continuity", "hybrid"]},
+            "queries": {"type": "array", "items": {"type": "string"}},
+            "top_k": {"type": "integer", "minimum": 0},
+            "budget_tokens": {"type": "integer", "minimum": 0},
+            "ground_truth_policy": {"type": "string", "enum": ["never", "low_confidence", "always"]}
+          }
+        },
+        "personality_plan": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "mode": {"type": "string", "enum": ["none", "bounded_overlay"]},
+            "budget_tokens": {"type": "integer", "minimum": 0},
+            "suppress_if_conflicts_with_current_turn": {"type": "boolean"}
+          }
+        },
+        "tool_plan": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "allowed": {"type": "boolean"},
+            "recommended_tools": {"type": "array", "items": {"type": "string"}},
+            "verification_required": {"type": "array", "items": {"type": "string"}}
+          }
+        },
+        "writeback_plan": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "mode": {"type": "string", "enum": ["none", "durable_signal_only", "handoff", "preference_candidate"]},
+            "forbidden_classes": {"type": "array", "items": {"type": "string"}},
+            "candidate_classes": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "not": {"enum": ["raw_transcript", "tool_log", "secret", "prompt_scaffold"]}
+              }
+            }
+          }
+        },
+        "frontier_plan": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "mode": {"type": "string", "enum": ["direct", "dml_context", "verify_local_draft", "full_frontier", "no_frontier"]},
+            "max_input_tokens": {"type": "integer", "minimum": 0},
+            "max_output_tokens": {"type": "integer", "minimum": 0}
+          }
+        }
+      }
+    }
+  }
+}

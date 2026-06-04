@@ -1,0 +1,26 @@
+{
+  "schema_version": "daystrom-openapi-paths-v1",
+  "description": "Minimal public route snapshot for Daystrom contract freeze. This guards core DML, DCN, and DIP route presence without freezing generated OpenAPI formatting.",
+  "required_paths": [
+    "/health",
+    "/api/stats",
+    "/api/remember",
+    "/api/recall",
+    "/api/resume",
+    "/api/frontier/prepare",
+    "/api/dcn/policy",
+    "/api/dcn/audit",
+    "/api/dcn/observe",
+    "/api/dcn/plan-context",
+    "/api/dcn/cognitive-packet",
+    "/api/dcn/feedback",
+    "/api/dcn/eval/smoke",
+    "/api/dcn/policy/export",
+    "/api/dcn/policy/import",
+    "/api/dcn/policy/checkpoints",
+    "/api/dcn/policy/checkpoint",
+    "/api/dcn/policy/rollback",
+    "/api/dcn/mode/promote",
+    "/api/dcn/mode/promotions"
+  ]
+}

@@ -63,3 +63,13 @@ def test_cognitive_packet_keeps_dcn_dml_dpm_context_separate():
     assert data["dml_context"] == {"raw_context": "memory"}
     assert data["dpm_overlay"] == {"overlay_text": "personality"}
     assert restored.scope.session_id == "s1"
+
+
+def test_cognitive_packet_rejects_unknown_packet_version():
+    with pytest.raises(ContractError, match="packet_version"):
+        CognitivePacket(packet_version="daystrom-cognitive-packet-v2")
+
+    payload = CognitivePacket().to_dict()
+    payload["packet_version"] = "daystrom-cognitive-packet-v2"
+    with pytest.raises(ContractError, match="packet_version"):
+        CognitivePacket.from_dict(payload)

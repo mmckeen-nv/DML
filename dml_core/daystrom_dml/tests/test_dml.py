@@ -908,6 +908,123 @@ def test_personality_matrix_active_read_does_not_write_preference_graph(tmp_path
     assert not graph_path.exists()
 
 
+def test_personality_matrix_prefers_newer_cross_session_graph_over_stale_overlay(tmp_path) -> None:
+    overlay_path = tmp_path / "static-overlay.json"
+    graph_path = tmp_path / "dpm-graph.json"
+    overlay_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "dpm.replay-overlay.v1",
+                "overlay_id": "overlay:relationship:test:active-write",
+                "mode": "active-write",
+                "generated_at": "2026-01-01T00:00:00Z",
+                "scope": {"primary": "relationship", "relationship_id": "relationship:test"},
+                "retrieval_order_applied": ["relationship"],
+                "overlay": {
+                    "persona_summary": "Prefer stale static overlay.",
+                    "style_directives": ["Prefer stale static overlay."],
+                    "do_not_do": [],
+                    "open_questions": [],
+                    "max_chars": 200,
+                    "rendered_text": "Preferences: Prefer stale static overlay.",
+                },
+                "sources": [],
+                "audit": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+    first = DMLAdapter(
+        config_overrides={
+            "model_name": "dummy",
+            "embedding_model": None,
+            "storage_dir": str(tmp_path / "storage"),
+            "persistence": {"enable": False},
+            "metrics_enabled": False,
+            "dpm": {
+                "enable": True,
+                "mode": "active-write",
+                "overlay_path": str(overlay_path),
+                "preference_graph_path": str(graph_path),
+                "relationship_id": "relationship:test",
+            },
+        },
+        embedder=RandomEmbedder(dim=48),
+        summarizer=DummySummarizer(),
+        start_aging_loop=False,
+    )
+    first.record_personality_preference("I prefer evolving graph overlays.", source_id="turn:one")
+
+    second = DMLAdapter(
+        config_overrides={
+            "model_name": "dummy",
+            "embedding_model": None,
+            "storage_dir": str(tmp_path / "storage"),
+            "persistence": {"enable": False},
+            "metrics_enabled": False,
+            "dpm": {
+                "enable": True,
+                "mode": "active-write",
+                "overlay_path": str(overlay_path),
+                "preference_graph_path": str(graph_path),
+                "relationship_id": "relationship:test",
+            },
+        },
+        embedder=RandomEmbedder(dim=48),
+        summarizer=DummySummarizer(),
+        start_aging_loop=False,
+    )
+
+    overlay = second.personality_overlay(prompt="help")
+    assert overlay is not None
+    rendered = overlay["overlay"]["rendered_text"]
+
+    assert "evolving graph overlays" in rendered.lower()
+    assert "stale static overlay" not in rendered.lower()
+
+
+def test_personality_matrix_explicit_correction_conflicts_with_existing_preference_across_sessions(tmp_path) -> None:
+    graph_path = tmp_path / "dpm-graph.json"
+    config = {
+        "model_name": "dummy",
+        "embedding_model": None,
+        "storage_dir": str(tmp_path / "storage"),
+        "persistence": {"enable": False},
+        "metrics_enabled": False,
+        "dpm": {
+            "enable": True,
+            "mode": "active-write",
+            "preference_graph_path": str(graph_path),
+            "relationship_id": "relationship:test",
+        },
+    }
+    first = DMLAdapter(
+        config_overrides=config,
+        embedder=RandomEmbedder(dim=48),
+        summarizer=DummySummarizer(),
+        start_aging_loop=False,
+    )
+    first.record_personality_preference("I prefer concise direct answers.", source_id="turn:one")
+
+    second = DMLAdapter(
+        config_overrides=config,
+        embedder=RandomEmbedder(dim=48),
+        summarizer=DummySummarizer(),
+        start_aging_loop=False,
+    )
+    second.record_personality_preference("Do not prefer concise direct answers.", source_id="turn:two", explicit=True)
+
+    graph = json.loads(graph_path.read_text(encoding="utf-8"))
+    nodes = graph["nodes"]
+
+    assert len(nodes) == 1
+    node = nodes[0]
+    assert node["state"] == "conflicted"
+    assert node["evidence"]["support_count"] == 1
+    assert node["evidence"]["contradiction_count"] == 1
+    assert node["provenance"][-1]["source_id"] == "turn:two"
+
+
 def test_reinforce_can_record_explicit_dpm_preference(tmp_path) -> None:
     graph_path = tmp_path / "dpm-graph.json"
     adapter = DMLAdapter(

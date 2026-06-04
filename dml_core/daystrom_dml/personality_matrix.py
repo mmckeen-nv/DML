@@ -64,6 +64,17 @@ class PersonalityMatrix:
             return None
 
         payload = self._load_json(self.overlay_path)
+        graph = self._load_json(self.preference_graph_path)
+        graph_overlay = None
+        if isinstance(graph, dict) and graph.get("schema_version") == "dpm.preference-graph.v1" and self._graph_has_active_nodes(graph):
+            graph_overlay = self._overlay_from_preference_graph(
+                graph,
+                prompt=prompt,
+                thread_id=thread_id,
+                project_id=project_id,
+                relationship_id=relationship_id,
+            )
+
         if isinstance(payload, dict) and payload.get("schema_version") == "dpm.replay-overlay.v1":
             overlay = self._shape_overlay_payload(
                 payload,
@@ -72,18 +83,13 @@ class PersonalityMatrix:
                 project_id=project_id,
                 relationship_id=relationship_id,
             )
+            if graph_overlay is not None and self._graph_is_at_least_as_fresh(graph, payload):
+                return graph_overlay
             if overlay is not None:
                 return overlay
 
-        graph = self._load_json(self.preference_graph_path)
-        if isinstance(graph, dict) and graph.get("schema_version") == "dpm.preference-graph.v1":
-            return self._overlay_from_preference_graph(
-                graph,
-                prompt=prompt,
-                thread_id=thread_id,
-                project_id=project_id,
-                relationship_id=relationship_id,
-            )
+        if graph_overlay is not None:
+            return graph_overlay
         return None
 
     def render_context_block(self, overlay: Dict[str, Any]) -> str:
@@ -443,18 +449,17 @@ class PersonalityMatrix:
 
     def _extract_preference_signal(self, text: str, *, explicit: bool) -> Optional[Dict[str, Any]]:
         lowered = text.lower()
-        if explicit:
+        phrase = ""
+        for pattern in PREFERENCE_PATTERNS:
+            match = pattern.search(text)
+            if match:
+                phrase = match.group(1)
+                break
+        if explicit and not phrase:
             phrase = text
-        else:
-            phrase = ""
-            for pattern in PREFERENCE_PATTERNS:
-                match = pattern.search(text)
-                if match:
-                    phrase = match.group(1)
-                    break
-            if not phrase:
-                return None
-        phrase = phrase.strip(" .,:;!?")
+        if not explicit and not phrase:
+            return None
+        phrase = self._normalize_preference_phrase(phrase)
         if not phrase:
             return None
         negative = "do not" in lowered or "don't" in lowered or "avoid" in lowered
@@ -465,6 +470,30 @@ class PersonalityMatrix:
             "polarity": "prefer_low" if negative else "prefer_high",
             "target": 0.15 if negative else 0.85,
         }
+
+    def _normalize_preference_phrase(self, phrase: str) -> str:
+        phrase = (phrase or "").strip(" .,:;!?")
+        phrase = re.sub(r"^(?:prefer|use|keep|make|be)\s+", "", phrase, flags=re.IGNORECASE).strip(" .,:;!?")
+        return phrase
+
+    def _graph_has_active_nodes(self, graph: Dict[str, Any]) -> bool:
+        return any(
+            isinstance(node, dict)
+            and node.get("state", "active") == "active"
+            and node.get("kind") in {"preference_dimension", "interaction_style", "value_commitment", "safety_boundary"}
+            for node in graph.get("nodes", [])
+        )
+
+    def _graph_is_at_least_as_fresh(self, graph: Optional[Dict[str, Any]], overlay: Dict[str, Any]) -> bool:
+        if not isinstance(graph, dict):
+            return False
+        graph_ts = str(graph.get("generated_at") or "")
+        overlay_ts = str(overlay.get("generated_at") or "")
+        if not graph_ts:
+            return False
+        if not overlay_ts:
+            return True
+        return graph_ts >= overlay_ts
 
     def _label_from_phrase(self, phrase: str) -> str:
         words = re.findall(r"[a-z0-9]+", phrase.lower())[:5]
