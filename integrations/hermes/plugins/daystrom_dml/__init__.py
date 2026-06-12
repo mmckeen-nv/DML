@@ -563,7 +563,7 @@ class DaystromDMLProvider(MemoryProvider):
         self.sync_turns = bool(self._cfg.get("sync_turns", True))
         self.enable_personality = bool(self._cfg.get("enable_personality", True))
         self.enable_memory = bool(self._cfg.get("enable_memory", True))
-        self.retrieval_policy = str(self._cfg.get("retrieval_policy") or "heuristic").strip().lower().replace("-", "_")
+        self.retrieval_policy = str(self._cfg.get("retrieval_policy") or "always").strip().lower().replace("-", "_")
         self.dcn_requested_mode = self._configured_dcn_mode()
         self.dcn_promotion = self._load_dcn_promotion()
         self.dcn_promotion_gate_reason = self._promotion_gate_reason(self.dcn_promotion)

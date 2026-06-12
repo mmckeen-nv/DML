@@ -143,20 +143,31 @@ def main() -> int:
     assert greeting_observations[0]["would_inject_dml"] is False, greeting_observations
     assert greeting_observations[0]["would_call_retrieve"] is False, greeting_observations
 
-    # Active-read casual turn: DCN chooses bounded DPM overlay only.
+    # Active-read default turn: DML retrieval is enabled by default.
     active_casual = _provider(plugin, mode="active_read")
     active_casual_prefetch = active_casual.prefetch("hello")
     assert "Daystrom Personality Matrix Overlay" in active_casual_prefetch, active_casual_prefetch
-    assert "DML Active Continuity" not in active_casual_prefetch, active_casual_prefetch
+    assert "DML Active Continuity" in active_casual_prefetch, active_casual_prefetch
     assert active_casual.overlay_calls == 1, active_casual.overlay_calls
-    assert active_casual.resume_calls == 0, active_casual.resume_calls
-    assert active_casual.retrieve_calls == 0, active_casual.retrieve_calls
+    assert active_casual.resume_calls == 1, active_casual.resume_calls
+    assert active_casual.retrieve_calls == 1, active_casual.retrieve_calls
     assert active_casual.policy_calls == 1, active_casual.policy_calls
     active_casual_event = active_casual.dcn_observations()[0]
     assert active_casual_event["event"] == "dcn.active_read", active_casual_event
-    assert active_casual_event["decision"] == "overlay_only", active_casual_event
+    assert active_casual_event["decision"] == "retrieve", active_casual_event
     assert active_casual_event["include_dpm"] is True, active_casual_event
-    assert active_casual_event["retrieve_dml"] is False, active_casual_event
+    assert active_casual_event["retrieve_dml"] is True, active_casual_event
+
+    # Explicit heuristic policy preserves the old long-horizon gate when desired.
+    plugin_heuristic = _load_plugin({"retrieval_policy": "heuristic"})
+    heuristic_casual = _provider(plugin_heuristic, mode="active_read")
+    heuristic_prefetch = heuristic_casual.prefetch("hello")
+    assert "Daystrom Personality Matrix Overlay" in heuristic_prefetch, heuristic_prefetch
+    assert "DML Active Continuity" not in heuristic_prefetch, heuristic_prefetch
+    assert heuristic_casual.retrieve_calls == 0, heuristic_casual.retrieve_calls
+    heuristic_event = heuristic_casual.dcn_observations()[0]
+    assert heuristic_event["decision"] == "overlay_only", heuristic_event
+    assert heuristic_event["retrieve_dml"] is False, heuristic_event
 
     # Active-read long-horizon turn: DCN chooses DPM + DML continuity/retrieval.
     active_resume = _provider(plugin, mode="active_read")
@@ -169,16 +180,7 @@ def main() -> int:
     assert active_resume.dcn_observations()[0]["decision"] == "retrieve", active_resume.dcn_observations()
 
 
-    # retrieval_policy overrides the heuristic gate for eager or disabled DML retrieval.
-    plugin_always = _load_plugin({"retrieval_policy": "always"})
-    always_provider = _provider(plugin_always, mode="active_read")
-    always_prefetch = always_provider.prefetch("hello")
-    assert "DML Active Continuity" in always_prefetch, always_prefetch
-    assert always_provider.retrieve_calls == 1, always_provider.retrieve_calls
-    always_event = always_provider.dcn_observations()[0]
-    assert always_event["decision"] == "retrieve", always_event
-    assert "configured_always" in always_event["reason_codes"], always_event
-
+    # retrieval_policy can still explicitly disable DML retrieval.
     plugin_never = _load_plugin({"retrieval_policy": "never"})
     never_provider = _provider(plugin_never, mode="active_read")
     never_prefetch = never_provider.prefetch("resume from the previous task where we left off")
