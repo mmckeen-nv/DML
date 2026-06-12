@@ -563,6 +563,7 @@ class DaystromDMLProvider(MemoryProvider):
         self.sync_turns = bool(self._cfg.get("sync_turns", True))
         self.enable_personality = bool(self._cfg.get("enable_personality", True))
         self.enable_memory = bool(self._cfg.get("enable_memory", True))
+        self.retrieval_policy = str(self._cfg.get("retrieval_policy") or "heuristic").strip().lower().replace("-", "_")
         self.dcn_requested_mode = self._configured_dcn_mode()
         self.dcn_promotion = self._load_dcn_promotion()
         self.dcn_promotion_gate_reason = self._promotion_gate_reason(self.dcn_promotion)
@@ -721,6 +722,10 @@ class DaystromDMLProvider(MemoryProvider):
         )
         if any(term in text for term in contradiction_terms):
             return {"decision": "suppress_overlay", "reason_codes": ["current_turn_contradiction", "suppress_dpm"]}
+        if self.retrieval_policy in {"always", "force", "force_retrieve"}:
+            return {"decision": "retrieve", "reason_codes": ["configured_always", "retrieve_dml"]}
+        if self.retrieval_policy in {"never", "off", "disabled"}:
+            return {"decision": "overlay_only", "reason_codes": ["configured_never", "no_dml_retrieval"]}
         if _should_inject_dml_memory(query):
             return {"decision": "retrieve", "reason_codes": ["long_horizon_or_resume", "retrieve_dml"]}
         return {"decision": "overlay_only", "reason_codes": ["casual_short_turn", "no_dml_retrieval"]}

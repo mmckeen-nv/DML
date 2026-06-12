@@ -130,6 +130,30 @@ class _FakeOllamaEmbedder:
         self._dim = dim
 
 
+
+class TestAdapterConstruction(unittest.TestCase):
+    def test_foreground_adapter_disables_background_and_rag_startup_work(self):
+        calls = []
+
+        class FakeDMLAdapter:
+            def __init__(self, *args, **kwargs):
+                calls.append({"args": args, "kwargs": kwargs})
+
+        original_adapter = mod.DMLAdapter
+        try:
+            mod.DMLAdapter = FakeDMLAdapter
+            adapter = mod._adapter("/tmp/dml-store", None, False)
+        finally:
+            mod.DMLAdapter = original_adapter
+
+        self.assertIsInstance(adapter, FakeDMLAdapter)
+        self.assertEqual(len(calls), 1)
+        kwargs = calls[0]["kwargs"]
+        overrides = kwargs["config_overrides"]
+        self.assertIs(overrides["background_processing_enabled"], False)
+        self.assertIs(overrides["skip_rag_state_import"], True)
+        self.assertIs(kwargs["start_aging_loop"], False)
+
 class TestGpuOnlyBackendProof(unittest.TestCase):
     def test_backend_proof_reports_ollama_embedder_surface(self):
         adapter = types.SimpleNamespace(

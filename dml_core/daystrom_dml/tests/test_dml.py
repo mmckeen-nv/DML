@@ -97,6 +97,30 @@ def test_generation_prompt_keeps_memory_provider_silent(tmp_path):
     assert "Do not mention DML, RAG, retrieved context" in prompt
 
 
+
+def test_adapter_can_skip_legacy_rag_state_import(tmp_path):
+    storage = tmp_path / "storage"
+    storage.mkdir()
+    (storage / "rag_store.json").write_text(
+        json.dumps({"documents": [{"text": "stale foreground RAG document", "meta": {"source": "legacy"}}]}),
+        encoding="utf-8",
+    )
+
+    adapter = DMLAdapter(
+        config_overrides={
+            "model_name": "dummy",
+            "embedding_model": None,
+            "storage_dir": str(storage),
+            "persistence": {"enable": False},
+            "skip_rag_state_import": True,
+        },
+        start_aging_loop=False,
+    )
+    try:
+        assert adapter.rag_store.catalog_summary()["count"] == 0
+    finally:
+        adapter.close()
+
 def test_decay_adjusts_abstraction_level():
     store = make_store(tau_s=0.8)
     embedding = np.ones(8, dtype=np.float32)
