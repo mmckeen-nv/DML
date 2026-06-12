@@ -1185,10 +1185,11 @@ class DMLAdapter:
                             report.get("report_path"),
                         )
                     self.store.import_state(data)
-        with contextlib.suppress(Exception):
-            if self.rag_state_path.exists():
-                data = json.loads(self.rag_state_path.read_text(encoding="utf-8"))
-                self.rag_store.import_state(data)
+        if not bool(self.config.get("skip_rag_state_import", False)):
+            with contextlib.suppress(Exception):
+                if self.rag_state_path.exists():
+                    data = json.loads(self.rag_state_path.read_text(encoding="utf-8"))
+                    self.rag_store.import_state(data)
 
     def _persist_all(self) -> None:
         self._persist_dml_state()

@@ -168,6 +168,27 @@ def main() -> int:
     assert active_resume.retrieve_calls == 1, active_resume.retrieve_calls
     assert active_resume.dcn_observations()[0]["decision"] == "retrieve", active_resume.dcn_observations()
 
+
+    # retrieval_policy overrides the heuristic gate for eager or disabled DML retrieval.
+    plugin_always = _load_plugin({"retrieval_policy": "always"})
+    always_provider = _provider(plugin_always, mode="active_read")
+    always_prefetch = always_provider.prefetch("hello")
+    assert "DML Active Continuity" in always_prefetch, always_prefetch
+    assert always_provider.retrieve_calls == 1, always_provider.retrieve_calls
+    always_event = always_provider.dcn_observations()[0]
+    assert always_event["decision"] == "retrieve", always_event
+    assert "configured_always" in always_event["reason_codes"], always_event
+
+    plugin_never = _load_plugin({"retrieval_policy": "never"})
+    never_provider = _provider(plugin_never, mode="active_read")
+    never_prefetch = never_provider.prefetch("resume from the previous task where we left off")
+    assert "Daystrom Personality Matrix Overlay" in never_prefetch, never_prefetch
+    assert "DML Active Continuity" not in never_prefetch, never_prefetch
+    assert never_provider.retrieve_calls == 0, never_provider.retrieve_calls
+    never_event = never_provider.dcn_observations()[0]
+    assert never_event["decision"] == "overlay_only", never_event
+    assert "configured_never" in never_event["reason_codes"], never_event
+
     # Active-read contradiction: DCN suppresses stale DPM and skips DML.
     active_suppress = _provider(plugin, mode="active_read")
     suppressed = active_suppress.prefetch("Current-turn contradiction: do not use personality overlay for this reply")
