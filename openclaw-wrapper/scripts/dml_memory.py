@@ -1082,12 +1082,6 @@ def _adapter(storage_dir: str, config_path: str | None, require_gpu: bool) -> DM
             "dml.agentic_mode.enabled": True,
             "embedding_device": "cuda" if require_gpu else None,
             "strict_llm_required": False,
-            # Hermes invokes this wrapper for short-lived foreground memory calls.
-            # Do not let adapter startup perform background aging/summarization or
-            # rebuild/import the auxiliary RAG index; those can block on local
-            # Ollama and prevent the actual retrieve/ingest command from running.
-            "background_processing_enabled": False,
-            "skip_rag_state_import": True,
             "dpm": {
                 "enable": dpm_enable,
                 "mode": dpm_mode,
@@ -1097,7 +1091,6 @@ def _adapter(storage_dir: str, config_path: str | None, require_gpu: bool) -> DM
                 "token_budget": int(os.environ.get("DAYSTROM_DPM_TOKEN_BUDGET", "80")),
             },
         },
-        start_aging_loop=False,
     )
     if require_gpu:
         _assert_gpu_only(adapter)

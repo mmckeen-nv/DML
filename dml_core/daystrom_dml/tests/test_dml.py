@@ -98,6 +98,29 @@ def test_generation_prompt_keeps_memory_provider_silent(tmp_path):
 
 
 
+
+def test_adapter_imports_legacy_rag_state_by_default(tmp_path):
+    storage = tmp_path / "storage"
+    storage.mkdir()
+    (storage / "rag_store.json").write_text(
+        json.dumps({"documents": [{"text": "working foreground RAG document", "meta": {"source": "legacy"}}]}),
+        encoding="utf-8",
+    )
+
+    adapter = DMLAdapter(
+        config_overrides={
+            "model_name": "dummy",
+            "embedding_model": None,
+            "storage_dir": str(storage),
+            "persistence": {"enable": False},
+        },
+        start_aging_loop=False,
+    )
+    try:
+        assert adapter.rag_store.catalog_summary()["count"] == 1
+    finally:
+        adapter.close()
+
 def test_adapter_can_skip_legacy_rag_state_import(tmp_path):
     storage = tmp_path / "storage"
     storage.mkdir()
