@@ -108,9 +108,10 @@ def main() -> int:
 
     assert plugin._DCN_MODES == {"disabled", "observe_only", "active_read", "active_learn"}
 
-    # Disabled preserves the legacy DPM + heuristic DML path with no DCN telemetry.
+    # Disabled skips DCN telemetry, but retrieval_policy=always still makes DML
+    # part of ordinary core operations rather than an explicit-recall opt-in.
     disabled = _provider(plugin, mode="disabled")
-    disabled_prefetch = disabled.prefetch("resume from the previous task where we left off")
+    disabled_prefetch = disabled.prefetch("hello")
     assert "Daystrom Personality Matrix Overlay" in disabled_prefetch, disabled_prefetch
     assert "DML Active Continuity" in disabled_prefetch, disabled_prefetch
     assert disabled.resume_calls == 1, disabled.resume_calls
@@ -118,9 +119,18 @@ def main() -> int:
     assert disabled.policy_calls == 0, disabled.policy_calls
     assert disabled.dcn_observations() == [], disabled.dcn_observations()
 
-    # Observe-only records intent but returns byte-identical legacy behavior.
+    # Explicit heuristic policy preserves the old long-horizon gate when desired.
+    plugin_heuristic_disabled = _load_plugin({"retrieval_policy": "heuristic"})
+    disabled_heuristic = _provider(plugin_heuristic_disabled, mode="disabled")
+    disabled_heuristic_prefetch = disabled_heuristic.prefetch("resume from the previous task where we left off")
+    assert "Daystrom Personality Matrix Overlay" in disabled_heuristic_prefetch, disabled_heuristic_prefetch
+    assert "DML Active Continuity" in disabled_heuristic_prefetch, disabled_heuristic_prefetch
+    assert disabled_heuristic.resume_calls == 1, disabled_heuristic.resume_calls
+    assert disabled_heuristic.retrieve_calls == 1, disabled_heuristic.retrieve_calls
+
+    # Observe-only records intent but returns the same core always-retrieve behavior.
     observe = _provider(plugin, mode="observe_only")
-    observe_prefetch = observe.prefetch("resume from the previous task where we left off")
+    observe_prefetch = observe.prefetch("hello")
     assert observe_prefetch == disabled_prefetch, (observe_prefetch, disabled_prefetch)
     assert observe.overlay_calls == 1, observe.overlay_calls
     assert observe.resume_calls == 1, observe.resume_calls
@@ -131,15 +141,15 @@ def main() -> int:
     assert observations[0]["mode"] == "observe_only", observations
     assert observations[0]["would_apply_dpm"] is True, observations
     assert observations[0]["would_inject_dml"] is True, observations
-    assert "resume from the previous task" not in str(observations), observations
+    assert "hello" not in str(observations), observations
 
-    observe_greeting = _provider(plugin, mode="observe_only")
-    greeting_prefetch = observe_greeting.prefetch("hello")
+    observe_heuristic = _provider(plugin_heuristic_disabled, mode="observe_only")
+    greeting_prefetch = observe_heuristic.prefetch("hello")
     assert "Daystrom Personality Matrix Overlay" in greeting_prefetch, greeting_prefetch
     assert "DML Active Continuity" not in greeting_prefetch, greeting_prefetch
-    assert observe_greeting.resume_calls == 0, observe_greeting.resume_calls
-    assert observe_greeting.retrieve_calls == 0, observe_greeting.retrieve_calls
-    greeting_observations = observe_greeting.dcn_observations()
+    assert observe_heuristic.resume_calls == 0, observe_heuristic.resume_calls
+    assert observe_heuristic.retrieve_calls == 0, observe_heuristic.retrieve_calls
+    greeting_observations = observe_heuristic.dcn_observations()
     assert greeting_observations[0]["would_inject_dml"] is False, greeting_observations
     assert greeting_observations[0]["would_call_retrieve"] is False, greeting_observations
 

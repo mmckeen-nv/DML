@@ -649,7 +649,14 @@ class DaystromDMLProvider(MemoryProvider):
         return self.dcn_requested_mode
 
     def is_available(self) -> bool:
-        return self.launcher.exists() and os.access(self.launcher, os.X_OK) and self.store_dir.exists()
+        if not self.launcher.exists() or not self.store_dir.exists():
+            return False
+        if os.access(self.launcher, os.X_OK):
+            return True
+        # Windows launchers such as .cmd/.bat often fail POSIX X_OK checks even
+        # though CreateProcess/cmd.exe can execute them. Treat known script
+        # suffixes as runnable so a valid AEC profile is not silently disabled.
+        return self.launcher.suffix.lower() in {".cmd", ".bat", ".exe", ".ps1"}
 
     def initialize(self, session_id: str, **kwargs) -> None:
         self._session_id = self._shape_session_id(session_id, kwargs)
@@ -698,12 +705,12 @@ class DaystromDMLProvider(MemoryProvider):
         self._dcn_observations.append(event)
         self._dcn_observations = self._dcn_observations[-50:]
 
-    def _dcn_policy_decision(self, query: str) -> Dict[str, Any]:
-        """Return deterministic active-read gates for DPM and DML.
+    def _retrieval_decision(self, query: str) -> Dict[str, Any]:
+        """Return deterministic DML retrieval gates for all runtime modes.
 
-        Phase 9 keeps this in-process and rules-first. The method is small and
-        intentionally overridable in smokes so DCN failure paths are testable
-        without changing plugin globals.
+        `retrieval_policy: always` means DML is part of normal core operations,
+        not only explicit recall/resume prompts and not only active DCN modes.
+        `heuristic` keeps the old explicit-memory gate as an opt-out.
         """
         text = _clean_text(query, 1600).lower()
         if not text:
@@ -729,6 +736,15 @@ class DaystromDMLProvider(MemoryProvider):
         if _should_inject_dml_memory(query):
             return {"decision": "retrieve", "reason_codes": ["long_horizon_or_resume", "retrieve_dml"]}
         return {"decision": "overlay_only", "reason_codes": ["casual_short_turn", "no_dml_retrieval"]}
+
+    def _dcn_policy_decision(self, query: str) -> Dict[str, Any]:
+        """Return deterministic active-read gates for DPM and DML.
+
+        Phase 9 keeps this in-process and rules-first. The method is small and
+        intentionally overridable in smokes so DCN failure paths are testable
+        without changing plugin globals.
+        """
+        return self._retrieval_decision(query)
 
     def _active_read_gates(self, query: str, *, session_id: str) -> Dict[str, Any]:
         try:
@@ -760,7 +776,13 @@ class DaystromDMLProvider(MemoryProvider):
             logger.info("Daystrom DCN active-read: %s", json.dumps(event, sort_keys=True))
             return {"fallback": False, "include_dpm": include_dpm, "retrieve_dml": retrieve_dml, "event": event}
         except Exception as exc:
-            should_inject_memory = _should_inject_dml_memory(query)
+            try:
+                decision = self._retrieval_decision(query)
+                should_inject_memory = str(decision.get("decision") or "") == "retrieve"
+                reason_codes = list(decision.get("reason_codes") or [])
+            except Exception:
+                should_inject_memory = _should_inject_dml_memory(query)
+                reason_codes = ["fallback_heuristic"]
             event = {
                 "event": "dcn.active_read_fallback",
                 "mode": self.dcn_mode,
@@ -772,6 +794,7 @@ class DaystromDMLProvider(MemoryProvider):
                 "session_id": session_id,
                 "include_dpm": bool(self.enable_personality),
                 "retrieve_dml": bool(self.enable_memory and should_inject_memory),
+                "reason_codes": reason_codes,
             }
             self._record_dcn_event(event)
             logger.warning("Daystrom DCN active-read fallback: %s", json.dumps(event, sort_keys=True))
@@ -790,10 +813,13 @@ class DaystromDMLProvider(MemoryProvider):
             include_dpm = bool(gates.get("include_dpm"))
             retrieve_dml = bool(gates.get("retrieve_dml"))
         else:
-            should_inject_memory = _should_inject_dml_memory(query)
-            self._observe_dcn(query, session_id=effective_session, should_inject_memory=should_inject_memory)
-            include_dpm = bool(self.enable_personality)
-            retrieve_dml = bool(self.enable_memory and should_inject_memory)
+            decision = self._retrieval_decision(query)
+            name = str(decision.get("decision") or "").strip().lower()
+            if name not in _DCN_DECISIONS:
+                name = "overlay_only"
+            include_dpm = bool(self.enable_personality and name in {"overlay_only", "retrieve", "legacy"})
+            retrieve_dml = bool(self.enable_memory and name == "retrieve")
+            self._observe_dcn(query, session_id=effective_session, should_inject_memory=retrieve_dml)
         blocks: List[str] = []
         if include_dpm:
             overlay = self._personality_overlay(query)

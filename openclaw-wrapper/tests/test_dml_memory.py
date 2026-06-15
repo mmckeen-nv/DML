@@ -173,14 +173,7 @@ class TestGpuOnlyBackendProof(unittest.TestCase):
         self.assertTrue(report["embedder_ready"])
         self.assertEqual(report["embedding_device_cfg"], "cuda")
 
-    def test_assert_gpu_only_accepts_ollama_embedder_when_cuda_config_is_explicit(self):
-        original_import = __import__
-
-        def fake_import(name, *args, **kwargs):
-            if name == "torch":
-                return types.SimpleNamespace(cuda=types.SimpleNamespace(is_available=lambda: True))
-            return original_import(name, *args, **kwargs)
-
+    def test_assert_gpu_only_accepts_ollama_embedder_without_importing_torch(self):
         adapter = types.SimpleNamespace(
             config={"embedding_model": "ollama:qwen3-embedding:0.6b", "embedding_device": "cuda"},
             embedder=_FakeOllamaEmbedder(),
@@ -189,6 +182,12 @@ class TestGpuOnlyBackendProof(unittest.TestCase):
         )
         import builtins
         builtins_import = builtins.__import__
+
+        def fake_import(name, *args, **kwargs):
+            if name == "torch":
+                raise AssertionError("Ollama-managed GPU path must not require torch/CUDA import")
+            return builtins_import(name, *args, **kwargs)
+
         builtins.__import__ = fake_import
         try:
             mod._assert_gpu_only(adapter)
@@ -196,27 +195,14 @@ class TestGpuOnlyBackendProof(unittest.TestCase):
             builtins.__import__ = builtins_import
 
     def test_assert_gpu_only_rejects_ollama_embedder_without_explicit_cuda_config(self):
-        original_import = __import__
-
-        def fake_import(name, *args, **kwargs):
-            if name == "torch":
-                return types.SimpleNamespace(cuda=types.SimpleNamespace(is_available=lambda: True))
-            return original_import(name, *args, **kwargs)
-
         adapter = types.SimpleNamespace(
             config={"embedding_model": "ollama:qwen3-embedding:0.6b", "embedding_device": "cpu"},
             embedder=_FakeOllamaEmbedder(),
             runner=types.SimpleNamespace(is_dummy=False, _backend=object()),
             storage_dir=Path("/tmp/dml-proof"),
         )
-        import builtins
-        builtins_import = builtins.__import__
-        builtins.__import__ = fake_import
-        try:
-            with self.assertRaises(RuntimeError):
-                mod._assert_gpu_only(adapter)
-        finally:
-            builtins.__import__ = builtins_import
+        with self.assertRaisesRegex(RuntimeError, "embedding_device"):
+            mod._assert_gpu_only(adapter)
 
 
 class TestGroundTruthHardening(unittest.TestCase):
