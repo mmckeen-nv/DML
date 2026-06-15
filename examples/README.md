@@ -11,8 +11,11 @@ This directory contains end-to-end examples and demos built on top of DML.
 - `nim/` – NVIDIA NIM setup notes
 
 ## Quick start (playground)
+
+From the repository root:
+
 ```bash
-./run__dml_playground.sh
+./scripts/run_dml_playground.sh
 ```
 
 Manual run:
