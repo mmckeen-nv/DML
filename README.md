@@ -1,441 +1,432 @@
-# 🧠 Daystrom Memory Lattice (DML)
-*A hierarchical, self-compressing memory substrate for intelligent retrieval and generation pipelines.*
+# Daystrom Memory Lattice (DML)
+
+**DML is a persistent memory and cognition substrate for long-horizon AI systems.**
+
+It gives agents durable recall, semantic compression, active continuity, operator-grade validation, and clean integration points for local or remote inference. DML is designed for the class of assistants that need to carry context across sessions, machines, models, demos, and projects without dragging an ever-growing transcript through every prompt.
+
+> RAG searches a pile of chunks. DML remembers, curates, resumes, and prepares context for action.
 
 ---
 
-## Table of contents
-- [Overview](#overview)
-- [Core concepts](#core-concepts)
-- [System architecture](#system-architecture)
-- [Installation and setup](#installation-and-setup)
-- [Running the stack](#running-the-stack)
-- [Feature reference](#feature-reference)
-- [Configuration guide](#configuration-guide)
-- [Integration cookbook](#integration-cookbook)
-- [Benchmarks and load testing](#benchmarks-and-load-testing)
-- [DML vs traditional RAG](#dml-vs-traditional-rag)
-- [Summary](#summary)
+## Why this matters
+
+Modern agents are powerful, but most of them still live turn-to-turn. They forget decisions, replay huge transcripts, pollute context with tool logs, and force users to say “remember when…” or “use the memory system…” before the agent behaves like a continuing collaborator.
+
+DML changes that operating model.
+
+DML provides:
+
+- **Long-horizon continuity** — durable semantic memory, active handoffs, session resume, tenant/session scoping, and conflict-aware recall.
+- **Hierarchical compression** — memory levels move from verbatim fragments toward increasingly compact summaries and abstractions.
+- **Agent-safe writeback** — structured memory classes, metadata, hygiene filtering, transcript-pollution rejection, and audit trails.
+- **Retrieval that fits the task** — semantic, literal, hybrid, active-continuity, and frontier-prompt preparation surfaces.
+- **Pluggable inference** — Ollama, OpenAI-compatible endpoints, local Transformers, NIM/vLLM-style servers, and custom adapter paths.
+- **Operational proof** — health, verify, report, backup, restore, export/import, recall evals, stress tests, beta readiness gates, and DCN eval smoke probes.
+- **First-class agent integration** — Python adapter, JSON CLI wrapper, provider server, Ollama-compatible clone, MCP server, Hermes memory provider, and OpenClaw-style skills.
+
+DML is the memory layer agents should have had from the start.
 
 ---
 
-## Overview
-The **Daystrom Memory Lattice (DML)** compresses, abstracts, and retrieves large knowledge bases on GPU hardware. It is purpose-built for long-horizon assistants that must *remember*, *reason*, and *explain* instead of simply vector-searching.
+## The Daystrom stack
 
-Key ideas:
-- **Hierarchical memory** – lattice levels L0–Lk range from verbatim fragments to progressively distilled abstractions.
-- **Adaptive routing** – the router can choose semantic, literal, or hybrid retrieval based on the prompt.
-- **Self-maintenance** – salience decay, reinforcement, and summariz ation continuously rebalance the store.
-- **OpenAI-compatible generation** – the lattice can drive NVIDIA NIMs or any OpenAI-compatible endpoint.
-- **Multi-RAG fanout** – a single ingest feeds FAISS, Chroma, and the persistent lattice simultaneously.
+DML is the memory layer, but the repository also contains the surrounding Daystrom control surfaces:
 
----
+| Layer | Role | What it does |
+| --- | --- | --- |
+| **DML — Daystrom Memory Lattice** | Memory substrate | Ingests, embeds, stores, retrieves, summarizes, resumes, verifies, backs up, exports, and curates durable memory. |
+| **DPM — Daystrom Personality Matrix** | Preference/personality overlay | Maintains bounded relationship/project/personality context without turning memories into prompt bloat. |
+| **DCN — Daystrom Cognition Network** | Cognitive control layer | Observes intent, emits cognitive packets, gates retrieval policy, captures feedback, evaluates readiness, and manages safe policy promotion. |
+| **DIP — Daystrom Inference Preparation** | Inference boundary | Prepares compact frontier prompts from scoped memory; the calling harness owns the actual model call and secret handling. |
 
-## Core concepts
-### Memory node
-```
-M_i = (e_i, s_i, f_i, t_i)
-```
-- **eᵢ** – embedding vector
-- **sᵢ** – salience score
-- **fᵢ** – fidelity (quality/confidence)
-- **tᵢ** – timestamp
-
-### Retrieval scoring
-```
-score_i = cos(e_i, q) + η * r_i + γ * s_i + κ * f_i
-```
-- **rᵢ = 1 / (1 + ageᵢ)** captures recency
-- **η, γ, κ** control recency, salience, and fidelity weighting
-
-### Decay and abstraction
-```
-λ* = σ(β_r * r_i − β_a * age_i)
-```
-Older memories gradually lose fidelity and merge into higher-level summaries.
-
-### Token budgeting
-```
-while Σ(tokens(S_i)) < B,  S_i ∈ top_k
-```
-A greedy knapsack packs the highest information-density memories within budget **B**.
+The boundaries are intentional. Memory, personality, cognition, and inference preparation are separate enough to test and govern, but integrated enough for agents to feel continuous.
 
 ---
 
-## System architecture
+## What is in this repository
+
+```text
+dml_core/daystrom_dml/        Core lattice, adapter, server, provider, DPM, DCN, DIP, tests
+openclaw-wrapper/             Stable JSON wrapper contract for agent harnesses
+integrations/hermes/          Hermes/Citizen Snips memory-provider plugin
+skills/                       OpenClaw-style skill and helper scripts
+scripts/                      Utility, benchmark, import, and audit scripts
+dml_mcp/                      MCP server entrypoint
+examples/                     Demos, playgrounds, visualizers, chatbot, benchmark harnesses
+docs/contracts/               Contract schemas and snapshots
+docs/dpm-readonly-packet/     DPM lifecycle/spec packet
+docs/dcn-operator-guide.md    DCN operator modes, gates, feedback, and eval smoke guidance
 ```
-        ┌──────────────┐
-        │ Data Sources │ ← PDFs, code, logs, archives
-        └──────┬───────┘
-               │
-      ┌────────▼────────┐
-      │ Embedding Model │ → GPU accelerated
-      └────────┬────────┘
-               │
-     ┌─────────▼──────────┐
-     │ Memory Lattice     │
-     │  • Decay / Merge   │
-     │  • Summarization   │
-     │  • Persistence     │
-     └────────┬───────────┘
-               │
-      ┌────────▼──────────┐
-      │ Retrieval Router  │ → literal / semantic / hybrid
-      └────────┬──────────┘
-               │
-       ┌───────▼───────┐
-       │  Query Engine │ → OpenAI-compatible LLM / MCP / custom
-       └───────────────┘
-```
+
+Important entrypoints:
+
+- `DMLAdapter` — embed DML directly in Python agents.
+- `openclaw-wrapper/scripts/dml_memory.py` — JSON-first command wrapper for automation.
+- `dml-provider` / `dml serve` — local provider with UI and `/api/*` routes.
+- `dml-ollama` — Ollama-shaped memory clone for tools that expect Ollama APIs.
+- `dml` — Ollama-style client CLI for provider operations.
+- `dml-mcp-server` — MCP integration surface.
+- `integrations/hermes/plugins/daystrom_dml` — Hermes memory provider with DML/DPM/DCN integration.
+- [`AGENT_README_TO_OMNOM.md`](AGENT_README_TO_OMNOM.md) — agent-facing integration playbook and endpoint wizard.
 
 ---
 
-## Installation and setup
-### Requirements
-- Python 3.10+
-- NVIDIA GPU (optional but recommended for embeddings and summarization)
-- CUDA-compatible drivers if running GPU workloads
+## Install
 
-### Install from source
+### Development install
+
 ```bash
-pip install .[server]
+git clone https://github.com/mmckeen-nv/DML.git
+cd DML
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e '.[server,embeddings,faiss,mcp,playground,dev]'
 ```
-Optional extras:
-- `pip install .[embeddings]` – GPU/CPU embedding backends
-- `pip install .[faiss]` – FAISS vector index acceleration
-- `pip install .[multiplex_rag]` – combined FAISS + Chroma fanout
-- `pip install .[playground]` – 3D Streamlit visualiser
-- `pip install .[mcp]` – MCP server adapter
 
-### Repository layout
-- `dml_core/` – core lattice, APIs, adapters, scripts, and tests
-- `dml_mcp/` – MCP server entrypoints for DML/CMA
-- `examples/` – playground, demos, chatbot, benchmarks, visualiser, and NIM notes
-- `integrations/hermes/` – Hermes/Citizen Snips memory-provider plugin and smoke tests
+Minimal install:
 
-### Helper scripts
-- `build_dml_core.sh` – build the CPU/runtime Docker image from `dml_core/Dockerfile`
-- `build_dml_cuda.sh` – build the CUDA image from `dml_core/Dockerfile.cuda`
-- `run__dml_playground.sh` – launch the Streamlit playground with sane defaults
+```bash
+pip install -e .
+```
+
+Useful extras:
+
+| Extra | Adds |
+| --- | --- |
+| `server` | FastAPI/uvicorn provider and HTTP surfaces |
+| `embeddings` | SentenceTransformer embedding backend |
+| `faiss` | FAISS vector store support |
+| `mcp` | MCP server dependencies |
+| `playground` | Streamlit/Plotly visualizer |
+| `dev` | pytest/ruff/mypy test tooling |
+
+### Default runtime posture
+
+The production default is Ollama-native:
+
+```yaml
+llm_backend: ollama
+model_name: llama3:8b
+embedding_model: ollama:qwen3-embedding:0.6b
+embedding_device: null  # Ollama owns placement; set cuda for strict GPU contract checks
+rag_store:
+  enable: true
+  backend: faiss
+  dim: 1024
+persistence:
+  enable: true
+```
+
+SentenceTransformers remain supported for alternate experiments and compatibility, but Ollama-native embeddings/summarization are the clean default for the current Daystrom runtime.
 
 ---
 
-## Running the stack
-### Local execution (uvicorn)
-```bash
-pip install .[server]
-dml-server --host 0.0.0.0 --port 8000
-```
-Use `--reload` during development for hot reloading. The server honours `DML_HOST` and `DML_PORT` when set.
+## Quick start: Python adapter
 
-### Provider mode
-```bash
-pip install .[server,mcp]
-dml serve --storage-dir ./data --host 127.0.0.1 --port 8765
-```
-Provider mode serves a local UI at `http://127.0.0.1:8765`, health at
-`/health`, and DML memory APIs under `/api/*` for recall, remember, resume,
-search, and fetch. DCN operator probes live under `/api/dcn/*`, including the
-read-only offline fixture readiness probe at `/api/dcn/eval/smoke`. It also
-exposes simple Ollama-shaped endpoints: `/api/tags`, `/api/show`,
-`/api/generate`, `/api/chat`, `/api/embed`, `/api/embeddings`, `/api/ps`, and
-`/api/version`.
+```python
+from daystrom_dml.dml_adapter import DMLAdapter
 
-To run it as an Ollama-style memory clone:
+adapter = DMLAdapter(
+    config_overrides={
+        "storage_dir": "./data/dml",
+        "llm_backend": "ollama",
+        "model_name": "llama3:8b",
+        "embedding_model": "ollama:qwen3-embedding:0.6b",
+        "dml.agentic_mode.enabled": True,
+    }
+)
+
+adapter.ingest_agentic(
+    "The launch review found a recurring timeout in the deployment verifier.",
+    kind="observation",
+    meta={"source": "launch-review", "phase": "debug"},
+)
+
+context = adapter.build_preamble("What do we know about deployment verifier timeouts?")
+print(context)
+```
+
+---
+
+## Quick start: provider server
+
 ```bash
-dml-ollama --storage-dir ./data --host 127.0.0.1 --port 11435
+dml-provider --storage-dir ./data/dml --host 127.0.0.1 --port 8765
+```
+
+Health:
+
+```bash
+curl http://127.0.0.1:8765/health
+```
+
+Provider mode serves:
+
+- UI at `http://127.0.0.1:8765`
+- memory APIs under `/api/*`
+- DCN operator probes under `/api/dcn/*`
+- DIP prompt preparation at `/api/frontier/prepare`
+- Ollama-shaped endpoints such as `/api/tags`, `/api/chat`, `/api/embed`, `/api/embeddings`, `/api/ps`, and `/api/version`
+
+Ollama-compatible clone:
+
+```bash
+dml-ollama --storage-dir ./data/dml --host 127.0.0.1 --port 11435
 curl http://127.0.0.1:11435/api/tags
-curl http://127.0.0.1:11435/api/chat -d '{"model":"daystrom-dml:memory","messages":[{"role":"user","content":"current task"}]}'
 ```
 
-Ollama-style client commands:
+Client CLI:
+
 ```bash
 dml status
 dml remember --text "The active branch is provider-hardening." --meta '{"source":"cli"}'
 dml recall --query "active branch" --context-only
 dml search --query "provider"
 dml fetch 1
-dml dcn observe --text "continue the DML work"
+```
+
+---
+
+## Quick start: agent wrapper contract
+
+The stable automation surface is `dml-agent-memory-v1` in `openclaw-wrapper/scripts/dml_memory.py`. It emits JSON and is safe for harnesses to parse.
+
+```bash
+python openclaw-wrapper/scripts/dml_memory.py \
+  --storage-dir ./data/dml \
+  --config-path dml_core/daystrom_dml/config.yaml \
+  --no-require-gpu \
+  health
+```
+
+Ingest:
+
+```bash
+python openclaw-wrapper/scripts/dml_memory.py \
+  --storage-dir ./data/dml \
+  --no-require-gpu \
+  ingest \
+  --kind action \
+  --text "Fixed timeout handling in deployment verifier." \
+  --meta '{"source":"agent","phase":"implementation"}'
+```
+
+Retrieve:
+
+```bash
+python openclaw-wrapper/scripts/dml_memory.py \
+  --storage-dir ./data/dml \
+  --no-require-gpu \
+  retrieve \
+  --query "deployment verifier timeout" \
+  --top-k 6 \
+  --ground-truth-policy low-confidence \
+  --reform-memory
+```
+
+Resume/handoff:
+
+```bash
+python openclaw-wrapper/scripts/dml_memory.py --storage-dir ./data/dml resume --session-id demo-session
+
+python openclaw-wrapper/scripts/dml_memory.py \
+  --storage-dir ./data/dml \
+  handoff \
+  --thread demo-thread \
+  --state "Verifier timeout root cause isolated." \
+  --task "Finish fix and run tests." \
+  --next-action "Patch retry budget and rerun smoke." \
+  --session-id demo-session
+```
+
+See [`openclaw-wrapper/ADAPTER_CONTRACT.md`](openclaw-wrapper/ADAPTER_CONTRACT.md) for the full JSON contract.
+
+---
+
+## Inference endpoint wizard
+
+DML separates **memory** from **model execution**, which means you can swap embedding and summarization/inference endpoints without rewriting the agent.
+
+Use this wizard when setting up a deployment:
+
+### 1. Choose your embedding backend
+
+| Choice | Use when | Config |
+| --- | --- | --- |
+| Ollama local GPU-managed | Best default for private local installs | `embedding_model: ollama:qwen3-embedding:0.6b` |
+| SentenceTransformer local | Offline Python-only experiments | `embedding_model: sentence-transformers/all-MiniLM-L6-v2` |
+| Custom adapter | You own embedding service calls | Implement/route through adapter code |
+
+Ollama example:
+
+```bash
+ollama pull qwen3-embedding:0.6b
+```
+
+```yaml
+embedding_model: ollama:qwen3-embedding:0.6b
+embedding_device: cuda   # strict DML contract; Ollama still owns actual placement
+rag_store:
+  dim: 1024              # keep consistent with your persisted store
+```
+
+SentenceTransformer example:
+
+```yaml
+embedding_model: sentence-transformers/all-MiniLM-L6-v2
+embedding_device: cuda   # or cpu / mps / cuda:0
+rag_store:
+  dim: 384
+```
+
+**Important:** changing embedding dimensions requires a new store or an embedding migration. Do not point a 384-dim index and a 1024/1536-dim model at the same live store without migration.
+
+### 2. Choose summarization / reform backend
+
+| Choice | Use when | Config |
+| --- | --- | --- |
+| Ollama | Local, private, easy default | `llm_backend: ollama`, `model_name: llama3:8b` |
+| OpenAI-compatible | vLLM, LM Studio, OpenAI, Azure, NIM-compatible servers | `DML_API_BASE`, `DML_API_KEY`, `DML_MODEL_NAME` |
+| Transformers | Offline Python model path | `llm_backend: transformers`, `model_name: <hf-model>` |
+
+Ollama example:
+
+```bash
+ollama pull llama3:8b
+```
+
+```yaml
+llm_backend: ollama
+model_name: llama3:8b
+strict_llm_required: true
+```
+
+OpenAI-compatible endpoint example:
+
+```bash
+export DML_API_BASE=http://127.0.0.1:8000/v1
+export DML_API_KEY="***"  # optional; set locally, never commit
+export DML_MODEL_NAME=meta-llama/Llama-3.1-8B-Instruct
+```
+
+```yaml
+llm_backend: openai
+model_name: ${DML_MODEL_NAME}
+```
+
+### 3. Choose storage scope
+
+| Scenario | Recommended storage |
+| --- | --- |
+| Local dev | `./data/dml` |
+| One user, many sessions | one durable store + tenant/session IDs |
+| Demo machine | profile-local store under the agent profile |
+| Multi-tenant service | explicit `tenant_id`, `client_id`, `session_id`, and backup policy |
+
+### 4. Prove it before trusting it
+
+```bash
+python openclaw-wrapper/scripts/dml_memory.py --storage-dir ./data/dml --no-require-gpu health
+python openclaw-wrapper/scripts/dml_memory.py --storage-dir ./data/dml --no-require-gpu backend-proof
+python openclaw-wrapper/scripts/dml_memory.py --storage-dir ./data/dml --no-require-gpu ingest --kind observation --text "DML install probe"
+python openclaw-wrapper/scripts/dml_memory.py --storage-dir ./data/dml --no-require-gpu retrieve --query "DML install probe" --top-k 3
+```
+
+For strict GPU/Ollama-managed installs, omit `--no-require-gpu` after your config is correct:
+
+```bash
+python openclaw-wrapper/scripts/dml_memory.py --storage-dir ./data/dml backend-proof
+```
+
+---
+
+## Hermes / Citizen Snips integration
+
+The Hermes plugin lives in `integrations/hermes/plugins/daystrom_dml/`.
+
+Current posture:
+
+- `memory.provider: daystrom_dml`
+- DPM/personality overlay is bounded and current-turn subordinate.
+- `retrieval_policy: always` makes DML part of normal core operations.
+- `retrieval_policy: heuristic` is the explicit opt-out for older gated behavior.
+- `retrieval_policy: never` disables retrieval while allowing the rest of the provider shape to remain explicit.
+- Writeback hygiene rejects raw transcripts, tool logs, gateway wrappers, DML prompt blocks, and credential-shaped fields.
+- DCN can observe or actively gate retrieval decisions while staying inside governed promotion boundaries.
+
+Focused checks:
+
+```bash
+python integrations/hermes/plugins/daystrom_dml/smoke_hygiene.py
+python integrations/hermes/plugins/daystrom_dml/smoke_dcn.py
+python -m py_compile integrations/hermes/plugins/daystrom_dml/__init__.py
+```
+
+See [`integrations/hermes/README.md`](integrations/hermes/README.md) for profile install notes.
+
+---
+
+## DCN operator surface
+
+DCN is the deterministic control layer around memory policy and cognitive packets. It does not own DML storage, DPM personality state, or frontier inference.
+
+```bash
+dml dcn observe --text "continue the DML work" --session-id abc
 dml dcn packet --text "continue the DML work" --session-id abc
-dml dcn feedback --decision-id ... --outcome verified --signals '{"tests_passed":true}'
+dml dcn feedback --decision-id <decision-id> --outcome verified --signals '{"tests_passed":true}'
 dml dcn audit-tail --limit 20
 dml dcn policy show
 dml dcn policy export --output dcn-policy.json --snapshot-only
 dml dcn policy import --input dcn-policy.json
 dml dcn policy checkpoint --label before-active-learn
-dml dcn policy checkpoints
 dml dcn policy rollback --checkpoint-id <checkpoint-id>
-dml dcn promote --mode active_learn --checkpoint-id <checkpoint-id> --hygiene-evidence '{"passed":true,"artifact_hash":"..."}'
-dml dcn promotions --limit 20
-dml dcn eval-smoke --output dcn-eval-artifact.json --artifact-only  # offline fixture-only readiness artifact
+dml dcn eval-smoke --output dcn-eval-artifact.json --artifact-only
 ```
 
-See [`docs/dcn-operator-guide.md`](docs/dcn-operator-guide.md) for DCN mode
-boundaries, operator commands, policy import/export invariants, the
-`/api/dcn/eval/smoke` readiness gate, and promotion stoplines.
-
-Use `scripts/install_daystrom_dml.sh --profile openclaw` or
-`--profile hermes` for an agent-app-ready local install that creates the venv,
-syncs the skill wrapper, writes a JSON app profile, and prints MCP/UI commands.
-
-### Docker
-```bash
-docker build -f dml_core/Dockerfile -t daystrom-dml .
-docker run --gpus all \
-  -p 8000:8000 \
-  -e DML_PORT=8000 \
-  -v "$(pwd)/data:/opt/dml/data" \
-  daystrom-dml
-```
-Mounting `./data` preserves the lattice and vector indexes across restarts. Provide a custom configuration via `-e DML_CONFIG_PATH=/opt/dml/config.yaml`.
-
-### Docker Compose
-```bash
-docker compose up -d
-```
-The compose stack builds the CUDA image, exposes `8000:8000`, and mounts `./data` into `/opt/dml/data`. Tear down with `docker compose down`.
-
-### GPU and NIM environment hints
-- `NIM_KVCACHE_PERCENT`, `NIM_ENABLE_KV_CACHE_REUSE`, `NIM_ENABLE_KV_CACHE_HOST_OFFLOAD`, and `NIM_KV_CACHE_HOST_MEM_FRACTION` tune NVIDIA NIM memory behaviour.
-- `DML_GPU_ACCELERATION=1` ensures GPU-optimised paths are enabled when available.
-- `DML_EMBEDDING_DEVICE=cuda` (or `cuda:1`, `mps`, etc.) pins the SentenceTransformer embedder to a specific accelerator and skips CPU fallback.
-
-### Streamlit playground
-**Simple mode (zero-config)**
-
-1. Install the playground extra:
-   ```bash
-   pip install .[playground]
-   ```
-2. Launch Streamlit:
-   ```bash
-   PYTHONPATH=. streamlit run examples/playground/playground.py
-   ```
-   Or use the helper script:
-   ```bash
-   ./run__dml_playground.sh
-   ```
-
-The UI boots into **Simple** mode with a CPU-friendly embedder and stores data in `~/.dml/playground` (override via `DML_PLAYGROUND_STORAGE` or `DML_STORAGE_DIR`). Upload snippets, ask a question, and you’re done.
-
-**Advanced mode (GPU + enterprise controls)**
-
-1. Install the GPU-capable extras:
-   ```bash
-   pip install .[playground,embeddings]
-   ```
-2. Pin the embedder to your accelerator before launching Streamlit:
-   ```bash
-   export DML_EMBEDDING_DEVICE=cuda  # or cuda:0 / mps
-   ```
-3. (Optional) Point the lattice at a dedicated storage root:
-   ```bash
-   export DML_STORAGE_DIR=./data/playground
-   ```
-4. Launch the playground:
-   ```bash
-   PYTHONPATH=. streamlit run examples/playground/playground.py
-   ```
-   Or use:
-   ```bash
-   ./run__dml_playground.sh
-   ```
-
-Switch the in-app mode selector to **Advanced** for storage management, manual ingestion, token budgets, and the 3D lattice visualiser. The adapter initialises once, reports the chosen device, and subsequent ingestion/retrieval runs remain on GPU without the tqdm “Batches” spam.
+Read [`docs/dcn-operator-guide.md`](docs/dcn-operator-guide.md) before promoting active-learn behavior.
 
 ---
 
-## Feature reference
-### 1. Memory ingestion
-**CLI:**
-Run the Daystrom CLI as a module (no standalone console script is published yet, e.g. `python -m daystrom_dml.cli --help`).
+## Validation and operations
+
+Core checks:
+
 ```bash
-python -m daystrom_dml.cli ingest "Investigate warp-drive telemetry anomalies."
+python -m pytest openclaw-wrapper/tests/test_dml_memory.py -q
+python -m pytest dml_core/daystrom_dml/tests/test_dml.py -q
+python integrations/hermes/plugins/daystrom_dml/smoke_hygiene.py
+python integrations/hermes/plugins/daystrom_dml/smoke_dcn.py
 ```
-**HTTP API:** `POST /ingest` with JSON `{ "text": "...", "meta": {...} }`.
 
-**Bulk uploads:** `POST /upload` accepts multiple files or zipped archives, extracts supported text (PDF, `.txt`, `.md`, `.py`, etc.), chunks them, and streams each chunk into the lattice while preserving `doc_path` metadata. Unsupported or binary files are skipped gracefully.
+Readiness gates:
 
-### 2. Querying & generation
-- `python -m daystrom_dml.cli query "Why did the telemetry fail?"` returns the DML preamble for inspection.
-- `python -m daystrom_dml.cli run "Summarise the latest warp-drive postmortem."` performs retrieval + generation and reinforces the answer.
-- `POST /query` triggers adaptive retrieval, appends the resulting context to the prompt, sends it to the configured LLM, and emits usage metrics.
+```bash
+python openclaw-wrapper/scripts/recall_eval.py --output-dir /tmp/dml-recall-eval
+python openclaw-wrapper/scripts/stress_harness.py --writes 6 --workers 3 --tenants 2 --sessions 2
+python openclaw-wrapper/scripts/beta_readiness.py --storage-dir ./data/dml --tenant-id openclaw --output-dir /tmp/dml-beta-readiness
+```
 
-Literal versus semantic routing is automatically selected, but can be forced via `mode` on advanced APIs such as `DMLAdapter.query_database()`.
+Store operations:
 
-### 3. Reinforcement learning loop
-- `python -m daystrom_dml.cli reinforce "Drive realignment succeeded after recalibration."`
-- `POST /reinforce` stores summarised outcomes (prompt + answer digest) with slightly higher salience to bias future retrievals.
-- Automatic reinforcement happens after every `/query` or `python -m daystrom_dml.cli run` round-trip.
-
-### 4. Retrieval analytics & knowledge surfaces
-- `POST /rag/retrieve` compares the lattice with each RAG backend, returning context, latency, and token usage per backend.
-- `GET /stats` summarises lattice size, fidelity averages, and distribution across hierarchy levels.
-- `GET /knowledge` produces a combined catalogue (capped to 200 entries) containing lattice summaries and multi-RAG inventory counts.
-
-### 5. Multi-RAG fanout & comparisons
-- Every ingest fans out to FAISS, Chroma, and the disk-backed persistent index (when enabled).
-- `POST /rag/compare` runs: baseline model → DML-augmented model → each RAG backend, then grades their outputs, traces pipeline order, and records token budgets.
-
-### 6. Persistence & checkpoints
-- Background persistence writes JSONL snapshots or full-state dumps (including RAG) on the configured interval.
-- `python -m daystrom_dml.cli checkpoint` forces an immediate checkpoint with retention controls.
-- Storage defaults to `./data` but can be redirected via `storage_dir` or `DML_STORAGE_DIR`.
-
-### 7. Metrics & observability
-- `GET /metrics` exposes Prometheus metrics (ingest counts, retrieval latency histograms, token savings).
-- Token consumption/savings per query are recorded when metrics are enabled.
-- Structured logs ship with request IDs and JSON formatting for easy ingestion.
-
-### 8. Streamlit visualiser
-- `POST /visualizer/launch` launches or connects to the 3D lattice explorer.
-- `/visualizer/state` mirrors the latest prompt for synchronising dashboards.
-- `/visualizer/embed/...` proxies the Streamlit UI through the FastAPI origin for iframe embedding.
-
-### 9. CLI quick reference
-| Command | Description |
-|---------|-------------|
-| `python -m daystrom_dml.cli ingest <text>` | Store a new memory fragment |
-| `python -m daystrom_dml.cli query <prompt>` | Print retrieval preamble |
-| `python -m daystrom_dml.cli run <prompt>` | Retrieve + generate + reinforce |
-| `python -m daystrom_dml.cli reinforce <text>` | Inject outcome summaries |
-| `python -m daystrom_dml.cli stats` | Print lattice statistics |
-| `python -m daystrom_dml.cli checkpoint` | Persist a snapshot immediately |
+```bash
+python openclaw-wrapper/scripts/dml_memory.py --storage-dir ./data/dml health
+python openclaw-wrapper/scripts/dml_memory.py --storage-dir ./data/dml verify
+python openclaw-wrapper/scripts/dml_memory.py --storage-dir ./data/dml backup --label before-maintenance
+python openclaw-wrapper/scripts/dml_memory.py --storage-dir ./data/dml export --output-dir /tmp/dml-exports --label machine-move
+```
 
 ---
 
-## Configuration guide
-The canonical configuration lives at `dml_core/daystrom_dml/config.yaml`. Key sections:
+## Design principles
 
-| Setting | Description |
-|---------|-------------|
-| `model_name` | Default LLM (used locally or for remote OpenAI-compatible calls) |
-| `llm_backend` | LLM backend selector (`auto`, `transformers`, `openai`, `nim`) |
-| `llm_device` / `llm_dtype` | Device + dtype for local Transformers models |
-| `load_in_4bit` / `load_in_8bit` | Optional quantized loading when bitsandbytes is installed |
-| `enable_stm_controller` | Enable structured STM + controller loop |
-| `commitment_threshold` | Minimum confidence for LTM writes |
-| `ltm_write_policy` | LTM write policy (`strict`, `balanced`, `off`) |
-| `stm_max_commitments` / `ltm_top_k` | STM cap and LTM retrieval limits |
-| `embedding_model` | Embedding backend identifier |
-| `token_budget` | Maximum tokens reserved for DML context |
-| `similarity_threshold` | Minimum cosine similarity required for a memory to be eligible for retrieval |
-| `persistence.enable` + `interval_sec` | Enable JSONL checkpoints and set cadence |
-| `rag_store.enable`/`backend` | Persist FAISS index to disk |
-| `literal.max_snippet_tokens` & `max_snippets` | Literal retriever window sizes |
-| `budgets.semantic_pct/literal_pct/free_pct` | Token allocation ratios |
-
-### Environment overrides
-- Any environment variable prefixed with `DML_` overrides configuration keys (`DML_MODEL_NAME`, `DML_STORAGE_DIR`, `DML_BUDGETS_SEMANTIC_PCT`, etc.).
-- Nested keys use underscores: `DML_PERSISTENCE_ENABLE=1`, `DML_LITERAL_MAX_SNIPPET_TOKENS=256`.
-- `.env` and `.env.local` files (current working directory and configuration directory) are loaded automatically.
+1. **Continuity beats transcript replay.** Store compact semantic state and retrieve what matters.
+2. **Memory must be hygienic.** No raw secrets, no tool-log dumps, no role-prefixed transcript sludge.
+3. **Inference is pluggable.** DML prepares and validates context; the deployment chooses the model endpoint.
+4. **Operators need proof.** Every serious path needs health, verify, eval, audit, backup, and restore surfaces.
+5. **Defaults should work.** DML retrieval, persistence, RAG sidecars, background processing, and runtime features are enabled by default unless a constrained path has a specific reason to opt out.
 
 ---
 
-## Integration cookbook
-### Hermes / Citizen Snips memory provider
-The Hermes integration lives in `integrations/hermes/plugins/daystrom_dml/` and
-is versioned as a memory/personality provider rather than an inference route.
-Plugin version `0.2.0` uses a gated context shape:
+## The headline
 
-- normal turns get only the bounded Daystrom Personality Matrix / DPM overlay;
-- explicit rehydration, compaction recovery, memory recall, or long-horizon
-  continuation turns can also receive scoped `Active Continuity` and retrieved
-  semantic memory;
-- writeback and rendering strip transcript residue, gateway/system wrapper notes,
-  tool logs, DPM scaffolding, and credential-like sensitive fields.
-
-This keeps DML as a selective rehydration and long-horizon recall substrate, not
-a rolling transcript injected into every prompt. See
-`integrations/hermes/README.md` for installation notes and focused validation.
-
-### Python client (requests-based)
-```python
-from daystrom_dml import DMLClient
-
-with DMLClient("http://localhost:8000") as client:
-    client.ingest("Warp-drive postmortem: capacitor failure at T+42s", meta={"source": "logs/warp.txt"})
-    answer = client.query("What triggered the capacitor failure?")
-    print(answer["response"])
-```
-Use `client.stats()` and `client.knowledge()` for observability dashboards.
-
-### Embedding the adapter in custom agents
-```python
-from daystrom_dml.dml_adapter import DMLAdapter
-
-adapter = DMLAdapter()
-context = adapter.build_preamble("Summarise warp-drive failure mitigations")
-print(context)
-response = adapter.run_generation("Draft a remediation plan for the next launch window.")
-```
-`run_generation` executes retrieval → LLM call → reinforcement in one step. Use `adapter.query_database(..., mode="literal")` to force literal snippets for structured lookups.
-
-### Transformers backend + structured STM controller
-Enable the optional local Transformers backend and STM/controller loop via config or environment variables:
-```bash
-export DML_LLM_BACKEND=transformers
-export DML_MODEL_NAME=sshleifer/tiny-gpt2
-export DML_ENABLE_STM_CONTROLLER=true
-export DML_LTM_WRITE_POLICY=balanced
-```
-You can also run the demo script:
-```bash
-python -m daystrom_dml.demo_transformers --hf-model sshleifer/tiny-gpt2 --enable-stm
-```
-The controller keeps a structured STM summary, retrieves a small LTM slice, and applies conservative write policies to avoid storing low-confidence guesses.
-
-### NVIDIA NIM control plane
-1. Call `POST /nim/options` to discover curated container images and defaults.
-2. `POST /nim/configure` with `{"nim_id": "llama3-8b", "api_key": "<NGC_TOKEN>"}` to pull the image, update the adapter model, and seed environment variables.
-3. `POST /nim/start` to launch the container (honours `NIM_PORT`, optional cache mounts, and waits for health checks).
-4. Point the UI or your agents at the running DML server—its GPTRunner automatically uses the NIM endpoint via the exported OpenAI-compatible API base.
-5. `POST /nim/stop` gracefully shuts down the managed container.
-
-### OpenAI-compatible endpoints (Ollama, vLLM, LM Studio, Azure, OpenAI, etc.)
-Set the following environment variables before starting `dml-server` or invoking the CLI:
-```bash
-export DML_API_BASE=http://localhost:11434      # Ollama / vLLM / LM Studio
-export DML_API_KEY=your-token-if-required
-export DML_MODEL_NAME=meta/llama3-8b-instruct   # Model identifier understood by the endpoint
-```
-`GPTRunner` detects `DML_API_BASE`, `OPENAI_API_BASE`, or `NIM_API_BASE` automatically and routes completions through the provided endpoint. Token usage metadata is captured when the remote server returns OpenAI-compatible usage objects.
-
-### Custom orchestration
-- Wrap `/rag/compare` in automated evaluations to benchmark retrieval strategies as you iterate on prompt templates.
-- Combine `/upload` with CI artefacts (docs, release notes, logs) to pre-warm the lattice before deployments.
-- Consume `/metrics` from Prometheus/Grafana and `/visualizer/state` from custom dashboards to correlate live prompts with retrieval topology.
-
----
-
-## Benchmarks and load testing
-Run synthetic comparisons against baseline RAG pipelines:
-```bash
-python examples/bench/bench_dml_vs_rag.py --corpus-size 120 --queries 12
-```
-Make targets are provided for convenience:
-- `make bench-small`
-- `make bench-large`
-
-Each run emits CSV reports (latency, token usage, cost projections) under `examples/bench/` for analysis.
-
----
-
-## DML vs traditional RAG
-| Capability | Traditional RAG | Daystrom Memory Lattice |
-|------------|-----------------|-------------------------|
-| Retrieval granularity | Flat top-K chunks | Hierarchical (verbatim → summary → abstraction) |
-| Context optimisation | Fixed, redundant | Dynamic token budgeting |
-| Compression | Minimal | Continuous semantic + vector compression |
-| Decay / reinforcement | Usually absent | Mathematical fidelity decay + reinforcement |
-| Exact lookups | Difficult | Dedicated literal retriever |
-| Compute profile | Linear with corpus size | GPU-accelerated lattice with bounded merges |
-| Output quality | Redundant snippets | Dense, contextual, citation-ready |
-
-> **In short:** RAG *searches*. DML *remembers*.
-
----
-
-## Summary
-**DML = Hierarchical Memory + Semantic Compression + GPU Efficiency.**
-
-Deploy it as a persistent memory layer between your databases and LLMs, orchestrate NVIDIA NIMs or any OpenAI-compatible endpoint, and gain precise observability into what your assistant recalls, summarises, and reinforces over time.
+DML turns memory from an afterthought into infrastructure. It gives agents a durable substrate for recall, continuity, compression, personality overlays, cognitive control, and inference preparation — with the operational surfaces needed to prove that it is working.
