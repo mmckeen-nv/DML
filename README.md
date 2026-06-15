@@ -1,4 +1,4 @@
-# Daystrom Memory Lattice (DML)
+# Daystrom Memory Lattice (DML) --- ALPHA SOFTWARE. Use at your own risk!
 
 **DML is a persistent memory and cognition substrate for long-horizon AI systems.**
 
