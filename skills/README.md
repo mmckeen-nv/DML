@@ -280,7 +280,9 @@ python3 -c "import torch; print(torch.cuda.is_available())"
 
 ## License
 
-DML is proprietary/closed-source. See DML repository for license.
+DML is licensed under the GNU Affero General Public License v3.0 only
+(`AGPL-3.0-only`). Preserve the copyright notice, license notice, and the
+repository `NOTICE` file when copying or modifying it.
 
 ## Contributing
 

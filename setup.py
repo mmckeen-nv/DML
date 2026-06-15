@@ -83,7 +83,7 @@ setup(
     description="Concept Memory Adapter providing lossy associative memory for LLMs",
     author="CMA Authors",
     author_email="cma@example.com",
-    license="MIT",
+    license="AGPL-3.0-only",
     python_requires=">=3.10",
     packages=(
         find_packages(where="dml_core", exclude=["nim*", "tests*", "daystrom_dml.tests*", "examples*"])
