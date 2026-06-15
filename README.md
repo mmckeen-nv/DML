@@ -429,26 +429,27 @@ python openclaw-wrapper/scripts/dml_memory.py --storage-dir ./data/dml export --
 
 ## License
 
-DML is available under the GNU Affero General Public License v3.0.
+DML is available under the **Apache License 2.0**.
 
-The AGPLv3 permits use, study, modification, distribution, technical demonstrations,
-research, nonprofit use, and commercial use, provided the AGPLv3 terms are followed.
+The Apache License 2.0 permits use, study, modification, distribution,
+technical demonstrations, research, nonprofit use, and commercial use,
+provided the license terms are followed.
 
-You must preserve the copyright notice, license notice, and NOTICE file, including
-attribution to Mark Mckeen.
+You must preserve the copyright notice, license notice, and NOTICE file in
+redistributions that include a NOTICE file, including attribution to Mark Mckeen.
 
-Organizations that want to use DML without AGPLv3 obligations, including proprietary
-distribution or hosted use without source-sharing obligations, may contact the copyright
-holder to arrange separate commercial or alternative licensing.
+Apache 2.0 is permissive: it does not impose copyleft or network-service
+source-sharing obligations. Organizations that want separate written commercial
+or alternative licensing terms may contact the copyright holder.
 
 See [`LICENSE`](LICENSE) and [`NOTICE`](NOTICE).
 
-Attribution
+### Attribution
 
-Daystrom Memory Lattice (DML) was created by Mark Mckeen.
-Any copy, substantial portion, distribution, modified version, or hosted/network
-service based on DML must preserve this NOTICE file and the copyright/license
-notices included with the project.
+Daystrom Memory Lattice (DML) was created by Mark Mckeen. Redistributed copies
+or substantial portions of DML should preserve this NOTICE file and the
+copyright/license notices included with the project.
+
 ---
 
 ## The headline

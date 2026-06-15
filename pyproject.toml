@@ -40,7 +40,7 @@ version = "0.1.0"
 description = "Concept Memory Adapter providing lossy associative memory for LLMs"
 readme = "README.md"
 authors = [{name="CMA Authors", email="cma@example.com"}]
-license = {text = "AGPL-3.0-only"}
+license = {text = "Apache-2.0"}
 requires-python = ">=3.10"
 dependencies = [
     "typer>=0.9",
