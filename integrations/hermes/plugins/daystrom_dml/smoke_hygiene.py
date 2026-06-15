@@ -133,17 +133,26 @@ def main() -> int:
     fake = FakeProvider()
     normal_prefetch = fake.prefetch("hello")
     assert "Daystrom Personality Matrix Overlay" in normal_prefetch, normal_prefetch
-    assert "DML Active Continuity" not in normal_prefetch, normal_prefetch
-    assert "DML Retrieved Memory" not in normal_prefetch, normal_prefetch
-    assert fake.resume_calls == 0, fake.resume_calls
-    assert fake.retrieve_calls == 0, fake.retrieve_calls
+    assert "DML Active Continuity" in normal_prefetch, normal_prefetch
+    assert "DML Retrieved Memory" in normal_prefetch, normal_prefetch
+    assert fake.resume_calls == 1, fake.resume_calls
+    assert fake.retrieve_calls == 1, fake.retrieve_calls
+
+    heuristic_fake = FakeProvider()
+    heuristic_fake.retrieval_policy = "heuristic"
+    heuristic_prefetch = heuristic_fake.prefetch("hello")
+    assert "Daystrom Personality Matrix Overlay" in heuristic_prefetch, heuristic_prefetch
+    assert "DML Active Continuity" not in heuristic_prefetch, heuristic_prefetch
+    assert "DML Retrieved Memory" not in heuristic_prefetch, heuristic_prefetch
+    assert heuristic_fake.resume_calls == 0, heuristic_fake.resume_calls
+    assert heuristic_fake.retrieve_calls == 0, heuristic_fake.retrieve_calls
 
     explicit_prefetch = fake.prefetch("rehydrate context after compaction")
     assert "Daystrom Personality Matrix Overlay" in explicit_prefetch, explicit_prefetch
     assert "DML Active Continuity" in explicit_prefetch, explicit_prefetch
     assert "DML Retrieved Memory" in explicit_prefetch, explicit_prefetch
-    assert fake.resume_calls == 1, fake.resume_calls
-    assert fake.retrieve_calls == 1, fake.retrieve_calls
+    assert fake.resume_calls == 2, fake.resume_calls
+    assert fake.retrieve_calls == 2, fake.retrieve_calls
 
     handoff = plugin._handoff_fragment(
         "assistant",

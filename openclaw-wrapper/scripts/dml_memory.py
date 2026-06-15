@@ -184,14 +184,6 @@ def _backend_proof(adapter: DMLAdapter) -> dict:
 
 
 def _assert_gpu_only(adapter: DMLAdapter) -> None:
-    try:
-        import torch  # type: ignore
-    except Exception as exc:  # pragma: no cover
-        raise RuntimeError("GPU-only mode requires torch with CUDA support") from exc
-
-    if not torch.cuda.is_available():
-        raise RuntimeError("GPU-only mode enabled, but CUDA is not available")
-
     backend = _backend_proof(adapter)
     if backend.get("embedder_backend") == "ollama":
         if not backend.get("embedder_ready"):
@@ -200,7 +192,21 @@ def _assert_gpu_only(adapter: DMLAdapter) -> None:
             raise RuntimeError(
                 f"GPU-only Ollama mode requires embedding_device config to stay explicit as cuda, got: {backend.get('embedding_device_cfg') or 'unknown'}"
             )
+        # Ollama owns device placement for ollama:* embedding models. Hosts such
+        # as macOS may have no torch/CUDA package in the DML venv while Ollama
+        # still runs the embedding model on GPU/Metal. Keep the DML-side contract
+        # strict (Ollama embedder + explicit embedding_device: cuda) without
+        # requiring a local torch CUDA probe that cannot represent Ollama-managed
+        # accelerators.
         return
+
+    try:
+        import torch  # type: ignore
+    except Exception as exc:  # pragma: no cover
+        raise RuntimeError("GPU-only mode requires torch with CUDA support") from exc
+
+    if not torch.cuda.is_available():
+        raise RuntimeError("GPU-only mode enabled, but CUDA is not available")
 
     if not backend.get("embedder_ready"):
         raise RuntimeError("GPU-only mode requires SentenceTransformer embedder (fallback embedder detected)")
