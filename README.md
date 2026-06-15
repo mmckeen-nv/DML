@@ -443,6 +443,12 @@ holder to arrange separate commercial or alternative licensing.
 
 See [`LICENSE`](LICENSE) and [`NOTICE`](NOTICE).
 
+Attribution
+
+Daystrom Memory Lattice (DML) was created by Mark Mckeen.
+Any copy, substantial portion, distribution, modified version, or hosted/network
+service based on DML must preserve this NOTICE file and the copyright/license
+notices included with the project.
 ---
 
 ## The headline
