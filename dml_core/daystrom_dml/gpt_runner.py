@@ -163,19 +163,36 @@ class GPTRunner:
             text, usage = self._backend.generate(
                 (
                     "Summarise the following content in at most "
-                    f"{max_len} characters.\n{text}"
+                    f"{max_len} characters. Return only the summary text; "
+                    "do not preface it with phrases like 'Here is a summary'.\n"
+                    f"{text}"
                 ),
                 max_new_tokens=max_len,
-                system_prompt="You are a precise summariser that responds with plain text.",
+                system_prompt="You are a precise summariser that responds with plain text only.",
             )
             self._last_usage = usage
-            return text.strip()
+            return self._clean_summary_output(text, max_len=max_len)
         prompt = (
             "Summarise the following content in at most"
-            f" {max_len} characters:\n{text}\nSummary:"
+            f" {max_len} characters. Return only the summary text; do not "
+            f"preface it with phrases like 'Here is a summary'.\n{text}\nSummary:"
         )
         output = self.generate(prompt, max_new_tokens=max_len)
-        return output.split("Summary:")[-1].strip()
+        return self._clean_summary_output(output.split("Summary:")[-1], max_len=max_len)
+
+    @staticmethod
+    def _clean_summary_output(text: str, *, max_len: int) -> str:
+        cleaned = (text or "").strip()
+        cleaned = re.sub(
+            r"(?is)^\s*(?:here is|here's|the content appears to be).*?(?:less|summary)\s*:\s*",
+            "",
+            cleaned,
+        ).strip()
+        if len(cleaned) >= 2 and cleaned[0] == cleaned[-1] and cleaned[0] in {'\"', "'"}:
+            cleaned = cleaned[1:-1].strip()
+        if len(cleaned) > max_len:
+            cleaned = cleaned[: max_len - 3].rstrip() + "..."
+        return cleaned
 
     @property
     def is_dummy(self) -> bool:

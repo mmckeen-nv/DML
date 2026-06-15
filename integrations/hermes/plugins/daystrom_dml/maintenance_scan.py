@@ -29,6 +29,9 @@ PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("repeated_role_prefix", re.compile(r"\b(?:user|assistant):\s*\|?\s*(?:user|assistant):", re.IGNORECASE)),
     ("tool_output_boilerplate", re.compile(r"\b(?:chunk id:|wall time:|process exited|original token count|functions\.exec_command|apply_patch)\b", re.IGNORECASE)),
     ("assistant_scaffolding", re.compile(r"^(?:i(?:'|’)ll|let me|checking|reading|inspecting)\b", re.IGNORECASE | re.MULTILINE)),
+    ("system_memory_wrapper", re.compile(r"\b(?:System note: The following is recalled memory context|Internal memory context:|authoritative reference data|persistent memory and should inform all responses)\b", re.IGNORECASE)),
+    ("recent_channel_prelude", re.compile(r"\[(?:Recent channel messages|New message)\]", re.IGNORECASE)),
+    ("summary_instruction_preface", re.compile(r"\bHere is a summary\b|\b(?:tokens|characters) or less\b", re.IGNORECASE)),
 )
 SENSITIVE_RE = re.compile(r"(?i)\b(api[_-]?key|token|secret|password|authorization|bearer)\b\s*[:=]\s*\S+")
 

@@ -82,16 +82,20 @@ LATTICE_NODE_SPACING = 7.0
 
 def _lattice_meta(item: MemoryItem) -> Dict:
     meta = item.meta or {}
-    if meta.get("synthetic_lattice") != "square":
-        return {}
     try:
-        return {
-            "row": int(meta["lattice_row"]),
-            "col": int(meta["lattice_col"]),
-            "size": int(meta.get("lattice_size") or 0),
-        }
+        row = int(meta["lattice_row"])
+        col = int(meta["lattice_col"])
     except (KeyError, TypeError, ValueError):
         return {}
+    try:
+        layer = int(meta.get("lattice_layer", meta.get("layer", item.level)))
+    except (TypeError, ValueError):
+        layer = int(item.level)
+    try:
+        size = int(meta.get("lattice_size") or meta.get("lattice_size_hint") or 0)
+    except (TypeError, ValueError):
+        size = 0
+    return {"row": row, "col": col, "layer": max(0, layer), "size": size}
 
 
 def _compute_layout(items: Iterable[MemoryItem]) -> Dict[int, Tuple[float, float, float]]:
@@ -197,7 +201,7 @@ def _compute_square_lattice_layout(items: List[MemoryItem]) -> Dict[int, Tuple[f
         layout[item.id] = (
             x_offset + col * LATTICE_NODE_SPACING,
             y_offset - row * LATTICE_NODE_SPACING,
-            -int(item.level) * LAYOUT_LEVEL_HEIGHT,
+            -int(meta.get("layer", item.level)) * LAYOUT_LEVEL_HEIGHT,
         )
 
     spillover_x = (max_col + 2) * LATTICE_NODE_SPACING

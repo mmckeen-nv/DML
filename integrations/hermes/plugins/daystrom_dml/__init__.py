@@ -95,6 +95,7 @@ _TRANSCRIPT_RESIDUE_RE = re.compile(
 )
 _SYSTEM_WRAPPER_RE = re.compile(
     r"(?:\[System note:|"
+    r"\[Internal memory context:|"
     r"Your previous turn in this session was interrupted by a gateway shutdown|"
     r"The conversation history below is intact|"
     r"unfinished tool result|"
@@ -178,10 +179,21 @@ def _strip_system_wrapper_notes(value: str) -> str:
     return "\n".join(kept)
 
 
+def _strip_recent_channel_context(value: str) -> str:
+    """Keep only the current gateway message when a Recent channel messages prelude is present."""
+
+    text = value or ""
+    match = re.search(r"(?is)\[New message\]\s*(.*)$", text)
+    if match:
+        return match.group(1)
+    return text
+
+
 def _strip_injected_context(value: str) -> str:
     """Remove API-time memory injection from text before writing DML handoffs."""
-    text = _strip_system_wrapper_notes(value or "")
+    text = _strip_recent_channel_context(value or "")
     text = _MEMORY_CONTEXT_RE.sub(" ", text)
+    text = _strip_system_wrapper_notes(text)
     text = _DAYSTROM_BLOCK_RE.sub(" ", text)
     text = _ANY_ROLE_PREFIX_RE.sub("", text)
     return text

@@ -20,6 +20,7 @@ from daystrom_dml.dml_adapter import (
     KNOWLEDGE_MAX_ENTRIES,
 )
 from daystrom_dml.embeddings import RandomEmbedder
+from daystrom_dml.gpt_runner import GPTRunner
 from daystrom_dml.memory_store import MemoryStore
 from daystrom_dml.summarizer import DummySummarizer
 
@@ -167,6 +168,78 @@ def test_merging_stabilises_memory_count():
     assert len(store.items()) == 1
     item = store.items()[0]
     assert item.meta.get("merges", 0) >= 1
+
+
+def test_ingest_assigns_first_class_lattice_metadata():
+    store = make_store(theta_merge=2.0)
+    vectors = [
+        np.array([1.0, 0.0, 0.0, 0.0], dtype=np.float32),
+        np.array([0.9, 0.1, 0.0, 0.0], dtype=np.float32),
+        np.array([0.0, 1.0, 0.0, 0.0], dtype=np.float32),
+    ]
+
+    for idx, vec in enumerate(vectors):
+        store.ingest(f"Durable memory {idx}", vec, salience=0.5)
+
+    items = store.items()
+    assert len(items) == 3
+    metas = [item.meta or {} for item in items]
+    assert all(meta.get("lattice_policy") == "semantic-topic-time-v1" for meta in metas)
+    assert all(isinstance(meta.get("lattice_row"), int) for meta in metas)
+    assert all(isinstance(meta.get("lattice_col"), int) for meta in metas)
+    assert all(isinstance(meta.get("lattice_layer"), int) for meta in metas)
+    assert any(meta.get("lattice_neighbors") for meta in metas)
+
+
+def test_import_repairs_legacy_items_with_missing_lattice_metadata():
+    store = make_store(theta_merge=2.0)
+    payload = {
+        "items": [
+            {
+                "id": 0,
+                "text": "Legacy A",
+                "timestamp": 1.0,
+                "salience": 0.5,
+                "fidelity": 1.0,
+                "level": 1,
+                "meta": {},
+                "summary_of": [0],
+                "embedding": [1.0, 0.0, 0.0, 0.0],
+            },
+            {
+                "id": 1,
+                "text": "Legacy B",
+                "timestamp": 2.0,
+                "salience": 0.5,
+                "fidelity": 1.0,
+                "level": 2,
+                "meta": {},
+                "summary_of": [1],
+                "embedding": [0.9, 0.1, 0.0, 0.0],
+            },
+        ]
+    }
+
+    store.import_state(payload)
+
+    items = store.items()
+    metas = [item.meta or {} for item in items]
+    assert all(meta.get("lattice_policy") == "semantic-topic-time-v1" for meta in metas)
+    assert all("lattice_row" in meta and "lattice_col" in meta for meta in metas)
+    assert {meta.get("lattice_layer") for meta in metas} == {1, 2}
+    assert any(meta.get("lattice_neighbors") for meta in metas)
+
+
+def test_gpt_runner_summary_strips_instruction_preface() -> None:
+    noisy = (
+        "Here is a summary of the content in 256 characters or less:\n\n"
+        '"Maintain Citizen Snips continuity using compact DML state."'
+    )
+
+    assert (
+        GPTRunner._clean_summary_output(noisy, max_len=256)
+        == "Maintain Citizen Snips continuity using compact DML state."
+    )
 
 
 def test_adapter_merge_preserves_incoming_conflict_metadata(tmp_path) -> None:

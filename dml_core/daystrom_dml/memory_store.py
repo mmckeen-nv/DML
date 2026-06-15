@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import math
 import random
 import threading
 import time
@@ -17,6 +18,7 @@ from .summarizer import Summarizer
 
 
 LOGGER = logging.getLogger(__name__)
+LATTICE_PLACEMENT_POLICY = "semantic-topic-time-v1"
 
 
 @dataclass
@@ -174,6 +176,7 @@ class MemoryStore:
             )
             self._cache_summary(item, text)
             item.summary_of = [item.id]
+            self._assign_lattice_placement(item)
             self._register_lineage(item)
             self._items.append(item)
             self._invalidate_embedding_cache()
@@ -318,6 +321,7 @@ class MemoryStore:
         with self._lock:
             self._items = reconstructed
             self._lineage = lineage_map
+            self._ensure_lattice_integrity()
             self._invalidate_embedding_cache()
             if self._items:
                 self._id = max(item.id for item in self._items) + 1
@@ -365,6 +369,111 @@ class MemoryStore:
         value = self._id
         self._id += 1
         return value
+
+    def _is_int_like(self, value: Any) -> bool:
+        try:
+            int(value)
+            return True
+        except (TypeError, ValueError):
+            return False
+
+    def _has_lattice_placement(self, item: MemoryItem) -> bool:
+        meta = item.meta or {}
+        return all(
+            self._is_int_like(meta.get(key))
+            for key in ("lattice_row", "lattice_col", "lattice_layer")
+        )
+
+    def _grid_width(self, count: Optional[int] = None) -> int:
+        item_count = len(self._items) if count is None else max(0, int(count))
+        return max(6, int(math.ceil(math.sqrt(max(1, item_count + 1)))))
+
+    def _semantic_neighbors(self, item: MemoryItem, *, limit: int = 4) -> List[MemoryItem]:
+        candidates = self._filter_dimension_compatible(self._items, self._embedding_dim(item.embedding))
+        if not candidates:
+            return []
+        backend = self._vector_backend
+        matrix = np.stack([candidate.embedding for candidate in candidates]).astype(np.float32)
+        similarities = backend.cosine_sim_matrix(np.asarray(item.embedding, dtype=np.float32), matrix)[0]
+        ordered = sorted(
+            zip(candidates, similarities),
+            key=lambda row: float(row[1]),
+            reverse=True,
+        )
+        return [candidate for candidate, _ in ordered[: max(0, limit)]]
+
+    def _assign_lattice_placement(self, item: MemoryItem) -> None:
+        """Attach first-class lattice coordinates and neighbor edges to a memory."""
+
+        item.meta = dict(item.meta or {})
+        meta = item.meta
+        neighbors = self._semantic_neighbors(item)
+        neighbor_ids = [neighbor.id for neighbor in neighbors if neighbor.id != item.id]
+        width = self._grid_width(len(self._items))
+
+        if not self._has_lattice_placement(item):
+            if neighbor_ids:
+                rows = [
+                    int((neighbor.meta or {}).get("lattice_row") or 0)
+                    for neighbor in neighbors
+                ]
+                cols = [
+                    int((neighbor.meta or {}).get("lattice_col") or 0)
+                    for neighbor in neighbors
+                ]
+                offsets = ((0, 1), (1, 0), (0, -1), (-1, 0), (1, 1), (1, -1), (-1, 1), (-1, -1))
+                d_row, d_col = offsets[item.id % len(offsets)]
+                row = max(0, int(round(sum(rows) / len(rows))) + d_row)
+                col = max(0, int(round(sum(cols) / len(cols))) + d_col)
+            else:
+                index = len(self._items)
+                row = index // width
+                col = index % width
+            meta["lattice_row"] = int(row)
+            meta["lattice_col"] = int(col)
+
+        explicit_layer = meta.get("lattice_layer", meta.get("layer", meta.get("level")))
+        try:
+            layer = int(explicit_layer)
+        except (TypeError, ValueError):
+            layer = int(item.level)
+        meta["lattice_layer"] = max(0, layer)
+        meta.setdefault("lattice_id", "default")
+        meta["lattice_policy"] = LATTICE_PLACEMENT_POLICY
+        meta["lattice_index"] = int(item.id)
+        meta["lattice_size_hint"] = int(width)
+        existing = [int(value) for value in meta.get("lattice_neighbors") or [] if self._is_int_like(value)]
+        merged = []
+        for value in [*existing, *neighbor_ids]:
+            if value != item.id and value not in merged:
+                merged.append(value)
+        meta["lattice_neighbors"] = merged[:8]
+        meta["lattice_degree"] = len(meta["lattice_neighbors"])
+
+        for neighbor in neighbors:
+            neighbor.meta = dict(neighbor.meta or {})
+            neighbor_meta = neighbor.meta
+            if not self._has_lattice_placement(neighbor):
+                try:
+                    index = self._items.index(neighbor)
+                except ValueError:
+                    index = int(neighbor.id)
+                neighbor_meta.setdefault("lattice_row", int(index // width))
+                neighbor_meta.setdefault("lattice_col", int(index % width))
+                neighbor_meta.setdefault("lattice_layer", max(0, int(neighbor.level)))
+            links = [int(value) for value in neighbor_meta.get("lattice_neighbors") or [] if self._is_int_like(value)]
+            if item.id not in links:
+                links.append(item.id)
+            neighbor_meta["lattice_neighbors"] = [value for value in links if value != neighbor.id][:8]
+            neighbor_meta["lattice_degree"] = len(neighbor_meta["lattice_neighbors"])
+            neighbor_meta.setdefault("lattice_policy", LATTICE_PLACEMENT_POLICY)
+
+    def _ensure_lattice_integrity(self) -> None:
+        """Repair loaded legacy stores so every active item has lattice metadata."""
+
+        for item in list(self._items):
+            if not self._has_lattice_placement(item) or not (item.meta or {}).get("lattice_neighbors"):
+                self._assign_lattice_placement(item)
 
     def _embedding_dim(self, embedding: np.ndarray) -> int:
         try:
@@ -488,6 +597,7 @@ class MemoryStore:
             )
             self._cache_summary(child, text)
             child.summary_of = [child.id]
+            self._assign_lattice_placement(child)
             self._register_lineage(child)
             for child_id in child.summary_of:
                 if child_id not in best.summary_of:
@@ -566,6 +676,7 @@ class MemoryStore:
                     meta={"abstracted_from": item.id, "summary": summary_text},
                     summary_of=list({item.id, *item.summary_of}),
                 )
+                self._assign_lattice_placement(new_item)
                 self._register_lineage(new_item)
                 item.meta.setdefault("abstracted", True)
                 item.meta.setdefault("summary", self._generate_summary(item.text, max_len=256))
