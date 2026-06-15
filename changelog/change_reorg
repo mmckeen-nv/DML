@@ -8,6 +8,6 @@ Summary:
 - Added helper scripts for building core/CUDA images and running the playground.
 
 Notes for maintainers:
-- Use ./build_dml_core.sh or ./build_dml_cuda.sh for container builds.
-- Run the playground with ./run__dml_playground.sh (sets PYTHONPATH + storage).
+- Use ./scripts/build_dml_core.sh or ./scripts/build_dml_cuda.sh for container builds.
+- Run the playground with ./scripts/run_dml_playground.sh (sets PYTHONPATH + storage).
 - If you change module locations again, update pyproject.toml package list and Docker COPY paths.

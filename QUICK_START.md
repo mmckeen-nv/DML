@@ -85,7 +85,7 @@ with DMLAdapter(...) as adapter:
 ```bash
 cd /home/nvidia/.openclaw/workspace/DML
 source venv/bin/activate
-python test_dml_ready.py
+python -m pytest openclaw-wrapper/tests/test_dml_memory.py -q
 ```
 
 ### Run All Tests
