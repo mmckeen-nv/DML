@@ -191,9 +191,6 @@ The durable production default is:
 ## 📝 Documentation
 
 - `TEST_PLAN.md` - Comprehensive test plan
-- `GPU_CONFIG.md` - GPU setup guide
-- `BENCHMARK.md` - Performance metrics
-- `DEPLOYMENT_STATUS.md` - Deployment status
 
 ## 🚀 Ready to Run
 
