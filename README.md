@@ -429,16 +429,17 @@ python openclaw-wrapper/scripts/dml_memory.py --storage-dir ./data/dml export --
 
 ## License
 
-DML is licensed under the **GNU Affero General Public License v3.0 only (AGPL-3.0-only)**.
+DML is available under the GNU Affero General Public License v3.0.
 
-What that means in practical terms:
+The AGPLv3 permits use, study, modification, distribution, technical demonstrations,
+research, nonprofit use, and commercial use, provided the AGPLv3 terms are followed.
 
-- You may use, study, modify, and share DML under the AGPLv3 terms.
-- You must preserve Mark Mckeen's copyright notice, the license notice, and the repository `NOTICE` file.
-- Modified versions that are distributed must remain under the AGPLv3.
-- If you run a modified DML as a network service, users of that service must be able to receive the corresponding source code.
+You must preserve the copyright notice, license notice, and NOTICE file, including
+attribution to Mark Mckeen.
 
-Commercial or alternative licensing can be arranged separately with the copyright holder.
+Organizations that want to use DML without AGPLv3 obligations, including proprietary
+distribution or hosted use without source-sharing obligations, may contact the copyright
+holder to arrange separate commercial or alternative licensing.
 
 See [`LICENSE`](LICENSE) and [`NOTICE`](NOTICE).
 
