@@ -465,7 +465,7 @@ def create_app(
     @app.post("/api/show")
     def ollama_show(payload: dict[str, Any] | None = None) -> dict[str, Any]:
         return {
-            "license": "MIT",
+            "license": "AGPL-3.0-only",
             "modelfile": "FROM daystrom-dml:memory",
             "parameters": "memory_provider true",
             "template": "{{ .Prompt }}",
