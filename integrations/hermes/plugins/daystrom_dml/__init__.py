@@ -121,6 +121,15 @@ _PERSONALITY_OVERLAY_RE = re.compile(
 _SUMMARY_PREFACE_RE = re.compile(
     r"(?is)^\s*(?:here\s+is\s+a\s+summary(?:\s+of\s+the\s+content)?(?:\s+in\s+\d+\s+(?:tokens?|characters?)\s+or\s+less)?\s*:?|summary\s*:)\s*",
 )
+_SUMMARY_PROMPT_RESIDUE_RE = re.compile(
+    r"(?:"
+    r"\b(?:please|go ahead and|kindly)\s+(?:provide|paste|share)\b.{0,120}\b(?:text|content|original text)\b|"
+    r"\bi['’]?m\s+(?:ready|waiting)\b.{0,120}\b(?:summari[sz]e|condense)\b|"
+    r"\b(?:summari[sz]e|condense)\b.{0,80}\b(?:256|characters?\s+or\s+less|character\s+limit)\b|"
+    r"\bthere\s+is\s+no\s+content\s+provided\b"
+    r")",
+    re.IGNORECASE,
+)
 _MEMORY_REHYDRATION_RE = re.compile(
     r"(?:"
     r"\bre[- ]?hydrat(?:e|ion)\b|"
@@ -252,6 +261,8 @@ def _semantic_value(value: str, *, limit: int = 220) -> str:
         return ""
     text = _strip_summary_preface(_strip_dialogue_noise(value))
     if not text or _LOG_STATUS_RE.search(text) or _TOOL_EXHAUST_RE.search(text):
+        return ""
+    if _SUMMARY_PROMPT_RESIDUE_RE.search(text):
         return ""
     text = re.split(r"```|<tool output>|Gateway received SIGTERM:?", text, maxsplit=1, flags=re.IGNORECASE)[0]
     text = _fit_sentence_boundary(text.strip(" -;|"), limit)
