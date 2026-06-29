@@ -8,12 +8,11 @@ DML now supports **agentic mode** - an adaptive memory substrate for intelligent
 
 ```yaml
 # In your config.yaml
-dml:
-  agentic_mode:
-    enabled: true
-    router:
-      enabled: true
-      log_level: info
+agentic_mode:
+  enabled: true
+router:
+  enabled: true
+  log_level: info
 ```
 
 ### Use in Code
@@ -24,8 +23,8 @@ from daystrom_dml.dml_adapter import DMLAdapter
 # Initialize with agentic mode enabled
 adapter = DMLAdapter(
     config_overrides={
-        "dml.agentic_mode.enabled": True,
-        "dml.router.enabled": True,
+        "agentic_mode": {"enabled": True},
+        "router": {"enabled": True},
     }
 )
 
@@ -58,14 +57,17 @@ report = adapter.retrieve_context(
 ### Agentic Mode Settings
 
 ```yaml
-dml:
-  agentic_mode:
-    enabled: false                    # Enable agentic mode
-    router:
-      enabled: false                   # Enable policy router
-      profile: null                    # Force specific profile (debugging)
-      log_level: info                  # Router log level
+agentic_mode:
+  enabled: false                    # Enable agentic mode
+router:
+  enabled: true                     # Enable policy router; defaults on when agentic_mode is on
+  profile: null                     # Force specific profile (debugging)
+  log_level: info                   # Router log level
 ```
+
+Compatibility note: current DML also accepts legacy flat override keys such as
+`"dml.agentic_mode.enabled"` and the older documented `dml: agentic_mode:` YAML
+shape. Prefer the top-level nested form above for portable harness profiles.
 
 ### Task Type Profiles
 
@@ -174,9 +176,10 @@ evaluator.save_results()
 
 ### Router Not Applying Settings
 
-1. Check `dml.agentic_mode.enabled` is `true`
-2. Check `dml.router.enabled` is `true`
-3. Enable debug logging: `dml.router.log_level: debug`
+1. Check `agentic_mode.enabled` is `true`.
+2. If no `router` block is present, the router defaults to enabled when agentic mode is enabled.
+3. To override it explicitly, set `router.enabled: true` and enable debug logging with `router.log_level: debug`.
+4. Legacy `dml.agentic_mode.enabled` / `dml.router.enabled` flat override keys remain supported, but should not be used for new portable YAML profiles.
 
 ### Memory Rejected
 

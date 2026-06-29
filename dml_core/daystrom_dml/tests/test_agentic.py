@@ -272,55 +272,138 @@ class TestPolicyRouter(unittest.TestCase):
 class TestEndToEndSmokeTest(unittest.TestCase):
     """End-to-end smoke test for agentic workflow."""
 
+    def test_nested_agentic_config_enables_router_and_promotion(self):
+        """Portable nested config should enable the router and promotion pipeline."""
+        from daystrom_dml.dml_adapter import DMLAdapter
+
+        with tempfile.TemporaryDirectory(prefix="dml-agentic-nested-config-") as tmpdir:
+            adapter = DMLAdapter(
+                config_overrides={
+                    "storage_dir": str(Path(tmpdir) / "store"),
+                    "model_name": "dummy",
+                    "embedding_model": None,
+                    "agentic_mode": {"enabled": True},
+                    "commitment_threshold": 0.42,
+                },
+                start_aging_loop=False,
+            )
+
+            try:
+                self.assertTrue(adapter.agentic_mode_enabled)
+                router = adapter.agentic_router
+                self.assertIsNotNone(router)
+                assert router is not None
+                self.assertTrue(router.enabled)
+                self.assertTrue(hasattr(adapter, "agentic_promotion"))
+                self.assertEqual(adapter.agentic_promotion.commitment_threshold, 0.42)
+            finally:
+                adapter.close()
+
+    def test_dml_nested_agentic_config_is_supported(self):
+        """Legacy documented dml.agentic_mode nesting should also initialize agentic mode."""
+        from daystrom_dml.dml_adapter import DMLAdapter
+
+        with tempfile.TemporaryDirectory(prefix="dml-agentic-dml-nested-config-") as tmpdir:
+            adapter = DMLAdapter(
+                config_overrides={
+                    "storage_dir": str(Path(tmpdir) / "store"),
+                    "model_name": "dummy",
+                    "embedding_model": None,
+                    "dml": {
+                        "agentic_mode": {
+                            "enabled": True,
+                            "router": {"enabled": True, "log_level": "debug"},
+                        }
+                    },
+                },
+                start_aging_loop=False,
+            )
+
+            try:
+                self.assertTrue(adapter.agentic_mode_enabled)
+                router = adapter.agentic_router
+                self.assertIsNotNone(router)
+                assert router is not None
+                self.assertTrue(router.enabled)
+            finally:
+                adapter.close()
+
+    def test_nested_router_config_can_override_defaults(self):
+        """Nested router config should override the agentic-mode default router state."""
+        from daystrom_dml.dml_adapter import DMLAdapter
+
+        with tempfile.TemporaryDirectory(prefix="dml-agentic-router-config-") as tmpdir:
+            adapter = DMLAdapter(
+                config_overrides={
+                    "storage_dir": str(Path(tmpdir) / "store"),
+                    "model_name": "dummy",
+                    "embedding_model": None,
+                    "agentic_mode": {"enabled": True},
+                    "router": {"enabled": False, "profile": "chat", "log_level": "debug"},
+                },
+                start_aging_loop=False,
+            )
+
+            try:
+                self.assertTrue(adapter.agentic_mode_enabled)
+                router = adapter.agentic_router
+                self.assertIsNotNone(router)
+                assert router is not None
+                self.assertFalse(router.enabled)
+            finally:
+                adapter.close()
+
     def test_complete_workflow(self):
         """Test complete workflow from ingest to retrieve."""
         from daystrom_dml.dml_adapter import DMLAdapter
 
-        adapter = DMLAdapter(
-            config_overrides={
-                "storage_dir": "/tmp/test_agentic",
-                "model_name": "gpt2",  # Real LLM model (tiny, fast)
-                "embedding_model": "all-MiniLM-L6-v2",  # Embedding model for semantic search
-                "dml.agentic_mode.enabled": True,
-            },
-            start_aging_loop=False,
-        )
-
-        try:
-            # Ingest with agentic types
-            adapter.ingest_agentic(
-                text="Deployed to production successfully",
-                kind=MemoryKind.ACTION,
-                meta={
-                    "phase": MemoryPhase.EXECUTE.value,
-                    "tool": "docker",
-                    "outcome": MemoryOutcome.SUCCESS.value,
-                    "provenance": {
-                        "task_id": "t1",
-                        "step_id": "s1",
-                        "episode_id": "e1",
-                        "timestamp": time.time(),
-                    }
+        with tempfile.TemporaryDirectory(prefix="dml-agentic-complete-workflow-") as tmpdir:
+            adapter = DMLAdapter(
+                config_overrides={
+                    "storage_dir": str(Path(tmpdir) / "store"),
+                    "model_name": "dummy",  # Deterministic local completion backend
+                    "embedding_model": None,  # Deterministic lightweight embedder for isolated tests
+                    "dml.agentic_mode.enabled": True,
+                    "dml.router.enabled": False,  # Keep this smoke on the baseline retrieval path.
                 },
+                start_aging_loop=False,
             )
 
-            # Retrieve
-            report = adapter.retrieve_context(
-                prompt="What happened in deployment?",
-            )
+            try:
+                # Ingest with agentic types
+                adapter.ingest_agentic(
+                    text="Deployed to production successfully",
+                    kind=MemoryKind.ACTION,
+                    meta={
+                        "phase": MemoryPhase.EXECUTE.value,
+                        "tool": "docker",
+                        "outcome": MemoryOutcome.SUCCESS.value,
+                        "provenance": {
+                            "task_id": "t1",
+                            "step_id": "s1",
+                            "episode_id": "e1",
+                            "timestamp": time.time(),
+                        }
+                    },
+                )
 
-            # Verify
-            self.assertIsNotNone(report["raw_context"])
-            self.assertIn("production", report["raw_context"].lower())
+                # Retrieve
+                report = adapter.retrieve_context(
+                    prompt="What happened in deployment?",
+                )
 
-            # Check metrics
-            if adapter.metrics_enabled:
-                self.assertGreater(report["context_tokens"], 0)
+                # Verify
+                self.assertIsNotNone(report["raw_context"])
+                self.assertIn("production", report["raw_context"].lower())
 
-            print("✓ Smoke test passed")
+                # Check metrics
+                if adapter.metrics_enabled:
+                    self.assertGreater(report["context_tokens"], 0)
 
-        finally:
-            adapter.close()
+                print("✓ Smoke test passed")
+
+            finally:
+                adapter.close()
 
     def test_string_kind_ingest_routes_through_agentic_promotion(self):
         """String memory kinds should normalize like MemoryKind enum values."""
