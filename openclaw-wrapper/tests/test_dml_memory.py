@@ -154,6 +154,26 @@ class TestAdapterConstruction(unittest.TestCase):
         self.assertNotIn("skip_rag_state_import", overrides)
         self.assertNotIn("start_aging_loop", kwargs)
 
+    def test_foreground_adapter_uses_portable_jsonl_persistence_contract(self):
+        calls = []
+
+        class FakeDMLAdapter:
+            def __init__(self, *args, **kwargs):
+                calls.append({"args": args, "kwargs": kwargs})
+
+        original_adapter = mod.DMLAdapter
+        try:
+            mod.DMLAdapter = FakeDMLAdapter
+            mod._adapter("/tmp/dml-store", None, False)
+        finally:
+            mod.DMLAdapter = original_adapter
+
+        overrides = calls[0]["kwargs"]["config_overrides"]
+        self.assertEqual(
+            overrides["persistence"],
+            {"enable": True, "path": "dml_state.jsonl", "interval_sec": 0},
+        )
+
 class TestGpuOnlyBackendProof(unittest.TestCase):
     def test_backend_proof_reports_ollama_embedder_surface(self):
         adapter = types.SimpleNamespace(

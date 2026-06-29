@@ -1085,6 +1085,11 @@ def _adapter(storage_dir: str, config_path: str | None, require_gpu: bool) -> DM
         config_path=config_path,
         config_overrides={
             "storage_dir": storage_dir,
+            # Wrapper health/verify/backup/export operate on the portable JSONL
+            # contract at <storage_dir>/dml_state.jsonl. Keep foreground wrapper
+            # adapters on that same persistence path; otherwise ingest batches can
+            # write legacy dml_store.json while audit/dedup report success.
+            "persistence": {"enable": True, "path": "dml_state.jsonl", "interval_sec": 0},
             "dml.agentic_mode.enabled": True,
             "embedding_device": "cuda" if require_gpu else None,
             "strict_llm_required": False,
