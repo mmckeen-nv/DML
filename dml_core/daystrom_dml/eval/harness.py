@@ -131,7 +131,7 @@ class AgenticEvaluator:
         print(f"  Successful: {successful_tasks}")
         print(f"  Success Rate: {successful_tasks/total_tasks*100:.1f}%")
 
-        print(f"\n{"TASK":<40} {"SUCCESS":<10} {"STEPS":<8} {"TOKENS":<10} {"TIME"}")
+        print(f"\n{'TASK':<40} {'SUCCESS':<10} {'STEPS':<8} {'TOKENS':<10} {'TIME'}")
         print("-"*78)
 
         for result in self.results:
