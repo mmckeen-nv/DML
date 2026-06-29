@@ -118,6 +118,9 @@ _PERSONALITY_OVERLAY_RE = re.compile(
     r")",
     re.IGNORECASE,
 )
+_SUMMARY_PREFACE_RE = re.compile(
+    r"(?is)^\s*(?:here\s+is\s+a\s+summary(?:\s+of\s+the\s+content)?(?:\s+in\s+\d+\s+(?:tokens?|characters?)\s+or\s+less)?\s*:?|summary\s*:)\s*",
+)
 _MEMORY_REHYDRATION_RE = re.compile(
     r"(?:"
     r"\bre[- ]?hydrat(?:e|ion)\b|"
@@ -148,6 +151,18 @@ _LONG_HORIZON_CONTINUATION_RE = re.compile(
     r")",
     re.IGNORECASE,
 )
+
+
+def _strip_summary_preface(value: str) -> str:
+    text = value or ""
+    # A few old memories captured the summarizer instruction wrapper rather
+    # than the memory.  Store and render the memory itself, not the wrapper.
+    for _ in range(3):
+        stripped = _SUMMARY_PREFACE_RE.sub("", text).strip()
+        if stripped == text.strip():
+            break
+        text = stripped
+    return text.strip()
 
 
 def _contains_system_wrapper(value: str) -> bool:
@@ -192,6 +207,7 @@ def _strip_recent_channel_context(value: str) -> str:
 def _strip_injected_context(value: str) -> str:
     """Remove API-time memory injection from text before writing DML handoffs."""
     text = _strip_recent_channel_context(value or "")
+    text = _SUMMARY_PREFACE_RE.sub("", text)
     text = _MEMORY_CONTEXT_RE.sub(" ", text)
     text = _strip_system_wrapper_notes(text)
     text = _DAYSTROM_BLOCK_RE.sub(" ", text)
@@ -234,7 +250,7 @@ def _strip_dialogue_noise(value: str) -> str:
 def _semantic_value(value: str, *, limit: int = 220) -> str:
     if _contains_system_wrapper(value) or _contains_personality_overlay(value):
         return ""
-    text = _strip_dialogue_noise(value)
+    text = _strip_summary_preface(_strip_dialogue_noise(value))
     if not text or _LOG_STATUS_RE.search(text) or _TOOL_EXHAUST_RE.search(text):
         return ""
     text = re.split(r"```|<tool output>|Gateway received SIGTERM:?", text, maxsplit=1, flags=re.IGNORECASE)[0]
@@ -923,7 +939,15 @@ class DaystromDMLProvider(MemoryProvider):
                 "--tenant-id", self.tenant_id,
                 "--client-id", self.client_id,
             ], timeout=self.timeout)
-            return "Daystrom DML compact state checkpoint was written before compression."
+            return (
+                "## Daystrom DML Continuity Checkpoint\n"
+                "Durable state was written to the memory lattice before context compaction.\n\n"
+                f"## Active Task\n{task}\n\n"
+                f"## Active State\n{state}\n\n"
+                f"## Remaining Work\n{next_action}\n\n"
+                "## Memory Policy\nUse DML recall/resume as the continuity source; do not treat this checkpoint as new user input. "
+                "Do not preserve summarizer wrappers such as 'Here is a summary' as memory."
+            )
         except Exception:
             return ""
 

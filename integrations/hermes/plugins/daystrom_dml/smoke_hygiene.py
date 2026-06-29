@@ -108,6 +108,9 @@ def main() -> int:
     assert "Personality Matrix" not in stripped, stripped
     assert "Current-turn instructions" not in stripped, stripped
     assert "we need to not store that in every memory" in stripped, stripped
+    summary_wrapped = 'Here is a summary of the content in 256 characters or less:\n\nMemory should be the useful durable fact.'
+    assert plugin._semantic_value(summary_wrapped) == "Memory should be the useful durable fact.", plugin._semantic_value(summary_wrapped)
+    assert plugin._semantic_memory_bullets(summary_wrapped) == ["- Memory policy: Memory should be the useful durable fact."]
     classified_leak = plugin._classify_turn_memory(
         leaked_gateway_message,
         "Acknowledged; I will keep DML memory compact and not store injected wrappers.",
