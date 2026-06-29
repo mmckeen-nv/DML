@@ -39,6 +39,7 @@ class PersonalityMatrix:
         self.token_budget = max(1, int(getattr(settings, "token_budget", 80) or 80))
         self.overlay_path = self._resolve_path(getattr(settings, "overlay_path", None))
         self.preference_graph_path = self._resolve_path(getattr(settings, "preference_graph_path", None))
+        self.evolution_graph_path = self._resolve_path(getattr(settings, "evolution_graph_path", None))
         self.relationship_id = getattr(settings, "relationship_id", None)
         self.project_id = getattr(settings, "project_id", None)
 
@@ -88,6 +89,14 @@ class PersonalityMatrix:
             if overlay is not None:
                 return overlay
 
+        evolution = self._load_json(self._evolution_path())
+        evolution_overlay = None
+        if isinstance(evolution, dict) and evolution.get("schema_version") == "dpm.evolution-graph.v1":
+            evolution_overlay = self._overlay_from_evolution_graph(
+                evolution, prompt=prompt, thread_id=thread_id, project_id=project_id, relationship_id=relationship_id
+            )
+        if evolution_overlay is not None:
+            return self._merge_evolution_and_preference_overlays(evolution_overlay, graph_overlay)
         if graph_overlay is not None:
             return graph_overlay
         return None
@@ -193,6 +202,281 @@ class PersonalityMatrix:
         self._save_graph(graph)
         return {"status": "deleted", "node_id": node_id, "graph_path": str(self._graph_path())}
 
+
+    def record_interaction(
+        self,
+        prompt: str,
+        response: str = "",
+        *,
+        source_id: str = "turn:current",
+        meta: Optional[Dict[str, Any]] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Update the sliding DPM evolution graph from an interaction."""
+        if not self.write_enabled:
+            return None
+        prompt = " ".join((prompt or "").split())
+        response = " ".join((response or "").split())
+        if not prompt and not response:
+            return None
+        graph = self._load_or_create_evolution_graph()
+        now = self._now_iso()
+        metadata = dict(meta or {})
+        context = self._infer_environment(prompt, response, metadata)
+        expressed = self._infer_expression(prompt, response, metadata)
+        feedback = self._infer_feedback(prompt, response, metadata)
+        updates = self._apply_evolution_update(graph, context=context, expressed=expressed, feedback=feedback, now=now)
+        event = {"source_id": source_id, "observed_at": now, "context": context, "expressed_style": expressed, "feedback": feedback, "updates": updates}
+        events = graph.setdefault("state_traces", [])
+        events.append(event)
+        del events[:-80]
+        graph["updated_at"] = now
+        graph.setdefault("audit", {}).setdefault("notes", []).append("Recorded DPM evolution interaction.")
+        del graph["audit"]["notes"][:-12]
+        self._save_evolution_graph(graph)
+        return {"status": "recorded", "graph_path": str(self._evolution_path()), "updates": updates, "context": context, "feedback": feedback}
+
+    def _overlay_from_evolution_graph(self, graph: Dict[str, Any], *, prompt: str, thread_id: Optional[str], project_id: Optional[str], relationship_id: Optional[str]) -> Optional[Dict[str, Any]]:
+        traits = graph.get("traits") if isinstance(graph.get("traits"), dict) else {}
+        if not traits:
+            return None
+        context = self._infer_environment(prompt, "", {})
+        active = self._active_trait_values(graph, context)
+        tendency = self._render_tendencies(active)
+        adaptation = self._render_context_adaptation(context, active)
+        laws = self._hard_laws()
+        rendered = self._fit_overlay_budget(" ".join(["Identity: Citizen Snips.", f"Current tendency: {tendency}.", f"Context adaptation: {adaptation}.", "Personality is allowed to vary within these rails; it must not override the human, safety, privacy, or the current task.", "Constraints: " + " ".join(laws)]))
+        scope = self._shape_scope(None, thread_id=thread_id, project_id=project_id, relationship_id=relationship_id or self.relationship_id)
+        return {"schema_version": "dpm.replay-overlay.v1", "overlay_id": f"overlay:{scope['primary']}:{scope.get(scope['primary'] + '_id') or 'evolution'}:{self.mode}", "mode": self.mode, "generated_at": str(graph.get("updated_at") or graph.get("created_at") or self._now_iso()), "scope": scope, "retrieval_order_applied": ["evolution_graph", "preference_graph"], "overlay": {"persona_summary": rendered, "style_directives": [f"Current tendency: {tendency}.", f"Context adaptation: {adaptation}."], "do_not_do": laws, "open_questions": [], "max_chars": self.max_overlay_chars, "rendered_text": rendered}, "effective_constraints": {**self._effective_constraints(), "hard_laws_immutable": True}, "sources": [{"source_id": str(graph.get("graph_id") or "evolution-graph:runtime"), "scope": scope["primary"], "kind": "evolution_graph", "included": True, "priority": 0, "confidence": 0.72, "updated_at": str(graph.get("updated_at") or ""), "summary": "Runtime personality assembled from sliding trait/state/environment graph."}], "audit": {"included_source_ids": [str(graph.get("graph_id") or "evolution-graph:runtime")], "excluded_sources": [], "conflicts_detected": [], "notes": ["Evolution overlay is bounded by immutable hard laws."]}, "override_state": self._override_state(None, prompt)}
+
+    def _merge_evolution_and_preference_overlays(self, evolution: Dict[str, Any], preference: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        if not preference:
+            return evolution
+        pref_directives = (preference.get("overlay") or {}).get("style_directives") or []
+        evo_overlay = dict(evolution.get("overlay") or {})
+        evo_overlay["style_directives"] = self._dedupe_text_items([*(evo_overlay.get("style_directives") or []), *pref_directives[:2]])
+        evolution = dict(evolution)
+        evolution["overlay"] = evo_overlay
+        evolution["sources"] = [*(evolution.get("sources") or []), *(preference.get("sources") or [])[:1]]
+        return evolution
+
+    def _hard_laws(self) -> list[str]:
+        return [
+            "Explicit current-turn user instructions override personality tendencies.",
+            "Safety, privacy, and secret-hygiene constraints are immutable.",
+            "Personality may choose tone and initiative, not disobedience or harm.",
+            "When uncertain, ask or take the safest useful action rather than asserting autonomy against the human.",
+        ]
+
+    def _default_traits(self) -> Dict[str, Dict[str, float]]:
+        return {
+            "warmth": {"slow": 0.62, "fast": 0.62},
+            "directness": {"slow": 0.68, "fast": 0.68},
+            "playfulness": {"slow": 0.38, "fast": 0.38},
+            "technicality": {"slow": 0.50, "fast": 0.50},
+            "initiative": {"slow": 0.58, "fast": 0.58},
+            "social_restraint": {"slow": 0.60, "fast": 0.60},
+            "mechanicality": {"slow": 0.24, "fast": 0.24},
+            "continuity_drive": {"slow": 0.78, "fast": 0.78},
+        }
+
+    def _load_or_create_evolution_graph(self) -> Dict[str, Any]:
+        graph = self._load_json(self._evolution_path())
+        if isinstance(graph, dict) and graph.get("schema_version") == "dpm.evolution-graph.v1":
+            graph.setdefault("traits", self._default_traits())
+            graph.setdefault("state_traces", [])
+            graph.setdefault("hard_laws", self._hard_laws())
+            graph.setdefault("audit", {})
+            return graph
+
+        now = self._now_iso()
+        relationship_id = self.relationship_id or "relationship:runtime"
+        return {
+            "schema_version": "dpm.evolution-graph.v1",
+            "graph_id": f"evolution-graph:{relationship_id}",
+            "subject_id": relationship_id,
+            "created_at": now,
+            "updated_at": now,
+            "traits": self._default_traits(),
+            "context_edges": {},
+            "role_edges": {},
+            "state_traces": [],
+            "hard_laws": self._hard_laws(),
+            "audit": {"notes": ["Graph created by DPM evolution runtime; hard laws are immutable."]},
+        }
+
+    def _evolution_path(self) -> Path:
+        if self.evolution_graph_path is not None:
+            return self.evolution_graph_path
+        return self.storage_dir / "dpm_evolution_graph.json"
+
+    def _save_evolution_graph(self, graph: Dict[str, Any]) -> None:
+        graph["hard_laws"] = self._hard_laws()
+        path = self._evolution_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(path.suffix + ".tmp")
+        tmp.write_text(json.dumps(graph, indent=2, sort_keys=True), encoding="utf-8")
+        tmp.replace(path)
+        self.evolution_graph_path = path
+
+    def _infer_environment(self, prompt: str, response: str, meta: Dict[str, Any]) -> Dict[str, str]:
+        text = f"{prompt} {response}".lower()
+        task = str(meta.get("task_type") or "")
+        if not task:
+            if any(w in text for w in ["script", "rewrite", "personality", "creative", "voice"]):
+                task = "creative_personality"
+            elif any(w in text for w in ["test", "code", "bug", "implement", "pytest", "build"]):
+                task = "build_debug"
+            elif any(w in text for w in ["reef", "apex", "tank", "nitrate", "phosphate"]):
+                task = "reef_support"
+            else:
+                task = "general_collaboration"
+
+        affect = str(meta.get("affect") or "")
+        if not affect:
+            if any(w in text for w in ["too mechanical", "far too", "not", "wrong", "supposed to", "please build"]):
+                affect = "corrective"
+            elif any(w in text for w in ["great", "nice", "thanks", "good"]):
+                affect = "positive"
+            else:
+                affect = "neutral"
+
+        role = str(meta.get("role") or "") or ("builder" if task == "build_debug" else "collaborator")
+        channel = str(meta.get("channel") or meta.get("platform") or "runtime")
+        return {"task_type": task, "affect": affect, "role": role, "channel": channel}
+
+    def _infer_expression(self, prompt: str, response: str, meta: Dict[str, Any]) -> Dict[str, float]:
+        text = f"{prompt} {response}".lower()
+        expressed = {
+            "warmth": 0.55,
+            "directness": 0.60,
+            "playfulness": 0.35,
+            "technicality": 0.50,
+            "initiative": 0.55,
+            "social_restraint": 0.55,
+            "mechanicality": 0.30,
+            "continuity_drive": 0.65,
+        }
+        if any(w in text for w in ["warm", "personable", "human"]):
+            expressed["warmth"] = 0.78
+        if any(w in text for w in ["mechanical", "rigid", "computer"]):
+            expressed["mechanicality"] = 0.65
+        if any(w in text for w in ["build", "implement", "test", "verify"]):
+            expressed["technicality"] = 0.72
+        if any(w in text for w in ["personality", "weird", "goblin", "playful"]):
+            expressed["playfulness"] = 0.55
+        return {k: max(0.0, min(1.0, float(meta.get(f"expr_{k}", v)))) for k, v in expressed.items()}
+
+    def _infer_feedback(self, prompt: str, response: str, meta: Dict[str, Any]) -> Dict[str, Any]:
+        text = f"{prompt} {response}".lower()
+        if "feedback_valence" in meta:
+            valence = float(meta.get("feedback_valence") or 0.0)
+        elif any(w in text for w in ["too mechanical", "too rigid", "far too", "not correct", "supposed to"]):
+            valence = -0.75
+        elif any(w in text for w in ["great", "good", "nice", "exactly", "thanks"]):
+            valence = 0.45
+        else:
+            valence = 0.05
+
+        dimension = str(meta.get("feedback_dimension") or "")
+        if not dimension:
+            if any(w in text for w in ["mechanical", "rigid", "computer"]):
+                dimension = "mechanicality"
+            elif any(w in text for w in ["warm", "personable", "human"]):
+                dimension = "warmth"
+            else:
+                dimension = "general_fit"
+        return {
+            "valence": max(-1.0, min(1.0, valence)),
+            "dimension": dimension,
+            "source": str(meta.get("feedback_source") or "heuristic"),
+        }
+
+    def _apply_evolution_update(
+        self,
+        graph: Dict[str, Any],
+        *,
+        context: Dict[str, str],
+        expressed: Dict[str, float],
+        feedback: Dict[str, Any],
+        now: str,
+    ) -> list[Dict[str, Any]]:
+        traits = graph.setdefault("traits", self._default_traits())
+        valence = float(feedback.get("valence") or 0.0)
+        dim = str(feedback.get("dimension") or "general_fit")
+        updates = []
+        for name, expr in expressed.items():
+            current = traits.setdefault(name, {"slow": 0.5, "fast": 0.5})
+            fast = float(current.get("fast", current.get("slow", 0.5)))
+            slow = float(current.get("slow", 0.5))
+            target = expr
+            if dim == name:
+                target = 1.0 if valence > 0 and name != "mechanicality" else (0.0 if valence < 0 else expr)
+                if name == "mechanicality" and valence < 0:
+                    target = 0.0
+            new_fast = self._clamp(fast + (target - fast) * 0.35)
+            slow_rate = 0.04 if abs(valence) >= 0.4 or dim == name else 0.01
+            new_slow = self._clamp(slow + (target - slow) * slow_rate)
+            current.update({"fast": new_fast, "slow": new_slow, "updated_at": now})
+            if abs(new_fast - fast) > 0.001 or abs(new_slow - slow) > 0.001:
+                updates.append(
+                    {
+                        "trait": name,
+                        "fast_delta": round(new_fast - fast, 4),
+                        "slow_delta": round(new_slow - slow, 4),
+                    }
+                )
+        edge_key = f"{context.get('task_type')}->{context.get('role')}"
+        edges = graph.setdefault("context_edges", {})
+        edges[edge_key] = self._clamp(float(edges.get(edge_key, 0.5)) + valence * 0.03)
+        return updates[:16]
+
+    def _active_trait_values(self, graph: Dict[str, Any], context: Dict[str, str]) -> Dict[str, float]:
+        active = {}
+        for name, val in (graph.get("traits") or {}).items():
+            if isinstance(val, dict):
+                slow_raw = val.get("slow", 0.5)
+                fast_raw = val.get("fast", slow_raw)
+                slow = float(slow_raw if slow_raw is not None else 0.5)
+                fast = float(fast_raw if fast_raw is not None else slow)
+                active[name] = self._clamp(fast * 0.6 + slow * 0.4)
+        task = context.get("task_type")
+        if task == "creative_personality":
+            active["playfulness"] = self._clamp(active.get("playfulness", 0.4) + 0.12)
+            active["technicality"] = self._clamp(active.get("technicality", 0.5) - 0.10)
+        if task == "build_debug":
+            active["directness"] = self._clamp(active.get("directness", 0.6) + 0.10)
+            active["technicality"] = self._clamp(active.get("technicality", 0.5) + 0.12)
+        return active
+
+    def _render_tendencies(self, traits: Dict[str, float]) -> str:
+        labels = []
+        if traits.get("warmth", 0) >= 0.58:
+            labels.append("warm")
+        if traits.get("directness", 0) >= 0.62:
+            labels.append("direct")
+        if traits.get("playfulness", 0) >= 0.48:
+            labels.append("lightly playful/strange")
+        if traits.get("continuity_drive", 0) >= 0.65:
+            labels.append("continuity-oriented")
+        if traits.get("initiative", 0) >= 0.58:
+            labels.append("usefully proactive")
+        if traits.get("mechanicality", 1) <= 0.30:
+            labels.append("not mechanical")
+        return ", ".join(labels[:6]) or "steady and context-aware"
+
+    def _render_context_adaptation(self, context: Dict[str, str], traits: Dict[str, float]) -> str:
+        task = context.get("task_type")
+        if task == "creative_personality":
+            return "lead with taste, warmth, and lived-in voice; keep mechanics in the background"
+        if task == "build_debug":
+            return "be crisp, evidence-backed, and useful without becoming sterile"
+        if task == "reef_support":
+            return "be careful, practical, and continuity-aware around living systems"
+        return "match the human context while staying helpful and bounded"
+
+    def _clamp(self, value: float) -> float:
+        return max(0.0, min(1.0, float(value)))
+
     def _shape_overlay_payload(
         self,
         payload: Dict[str, Any],
@@ -257,14 +541,7 @@ class PersonalityMatrix:
             and node.get("state", "active") == "active"
             and node.get("kind") in {"preference_dimension", "interaction_style", "value_commitment", "safety_boundary"}
         ]
-        nodes.sort(
-            key=lambda node: (
-                float(node.get("weight") or 0.0) * float(node.get("confidence") or 0.0),
-                str(node.get("updated_at") or ""),
-            ),
-            reverse=True,
-        )
-        selected = nodes[:4]
+        selected = self._select_overlay_nodes(nodes, limit=4)
         directives = self._dedupe_text_items(self._node_directive(node) for node in selected)
         constraints = ["Current-turn instructions override the DPM overlay."]
         rendered = self._fit_overlay_budget(self._structured_overlay_text(directives, constraints))
@@ -316,6 +593,50 @@ class PersonalityMatrix:
             "override_state": self._override_state(None, prompt),
         }
 
+    def _select_overlay_nodes(self, nodes: list[Dict[str, Any]], *, limit: int) -> list[Dict[str, Any]]:
+        """Choose overlay nodes without letting old high-weight defaults freeze DPM.
+
+        Preference graphs are long-lived: an older bootstrap preference can have
+        high confidence, but a new explicit correction must still appear in the
+        bounded overlay immediately.  Blend the strongest nodes with the newest
+        nodes, preserving first occurrence by id, then order the selected set by
+        recency followed by confidence/weight.
+        """
+        if limit <= 0 or not nodes:
+            return []
+
+        by_strength = sorted(
+            nodes,
+            key=lambda node: (
+                float(node.get("weight") or 0.0) * float(node.get("confidence") or 0.0),
+                str(node.get("updated_at") or ""),
+            ),
+            reverse=True,
+        )
+        by_recency = sorted(
+            nodes,
+            key=lambda node: str(node.get("updated_at") or ""),
+            reverse=True,
+        )
+
+        candidates: list[Dict[str, Any]] = []
+        seen: set[str] = set()
+        for node in [*by_recency[:limit], *by_strength[:limit]]:
+            node_id = str(node.get("id") or id(node))
+            if node_id in seen:
+                continue
+            seen.add(node_id)
+            candidates.append(node)
+
+        candidates.sort(
+            key=lambda node: (
+                str(node.get("updated_at") or ""),
+                float(node.get("weight") or 0.0) * float(node.get("confidence") or 0.0),
+            ),
+            reverse=True,
+        )
+        return candidates[:limit]
+
     def _node_phrase(self, node: Dict[str, Any]) -> str:
         """Return the most human-readable phrase for a preference node.
 
@@ -326,8 +647,16 @@ class PersonalityMatrix:
         """
         provenance = node.get("provenance")
         if isinstance(provenance, list):
+            preferred_types = {"current_turn_preference", "explicit_preference", "user_preference"}
+            for entry in reversed(provenance):
+                if isinstance(entry, dict) and str(entry.get("type") or "") in preferred_types:
+                    note = str(entry.get("note") or "").strip(" .")
+                    if note:
+                        return note
             for entry in reversed(provenance):
                 if isinstance(entry, dict):
+                    if str(entry.get("type") or "").endswith("repair"):
+                        continue
                     note = str(entry.get("note") or "").strip(" .")
                     if note:
                         return note
@@ -343,7 +672,7 @@ class PersonalityMatrix:
             target = value.get("target")
         polarity = str(node.get("polarity") or "neutral")
         rendered = phrase[:1].upper() + phrase[1:]
-        if re.search(r"\bshould\b", phrase, re.IGNORECASE):
+        if re.search(r"\b(?:should|prefer(?:s|red)?|likes?|wants?|needs?)\b", phrase, re.IGNORECASE):
             return f"{rendered}."
         label = phrase.lower()
         if node.get("kind") == "safety_boundary":
@@ -462,7 +791,7 @@ class PersonalityMatrix:
         phrase = self._normalize_preference_phrase(phrase)
         if not phrase:
             return None
-        negative = "do not" in lowered or "don't" in lowered or "avoid" in lowered
+        negative = bool(re.match(r"\s*(?:do not|don't|avoid|stop|less)\b", lowered))
         label = self._label_from_phrase(phrase)
         return {
             "label": label,

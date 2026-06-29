@@ -1219,6 +1219,22 @@ def cmd_ingest(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_dpm_observe(args: argparse.Namespace) -> int:
+    adapter = _adapter(args.storage_dir, args.config_path, args.require_gpu)
+    try:
+        meta = json.loads(args.meta) if args.meta else {}
+        result = adapter.record_personality_interaction(
+            args.prompt,
+            args.response or "",
+            source_id=args.source_id or "wrapper:dpm-observe",
+            meta=meta,
+        )
+    finally:
+        adapter.close()
+    print(json.dumps({"status": "ok" if result else "skipped", "action": "dpm-observe", "result": result}, indent=2))
+    return 0
+
+
 def cmd_session(args: argparse.Namespace) -> int:
     started = time.perf_counter()
     label = str(args.label or "default").strip() or "default"
@@ -2711,6 +2727,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="Maximum deterministic summary length for auto/cheap policies",
     )
     ing.set_defaults(func=cmd_ingest)
+
+    dpm_observe = sub.add_parser("dpm-observe")
+    dpm_observe.add_argument("--prompt", required=True)
+    dpm_observe.add_argument("--response", default="")
+    dpm_observe.add_argument("--source-id", default="wrapper:dpm-observe")
+    dpm_observe.add_argument("--meta", help="JSON object")
+    dpm_observe.set_defaults(func=cmd_dpm_observe)
 
     session = sub.add_parser("session")
     session.add_argument("--label", default="default")
