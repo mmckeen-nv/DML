@@ -73,7 +73,7 @@ _LOG_STATUS_RE = re.compile(
     re.IGNORECASE,
 )
 _DURABLE_PATTERNS: Tuple[Tuple[str, re.Pattern[str]], ...] = (
-    ("preference", re.compile(r"\b(?:i|we|mark)\s+(?:prefers?|likes?|wants?|needs?|expects?)\b|\bplease\s+(?:prefer|use|keep|make|remember|avoid)\b", re.IGNORECASE)),
+    ("preference", re.compile(r"\b(?:i|we|mark)\s+(?:prefers?|likes?|wants?|needs?|expects?)\b|\bplease\s+(?:prefer|use|keep|make|remember|avoid)\b|\bmore\s+[^.!?]{1,80}\bless\s+|\bless\s+[^.!?]{1,80}\bmore\s+|\btoo\s+(?:mechanical|rigid|formal|verbose|terse)\b", re.IGNORECASE)),
     ("identity", re.compile(r"\b(?:assistant identity|citizen snips|snips_?2|you are citizen snips)\b", re.IGNORECASE)),
     ("constraint", re.compile(r"\b(?:do not|don't|never|always|must|should|explicit(?:ly)? instructed|current-turn instructions?)\b", re.IGNORECASE)),
     ("artifact", re.compile(r"\b(?:changed|updated|added|implemented|fixed|created|wrote|patched|configured|wired|compiled)\b.*(?:/[^\s]+|\b[\w.-]+\.(?:py|yaml|yml|json|md|sh|txt)\b)", re.IGNORECASE)),
@@ -426,6 +426,24 @@ def _fit_sentence_boundary(text: str, limit: int) -> str:
 
 def _redact_sensitive(text: str) -> str:
     return _SENSITIVE_RE.sub(lambda m: f"{m.group(1)}=[REDACTED]", text or "")
+
+
+def _dpm_preference_text(user_content: str, hygiene: Dict[str, Any]) -> str:
+    """Extract a clean current-user preference for the personality graph.
+
+    DML turn memories are summaries; DPM should learn from the user's actual
+    correction/preference, not from replay wrappers like "User signal:" or
+    assistant outcomes. Keep this conservative and hygienic.
+    """
+    memory_class = str(hygiene.get("memory_class") or "").lower()
+    if memory_class not in {"preference", "identity", "constraint"}:
+        return ""
+    text = _semantic_value(user_content, limit=360)
+    if not text:
+        return ""
+    if not any(pattern.search(text) for klass, pattern in _DURABLE_PATTERNS if klass in {"preference", "identity", "constraint"}):
+        return ""
+    return text
 
 
 def _classify_turn_memory(user_content: str, assistant_content: str) -> Dict[str, Any]:
@@ -899,6 +917,42 @@ class DaystromDMLProvider(MemoryProvider):
                 "--meta", json.dumps(meta, separators=(",", ":")),
                 "--text", text,
             ], timeout=self.timeout)
+            dpm_text = _dpm_preference_text(user_content, hygiene)
+            evo_meta = {
+                "source": "hermes-dpm-evolution-sync",
+                "channel": "discord" if self._chat_id else "hermes",
+                "thread_id": self._thread_id,
+                "chat_id": self._chat_id,
+                "task_type": hygiene.get("memory_class"),
+                "feedback_source": "turn_heuristic",
+            }
+            self._run_cli([
+                "dpm-observe",
+                "--source-id", "hermes-dpm-evolution-sync",
+                "--meta", json.dumps(evo_meta, separators=(",", ":")),
+                "--prompt", user,
+                "--response", assistant,
+            ], timeout=self.timeout)
+            if dpm_text:
+                dpm_meta = {
+                    **meta,
+                    "source": "hermes-dpm-sync-turn",
+                    "dpm_preference": True,
+                    "dpm_scope": "relationship",
+                    "memory_class": "preference",
+                    "summary_source": "hermes_daystrom_dpm_sync_v1",
+                }
+                self._run_cli([
+                    "ingest",
+                    "--kind", "preference",
+                    "--session-id", effective_session,
+                    "--tenant-id", self.tenant_id,
+                    "--client-id", self.client_id,
+                    "--summary-policy", "cheap",
+                    "--no-filter-noise",
+                    "--meta", json.dumps(dpm_meta, separators=(",", ":")),
+                    "--text", dpm_text,
+                ], timeout=self.timeout)
         except Exception as exc:
             logger.debug("Daystrom DML sync_turn failed: %s", exc)
 

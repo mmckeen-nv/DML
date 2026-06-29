@@ -30,6 +30,11 @@ DML is the memory layer agents should have had from the start.
 
 ## The Daystrom stack
 
+### DPM evolution layer
+
+The Daystrom Personality Matrix now includes a bounded evolution layer. It records interaction signals into a `dpm_evolution_graph.json` with fast-state and slow-self trait values, then renders context-adaptive personality guidance for creative, build/debug, reef-support, and general collaboration work. The layer is deliberately not "free will against the user": immutable hard laws keep current-turn instructions, safety, privacy, and secret hygiene above personality tendencies. See [`docs/daystrom-dpm-evolution-layer.md`](docs/daystrom-dpm-evolution-layer.md).
+
+
 DML is the memory layer, but the repository also contains the surrounding Daystrom control surfaces:
 
 | Layer | Role | What it does |

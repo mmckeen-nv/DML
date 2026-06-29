@@ -560,6 +560,23 @@ class DMLAdapter:
 
         return self.personality_matrix.graph()
 
+    def record_personality_interaction(
+        self,
+        prompt: str,
+        response: str = "",
+        *,
+        source_id: str = "turn:current",
+        meta: Optional[Dict[str, Any]] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Record an interaction into the DPM evolution graph in active-write mode."""
+
+        return self.personality_matrix.record_interaction(
+            prompt,
+            response,
+            source_id=source_id,
+            meta=meta,
+        )
+
     def suppress_personality_preference(
         self, node_id: str, *, reason: str = "suppressed_by_user"
     ) -> Optional[Dict[str, Any]]:

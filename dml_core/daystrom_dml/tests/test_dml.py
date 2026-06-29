@@ -1502,3 +1502,156 @@ def test_embedding_compatibility_migration_writes_report(tmp_path) -> None:
     assert snapshot_path.exists()
     snapshot_written = json.loads(snapshot_path.read_text(encoding="utf-8"))
     assert snapshot_written == snapshot
+
+
+def test_personality_matrix_mixed_positive_preference_with_avoid_clause_stays_positive(tmp_path) -> None:
+    graph_path = tmp_path / "dpm-graph.json"
+    adapter = DMLAdapter(
+        config_overrides={
+            "model_name": "dummy",
+            "embedding_model": None,
+            "storage_dir": str(tmp_path / "storage"),
+            "persistence": {"enable": False},
+            "metrics_enabled": False,
+            "dpm": {
+                "enable": True,
+                "mode": "active-write",
+                "preference_graph_path": str(graph_path),
+                "relationship_id": "relationship:test",
+            },
+        },
+        embedder=RandomEmbedder(dim=48),
+        summarizer=DummySummarizer(),
+        start_aging_loop=False,
+    )
+
+    adapter.record_personality_preference(
+        "Mark prefers Citizen Snips to sound warm and human; avoid rigid mechanical writing.",
+        source_id="turn:mixed",
+        explicit=True,
+    )
+
+    graph = json.loads(graph_path.read_text(encoding="utf-8"))
+    node = graph["nodes"][0]
+    assert node["polarity"] == "prefer_high"
+
+    overlay = adapter.personality_overlay(prompt="voice")
+    assert overlay is not None
+    rendered = overlay["overlay"]["rendered_text"]
+    assert "Mark prefers Citizen Snips to sound warm and human" in rendered
+    assert "restrained" not in rendered
+
+
+def test_personality_matrix_prefers_user_preference_note_over_repair_provenance(tmp_path) -> None:
+    graph_path = tmp_path / "preference-graph.json"
+    graph_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "dpm.preference-graph.v1",
+                "graph_id": "preference-graph:relationship:test",
+                "subject_id": "relationship:test",
+                "generated_at": "2026-06-29T00:00:00Z",
+                "nodes": [
+                    {
+                        "id": "pref.voice",
+                        "kind": "interaction_style",
+                        "label": "Voice",
+                        "scope": "relationship",
+                        "state": "active",
+                        "weight": 0.9,
+                        "confidence": 0.9,
+                        "polarity": "prefer_high",
+                        "value": {"target": 0.9},
+                        "updated_at": "2026-06-29T00:00:00Z",
+                        "provenance": [
+                            {
+                                "type": "current_turn_preference",
+                                "source_id": "turn:user",
+                                "observed_at": "2026-06-29T00:00:00Z",
+                                "note": "Mark prefers Citizen Snips to sound warm and personable.",
+                            },
+                            {
+                                "type": "polarity_repair",
+                                "source_id": "repair",
+                                "observed_at": "2026-06-29T00:01:00Z",
+                                "note": "Repair implementation note should not become persona text.",
+                            },
+                        ],
+                    }
+                ],
+                "edges": [],
+                "audit": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+    adapter = DMLAdapter(
+        config_overrides={
+            "model_name": "dummy",
+            "embedding_model": None,
+            "storage_dir": str(tmp_path / "storage"),
+            "persistence": {"enable": False},
+            "metrics_enabled": False,
+            "dpm": {
+                "enable": True,
+                "mode": "active-read",
+                "preference_graph_path": str(graph_path),
+            },
+        },
+        embedder=RandomEmbedder(dim=48),
+        summarizer=DummySummarizer(),
+        start_aging_loop=False,
+    )
+
+    overlay = adapter.personality_overlay(prompt="voice")
+    assert overlay is not None
+    rendered = overlay["overlay"]["rendered_text"]
+    assert "warm and personable" in rendered
+    assert "Repair implementation note" not in rendered
+
+
+def test_personality_evolution_records_interaction_and_renders_hard_laws(tmp_path) -> None:
+    evolution_path = tmp_path / "storage" / "dpm_evolution_graph.json"
+    adapter = DMLAdapter(
+        config_overrides={
+            "model_name": "dummy",
+            "embedding_model": None,
+            "storage_dir": str(tmp_path / "storage"),
+            "persistence": {"enable": False},
+            "metrics_enabled": False,
+            "dpm": {
+                "enable": True,
+                "mode": "active-write",
+                "evolution_graph_path": str(evolution_path),
+                "relationship_id": "relationship:test",
+                "max_overlay_chars": 700,
+                "token_budget": 180,
+            },
+        },
+        embedder=RandomEmbedder(dim=48),
+        summarizer=DummySummarizer(),
+        start_aging_loop=False,
+    )
+
+    result = adapter.record_personality_interaction(
+        "This is too mechanical; be warmer and more personable.",
+        "Understood — I will loosen up and keep the mechanics in the background.",
+        source_id="turn:evolution",
+        meta={"task_type": "creative_personality", "feedback_dimension": "mechanicality", "feedback_valence": -0.8},
+    )
+
+    assert result is not None
+    assert result["status"] == "recorded"
+    graph = json.loads(evolution_path.read_text(encoding="utf-8"))
+    assert graph["schema_version"] == "dpm.evolution-graph.v1"
+    assert graph["state_traces"]
+    assert graph["traits"]["mechanicality"]["fast"] < 0.24
+    assert graph["traits"]["warmth"]["fast"] > 0.62
+
+    overlay = adapter.personality_overlay(prompt="rewrite this script with personality")
+    assert overlay is not None
+    rendered = overlay["overlay"]["rendered_text"]
+    assert "Current tendency:" in rendered
+    assert "Context adaptation:" in rendered
+    assert "Explicit current-turn user instructions override personality tendencies" in rendered
+    assert overlay["effective_constraints"]["hard_laws_immutable"] is True
