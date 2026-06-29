@@ -72,6 +72,18 @@ _LOG_STATUS_RE = re.compile(
     r"wall time:|original token count|```)\b",
     re.IGNORECASE,
 )
+_ITERATION_INCOMPLETE_RE = re.compile(
+    r"\b(?:not complete|isn't complete|is not complete|still need|next step|remaining|pending|blocked|failing|failed|error|traceback|rerun|fix|implement|continue|in progress)\b",
+    re.IGNORECASE,
+)
+_ITERATION_COMPLETE_RE = re.compile(
+    r"\b(?:done|completed|complete|merged|pushed|opened pr|all tests pass(?:ed)?|validation passed|no .* pending)\b",
+    re.IGNORECASE,
+)
+_ITERATION_NOISE_RE = re.compile(
+    r"\b(?:same error|repeated|looping|no progress|identical|stuck|thrash(?:ing)?|noise)\b",
+    re.IGNORECASE,
+)
 _DURABLE_PATTERNS: Tuple[Tuple[str, re.Pattern[str]], ...] = (
     ("preference", re.compile(r"\b(?:i|we|mark)\s+(?:prefers?|likes?|wants?|needs?|expects?)\b|\bplease\s+(?:prefer|use|keep|make|remember|avoid)\b|\bmore\s+[^.!?]{1,80}\bless\s+|\bless\s+[^.!?]{1,80}\bmore\s+|\btoo\s+(?:mechanical|rigid|formal|verbose|terse)\b", re.IGNORECASE)),
     ("identity", re.compile(r"\b(?:assistant identity|citizen snips|snips_?2|you are citizen snips)\b", re.IGNORECASE)),
@@ -859,6 +871,61 @@ class DaystromDMLProvider(MemoryProvider):
 
     def dcn_observations(self) -> List[Dict[str, Any]]:
         return list(self._dcn_observations)
+
+    def decide_iteration_extension(self, run_state: Dict[str, Any]) -> Dict[str, Any]:
+        """Use DML/DCN recall context to decide whether Hermes should grant more turns."""
+        if not self.enable_memory:
+            return {"decision": "deny", "reason_codes": ["dml_memory_disabled"]}
+        text_parts = [
+            str(run_state.get("user_message") or ""),
+            str(run_state.get("recent_text") or ""),
+            str(run_state.get("prefetch_context") or ""),
+            str(run_state.get("last_assistant_text") or ""),
+        ]
+        combined = _clean_text("\n".join(text_parts), 8000)
+        incomplete_combined = re.sub(r"\bno [^.?!\n]{0,80}\bpending\b", "", combined, flags=re.IGNORECASE)
+        if _ITERATION_NOISE_RE.search(combined):
+            return {"decision": "deny", "reason_codes": ["dcn_noise_or_loop_signal"], "source": "daystrom_dml"}
+        if _ITERATION_COMPLETE_RE.search(combined) and not _ITERATION_INCOMPLETE_RE.search(incomplete_combined):
+            return {"decision": "deny", "reason_codes": ["dcn_completion_signal"], "source": "daystrom_dml"}
+        recent_work = int(run_state.get("recent_tool_calls") or 0) + int(run_state.get("recent_tool_results") or 0)
+        if recent_work <= 0:
+            return {"decision": "deny", "reason_codes": ["dcn_no_recent_tool_work"], "source": "daystrom_dml"}
+
+        recall_text = ""
+        try:
+            query = _clean_text(
+                "iteration budget exhausted; decide if current Hermes task is incomplete or noisy: "
+                + str(run_state.get("user_message") or "")
+                + " "
+                + str(run_state.get("recent_text") or ""),
+                1200,
+            )
+            payload = self._run_cli([
+                "retrieve",
+                "--query", query,
+                "--top-k", "4",
+                "--tenant-id", self.tenant_id,
+                "--session-id", str(run_state.get("session_id") or self._session_id),
+                "--ground-truth-policy", "never",
+                "--no-reform-memory",
+            ], timeout=min(self.timeout, 6))
+            recall_text = _clean_text(str(payload.get("raw_context") or ""), 4000)
+        except Exception as exc:
+            logger.debug("Daystrom DML iteration-extension recall failed: %s", exc)
+
+        evidence = _clean_text(combined + "\n" + recall_text, 10000)
+        incomplete_evidence = re.sub(r"\bno [^.?!\n]{0,80}\bpending\b", "", evidence, flags=re.IGNORECASE)
+        if _ITERATION_NOISE_RE.search(evidence):
+            return {"decision": "deny", "reason_codes": ["dcn_recall_noise_or_loop_signal"], "source": "daystrom_dml"}
+        if _ITERATION_INCOMPLETE_RE.search(incomplete_evidence):
+            return {
+                "decision": "grant",
+                "extend_by": 30,
+                "reason_codes": ["dcn_incomplete_signal", "dml_recall_checked", "recent_tool_work"],
+                "source": "daystrom_dml",
+            }
+        return {"decision": "deny", "reason_codes": ["dcn_insufficient_incomplete_signal"], "source": "daystrom_dml"}
 
     def prefetch(self, query: str, *, session_id: str = "") -> str:
         query = _clean_text(query, 1200)

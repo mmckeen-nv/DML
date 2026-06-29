@@ -164,6 +164,12 @@ def main() -> int:
             self.retrieve_calls += 1
             return "=== Daystrom DML Retrieved Memory ===\n- Memory: compact semantic state."
 
+        def _run_cli(self, args, *, timeout=None):
+            if args and args[0] == "retrieve":
+                self.retrieve_calls += 1
+                return {"raw_context": "The current task is not complete; tests are still failing and need a fix."}
+            return {}
+
     fake = FakeProvider()
     normal_prefetch = fake.prefetch("hello")
     assert "Daystrom Personality Matrix Overlay" in normal_prefetch, normal_prefetch
@@ -187,6 +193,26 @@ def main() -> int:
     assert "DML Retrieved Memory" in explicit_prefetch, explicit_prefetch
     assert fake.resume_calls == 2, fake.resume_calls
     assert fake.retrieve_calls == 2, fake.retrieve_calls
+
+    extension_state = {
+        "schema_version": "hermes.iteration_extension.v1",
+        "user_message": "fix the failing DML tests",
+        "recent_text": "terminal result: FAILED test_dml.py::test_policy traceback",
+        "recent_tool_calls": 1,
+        "recent_tool_results": 1,
+        "session_id": "smoke-session",
+    }
+    extension_decision = fake.decide_iteration_extension(extension_state)
+    assert extension_decision["decision"] == "grant", extension_decision
+    assert extension_decision["extend_by"] == 30, extension_decision
+    completed_decision = fake.decide_iteration_extension({
+        "schema_version": "hermes.iteration_extension.v1",
+        "user_message": "merge it",
+        "recent_text": "Done. PR merged, validation passed, no repo action pending.",
+        "recent_tool_calls": 1,
+        "recent_tool_results": 1,
+    })
+    assert completed_decision["decision"] == "deny", completed_decision
 
     handoff = plugin._handoff_fragment(
         "assistant",
