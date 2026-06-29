@@ -4,6 +4,11 @@
 
 This guide is for agents, harnesses, coding assistants, demo operators, and installer scripts that need to wire DML into a real system. DML is not a sidecar trick; treat it as the memory and cognition substrate for the agent.
 
+For the full operator-grade manuals, read these first:
+
+- [`docs/daystrom-operator-bible.md`](docs/daystrom-operator-bible.md) — human operator deployment, validation, hygiene, backup/restore, DCN promotion, and release runbook.
+- [`docs/daystrom-agentic-harness-bible.md`](docs/daystrom-agentic-harness-bible.md) — canonical harness implementation guide for Hermes, OpenClaw, Turnstone, MCP hosts, and custom autonomous agents.
+
 ---
 
 ## Prime directive

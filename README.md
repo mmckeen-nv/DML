@@ -48,6 +48,20 @@ The boundaries are intentional. Memory, personality, cognition, and inference pr
 
 ---
 
+## Operator and harness bibles
+
+If you are deploying DML or wiring it into an agent, start here:
+
+| Guide | Audience | Use it for |
+| --- | --- | --- |
+| [`docs/daystrom-operator-bible.md`](docs/daystrom-operator-bible.md) | Human operators, demo owners, platform maintainers | Store layout, endpoint setup, health/verify/report, backup/export/restore, hygiene stoplines, Hermes config, DCN promotion, troubleshooting, release checklist. |
+| [`docs/daystrom-agentic-harness-bible.md`](docs/daystrom-agentic-harness-bible.md) | Hermes, OpenClaw, Turnstone, MCP hosts, custom autonomous harnesses | Required lifecycle calls, wrapper contract, retrieval/writeback/handoff loop, cognition-gated turn extension, DPM/DCN/DIP boundaries, harness pseudocode, validation bundle. |
+| [`AGENT_README_TO_OMNOM.md`](AGENT_README_TO_OMNOM.md) | Agent onboarding and installer scripts | Compact agent-facing integration guide and endpoint wizard. |
+
+The short rule: DML should be wired into the agent loop as the default memory and cognition substrate. It should not be a user-invoked afterthought and it should never store raw transcript sludge, tool logs, prompt wrappers, or secrets.
+
+---
+
 ## What is in this repository
 
 ```text
@@ -59,6 +73,8 @@ scripts/                      Utility, benchmark, import, and audit scripts
 dml_mcp/                      MCP server entrypoint
 examples/                     Demos, playgrounds, visualizers, chatbot, benchmark harnesses
 docs/contracts/               Contract schemas and snapshots
+docs/daystrom-operator-bible.md        Human-operator runbook for deployment, proof, hygiene, backup, promotion, and release
+docs/daystrom-agentic-harness-bible.md Harness bible for Hermes/OpenClaw/Turnstone-style integration
 docs/dpm-readonly-packet/     DPM lifecycle/spec packet
 docs/dcn-operator-guide.md    DCN operator modes, gates, feedback, and eval smoke guidance
 ```
