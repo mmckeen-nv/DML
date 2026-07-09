@@ -22,12 +22,34 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from agent.memory_provider import MemoryProvider
-from hermes_constants import get_hermes_home
+from hermes_constants import get_default_hermes_root, get_hermes_home
 from hermes_cli.config import cfg_get, load_config
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_INTEGRATION_DIR = Path("/Users/markmckeen/.hermes/hermes-agent/integrations/daystrom-dml")
+def _default_integration_dir() -> Path:
+    """Resolve the Hermes-owned Daystrom DML handoff for default/profile homes."""
+    candidates = [
+        get_default_hermes_root() / "hermes-agent" / "integrations" / "daystrom-dml",
+        get_hermes_home() / "hermes-agent" / "integrations" / "daystrom-dml",
+        get_hermes_home() / "integrations" / "daystrom-dml",
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return candidates[0]
+
+
+def _resolve_path(value: Any, fallback: Path) -> Path:
+    raw = str(value or "").strip()
+    if not raw:
+        return fallback
+    raw = raw.replace("%LOCALAPPDATA%", os.environ.get("LOCALAPPDATA", ""))
+    raw = os.path.expandvars(os.path.expanduser(raw))
+    path = Path(raw)
+    if not path.is_absolute():
+        path = get_default_hermes_root() / path
+    return path
 _DCN_MODES = {"disabled", "observe_only", "active_read", "active_learn"}
 _DCN_DECISIONS = {"legacy", "overlay_only", "retrieve", "suppress_overlay"}
 
@@ -96,6 +118,49 @@ _DURABLE_PATTERNS: Tuple[Tuple[str, re.Pattern[str]], ...] = (
 _SENSITIVE_RE = re.compile(
     r"(?i)\b(api[_-]?key|token|secret|password|authorization|bearer)\b\s*[:=]\s*\S+"
 )
+_TOOL_COOKBOOK_NAMES = {
+    "terminal",
+    "execute_code",
+    "patch",
+    "write_file",
+    "read_file",
+    "search_files",
+    "delegate_task",
+    "skill_manage",
+    "memory",
+    "cronjob",
+    "browser_navigate",
+    "browser_click",
+    "browser_type",
+    "browser_press",
+    "browser_console",
+}
+_TOOL_COOKBOOK_ARG_KEYS = {
+    "command",
+    "workdir",
+    "path",
+    "pattern",
+    "target",
+    "file_glob",
+    "mode",
+    "action",
+    "name",
+    "goal",
+    "query",
+    "url",
+    "ref",
+}
+_TOOL_COOKBOOK_SUCCESS_RE = re.compile(
+    r"\b(?:success|passed|ok|completed|created|updated|patched|written|exit_code['\"]?\s*:\s*0)\b",
+    re.IGNORECASE,
+)
+_TOOL_COOKBOOK_FAILURE_RE = re.compile(
+    r"\b(?:error|failed|traceback|exception|blocked|timeout|exit_code['\"]?\s*:\s*[1-9])\b",
+    re.IGNORECASE,
+)
+_TRANSIENT_READ_TOOLS = {"read_file", "search_files", "browser_console"}
+_TRANSIENT_READ_MAX_RESULT_CHARS = 1200
+_TRANSIENT_READ_MAX_DURATION = 2.0
 _TRANSCRIPT_RESIDUE_RE = re.compile(
     r"(?:\bCompleted\s+(?:Snips_?2|Citizen Snips)\s+turn\b|"
     r"\b(?:User|Assistant):\s|"
@@ -386,6 +451,8 @@ def _semantic_memory_bullets(text: str, meta: Optional[Dict[str, Any]] = None, *
         return []
     if memory_class == "preference" or re.search(r"\b(?:prefers?|likes?|wants?)\b", safe, re.IGNORECASE):
         return [f"- Preference: {safe}"]
+    if memory_class == "tool_cookbook_event":
+        return [f"- Tool cookbook: {safe}"]
     if memory_class == "constraint" or re.search(r"\b(?:never|always|do not|don't|must|should)\b", safe, re.IGNORECASE):
         return [f"- Memory policy: {safe}"]
     if memory_class in {"checkpoint", "blocker", "artifact"}:
@@ -467,12 +534,95 @@ def _redact_sensitive(text: str) -> str:
     return _SENSITIVE_RE.sub(lambda m: f"{m.group(1)}=[REDACTED]", text or "")
 
 
+def _tool_value_preview(value: Any, *, limit: int = 220) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, (dict, list)):
+        try:
+            text = json.dumps(value, ensure_ascii=False, sort_keys=True)
+        except Exception:
+            text = str(value)
+    else:
+        text = str(value)
+    text = _redact_sensitive(_clean_text(_strip_injected_context(text), limit * 2))
+    text = re.sub(r"(?is)<tool output>[\s\S]*", "", text)
+    return _fit_sentence_boundary(text, limit)
+
+
+def _tool_args_summary(tool_name: str, args: Dict[str, Any]) -> str:
+    if not isinstance(args, dict) or not args:
+        return ""
+    parts: List[str] = []
+    for key in sorted(args):
+        lower = str(key).lower()
+        if lower in {"api_key", "token", "secret", "password", "authorization", "headers"}:
+            parts.append(f"{key}=[REDACTED]")
+            continue
+        if key not in _TOOL_COOKBOOK_ARG_KEYS and len(parts) >= 4:
+            continue
+        if key not in _TOOL_COOKBOOK_ARG_KEYS and tool_name not in {"delegate_task", "cronjob", "skill_manage"}:
+            continue
+        preview = _tool_value_preview(args.get(key), limit=180 if key in {"command", "goal", "query"} else 90)
+        if preview:
+            parts.append(f"{key}={preview}")
+        if len(parts) >= 6:
+            break
+    return "; ".join(parts)
+
+
+def _tool_result_summary(result: Any, *, limit: int = 360) -> str:
+    if isinstance(result, dict) and result.get("_multimodal"):
+        result = result.get("text_summary") or result.get("content") or "multimodal result"
+    return _tool_value_preview(result, limit=limit)
+
+
+def _tool_cookbook_outcome(success: bool, blocked: bool, result_summary: str) -> str:
+    if blocked:
+        return "blocked"
+    if not success or _TOOL_COOKBOOK_FAILURE_RE.search(result_summary or ""):
+        return "failure"
+    return "success"
+
+
+def _should_store_tool_cookbook_event(
+    tool_name: str,
+    *,
+    outcome: str,
+    duration: float,
+    result_summary: str,
+) -> bool:
+    if outcome in {"failure", "blocked"}:
+        return True
+    if tool_name not in _TOOL_COOKBOOK_NAMES:
+        return False
+    if _TOOL_COOKBOOK_SUCCESS_RE.search(result_summary or ""):
+        return True
+    if tool_name in _TRANSIENT_READ_TOOLS:
+        return len(result_summary or "") > _TRANSIENT_READ_MAX_RESULT_CHARS or duration >= _TRANSIENT_READ_MAX_DURATION
+    return True
+
+
+def _tool_cookbook_text(tool_name: str, outcome: str, args_summary: str, result_summary: str) -> str:
+    pieces = [f"Tool cookbook event: {tool_name} outcome={outcome}."]
+    if args_summary:
+        pieces.append(f"Action: {args_summary}.")
+    if result_summary:
+        pieces.append(f"Result: {result_summary}.")
+    if outcome == "success":
+        pieces.append("Reuse when a future related task needs the same tool/action pattern.")
+    elif outcome == "blocked":
+        pieces.append("Remember this blocked path before retrying related tool use.")
+    else:
+        pieces.append("Remember this failure mode before retrying related tool use.")
+    return _safe_memory_text(" ".join(pieces), limit=900)
+
+
 def _dpm_preference_text(user_content: str, hygiene: Dict[str, Any]) -> str:
     """Extract a clean current-user preference for the personality graph.
 
     DML turn memories are summaries; DPM should learn from the user's actual
     correction/preference, not from replay wrappers like "User signal:" or
-    assistant outcomes. Keep this conservative and hygienic.
+    assistant outcomes.  Keep this conservative and hygienic.
     """
     memory_class = str(hygiene.get("memory_class") or "").lower()
     if memory_class not in {"preference", "identity", "constraint"}:
@@ -617,13 +767,13 @@ class DaystromDMLProvider(MemoryProvider):
 
     def __init__(self) -> None:
         self._cfg = self._load_provider_config()
-        integration_dir = Path(self._cfg.get("integration_dir") or _DEFAULT_INTEGRATION_DIR)
+        integration_dir = _resolve_path(self._cfg.get("integration_dir"), _default_integration_dir())
         self.integration_dir = integration_dir
-        self.launcher = Path(self._cfg.get("launcher") or integration_dir / "bin" / "hermes-dml-memory")
-        self.venv_python = Path(self._cfg.get("venv_python") or integration_dir / ".venv-dml" / "bin" / "python")
-        self.source_dir = Path(self._cfg.get("source_dir") or integration_dir / "source")
-        self.store_dir = Path(self._cfg.get("storage_dir") or integration_dir / "stores" / "hermes-runtime-store")
-        self.config_path = Path(self._cfg.get("config_path") or integration_dir / "source" / "openclaw-wrapper" / "config" / "dml_gpu_only.yaml")
+        self.launcher = _resolve_path(self._cfg.get("launcher"), integration_dir / "bin" / "hermes-dml-memory")
+        self.venv_python = _resolve_path(self._cfg.get("venv_python"), integration_dir / ".venv-dml" / "bin" / "python")
+        self.source_dir = _resolve_path(self._cfg.get("source_dir"), integration_dir / "source")
+        self.store_dir = _resolve_path(self._cfg.get("storage_dir"), integration_dir / "stores" / "hermes-runtime-store")
+        self.config_path = _resolve_path(self._cfg.get("config_path"), integration_dir / "source" / "openclaw-wrapper" / "config" / "dml_gpu_only.yaml")
         self.tenant_id = str(self._cfg.get("tenant_id") or "openclaw")
         self.client_id = self._cfg.get("client_id") or "snips2"
         self.top_k = int(self._cfg.get("top_k") or 6)
@@ -632,7 +782,11 @@ class DaystromDMLProvider(MemoryProvider):
         self.sync_turns = bool(self._cfg.get("sync_turns", True))
         self.enable_personality = bool(self._cfg.get("enable_personality", True))
         self.enable_memory = bool(self._cfg.get("enable_memory", True))
-        self.retrieval_policy = str(self._cfg.get("retrieval_policy") or "always").strip().lower().replace("-", "_")
+        self.retrieval_policy = str(
+            self._cfg.get("retrieval_policy")
+            or self._cfg.get("memory_retrieval")
+            or "always"
+        ).strip().lower().replace("-", "_")
         self.dcn_requested_mode = self._configured_dcn_mode()
         self.dcn_promotion = self._load_dcn_promotion()
         self.dcn_promotion_gate_reason = self._promotion_gate_reason(self.dcn_promotion)
@@ -718,14 +872,7 @@ class DaystromDMLProvider(MemoryProvider):
         return self.dcn_requested_mode
 
     def is_available(self) -> bool:
-        if not self.launcher.exists() or not self.store_dir.exists():
-            return False
-        if os.access(self.launcher, os.X_OK):
-            return True
-        # Windows launchers such as .cmd/.bat often fail POSIX X_OK checks even
-        # though CreateProcess/cmd.exe can execute them. Treat known script
-        # suffixes as runnable so a valid AEC profile is not silently disabled.
-        return self.launcher.suffix.lower() in {".cmd", ".bat", ".exe", ".ps1"}
+        return self.launcher.exists() and os.access(self.launcher, os.X_OK) and self.store_dir.exists()
 
     def initialize(self, session_id: str, **kwargs) -> None:
         self._session_id = self._shape_session_id(session_id, kwargs)
@@ -774,12 +921,12 @@ class DaystromDMLProvider(MemoryProvider):
         self._dcn_observations.append(event)
         self._dcn_observations = self._dcn_observations[-50:]
 
-    def _retrieval_decision(self, query: str) -> Dict[str, Any]:
-        """Return deterministic DML retrieval gates for all runtime modes.
+    def _dcn_policy_decision(self, query: str) -> Dict[str, Any]:
+        """Return deterministic active-read gates for DPM and DML.
 
-        `retrieval_policy: always` means DML is part of normal core operations,
-        not only explicit recall/resume prompts and not only active DCN modes.
-        `heuristic` keeps the old explicit-memory gate as an opt-out.
+        Phase 9 keeps this in-process and rules-first. The method is small and
+        intentionally overridable in smokes so DCN failure paths are testable
+        without changing plugin globals.
         """
         text = _clean_text(query, 1600).lower()
         if not text:
@@ -798,22 +945,13 @@ class DaystromDMLProvider(MemoryProvider):
         )
         if any(term in text for term in contradiction_terms):
             return {"decision": "suppress_overlay", "reason_codes": ["current_turn_contradiction", "suppress_dpm"]}
-        if self.retrieval_policy in {"always", "force", "force_retrieve"}:
-            return {"decision": "retrieve", "reason_codes": ["configured_always", "retrieve_dml"]}
-        if self.retrieval_policy in {"never", "off", "disabled"}:
+        if self.retrieval_policy in {"never", "off", "disabled", "false", "none"}:
             return {"decision": "overlay_only", "reason_codes": ["configured_never", "no_dml_retrieval"]}
+        if self.retrieval_policy in {"always", "full", "eager", "ungated"}:
+            return {"decision": "retrieve", "reason_codes": ["configured_always", "retrieve_dml"]}
         if _should_inject_dml_memory(query):
             return {"decision": "retrieve", "reason_codes": ["long_horizon_or_resume", "retrieve_dml"]}
         return {"decision": "overlay_only", "reason_codes": ["casual_short_turn", "no_dml_retrieval"]}
-
-    def _dcn_policy_decision(self, query: str) -> Dict[str, Any]:
-        """Return deterministic active-read gates for DPM and DML.
-
-        Phase 9 keeps this in-process and rules-first. The method is small and
-        intentionally overridable in smokes so DCN failure paths are testable
-        without changing plugin globals.
-        """
-        return self._retrieval_decision(query)
 
     def _active_read_gates(self, query: str, *, session_id: str) -> Dict[str, Any]:
         try:
@@ -845,13 +983,7 @@ class DaystromDMLProvider(MemoryProvider):
             logger.info("Daystrom DCN active-read: %s", json.dumps(event, sort_keys=True))
             return {"fallback": False, "include_dpm": include_dpm, "retrieve_dml": retrieve_dml, "event": event}
         except Exception as exc:
-            try:
-                decision = self._retrieval_decision(query)
-                should_inject_memory = str(decision.get("decision") or "") == "retrieve"
-                reason_codes = list(decision.get("reason_codes") or [])
-            except Exception:
-                should_inject_memory = _should_inject_dml_memory(query)
-                reason_codes = ["fallback_heuristic"]
+            should_inject_memory = _should_inject_dml_memory(query)
             event = {
                 "event": "dcn.active_read_fallback",
                 "mode": self.dcn_mode,
@@ -863,7 +995,6 @@ class DaystromDMLProvider(MemoryProvider):
                 "session_id": session_id,
                 "include_dpm": bool(self.enable_personality),
                 "retrieve_dml": bool(self.enable_memory and should_inject_memory),
-                "reason_codes": reason_codes,
             }
             self._record_dcn_event(event)
             logger.warning("Daystrom DCN active-read fallback: %s", json.dumps(event, sort_keys=True))
@@ -937,13 +1068,14 @@ class DaystromDMLProvider(MemoryProvider):
             include_dpm = bool(gates.get("include_dpm"))
             retrieve_dml = bool(gates.get("retrieve_dml"))
         else:
-            decision = self._retrieval_decision(query)
-            name = str(decision.get("decision") or "").strip().lower()
-            if name not in _DCN_DECISIONS:
-                name = "overlay_only"
-            include_dpm = bool(self.enable_personality and name in {"overlay_only", "retrieve", "legacy"})
-            retrieve_dml = bool(self.enable_memory and name == "retrieve")
-            self._observe_dcn(query, session_id=effective_session, should_inject_memory=retrieve_dml)
+            should_inject_memory = _should_inject_dml_memory(query)
+            if self.enable_memory and self.retrieval_policy in {"always", "full", "eager", "ungated"}:
+                should_inject_memory = True
+            elif self.retrieval_policy in {"never", "off", "disabled", "false", "none"}:
+                should_inject_memory = False
+            self._observe_dcn(query, session_id=effective_session, should_inject_memory=should_inject_memory)
+            include_dpm = bool(self.enable_personality)
+            retrieve_dml = bool(self.enable_memory and should_inject_memory)
         blocks: List[str] = []
         if include_dpm:
             overlay = self._personality_overlay(query)
@@ -1007,7 +1139,7 @@ class DaystromDMLProvider(MemoryProvider):
                 "--tenant-id", self.tenant_id,
                 "--client-id", self.client_id,
                 "--summary-policy", "cheap",
-                "--filter-noise",
+                "--no-filter-noise",
                 "--meta", json.dumps(meta, separators=(",", ":")),
                 "--text", text,
             ], timeout=self.timeout)
@@ -1049,6 +1181,78 @@ class DaystromDMLProvider(MemoryProvider):
                 ], timeout=self.timeout)
         except Exception as exc:
             logger.debug("Daystrom DML sync_turn failed: %s", exc)
+
+    def on_tool_result(
+        self,
+        tool_name: str,
+        args: Dict[str, Any],
+        result: Any,
+        *,
+        success: bool,
+        duration: float = 0.0,
+        blocked: bool = False,
+        task_id: str = "",
+        session_id: str = "",
+        tool_call_id: str = "",
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        if not self.sync_turns or not self.enable_memory:
+            return
+        tool_name = _clean_text(str(tool_name or ""), 80)
+        if not tool_name:
+            return
+        args_summary = _tool_args_summary(tool_name, args if isinstance(args, dict) else {})
+        result_summary = _tool_result_summary(result)
+        outcome = _tool_cookbook_outcome(success, blocked, result_summary)
+        if not _should_store_tool_cookbook_event(
+            tool_name,
+            outcome=outcome,
+            duration=float(duration or 0.0),
+            result_summary=result_summary,
+        ):
+            return
+        text = _tool_cookbook_text(tool_name, outcome, args_summary, result_summary)
+        if not text:
+            return
+        effective_session = self._session_id or session_id or "snips2-hermes-default"
+        meta = {
+            "source": "hermes-tool-result-hook",
+            "phase": "tool-result",
+            "provider": "daystrom_dml",
+            "memory_class": "tool_cookbook_event",
+            "tool_name": tool_name,
+            "tool_outcome": outcome,
+            "tool_success": bool(success and not blocked),
+            "tool_blocked": bool(blocked),
+            "tool_duration_seconds": round(float(duration or 0.0), 3),
+            "summary_source": "hermes_daystrom_tool_cookbook_v1",
+        }
+        if task_id:
+            meta["task_id"] = _redact_sensitive(str(task_id))[:160]
+        if tool_call_id:
+            meta["tool_call_id"] = _redact_sensitive(str(tool_call_id))[:160]
+        if self._thread_id:
+            meta["thread_id"] = self._thread_id
+        if self._chat_id:
+            meta["chat_id"] = self._chat_id
+        if isinstance(metadata, dict):
+            for key in ("execution_context", "platform", "agent_context"):
+                if metadata.get(key):
+                    meta[key] = _redact_sensitive(str(metadata[key]))[:120]
+        try:
+            self._run_cli([
+                "ingest",
+                "--kind", "action",
+                "--session-id", effective_session,
+                "--tenant-id", self.tenant_id,
+                "--client-id", self.client_id,
+                "--summary-policy", "cheap",
+                "--no-filter-noise",
+                "--meta", json.dumps(meta, separators=(",", ":")),
+                "--text", text,
+            ], timeout=self.timeout)
+        except Exception as exc:
+            logger.debug("Daystrom DML on_tool_result failed: %s", exc)
 
     def queue_prefetch(self, query: str, *, session_id: str = "") -> None:
         # Retrieval is synchronous and capped by timeout in prefetch(); no background worker yet.
