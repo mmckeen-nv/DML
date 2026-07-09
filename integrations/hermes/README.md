@@ -25,6 +25,29 @@ never/off -> DPM overlay only, no DML retrieval
 
 DML should be a compact semantic continuity substrate, not a shadow transcript or live rolling log.
 
+## Tool-call cookbook loop
+
+The provider includes a Hermes memory-provider hook for agentic tool outcomes:
+
+```text
+Hermes tool call -> on_tool_result -> compact DML tool_cookbook_event
+```
+
+Important successes, failures, blocked calls, commands, paths, and validation outcomes are stored as redacted compact events rather than full tool logs. The companion `cookbook_worker.py` can run as a one-shot or long-running Ollama worker to distill pending `tool_cookbook_event` records into reusable `tool_cookbook_recipe` memories:
+
+```bash
+python integrations/hermes/plugins/daystrom_dml/cookbook_worker.py \
+  --storage-dir /path/to/dml-store \
+  --launcher /path/to/hermes-dml-memory \
+  --config-path /path/to/dml_gpu_only.yaml \
+  --model llama3:8b
+
+# Continuous worker mode:
+python integrations/hermes/plugins/daystrom_dml/cookbook_worker.py ... --watch --interval 300
+```
+
+`llama3:8b` in local Ollama is the default cookbook model; override with `DAYSTROM_COOKBOOK_MODEL` or `--model` when needed. The worker uses `source_event_ids` metadata so it does not repeatedly distill the same events.
+
 ## Hygiene rules
 
 The provider rejects or strips common context-pollution sources before writeback and before rendering recalled memory:
@@ -82,9 +105,12 @@ From the DML repository root:
 PYTHONPATH="$PWD/dml_core:$PWD" python integrations/hermes/plugins/daystrom_dml/smoke_hygiene.py
 PYTHONPATH="$PWD/dml_core:$PWD" python integrations/hermes/plugins/daystrom_dml/smoke_dcn.py
 python -m py_compile integrations/hermes/plugins/daystrom_dml/__init__.py \
+  integrations/hermes/plugins/daystrom_dml/cookbook_worker.py \
   integrations/hermes/plugins/daystrom_dml/maintenance_scan.py \
   integrations/hermes/plugins/daystrom_dml/smoke_hygiene.py \
   integrations/hermes/plugins/daystrom_dml/smoke_dcn.py
+python -m pytest integrations/hermes/tests/test_daystrom_dml_tool_cookbook.py \
+  integrations/hermes/tests/test_daystrom_dml_cookbook_worker.py -q -o 'addopts='
 ```
 
 When touching the Hermes provider interface itself, also run the relevant Hermes agent memory-provider tests from the Hermes checkout.

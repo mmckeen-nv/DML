@@ -24,6 +24,7 @@ def _install_stubs() -> None:
     sys.modules.setdefault("agent.memory_provider", memory_provider)
 
     hermes_constants = types.ModuleType("hermes_constants")
+    setattr(hermes_constants, "get_default_hermes_root", lambda: Path("/Users/markmckeen/.hermes"))
     hermes_constants.get_hermes_home = lambda: Path("/Users/markmckeen/.hermes")
     sys.modules.setdefault("hermes_constants", hermes_constants)
 
