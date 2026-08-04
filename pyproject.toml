@@ -17,6 +17,8 @@ packages = [
     "daystrom_dml.llm_backends",
     "daystrom_dml.provider_web",
     "daystrom_dml.stm",
+    "daystrom_dml.context",
+    "daystrom_dml.context.adapters",
     "daystrom_dml.cognition",
     "daystrom_dml.inference",
     "daystrom_dml.contracts",
@@ -92,6 +94,7 @@ dml-ollama = "daystrom_dml.ollama_wrapper:main"
 dml-server = "daystrom_dml.server:main"
 dml-provider = "daystrom_dml.provider_server:main"
 dml-mcp-server = "dml_mcp.dml_mcp_server:main"
+dcm-model-probe = "scripts.dcm_model_probe:main"
 
 [tool.pytest.ini_options]
 addopts = "-q"

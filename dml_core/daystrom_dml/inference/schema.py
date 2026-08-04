@@ -25,6 +25,8 @@ class DIPPrepareRequest(SerializableDataclass):
     frontier_max_tokens: int = 512
     top_k: int = 8
     direct_input_tokens_estimate: Optional[int] = None
+    model_context_tokens: Optional[int] = None
+    runtime_reserved_tokens: int = 0
 
     @classmethod
     def from_dict(cls, data: Optional[Dict[str, Any]]) -> "DIPPrepareRequest":
@@ -41,11 +43,22 @@ class DIPPrepareRequest(SerializableDataclass):
             frontier_max_tokens=int(data.get("frontier_max_tokens", 512)),
             top_k=int(data.get("top_k", 8)),
             direct_input_tokens_estimate=data.get("direct_input_tokens_estimate"),
+            model_context_tokens=(
+                int(data["model_context_tokens"]) if data.get("model_context_tokens") is not None else None
+            ),
+            runtime_reserved_tokens=int(data.get("runtime_reserved_tokens", 0)),
         )
 
     def __post_init__(self) -> None:
-        if self.local_max_tokens < 0 or self.frontier_max_tokens < 0 or self.top_k < 0:
+        if (
+            self.local_max_tokens < 0
+            or self.frontier_max_tokens < 0
+            or self.top_k < 0
+            or self.runtime_reserved_tokens < 0
+        ):
             raise ContractError("DIP token and top_k limits must be non-negative")
+        if self.model_context_tokens is not None and self.model_context_tokens < 0:
+            raise ContractError("model_context_tokens must be non-negative")
 
 
 @dataclass
@@ -63,6 +76,8 @@ class DIPPrepareResult(SerializableDataclass):
     dcn_policy_version: Optional[str] = None
     dml_context_used: bool = False
     local_draft: str = ""
+    context_observation: Dict[str, Any] = field(default_factory=dict)
+    context_packet: Dict[str, Any] = field(default_factory=dict)
     telemetry: Dict[str, Any] = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)
 
@@ -81,6 +96,8 @@ class DIPPrepareResult(SerializableDataclass):
             dcn_policy_version=data.get("dcn_policy_version"),
             dml_context_used=bool(data.get("dml_context_used", False)),
             local_draft=data.get("local_draft", ""),
+            context_observation=dict(data.get("context_observation") or {}),
+            context_packet=dict(data.get("context_packet") or {}),
             telemetry=dict(data.get("telemetry") or {}),
             warnings=list(data.get("warnings") or []),
         )

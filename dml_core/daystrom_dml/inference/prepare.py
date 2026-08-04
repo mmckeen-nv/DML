@@ -4,7 +4,7 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from daystrom_dml import utils
-from daystrom_dml.api_contracts import DaystromScope, TokenBudget
+from daystrom_dml.api_contracts import ContractError, TokenBudget
 from daystrom_dml.cognition.schema import CognitivePacket
 from daystrom_dml.frontier_pipeline import DraftGenerator, FrontierCompressionPipeline, FrontierPipelineConfig
 from daystrom_dml.inference.schema import DIPPrepareRequest, DIPPrepareResult
@@ -24,16 +24,20 @@ class InferencePreparationPipeline:
         *,
         config: Optional[FrontierPipelineConfig] = None,
         draft_generator: Optional[DraftGenerator] = None,
+        context_controller: Any = None,
     ) -> None:
         self.adapter = adapter
         self.config = config or FrontierPipelineConfig()
         self.draft_generator = draft_generator
+        self.context_controller = context_controller
 
     def prepare(self, request: DIPPrepareRequest | dict[str, Any]) -> DIPPrepareResult:
         req = request if isinstance(request, DIPPrepareRequest) else DIPPrepareRequest.from_dict(request)
         if req.cognitive_packet is not None:
-            return self._prepare_from_packet(req, req.cognitive_packet)
-        return self._prepare_from_prompt(req)
+            result = self._prepare_from_packet(req, req.cognitive_packet)
+        else:
+            result = self._prepare_from_prompt(req)
+        return self._attach_context_observation(req, result)
 
     def _prepare_from_packet(self, req: DIPPrepareRequest, packet: CognitivePacket) -> DIPPrepareResult:
         prompt = req.prompt or packet.assembled_context or self._prompt_from_packet(packet)
@@ -45,7 +49,7 @@ class InferencePreparationPipeline:
             prompt=prompt,
             frontier_prompt=frontier_prompt,
             frontier_max_tokens=req.frontier_max_tokens,
-            token_budget=TokenBudget(limit_tokens=max(req.frontier_max_tokens, frontier_tokens), used_tokens=frontier_tokens),
+            token_budget=self._token_budget(req=req, input_tokens=frontier_tokens),
             dcn_packet_id=packet.packet_id,
             dcn_policy_version=packet.dcn_plan.policy_version,
             dml_context_used=bool(packet.dml_context),
@@ -54,6 +58,8 @@ class InferencePreparationPipeline:
                 "packet_version": packet.packet_version,
                 "inference_enabled": False,
             },
+            context_observation=dict(packet.context_observation or {}),
+            context_packet=dict(packet.context_packet or {}),
         )
 
     def _prepare_from_prompt(self, req: DIPPrepareRequest) -> DIPPrepareResult:
@@ -71,7 +77,7 @@ class InferencePreparationPipeline:
                 prompt=prompt,
                 frontier_prompt=frontier_prompt,
                 frontier_max_tokens=req.frontier_max_tokens,
-                token_budget=TokenBudget(limit_tokens=max(req.frontier_max_tokens, tokens), used_tokens=tokens),
+                token_budget=self._token_budget(req=req, input_tokens=tokens),
                 dml_context_used=False,
                 telemetry={"frontier_input_tokens": tokens, "inference_enabled": False},
                 warnings=["no_dml_adapter_configured"],
@@ -106,11 +112,74 @@ class InferencePreparationPipeline:
             prompt=str(prepared.get("prompt") or req.prompt),
             frontier_prompt=str(prepared.get("frontier_prompt") or ""),
             frontier_max_tokens=int(prepared.get("frontier_max_tokens") or req.frontier_max_tokens),
-            token_budget=TokenBudget(limit_tokens=max(req.frontier_max_tokens, tokens), used_tokens=tokens),
+            token_budget=self._token_budget(req=req, input_tokens=tokens),
             dml_context_used=bool(prepared.get("dml_context")),
             local_draft=str(prepared.get("local_draft") or ""),
             telemetry={**dict(prepared.get("telemetry") or {}), "inference_enabled": False},
         )
+
+    def _attach_context_observation(self, req: DIPPrepareRequest, result: DIPPrepareResult) -> DIPPrepareResult:
+        if self.context_controller is None:
+            return result
+        packet = req.cognitive_packet
+        try:
+            observation = self.context_controller.observe(
+                scope=packet.scope if packet is not None else req.scope,
+                model_limits={
+                    "context_window_tokens": req.model_context_tokens or result.token_budget.limit_tokens,
+                },
+                current_prompt=result.frontier_prompt,
+                current_messages=[{"role": "user", "content": result.frontier_prompt}],
+                output_reservation=result.frontier_max_tokens,
+                runtime_reserved_tokens=req.runtime_reserved_tokens,
+            )
+        except Exception as exc:  # observe-only integration must not break DIP preparation
+            return self._with_observation_warning(result, "context_observation_failed", exc)
+        if not isinstance(observation, dict):
+            return self._with_observation_warning(result, "context_observation_invalid")
+        result.context_observation = dict(observation)
+        if packet is not None:
+            result.context_packet = dict(packet.context_packet or {})
+        result.telemetry = {
+            **dict(result.telemetry or {}),
+            "context_pressure_state": (observation.get("pressure_state") or {}).get("state"),
+            "context_capabilities": dict(observation.get("capabilities") or {}),
+        }
+        actual_input_tokens = int(result.telemetry.get("frontier_input_tokens") or 0)
+        if (
+            req.model_context_tokens is not None
+            and actual_input_tokens + result.frontier_max_tokens + req.runtime_reserved_tokens > req.model_context_tokens
+        ):
+            result.warnings = [*list(result.warnings or []), "context_budget_overflow_observed"]
+            result.telemetry["context_budget_overflow_observed"] = True
+        return result
+
+    def _token_budget(self, *, req: DIPPrepareRequest, input_tokens: int) -> TokenBudget:
+        reserved_tokens = req.frontier_max_tokens + req.runtime_reserved_tokens
+        limit_tokens = req.model_context_tokens
+        if limit_tokens is None:
+            limit_tokens = input_tokens + reserved_tokens
+        elif input_tokens + reserved_tokens > limit_tokens:
+            if self.context_controller is None:
+                raise ContractError("model_context_tokens cannot fit input tokens plus output/runtime reservations")
+            # Observe-only mode must preserve the prepared artifact. Keep this
+            # legacy result envelope internally valid; observation below uses the
+            # caller's real model limit and records the pressure state.
+            limit_tokens = input_tokens + reserved_tokens
+        return TokenBudget(limit_tokens=limit_tokens, used_tokens=input_tokens, reserved_tokens=reserved_tokens)
+
+    @staticmethod
+    def _with_observation_warning(
+        result: DIPPrepareResult,
+        reason: str,
+        exc: Optional[Exception] = None,
+    ) -> DIPPrepareResult:
+        telemetry = {**dict(result.telemetry or {}), "context_observation_warning": reason}
+        if exc is not None:
+            telemetry["context_observation_error_type"] = type(exc).__name__
+        result.telemetry = telemetry
+        result.warnings = [*list(result.warnings or []), reason]
+        return result
 
     @staticmethod
     def _prompt_from_packet(packet: CognitivePacket) -> str:

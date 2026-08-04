@@ -1,0 +1,155 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.daystrom.local/daystrom/context-packet-v1.schema.json",
+  "title": "Daystrom Context Packet v1",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "packet_version",
+    "scope",
+    "capabilities",
+    "budget",
+    "segments",
+    "manifest",
+    "rendered_messages",
+    "decisions",
+    "warnings",
+    "audit",
+    "packet_content_digest"
+  ],
+  "properties": {
+    "packet_version": {
+      "type": "string",
+      "const": "daystrom-context-packet-v1"
+    },
+    "scope": {"$ref": "#/$defs/daystrom_scope"},
+    "capabilities": {"$ref": "#/$defs/runtime_capabilities"},
+    "budget": {"$ref": "#/$defs/context_budget"},
+    "segments": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/context_segment"}
+    },
+    "manifest": {"$ref": "#/$defs/context_manifest"},
+    "rendered_messages": {
+      "type": "array",
+      "items": {"type": "object", "additionalProperties": true}
+    },
+    "decisions": {"type": "object", "additionalProperties": true},
+    "warnings": {"type": "array", "items": {"type": "string"}},
+    "audit": {"$ref": "#/$defs/audit_info"},
+    "packet_content_digest": {"type": "string", "minLength": 64, "maxLength": 64}
+  },
+  "$defs": {
+    "context_authority": {
+      "type": "string",
+      "enum": ["immutable", "current_instruction", "trusted_control", "reference", "untrusted_data"]
+    },
+    "context_priority": {
+      "type": "string",
+      "enum": ["critical", "working", "reference", "disposable"]
+    },
+    "daystrom_scope": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["tenant_id"],
+      "properties": {
+        "tenant_id": {"type": "string", "minLength": 1},
+        "client_id": {"type": ["string", "null"]},
+        "session_id": {"type": ["string", "null"]},
+        "instance_id": {"type": ["string", "null"]},
+        "thread_id": {"type": ["string", "null"]},
+        "project_id": {"type": ["string", "null"]},
+        "relationship_id": {"type": ["string", "null"]}
+      }
+    },
+    "context_segment": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["segment_id", "kind", "content", "authority", "priority", "scope", "estimated_tokens"],
+      "properties": {
+        "segment_id": {"type": "string", "minLength": 1},
+        "kind": {"type": "string", "minLength": 1},
+        "content": true,
+        "authority": {"$ref": "#/$defs/context_authority"},
+        "priority": {"$ref": "#/$defs/context_priority"},
+        "scope": {"$ref": "#/$defs/daystrom_scope"},
+        "source": {"type": "object", "additionalProperties": true},
+        "provenance": {"type": "object", "additionalProperties": true},
+        "cache": {"type": "object", "additionalProperties": true},
+        "retention": {"type": "object", "additionalProperties": true},
+        "estimated_tokens": {"type": "integer", "minimum": 0},
+        "exact_tokens": {"type": ["integer", "null"], "minimum": 0}
+      }
+    },
+    "context_budget": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["model_limit_tokens", "output_reserved_tokens", "runtime_reserved_tokens", "admitted_input_tokens"],
+      "properties": {
+        "model_limit_tokens": {"type": "integer", "minimum": 0},
+        "output_reserved_tokens": {"type": "integer", "minimum": 0},
+        "runtime_reserved_tokens": {"type": "integer", "minimum": 0},
+        "admitted_input_tokens": {"type": "integer", "minimum": 0}
+      }
+    },
+    "runtime_capabilities": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["model_id", "backend_id"],
+      "properties": {
+        "model_id": {"type": "string", "minLength": 1},
+        "backend_id": {"type": "string", "minLength": 1},
+        "model_context_window": {"type": "integer", "minimum": 0},
+        "max_output_tokens": {"type": "integer", "minimum": 0},
+        "tokenizer_mode": {"type": "string"},
+        "prompt_cache_visibility": {"type": "string"},
+        "supports_kv_checkpoint_restore": {"type": "boolean"},
+        "supports_kv_offload": {"type": "boolean"},
+        "supports_nvcache": {"type": "boolean"},
+        "supports_context_branching": {"type": "boolean"},
+        "metadata": {"type": "object", "additionalProperties": true}
+      }
+    },
+    "context_manifest": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "manifest_version",
+        "scope",
+        "model_id",
+        "runtime_id",
+        "segment_ids",
+        "estimated_input_tokens",
+        "created_at",
+        "content_digest"
+      ],
+      "properties": {
+        "manifest_version": {"type": "string", "const": "daystrom-context-manifest-v1"},
+        "scope": {"$ref": "#/$defs/daystrom_scope"},
+        "model_id": {"type": "string", "minLength": 1},
+        "runtime_id": {"type": "string", "minLength": 1},
+        "segment_ids": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "estimated_input_tokens": {"type": "integer", "minimum": 0},
+        "exact_input_tokens": {"type": ["integer", "null"], "minimum": 0},
+        "parent_checkpoint_id": {"type": ["string", "null"]},
+        "parent_manifest_id": {"type": ["string", "null"]},
+        "decisions": {"type": "object", "additionalProperties": true},
+        "audit": {"type": "object", "additionalProperties": true},
+        "created_at": {"type": "number", "minimum": 0},
+        "content_digest": {"type": "string", "minLength": 64, "maxLength": 64}
+      }
+    },
+    "audit_info": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "reason": {"type": "string"},
+        "policy": {"type": "string"},
+        "reason_codes": {"type": "array", "items": {"type": "string"}},
+        "trace_id": {"type": ["string", "null"]},
+        "schema_version": {"type": "string"},
+        "metadata": {"type": "object", "additionalProperties": true}
+      }
+    }
+  }
+}

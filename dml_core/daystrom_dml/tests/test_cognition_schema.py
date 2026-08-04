@@ -65,6 +65,20 @@ def test_cognitive_packet_keeps_dcn_dml_dpm_context_separate():
     assert restored.scope.session_id == "s1"
 
 
+def test_cognitive_packet_context_fields_are_optional_and_roundtrip():
+    packet = CognitivePacket(
+        context_observation={"mode": "observe_only", "token_estimate": {"input_tokens": 9}},
+        context_packet={"segments": [{"kind": "prepared_prompt", "tokens": 9}]},
+    )
+
+    restored = CognitivePacket.from_dict(packet.to_dict())
+
+    assert restored.context_observation == {"mode": "observe_only", "token_estimate": {"input_tokens": 9}}
+    assert restored.context_packet == {"segments": [{"kind": "prepared_prompt", "tokens": 9}]}
+    assert CognitivePacket().context_observation == {}
+    assert CognitivePacket().context_packet == {}
+
+
 def test_cognitive_packet_rejects_unknown_packet_version():
     with pytest.raises(ContractError, match="packet_version"):
         CognitivePacket(packet_version="daystrom-cognitive-packet-v2")
