@@ -198,14 +198,17 @@ def main() -> int:
     extension_state = {
         "schema_version": "hermes.iteration_extension.v1",
         "user_message": "fix the failing DML tests",
-        "recent_text": "terminal result: FAILED test_dml.py::test_policy traceback",
-        "recent_tool_calls": 1,
-        "recent_tool_results": 1,
+        "recent_execution_text": "Updated the policy and verified one focused test passed; integration verification remains pending.",
+        "recent_tool_call_count": 1,
+        "recent_tool_result_count": 1,
+        "requested_extra_iterations": 30,
+        "pending_verification": True,
+        "recent_progress": True,
         "session_id": "smoke-session",
     }
     extension_decision = fake.decide_iteration_extension(extension_state)
     assert extension_decision["decision"] == "grant", extension_decision
-    assert extension_decision["extend_by"] == 30, extension_decision
+    assert extension_decision["extra_iterations"] == 30, extension_decision
     completed_decision = fake.decide_iteration_extension({
         "schema_version": "hermes.iteration_extension.v1",
         "user_message": "merge it",

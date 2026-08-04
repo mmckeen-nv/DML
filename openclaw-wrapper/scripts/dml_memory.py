@@ -13,16 +13,26 @@ import sys
 import tarfile
 import time
 import errno
-import fcntl
 import uuid
+
+if os.name == "nt":  # pragma: no cover - exercised on Windows CI
+    import msvcrt
+    fcntl = None  # type: ignore[assignment]
+else:  # pragma: no cover - platform-specific import
+    import fcntl
+    msvcrt = None  # type: ignore[assignment]
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import ContextManager, cast
 
-DEFAULT_WORKSPACE = Path("/Users/markmckeen/.openclaw/workspace")
+DEFAULT_OPENCLAW_HOME = Path(os.environ.get("OPENCLAW_HOME", str(Path.home() / ".openclaw")))
+DEFAULT_WORKSPACE = DEFAULT_OPENCLAW_HOME / "workspace"
 WORKSPACE = Path(os.environ.get("OPENCLAW_WORKSPACE", str(DEFAULT_WORKSPACE))).resolve()
-DAYSTROM_DML_HOME = Path(os.environ.get("DAYSTROM_DML_HOME", "/Users/markmckeen/.openclaw/daystrom-dml-v2")).resolve()
+DAYSTROM_DML_HOME = Path(
+    os.environ.get("DAYSTROM_DML_HOME", str(DEFAULT_OPENCLAW_HOME / "daystrom-dml-v2"))
+).resolve()
 WRAPPER_HOME = DAYSTROM_DML_HOME / "openclaw-wrapper"
 DML_PROJECT = DAYSTROM_DML_HOME / "dml"
 LEGACY_DML_PROJECT = WORKSPACE / "projects" / "dml"
@@ -37,6 +47,15 @@ def _resolve_existing(*candidates: Path | None) -> Path | None:
         if candidate is not None and candidate.exists():
             return candidate
     return None
+
+
+def _venv_runtime(venv: Path, *, platform_name: str | None = None) -> tuple[Path, Path]:
+    """Return the platform-specific executable directory and Python path."""
+
+    platform_name = platform_name or os.name
+    executable_dir = venv / ("Scripts" if platform_name == "nt" else "bin")
+    python = executable_dir / ("python.exe" if platform_name == "nt" else "python")
+    return executable_dir, python
 
 
 def _ensure_gpu_venv_runtime() -> None:
@@ -59,7 +78,7 @@ def _ensure_gpu_venv_runtime() -> None:
     if target_venv is None:
         return
 
-    target_python = target_venv / "bin" / "python"
+    venv_bin, target_python = _venv_runtime(target_venv)
     current_prefix = Path(getattr(sys, "prefix", "") or "").resolve()
     current_venv = Path(os.environ.get("VIRTUAL_ENV", "") or current_prefix).resolve()
 
@@ -74,7 +93,7 @@ def _ensure_gpu_venv_runtime() -> None:
     env = os.environ.copy()
     env["DML_SKIP_VENV_REEXEC"] = "1"
     env["VIRTUAL_ENV"] = str(target_venv)
-    env["PATH"] = f"{target_venv / 'bin'}:{env.get('PATH', '')}"
+    env["PATH"] = os.pathsep.join(part for part in (str(venv_bin), env.get("PATH", "")) if part)
     os.execve(str(target_python), [str(target_python), str(Path(__file__).resolve()), *sys.argv[1:]], env)
 
 
@@ -332,6 +351,33 @@ def _read_lock_metadata(storage_dir: str) -> dict | None:
         return None
 
 
+def _acquire_platform_lock(handle) -> None:
+    """Acquire a one-byte non-blocking lock on Windows or flock on POSIX."""
+
+    try:
+        if os.name == "nt":  # pragma: no cover - exercised on Windows CI
+            handle.seek(0, os.SEEK_END)
+            if handle.tell() == 0:
+                handle.write("\0")
+                handle.flush()
+            handle.seek(0)
+            msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError as exc:
+        if exc.errno in {errno.EACCES, errno.EAGAIN} or getattr(exc, "winerror", None) in {33, 36, 158}:
+            raise BlockingIOError(exc.errno or errno.EAGAIN, str(exc)) from exc
+        raise
+
+
+def _release_platform_lock(handle) -> None:
+    if os.name == "nt":  # pragma: no cover - exercised on Windows CI
+        handle.seek(0)
+        msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+    else:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
 @contextmanager
 def _store_write_lock(storage_dir: str, *, operation: str, timeout_ms: int = 0):
     lock_path = _lock_file_path(storage_dir)
@@ -343,12 +389,10 @@ def _store_write_lock(storage_dir: str, *, operation: str, timeout_ms: int = 0):
     try:
         while True:
             try:
-                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                _acquire_platform_lock(handle)
                 acquired = True
                 break
-            except OSError as exc:
-                if exc.errno not in {errno.EACCES, errno.EAGAIN}:
-                    raise
+            except BlockingIOError:
                 waited_ms = (time.perf_counter() - started) * 1000.0
                 if timeout_ms <= 0 or waited_ms >= timeout_ms:
                     holder = _read_lock_metadata(storage_dir) or {}
@@ -379,7 +423,7 @@ def _store_write_lock(storage_dir: str, *, operation: str, timeout_ms: int = 0):
                     lock_meta_path.unlink()
             except Exception:
                 pass
-            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+            _release_platform_lock(handle)
         handle.close()
 
 
@@ -1108,13 +1152,53 @@ def _adapter(storage_dir: str, config_path: str | None, require_gpu: bool) -> DM
     return adapter
 
 
+def _close_adapter(adapter: DMLAdapter, *, persist: bool) -> None:
+    """Close new adapters safely while retaining compatibility with test/legacy fakes."""
+
+    try:
+        adapter.close(persist=persist)
+    except TypeError:
+        adapter.close()
+
+
+def _adapter_mutation(
+    adapter: DMLAdapter,
+    storage_dir: str,
+    *,
+    operation: str,
+    timeout_ms: int,
+) -> ContextManager[object]:
+    """Prefer adapter-owned transactions; retain locking for legacy adapters/fakes."""
+
+    transaction = getattr(adapter, "mutation_transaction", None)
+    if callable(transaction):
+        return cast(ContextManager[object], transaction(operation))
+    return _store_write_lock(storage_dir, operation=operation, timeout_ms=timeout_ms)
+
+
+def _finish_adapter_mutation(adapter: DMLAdapter, transaction: ContextManager[object]) -> None:
+    """Close before unlocking so legacy close-time persistence remains serialized."""
+
+    try:
+        _close_adapter(adapter, persist=False)
+    finally:
+        transaction.__exit__(None, None, None)
+
+
 def cmd_ingest(args: argparse.Namespace) -> int:
     started = time.perf_counter()
     meta = _parse_meta(args.meta)
+    adapter = _adapter(args.storage_dir, args.config_path, args.require_gpu)
     try:
-        lock_ctx = _store_write_lock(args.storage_dir, operation="ingest", timeout_ms=args.lock_timeout_ms)
+        lock_ctx: ContextManager[object] = _adapter_mutation(
+            adapter,
+            args.storage_dir,
+            operation="wrapper-ingest",
+            timeout_ms=args.lock_timeout_ms,
+        )
         lock = lock_ctx.__enter__()
     except TimeoutError as exc:
+        _close_adapter(adapter, persist=False)
         blocked = _lock_failure_report("ingest", exc, started)
         _append_audit_event(
             args.storage_dir,
@@ -1125,9 +1209,7 @@ def cmd_ingest(args: argparse.Namespace) -> int:
         )
         print(json.dumps(blocked, indent=2, default=str))
         return 2
-    adapter = None
     try:
-        adapter = _adapter(args.storage_dir, args.config_path, args.require_gpu)
         seen = _load_dedup_index(args.storage_dir)
         payload_meta = {
             "tenant_id": args.tenant_id,
@@ -1181,9 +1263,7 @@ def cmd_ingest(args: argparse.Namespace) -> int:
             kept += 1
         adapter._persist_all()
     finally:
-        if adapter is not None:
-            adapter.close()
-        lock_ctx.__exit__(None, None, None)
+        _finish_adapter_mutation(adapter, lock_ctx)
     audit = _append_audit_event(
         args.storage_dir,
         operation="ingest",
@@ -1235,7 +1315,7 @@ def cmd_dpm_observe(args: argparse.Namespace) -> int:
             meta=meta,
         )
     finally:
-        adapter.close()
+        _close_adapter(adapter, persist=False)
     print(json.dumps({"status": "ok" if result else "skipped", "action": "dpm-observe", "result": result}, indent=2))
     return 0
 
@@ -1696,7 +1776,7 @@ def cmd_retrieve(args: argparse.Namespace) -> int:
                 )
                 report["memory_reformed_chunks"] = reformed
     finally:
-        adapter.close()
+        _close_adapter(adapter, persist=False)
     report["retrieve_total_latency_ms"] = round((time.perf_counter() - started) * 1000.0, 2)
     print(json.dumps(report, indent=2, default=str))
     return 0
@@ -1802,7 +1882,7 @@ def cmd_resume(args: argparse.Namespace) -> int:
             include_quarantined=False,
         )
     finally:
-        adapter.close()
+        _close_adapter(adapter, persist=False)
 
     items = [item for item in (report.get("items") or []) if isinstance(item, dict)]
     continuity_items = sorted(
@@ -1838,7 +1918,7 @@ def cmd_backend_proof(args: argparse.Namespace) -> int:
         report["status"] = "ok"
         report["action"] = "backend-proof"
     finally:
-        adapter.close()
+        _close_adapter(adapter, persist=False)
     print(json.dumps(report, indent=2, default=str))
     return 0
 
@@ -1888,7 +1968,7 @@ def cmd_health(args: argparse.Namespace) -> int:
             errors.append(f"backend_probe_failed: {exc}")
             report["backend"] = {"status": "error", "error": str(exc)}
         finally:
-            adapter.close()
+            _close_adapter(adapter, persist=False)
 
     if state.get("exists") and not errors:
         report["status"] = "ok"

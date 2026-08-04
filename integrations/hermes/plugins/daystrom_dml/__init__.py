@@ -106,6 +106,98 @@ _ITERATION_NOISE_RE = re.compile(
     r"\b(?:same error|repeated|looping|no progress|identical|stuck|thrash(?:ing)?|noise)\b",
     re.IGNORECASE,
 )
+_ITERATION_STOP_RE = re.compile(
+    r"\b(?:stop|cancel|abort|do not continue|don't continue|never mind|nevermind)\b",
+    re.IGNORECASE,
+)
+_ITERATION_PROGRESS_RE = re.compile(
+    r"\b(?:created|updated|fixed|implemented|completed step|test(?:s)? pass(?:ed)?|"
+    r"validation pass(?:ed)?|wrote|saved|compiled|connected|retrieved|verified)\b",
+    re.IGNORECASE,
+)
+_ITERATION_FAILURE_LINE_RE = re.compile(r"\b(?:error|failed|failure|traceback|exception)\b", re.IGNORECASE)
+
+
+def _safe_nonnegative_int(value: Any) -> int:
+    try:
+        return max(0, int(value or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _iteration_extension_decision(run_state: Dict[str, Any]) -> Dict[str, Any]:
+    """Pure, deterministic bounded continuation policy."""
+
+    source = "daystrom_dml_deterministic"
+    user_message = _clean_text(str(run_state.get("user_message") or ""), 2000)
+    execution = str(
+        run_state.get("recent_execution_text")
+        or run_state.get("recent_text")
+        or run_state.get("last_assistant_text")
+        or ""
+    )[:8000]
+    tool_calls = _safe_nonnegative_int(run_state.get("recent_tool_call_count", run_state.get("recent_tool_calls")))
+    tool_results = _safe_nonnegative_int(run_state.get("recent_tool_result_count", run_state.get("recent_tool_results")))
+    requested_value = run_state.get("requested_extra_iterations")
+    requested = 30 if requested_value is None else _safe_nonnegative_int(requested_value)
+    budget_used = _safe_nonnegative_int(run_state.get("budget_used"))
+    hard_cap = _safe_nonnegative_int(run_state.get("hard_cap"))
+    pending_verification = bool(run_state.get("pending_verification"))
+    recent_progress_value = run_state.get("recent_progress")
+    recent_progress = bool(recent_progress_value) or bool(_ITERATION_PROGRESS_RE.search(execution))
+
+    def deny(*codes: str) -> Dict[str, Any]:
+        return {
+            "decision": "deny",
+            "source": source,
+            "reason_codes": list(codes),
+            "extra_iterations": 0,
+        }
+
+    if _ITERATION_STOP_RE.search(user_message):
+        return deny("explicit_stop_or_cancel")
+    if requested <= 0:
+        return deny("no_extension_requested")
+    remaining_capacity = max(0, hard_cap - budget_used) if hard_cap > 0 else requested
+    if hard_cap > 0 and remaining_capacity <= 0:
+        return deny("hard_cap_reached")
+    incomplete_text = re.sub(r"\bno [^.?!\n]{0,80}\bpending\b", "", execution, flags=re.IGNORECASE)
+    incomplete_recent = bool(_ITERATION_INCOMPLETE_RE.search(incomplete_text))
+    if _ITERATION_COMPLETE_RE.search(execution) and not pending_verification and not incomplete_recent:
+        return deny("completion_signal")
+
+    normalized_failures = [
+        " ".join(line.lower().split())
+        for line in execution.splitlines()
+        if _ITERATION_FAILURE_LINE_RE.search(line)
+    ]
+    repeated_failure = any(normalized_failures.count(line) >= 3 for line in set(normalized_failures))
+    if repeated_failure and not recent_progress:
+        return deny("repeated_identical_failure", "no_recent_progress")
+    if _ITERATION_NOISE_RE.search(execution) and not recent_progress:
+        return deny("endless_retry_or_thrash", "no_recent_progress")
+    if tool_calls >= 6 and tool_results == 0 and not recent_progress:
+        return deny("tool_loop_without_results", "no_recent_progress")
+    if not recent_progress:
+        return deny("insufficient_progress_evidence")
+    if tool_calls <= 0 and tool_results <= 0:
+        return deny("no_recent_tool_activity")
+    if not pending_verification and not incomplete_recent:
+        return deny("no_required_work_evidence")
+
+    reason_codes = ["recent_concrete_progress"]
+    if pending_verification:
+        reason_codes.append("bounded_verification_pending")
+    else:
+        reason_codes.append("required_work_remains")
+    return {
+        "decision": "grant",
+        "source": source,
+        "reason_codes": reason_codes,
+        "extra_iterations": min(requested, remaining_capacity, 30),
+    }
+
+
 _DURABLE_PATTERNS: Tuple[Tuple[str, re.Pattern[str]], ...] = (
     ("preference", re.compile(r"\b(?:i|we|mark)\s+(?:prefers?|likes?|wants?|needs?|expects?)\b|\bplease\s+(?:prefer|use|keep|make|remember|avoid)\b|\bmore\s+[^.!?]{1,80}\bless\s+|\bless\s+[^.!?]{1,80}\bmore\s+|\btoo\s+(?:mechanical|rigid|formal|verbose|terse)\b", re.IGNORECASE)),
     ("identity", re.compile(r"\b(?:assistant identity|citizen snips|snips_?2|you are citizen snips)\b", re.IGNORECASE)),
@@ -1004,59 +1096,32 @@ class DaystromDMLProvider(MemoryProvider):
         return list(self._dcn_observations)
 
     def decide_iteration_extension(self, run_state: Dict[str, Any]) -> Dict[str, Any]:
-        """Use DML/DCN recall context to decide whether Hermes should grant more turns."""
+        """Return and observe a deterministic, side-effect-free DML decision."""
+
         if not self.enable_memory:
-            return {"decision": "deny", "reason_codes": ["dml_memory_disabled"]}
-        text_parts = [
-            str(run_state.get("user_message") or ""),
-            str(run_state.get("recent_text") or ""),
-            str(run_state.get("prefetch_context") or ""),
-            str(run_state.get("last_assistant_text") or ""),
-        ]
-        combined = _clean_text("\n".join(text_parts), 8000)
-        incomplete_combined = re.sub(r"\bno [^.?!\n]{0,80}\bpending\b", "", combined, flags=re.IGNORECASE)
-        if _ITERATION_NOISE_RE.search(combined):
-            return {"decision": "deny", "reason_codes": ["dcn_noise_or_loop_signal"], "source": "daystrom_dml"}
-        if _ITERATION_COMPLETE_RE.search(combined) and not _ITERATION_INCOMPLETE_RE.search(incomplete_combined):
-            return {"decision": "deny", "reason_codes": ["dcn_completion_signal"], "source": "daystrom_dml"}
-        recent_work = int(run_state.get("recent_tool_calls") or 0) + int(run_state.get("recent_tool_results") or 0)
-        if recent_work <= 0:
-            return {"decision": "deny", "reason_codes": ["dcn_no_recent_tool_work"], "source": "daystrom_dml"}
-
-        recall_text = ""
-        try:
-            query = _clean_text(
-                "iteration budget exhausted; decide if current Hermes task is incomplete or noisy: "
-                + str(run_state.get("user_message") or "")
-                + " "
-                + str(run_state.get("recent_text") or ""),
-                1200,
-            )
-            payload = self._run_cli([
-                "retrieve",
-                "--query", query,
-                "--top-k", "4",
-                "--tenant-id", self.tenant_id,
-                "--session-id", str(run_state.get("session_id") or self._session_id),
-                "--ground-truth-policy", "never",
-                "--no-reform-memory",
-            ], timeout=min(self.timeout, 6))
-            recall_text = _clean_text(str(payload.get("raw_context") or ""), 4000)
-        except Exception as exc:
-            logger.debug("Daystrom DML iteration-extension recall failed: %s", exc)
-
-        evidence = _clean_text(combined + "\n" + recall_text, 10000)
-        incomplete_evidence = re.sub(r"\bno [^.?!\n]{0,80}\bpending\b", "", evidence, flags=re.IGNORECASE)
-        if _ITERATION_NOISE_RE.search(evidence):
-            return {"decision": "deny", "reason_codes": ["dcn_recall_noise_or_loop_signal"], "source": "daystrom_dml"}
-        if _ITERATION_INCOMPLETE_RE.search(incomplete_evidence):
-            return {
-                "decision": "grant",
-                "extend_by": 30,
-                "reason_codes": ["dcn_incomplete_signal", "dml_recall_checked", "recent_tool_work"],
-                "source": "daystrom_dml",
+            decision = {
+                "decision": "deny",
+                "source": "daystrom_dml_deterministic",
+                "reason_codes": ["dml_memory_disabled"],
+                "extra_iterations": 0,
             }
-        return {"decision": "deny", "reason_codes": ["dcn_insufficient_incomplete_signal"], "source": "daystrom_dml"}
+        else:
+            decision = _iteration_extension_decision(dict(run_state or {}))
+        event = {
+            "event": "dcn.iteration_extension",
+            **decision,
+            "recent_tool_call_count": _safe_nonnegative_int(
+                run_state.get("recent_tool_call_count", run_state.get("recent_tool_calls"))
+            ),
+            "recent_tool_result_count": _safe_nonnegative_int(
+                run_state.get("recent_tool_result_count", run_state.get("recent_tool_results"))
+            ),
+        }
+        self._record_dcn_event(event)
+        logger.info("Daystrom iteration extension: %s", json.dumps(event, sort_keys=True))
+        response = dict(decision)
+        response["extend_by"] = int(decision.get("extra_iterations") or 0)
+        return response
 
     def prefetch(self, query: str, *, session_id: str = "") -> str:
         query = _clean_text(query, 1200)

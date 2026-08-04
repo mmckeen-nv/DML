@@ -1,4 +1,5 @@
 import importlib.util
+import json
 from pathlib import Path
 import sys
 
@@ -53,3 +54,40 @@ def test_persist_and_reload(tmp_path):
     assert results
     assert results[0]["meta"]["source"] == "delta.py"
     assert "Delta" in results[0]["text"]
+
+
+def test_load_rejects_torn_index_metadata_pair(tmp_path):
+    index_path = tmp_path / "torn.faiss"
+    meta_path = tmp_path / "torn.json"
+    store = PersistentRAGStore(enable=True, index_path=index_path, meta_path=meta_path, dim=3)
+    store.add("one document", _vec([1.0, 0.0, 0.0]), {"source": "one"})
+    store.persist()
+
+    manifest = json.loads(store.manifest_path.read_text(encoding="utf-8"))
+    current_meta = store.manifest_path.parent / manifest["current"]["metadata"]
+    payload = json.loads(current_meta.read_text(encoding="utf-8"))
+    payload["records"] = []
+    current_meta.write_text(json.dumps(payload), encoding="utf-8")
+
+    restored = PersistentRAGStore(enable=True, index_path=index_path, meta_path=meta_path, dim=3)
+    assert restored.load() is False
+    assert restored.search(_vec([1.0, 0.0, 0.0]), top_k=1) == []
+
+
+def test_load_recovers_previous_complete_generation(tmp_path):
+    index_path = tmp_path / "recover.faiss"
+    meta_path = tmp_path / "recover.json"
+    store = PersistentRAGStore(enable=True, index_path=index_path, meta_path=meta_path, dim=3)
+    store.add("stable document", _vec([1.0, 0.0, 0.0]), {"source": "stable"})
+    store.persist()
+    store.add("new document", _vec([0.0, 1.0, 0.0]), {"source": "new"})
+    store.persist()
+
+    manifest = json.loads(store.manifest_path.read_text(encoding="utf-8"))
+    current_meta = store.manifest_path.parent / manifest["current"]["metadata"]
+    current_meta.write_text("corrupt", encoding="utf-8")
+
+    restored = PersistentRAGStore(enable=True, index_path=index_path, meta_path=meta_path, dim=3)
+    assert restored.load() is True
+    results = restored.search(_vec([1.0, 0.0, 0.0]), top_k=3)
+    assert [item["meta"]["source"] for item in results] == ["stable"]

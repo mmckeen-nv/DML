@@ -2,12 +2,16 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import logging
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
 import numpy as np
+
+from .atomic_io import atomic_write_text, atomic_write_via
 
 try:  # pragma: no cover - optional dependency
     import faiss  # type: ignore[import]
@@ -42,6 +46,7 @@ class PersistentRAGStore:
         self.backend = backend
         self.index_path = index_path
         self.meta_path = meta_path
+        self.manifest_path = meta_path.with_name(meta_path.name + ".manifest.json")
         self._records: List[RAGRecord] = []
         self._id_lookup: Dict[int, int] = {}
         self._index: Any = None
@@ -55,19 +60,49 @@ class PersistentRAGStore:
     # ------------------------------------------------------------------
     # lifecycle
     # ------------------------------------------------------------------
-    def load(self) -> None:
-        """Load an existing index from disk if present."""
+    def load(self) -> bool:
+        """Load an existing index from disk and report whether it was restored."""
 
         if not self.enable:
-            return
+            return False
+        self._clear_loaded_state()
+        if self.manifest_path.exists():
+            try:
+                manifest = json.loads(self.manifest_path.read_text(encoding="utf-8"))
+            except Exception:
+                LOGGER.exception("Failed to read persistent RAG generation manifest")
+            else:
+                for entry in (manifest.get("current"), manifest.get("previous")):
+                    if isinstance(entry, dict) and self._load_generation(entry):
+                        return True
+                LOGGER.error("No complete persistent RAG generation could be restored")
+                return False
         if not self.index_path.exists() or not self.meta_path.exists():
-            return
+            return False
+        return self._load_pair(self.index_path, self.meta_path)
+
+    def _load_generation(self, entry: Dict[str, Any]) -> bool:
+        index_path = self.manifest_path.parent / str(entry.get("index") or "")
+        meta_path = self.manifest_path.parent / str(entry.get("metadata") or "")
+        if not index_path.is_file() or not meta_path.is_file():
+            return False
+        if entry.get("index_sha256") != self._sha256(index_path):
+            return False
+        if entry.get("metadata_sha256") != self._sha256(meta_path):
+            return False
+        return self._load_pair(index_path, meta_path, expected_generation=str(entry.get("generation") or ""))
+
+    def _load_pair(self, index_path: Path, meta_path: Path, *, expected_generation: str = "") -> bool:
+        assert faiss is not None
         try:
-            self._index = faiss.read_index(str(self.index_path))
-            data = json.loads(self.meta_path.read_text(encoding="utf-8"))
+            self._index = faiss.read_index(str(index_path))
+            data = json.loads(meta_path.read_text(encoding="utf-8"))
         except Exception:  # pragma: no cover - defensive logging
             LOGGER.exception("Failed to load persistent RAG index from disk")
-            return
+            return False
+        if expected_generation and data.get("generation") != expected_generation:
+            self._clear_loaded_state()
+            return False
         records = data.get("records", [])
         next_id = int(data.get("next_id", len(records)))
         dim = int(data.get("dim", getattr(self._index, "d", self._dim)))
@@ -86,11 +121,14 @@ class PersistentRAGStore:
             )
             self._dim = int(getattr(self._index, "d", dim))
         if self._index is not None and self._index.ntotal != len(self._records):
-            LOGGER.warning(
-                "FAISS index document count (%s) mismatches metadata (%s).",
+            LOGGER.error(
+                "FAISS index document count (%s) mismatches metadata (%s); rejecting torn durable state.",
                 self._index.ntotal,
                 len(self._records),
             )
+            self._clear_loaded_state()
+            return False
+        return True
 
     def persist(self) -> None:
         """Persist the FAISS index and metadata to disk."""
@@ -99,13 +137,50 @@ class PersistentRAGStore:
             return
         self.index_path.parent.mkdir(parents=True, exist_ok=True)
         self.meta_path.parent.mkdir(parents=True, exist_ok=True)
+        generation = uuid.uuid4().hex
         payload = {
+            "generation": generation,
             "dim": self._dim,
             "next_id": self._next_id,
             "records": [record.__dict__ for record in self._records],
         }
-        faiss.write_index(self._index, str(self.index_path))
-        self.meta_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        index_gen = self.index_path.with_name(f"{self.index_path.name}.{generation}")
+        meta_gen = self.meta_path.with_name(f"{self.meta_path.name}.{generation}")
+        assert faiss is not None
+        faiss_module = faiss
+        atomic_write_via(index_gen, lambda path: faiss_module.write_index(self._index, str(path)))
+        atomic_write_text(meta_gen, json.dumps(payload, ensure_ascii=False, indent=2))
+        previous = None
+        if self.manifest_path.exists():
+            try:
+                previous = json.loads(self.manifest_path.read_text(encoding="utf-8")).get("current")
+            except Exception:
+                LOGGER.warning("Ignoring unreadable prior RAG manifest", exc_info=True)
+        current = {
+            "generation": generation,
+            "index": index_gen.name,
+            "metadata": meta_gen.name,
+            "index_sha256": self._sha256(index_gen),
+            "metadata_sha256": self._sha256(meta_gen),
+        }
+        atomic_write_text(
+            self.manifest_path,
+            json.dumps({"version": 1, "current": current, "previous": previous}, indent=2),
+        )
+
+    def _clear_loaded_state(self) -> None:
+        self._index = None
+        self._records = []
+        self._id_lookup = {}
+        self._next_id = 0
+
+    @staticmethod
+    def _sha256(path: Path) -> str:
+        digest = hashlib.sha256()
+        with path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+        return digest.hexdigest()
 
     # ------------------------------------------------------------------
     # core operations

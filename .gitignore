@@ -16,6 +16,7 @@ data/
 build/
 dist/
 .chroma/
+/out/
 *.so
 
 # Local tool lockfiles / generated config variants

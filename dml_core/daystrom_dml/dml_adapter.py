@@ -9,6 +9,7 @@ import re
 import threading
 import time
 from collections import OrderedDict
+from functools import wraps
 from datetime import datetime, timezone
 from pathlib import Path
 from threading import Event, RLock
@@ -20,7 +21,12 @@ from .checkpoint import CheckpointManager
 from .embeddings import Embedder, create_embedder
 from .gpt_runner import GPTRunner
 from .memory_store import MemoryItem, MemoryStore
-from .metrics import record_retrieval, update_memory_gauge
+from .metrics import (
+    record_operation,
+    record_retrieval,
+    record_source_expansion,
+    update_memory_gauge,
+)
 from .multi_rag import MultiRAGStore, RAGBackendDescriptor
 from .persistence import load_state as load_persisted_memories
 from .persistence import save_state as save_persisted_memories
@@ -29,6 +35,8 @@ from .summarizer import DummySummarizer, LLMSummarizer, Summarizer
 from .retrievers import LiteralRetriever
 from .router import decide_mode
 from .rag_store import PersistentRAGStore
+from .store_lock import store_write_lock
+from .atomic_io import atomic_write_text
 from .stm.controller import STMController
 from .stm.policy import LTMWritePolicy, MemoryWrite
 from .stm.schema import STMState
@@ -38,6 +46,17 @@ from .promotion_pipeline import PromotionPipeline, MemoryEntry
 from .policy_router import PolicyRouter, TaskType, RouterDecision
 
 LOGGER = logging.getLogger(__name__)
+
+
+def _serialized_mutation(method):
+    """Run a public durable mutation inside the adapter's process-wide transaction."""
+
+    @wraps(method)
+    def wrapped(self, *args, **kwargs):
+        with self._mutation_transaction(method.__name__):
+            return method(self, *args, **kwargs)
+
+    return wrapped
 
 
 class _PersistentRAGBackendAdapter:
@@ -96,6 +115,9 @@ class DMLAdapter:
         )
         self.enable_quality_on_retrieval = bool(
             self.config.get("enable_quality_on_retrieval", False)
+        )
+        self.mirror_agentic_memory_to_rag = bool(
+            self.config.get("mirror_agentic_memory_to_rag", False)
         )
         self.metrics_enabled = bool(self.settings.metrics_enabled)
         self.survival_ledger_enabled = bool(
@@ -177,6 +199,11 @@ class DMLAdapter:
         self.rag_state_path = self.storage_dir / "rag_store.json"
         self.checkpoint_dir = self.storage_dir / "checkpoints"
         self._persist_lock = RLock()
+        self._refresh_lock = RLock()
+        self._mutation_local = threading.local()
+        self._last_observed_state: Optional[tuple[int, int]] = None
+        self._last_observed_rag_state: Optional[tuple[int, int]] = None
+        self._last_observed_persistent_rag: Optional[tuple[int, int]] = None
         literal_cfg = getattr(self.settings, "literal", None)
         literal_tokens = 160
         literal_snippets = 8
@@ -194,6 +221,7 @@ class DMLAdapter:
         )
         rag_settings = getattr(self.settings, "rag_store", None)
         self.persistent_rag_store: Optional[PersistentRAGStore] = None
+        self._persistent_rag_loaded = False
         if rag_settings and getattr(rag_settings, "enable", False):
             index_path = Path(rag_settings.path).expanduser()
             meta_path = Path(rag_settings.meta_path).expanduser()
@@ -213,8 +241,11 @@ class DMLAdapter:
                 LOGGER.exception("Failed to initialise persistent RAG store.")
                 self.persistent_rag_store = None
             else:
-                with contextlib.suppress(Exception):
-                    self.persistent_rag_store.load()
+                try:
+                    self._persistent_rag_loaded = bool(self.persistent_rag_store.load())
+                except Exception:
+                    LOGGER.exception("Failed to load persistent RAG store.")
+                    self._persistent_rag_loaded = False
         else:
             self.persistent_rag_store = None
 
@@ -325,6 +356,12 @@ class DMLAdapter:
                 retention=int(self.settings.checkpoint_retention),
             )
         self._load_persisted_state()
+        self._last_observed_state = self._state_stamp()
+        self._last_observed_rag_state = self._path_stamp(self.rag_state_path)
+        if self.persistent_rag_store is not None:
+            self._last_observed_persistent_rag = self._path_stamp(
+                self.persistent_rag_store.manifest_path
+            )
         if self._persistence_enabled and self._persistence_interval > 0:
             self._start_persistence_loop()
         if self.metrics_enabled:
@@ -334,9 +371,13 @@ class DMLAdapter:
     # ------------------------------------------------------------------
     # Lifecycle helpers
     # ------------------------------------------------------------------
-    def close(self) -> None:
-        self._persist_all()
+    def close(self, persist: bool = True) -> None:
+        """Stop background work and optionally persist an owned, current snapshot."""
+
         self._stop_persistence_loop()
+        if persist:
+            with self._mutation_transaction("close"):
+                self._persist_all()
         if self.checkpoint_manager:
             self.checkpoint_manager.close()
         if self.metrics_enabled:
@@ -346,6 +387,7 @@ class DMLAdapter:
     # ------------------------------------------------------------------
     # Memory operations
     # ------------------------------------------------------------------
+    @_serialized_mutation
     def ingest(
         self,
         text: str,
@@ -368,15 +410,14 @@ class DMLAdapter:
                 }
             )
         rag_text = item.text if merged else text
-        rag_embedding = item.embedding if merged else embedding
         rag_meta: Dict[str, Any] = dict(meta or {})
         rag_meta.setdefault("memory_id", item.id)
         if merged:
             rag_meta["memory_merges"] = int(item.meta.get("merges", 0))
-        if self.persistent_rag_store is not None:
-            with contextlib.suppress(Exception):
-                self.persistent_rag_store.add(rag_text, rag_embedding, meta=rag_meta)
         self.rag_store.add_document(rag_text, meta=rag_meta)
+        if self.metrics_enabled:
+            record_operation("lattice_write")
+            record_operation("rag_write")
         if persist:
             self._persist_all()
         if self.metrics_enabled:
@@ -395,6 +436,7 @@ class DMLAdapter:
         if self.metrics_enabled:
             update_memory_gauge(len(self.store.items()))
 
+    @_serialized_mutation
     def ingest_agentic(
         self,
         text: str,
@@ -422,6 +464,7 @@ class DMLAdapter:
         except ValueError:
             kind_enum = None
         agentic_meta["kind"] = kind_value
+        agentic_meta = self._apply_procedural_hygiene(text, agentic_meta)
 
         # Validate schema in agentic mode
         if self.agentic_mode_enabled:
@@ -437,15 +480,15 @@ class DMLAdapter:
         salience = self._estimate_salience(text)
         item, merged = self.store.ingest(text, embedding, salience=salience, meta=agentic_meta)
         rag_text = item.text if merged else text
-        rag_embedding = item.embedding if merged else embedding
         rag_meta: Dict[str, Any] = dict(agentic_meta)
         rag_meta.setdefault("memory_id", item.id)
 
-        # Add to RAG store
-        if self.persistent_rag_store is not None:
-            with contextlib.suppress(Exception):
-                self.persistent_rag_store.add(rag_text, rag_embedding, meta=rag_meta)
-        self.rag_store.add_document(rag_text, meta=rag_meta)
+        if self.mirror_agentic_memory_to_rag:
+            self.rag_store.add_document(rag_text, meta=rag_meta)
+            if self.metrics_enabled:
+                record_operation("rag_write")
+        elif self.metrics_enabled:
+            record_operation("rag_mirroring_skipped")
 
         # Add to promotion pipeline in agentic mode
         if self.agentic_mode_enabled and self.agentic_router:
@@ -470,8 +513,11 @@ class DMLAdapter:
                 LOGGER.debug(f"Added {kind_value} to verified store")
 
         self._maybe_update_survival_ledger(text, agentic_meta)
-        self._persist_all()
+        self._persist_dml_state()
+        if self.mirror_agentic_memory_to_rag:
+            self._persist_rag_state()
         if self.metrics_enabled:
+            record_operation("lattice_write")
             update_memory_gauge(len(self.store.items()))
 
     def get_context(self, query: str, max_tokens: int = 1000) -> str:
@@ -614,6 +660,7 @@ class DMLAdapter:
 
         return self.personality_matrix.delete_preference(node_id)
 
+    @_serialized_mutation
     def reinforce(self, prompt: str, response: str, meta: Optional[Dict] = None) -> None:
         prompt_text = (prompt or "").strip()
         response_text = self._clean_context_fragment(response)
@@ -1191,6 +1238,94 @@ class DMLAdapter:
     # ------------------------------------------------------------------
     # Persistence helpers
     # ------------------------------------------------------------------
+    def _active_state_path(self) -> Path:
+        return self._persistence_path if self._persistence_enabled else self.dml_state_path
+
+    def mutation_transaction(self, operation: str):
+        """Expose one nestable durable transaction to trusted batch front ends."""
+
+        return self._mutation_transaction(operation)
+
+    @contextlib.contextmanager
+    def _mutation_transaction(self, operation: str):
+        """Serialize and refresh a complete read-modify-persist transaction."""
+
+        depth = int(getattr(self._mutation_local, "depth", 0))
+        if depth:
+            self._mutation_local.depth = depth + 1
+            try:
+                yield
+            finally:
+                self._mutation_local.depth -= 1
+            return
+
+        lock_root = self._active_state_path().expanduser().resolve().parent
+        with store_write_lock(lock_root, operation=operation, timeout_ms=30000):
+            self._mutation_local.depth = 1
+            try:
+                self.refresh_if_changed()
+                yield
+            finally:
+                self._mutation_local.depth = 0
+
+    def _state_stamp(self) -> Optional[tuple[int, int]]:
+        return self._path_stamp(self._active_state_path())
+
+    @staticmethod
+    def _path_stamp(path: Path) -> Optional[tuple[int, int]]:
+        try:
+            stat = path.stat()
+        except FileNotFoundError:
+            return None
+        return int(stat.st_mtime_ns), int(stat.st_size)
+
+    def refresh_if_changed(self) -> bool:
+        """Reload lattice state when another process has persisted a newer snapshot."""
+
+        started = time.perf_counter()
+        with self._refresh_lock:
+            changed = False
+            current = self._state_stamp()
+            if current is not None and current != self._last_observed_state:
+                if self._persistence_enabled:
+                    items = load_persisted_memories(self._persistence_path)
+                    payload = {"items": [item.to_dict() for item in items]}
+                else:
+                    payload = json.loads(self.dml_state_path.read_text(encoding="utf-8"))
+                self.store.import_state(payload)
+                self._query_embedding_cache.clear()
+                self._last_observed_state = current
+                changed = True
+
+            rag_stamp = self._path_stamp(self.rag_state_path)
+            if rag_stamp is not None and rag_stamp != self._last_observed_rag_state:
+                self.rag_store.import_state(
+                    json.loads(self.rag_state_path.read_text(encoding="utf-8"))
+                )
+                self._last_observed_rag_state = rag_stamp
+                changed = True
+
+            if self.persistent_rag_store is not None:
+                persistent_stamp = self._path_stamp(self.persistent_rag_store.manifest_path)
+                if (
+                    persistent_stamp is not None
+                    and persistent_stamp != self._last_observed_persistent_rag
+                    and self.persistent_rag_store.load()
+                ):
+                    self._last_observed_persistent_rag = persistent_stamp
+                    changed = True
+            if not changed:
+                return False
+        latency_ms = (time.perf_counter() - started) * 1000.0
+        LOGGER.info(
+            "Reloaded externally changed DML state path=%s latency_ms=%.2f",
+            self._active_state_path(),
+            latency_ms,
+        )
+        if self.metrics_enabled:
+            record_operation("state_reload", latency_ms=latency_ms)
+        return True
+
     def _load_persisted_state(self) -> None:
         state_loaded = False
         if self._persistence_enabled:
@@ -1227,7 +1362,13 @@ class DMLAdapter:
                             report.get("report_path"),
                         )
                     self.store.import_state(data)
-        if not bool(self.config.get("skip_rag_state_import", False)):
+        if self._persistent_rag_loaded:
+            LOGGER.info(
+                "Skipping legacy RAG replay because durable persistent RAG is already loaded."
+            )
+            if self.metrics_enabled:
+                record_operation("legacy_rag_replay_skipped")
+        elif not bool(self.config.get("skip_rag_state_import", False)):
             with contextlib.suppress(Exception):
                 if self.rag_state_path.exists():
                     data = json.loads(self.rag_state_path.read_text(encoding="utf-8"))
@@ -1260,7 +1401,8 @@ class DMLAdapter:
     def _persistence_loop(self) -> None:
         while not self._persistence_stop_event.wait(self._persistence_interval):
             try:
-                self._persist_dml_state()
+                with self._mutation_transaction("background-persistence"):
+                    self._persist_dml_state()
             except Exception:
                 LOGGER.exception("Failed to persist DML state during background save.")
 
@@ -1280,6 +1422,7 @@ class DMLAdapter:
                 items = self.store.items()
                 try:
                     save_persisted_memories(items, self._persistence_path)
+                    self._last_observed_state = self._state_stamp()
                 except Exception:
                     LOGGER.exception(
                         "Failed to persist DML state to %s", self._persistence_path
@@ -1287,11 +1430,10 @@ class DMLAdapter:
             return
         with self._persist_lock:
             data = self.store.export_state()
-            tmp = self.dml_state_path.with_suffix(".tmp")
             try:
                 self.dml_state_path.parent.mkdir(parents=True, exist_ok=True)
-                tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
-                tmp.replace(self.dml_state_path)
+                atomic_write_text(self.dml_state_path, json.dumps(data, indent=2))
+                self._last_observed_state = self._state_stamp()
             except Exception:
                 LOGGER.exception("Failed to persist DML state to %s", self.dml_state_path)
 
@@ -1300,14 +1442,16 @@ class DMLAdapter:
             if self.persistent_rag_store is not None:
                 try:
                     self.persistent_rag_store.persist()
+                    self._last_observed_persistent_rag = self._path_stamp(
+                        self.persistent_rag_store.manifest_path
+                    )
                 except Exception:
                     LOGGER.exception("Failed to persist persistent RAG index.")
             data = self.rag_store.export_state()
-            tmp = self.rag_state_path.with_suffix(".tmp")
             try:
                 self.rag_state_path.parent.mkdir(parents=True, exist_ok=True)
-                tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
-                tmp.replace(self.rag_state_path)
+                atomic_write_text(self.rag_state_path, json.dumps(data, indent=2))
+                self._last_observed_rag_state = self._path_stamp(self.rag_state_path)
             except Exception:
                 LOGGER.exception("Failed to persist RAG state to %s", self.rag_state_path)
 
@@ -1605,26 +1749,41 @@ class DMLAdapter:
             semantic_results = self._semantic_retrieve(query_embedding, top_k=top_k)
         alpha = self._alpha_for_mode(selected_mode)
         combined = self._blend_results(literal_results, semantic_results, alpha, top_k=top_k)
-        context_blocks = []
+        context_blocks: List[str] = []
         sources: List[str] = []
+        expanded_chars = 0
+        max_expanded_chars = 16000
         for entry in combined:
-            source = entry.get("source") or "unknown"
-            if source not in sources and entry.get("source"):
+            if expanded_chars >= max_expanded_chars:
+                break
+            source = str(entry.get("source") or f"memory:{entry.get('id') or 'unknown'}")
+            if source not in sources:
                 sources.append(source)
-            block_lines = [f"Source: {source}"]
-            for segment in entry.get("context", []):
-                block_lines.append(segment)
-            context_blocks.append("\n".join(block_lines))
-        context = "\n\n".join(context_blocks).strip()
+            full_text = str(entry.get("full_text") or "").strip()
+            if not full_text:
+                full_text = "\n".join(str(segment) for segment in entry.get("context", [])).strip()
+            remaining = max_expanded_chars - expanded_chars
+            selected_text = full_text[: min(8000, remaining)].rstrip()
+            if len(full_text) > len(selected_text):
+                selected_text += "\n[Source content truncated]"
+            block = f"Source: {source}\n{selected_text}".strip()
+            context_blocks.append(block)
+            expanded_chars += len(block)
+        context = "\n\n".join(context_blocks).strip()[:max_expanded_chars]
+        expanded_chars = len(context)
         latency = time.perf_counter() - start
         latency_ms = latency * 1000.0
         if self.metrics_enabled:
             record_retrieval(selected_mode, latency_ms)
+            record_operation("query", latency_ms=latency_ms)
+            record_source_expansion(len(sources), expanded_chars)
         token_count = utils.estimate_tokens(context)
         return {
             "mode": selected_mode,
             "context": context,
             "source_docs": sources,
+            "selected_source_count": len(sources),
+            "expanded_context_chars": expanded_chars,
             "tokens": token_count,
             "latency_ms": int(latency_ms),
         }
@@ -1663,6 +1822,7 @@ class DMLAdapter:
     # ------------------------------------------------------------------
     # Multi-tenant helpers used by the DML memory service
     # ------------------------------------------------------------------
+    @_serialized_mutation
     def ingest_memory(
         self,
         text: str,
@@ -1683,20 +1843,25 @@ class DMLAdapter:
         }
         if meta:
             enriched_meta.update(meta)
+        enriched_meta = self._apply_procedural_hygiene(text, enriched_meta)
         embedding = self.embedder.embed(text)
         salience = self._estimate_salience(text)
         item, merged = self.store.ingest(text, embedding, salience=salience, meta=enriched_meta)
         rag_text = item.text if merged else text
-        rag_embedding = item.embedding if merged else embedding
         rag_meta: Dict[str, Any] = dict(enriched_meta)
         rag_meta.setdefault("memory_id", item.id)
-        if self.persistent_rag_store is not None:
-            with contextlib.suppress(Exception):
-                self.persistent_rag_store.add(rag_text, rag_embedding, meta=rag_meta)
-        self.rag_store.add_document(rag_text, meta=rag_meta)
+        if self.mirror_agentic_memory_to_rag:
+            self.rag_store.add_document(rag_text, meta=rag_meta)
+            if self.metrics_enabled:
+                record_operation("rag_write")
+        elif self.metrics_enabled:
+            record_operation("rag_mirroring_skipped")
         self._maybe_update_survival_ledger(text, enriched_meta)
-        self._persist_all()
+        self._persist_dml_state()
+        if self.mirror_agentic_memory_to_rag:
+            self._persist_rag_state()
         if self.metrics_enabled:
+            record_operation("lattice_write")
             update_memory_gauge(len(self.store.items()))
         return item
 
@@ -2255,13 +2420,61 @@ class DMLAdapter:
         return entries, "\n".join(lines), consumed
 
     @staticmethod
-    def _is_quarantined_or_suppressed(item: MemoryItem) -> bool:
-        meta = item.meta or {}
+    def _procedural_failure(meta: Dict[str, Any]) -> bool:
+        memory_class = str(meta.get("memory_class") or "").strip().lower()
+        kind = str(meta.get("kind") or "").strip().lower()
+        status = " ".join(
+            str(meta.get(key) or "").strip().lower()
+            for key in ("procedural_status", "status", "outcome", "result_status")
+        )
+        procedural = memory_class.startswith("tool_cookbook") or kind in {
+            "action", "error", "workflow", "procedure", "tool_call"
+        }
+        repaired = bool(
+            meta.get("verified_repair")
+            or meta.get("supersedes")
+            or meta.get("verification_passed")
+            or "corrected" in status
+            or "verified_success" in status
+        )
+        failed = kind == "error" or any(
+            marker in status for marker in ("failed", "failure", "error", "blocked", "unsuccessful")
+        )
+        return procedural and failed and not repaired
+
+    def _apply_procedural_hygiene(self, text: str, meta: Dict[str, Any]) -> Dict[str, Any]:
+        cleaned = dict(meta)
+        reasons: List[str] = []
+        if self._procedural_failure(cleaned):
+            reasons.append("failed_without_verified_repair")
+        if "traceback (most recent call last)" in text.lower() and not cleaned.get("verified_repair"):
+            reasons.append("traceback_without_verified_repair")
+        if len(text) > 16000 and str(cleaned.get("memory_class") or "").startswith("tool_cookbook"):
+            reasons.append("oversized_procedural_memory")
+        if reasons:
+            cleaned["memory_state"] = "quarantined"
+            cleaned["procedural_status"] = "failed"
+            cleaned["hygiene_reason_codes"] = sorted(set(reasons))
+            LOGGER.info("Quarantined procedural memory reasons=%s", cleaned["hygiene_reason_codes"])
+            if self.metrics_enabled:
+                record_operation("memory_quarantined")
+        elif cleaned.get("verified_repair") or cleaned.get("supersedes"):
+            cleaned["procedural_status"] = "corrected"
+        elif str(cleaned.get("memory_class") or "").startswith("tool_cookbook"):
+            cleaned.setdefault("procedural_status", "verified_success")
+        return cleaned
+
+    @staticmethod
+    def _meta_is_quarantined_or_suppressed(meta: Dict[str, Any]) -> bool:
         state = str(meta.get("memory_state") or meta.get("lifecycle_state") or "").strip().lower()
         namespace = str(meta.get("namespace") or "").strip().lower()
         if state in {"quarantine", "quarantined", "suppressed", "deleted"}:
             return True
         return namespace in {"quarantine", "quarantined"}
+
+    @classmethod
+    def _is_quarantined_or_suppressed(cls, item: MemoryItem) -> bool:
+        return cls._meta_is_quarantined_or_suppressed(dict(item.meta or {}))
 
     def _filter_retrievable_items(
         self, items: List[MemoryItem], *, include_quarantined: bool = False
@@ -2631,13 +2844,19 @@ class DMLAdapter:
         items = self.store.retrieve(query_embedding, top_k=top_k)
         results: List[Dict] = []
         for item in items:
+            meta = dict(item.meta or {})
+            if self._is_quarantined_or_suppressed(item) or self._procedural_failure(meta):
+                continue
             summary = item.cached_summary(max_len=220)
-            source = item.meta.get("doc_path") if item.meta else None
+            source = meta.get("doc_path") or meta.get("source") or f"memory:{item.id}"
             similarity = utils.cosine_similarity(item.embedding, query_embedding)
             results.append(
                 {
+                    "id": str(item.id),
                     "text": summary,
+                    "full_text": item.text,
                     "context": [summary],
+                    "meta": meta,
                     "semantic_score": similarity,
                     "literal_score": 0.0,
                     "source": source,
@@ -2662,15 +2881,20 @@ class DMLAdapter:
         formatted.extend(self._format_rag_matches(store_matches))
         fallback = self.literal_retriever.retrieve(prompt, items, query_embedding, top_k=top_k)
         for result in fallback:
-            meta = result.item.meta if getattr(result, "item", None) else {}
+            item = getattr(result, "item", None)
+            meta = dict(item.meta or {}) if item is not None else {}
+            if self._procedural_failure(meta) or (item is not None and self._is_quarantined_or_suppressed(item)):
+                continue
             formatted.append(
                 {
+                    "id": str(getattr(item, "id", "")),
                     "context": list(result.context),
                     "semantic_score": float(result.semantic_score),
                     "literal_score": float(result.literal_score),
-                    "source": result.source,
-                    "meta": dict(meta or {}),
+                    "source": result.source or meta.get("source") or f"memory:{getattr(item, 'id', '')}",
+                    "meta": meta,
                     "text": result.snippet,
+                    "full_text": str(getattr(item, "text", result.snippet)),
                     "origin": "literal",
                 }
             )
@@ -2707,6 +2931,8 @@ class DMLAdapter:
 
         for match in matches:
             meta = dict(match.get("meta") or {})
+            if self._meta_is_quarantined_or_suppressed(meta) or self._procedural_failure(meta):
+                continue
             context_segments: List[str] = []
             raw_context = meta.get("context")
             if isinstance(raw_context, list):
@@ -2744,6 +2970,7 @@ class DMLAdapter:
                 {
                     "id": match.get("id"),
                     "text": text,
+                    "full_text": str(match.get("text") or ""),
                     "meta": meta,
                     "literal_score": 0.0,
                     "semantic_score": float(match.get("score", 0.0)),

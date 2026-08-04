@@ -1,6 +1,5 @@
 import importlib.util
 import io
-import fcntl
 import json
 import os
 import sys
@@ -66,6 +65,68 @@ def _load_module():
 
 
 mod = _load_module()
+
+
+def test_venv_runtime_is_platform_aware():
+    root = Path("example-venv")
+    assert mod._venv_runtime(root, platform_name="nt") == (
+        root / "Scripts",
+        root / "Scripts" / "python.exe",
+    )
+    assert mod._venv_runtime(root, platform_name="posix") == (
+        root / "bin",
+        root / "bin" / "python",
+    )
+
+
+def test_default_paths_are_user_relative():
+    assert str(mod.DEFAULT_WORKSPACE).startswith(str(Path.home()))
+    assert str(mod.DAYSTROM_DML_HOME).startswith(str(Path.home()))
+
+
+def test_adapter_owned_mutation_avoids_duplicate_wrapper_lock():
+    events = []
+
+    class _Transaction:
+        def __enter__(self):
+            events.append("enter")
+            return {"source": "adapter"}
+
+        def __exit__(self, *_args):
+            events.append("exit")
+
+    class _Adapter:
+        def mutation_transaction(self, operation):
+            events.append(operation)
+            return _Transaction()
+
+    with mod._adapter_mutation(
+        _Adapter(),
+        "unused-wrapper-store",
+        operation="wrapper-ingest",
+        timeout_ms=1,
+    ):
+        events.append("body")
+
+    assert events == ["wrapper-ingest", "enter", "body", "exit"]
+
+
+def test_legacy_adapter_close_persists_before_wrapper_unlock():
+    events = []
+
+    class _LegacyAdapter:
+        def close(self, *args, **kwargs):
+            if kwargs:
+                events.append("modern-close-rejected")
+                raise TypeError("legacy close signature")
+            events.append("legacy-close-persisted")
+
+    class _Transaction:
+        def __exit__(self, *_args):
+            events.append("unlock")
+
+    mod._finish_adapter_mutation(_LegacyAdapter(), _Transaction())
+    assert events == ["modern-close-rejected", "legacy-close-persisted", "unlock"]
 
 
 def _write_state_records(storage_dir: str, records: list[dict]) -> Path:
@@ -882,7 +943,7 @@ class TestHealthCommand(unittest.TestCase):
             lock_path = mod._lock_file_path(str(storage))
             lock_path.parent.mkdir(parents=True, exist_ok=True)
             with lock_path.open("a+", encoding="utf-8") as handle:
-                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                mod._acquire_platform_lock(handle)
                 try:
                     mod._lock_metadata_path(str(storage)).write_text(
                         json.dumps({"operation": "unit-test", "pid": os.getpid()}),
@@ -900,7 +961,7 @@ class TestHealthCommand(unittest.TestCase):
                     with redirect_stdout(buf):
                         rc = mod.cmd_backup(args)
                 finally:
-                    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+                    mod._release_platform_lock(handle)
 
             self.assertEqual(rc, 2)
             payload = json.loads(buf.getvalue())

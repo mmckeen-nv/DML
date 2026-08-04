@@ -58,12 +58,14 @@ def _build_histogram(
     name: str,
     documentation: str,
     buckets: Optional[Iterable[float]] = None,
+    labels: Optional[Iterable[str]] = None,
 ):
     if CollectorRegistry is None:
         return _NoOpMetric()
     return Histogram(
         name,
         documentation,
+        labelnames=tuple(labels or ()),
         buckets=tuple(buckets or ()),
         registry=REGISTRY,
     )
@@ -101,6 +103,27 @@ DML_ITEMS = _build_gauge(
     "dml_items",
     "Number of items currently stored in the lattice.",
 )
+OPERATION_LATENCY = _build_histogram(
+    "dml_operation_latency_ms",
+    "Latency of named DML hot-path operations in milliseconds.",
+    buckets=[0.1, 0.5, 1, 5, 10, 25, 50, 100, 250, 500, 1000, 5000, 30000],
+    labels=["operation"],
+)
+OPERATION_COUNTER = _build_counter(
+    "dml_operation_count",
+    "Count of named DML operations and policy outcomes.",
+    labels=["operation"],
+)
+SOURCE_COUNT = _build_histogram(
+    "dml_selected_source_count",
+    "Number of source records selected for a retrieval response.",
+    buckets=[0, 1, 2, 3, 4, 6, 8, 10, 20],
+)
+EXPANDED_CONTEXT_SIZE = _build_histogram(
+    "dml_expanded_context_chars",
+    "Expanded procedural context size in characters.",
+    buckets=[0, 128, 512, 1024, 2048, 4096, 8000, 12000, 16000],
+)
 
 
 def record_retrieval(mode: str, latency_ms: float) -> None:
@@ -123,6 +146,21 @@ def update_memory_gauge(count: int) -> None:
     """Update the gauge tracking the number of stored items."""
 
     DML_ITEMS.set(max(0, int(count)))
+
+
+def record_operation(operation: str, *, latency_ms: float | None = None, count: int = 1) -> None:
+    """Record a structured hot-path operation and optional latency."""
+
+    OPERATION_COUNTER.labels(operation=operation).inc(max(0, int(count)))
+    if latency_ms is not None:
+        OPERATION_LATENCY.labels(operation=operation).observe(max(float(latency_ms), 0.0))
+
+
+def record_source_expansion(selected_sources: int, expanded_chars: int) -> None:
+    """Record bounded source-expansion cardinality and output size."""
+
+    SOURCE_COUNT.observe(max(0, int(selected_sources)))
+    EXPANDED_CONTEXT_SIZE.observe(max(0, int(expanded_chars)))
 
 
 def latest_metrics() -> tuple[bytes, str]:

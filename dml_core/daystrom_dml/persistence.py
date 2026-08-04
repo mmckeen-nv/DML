@@ -10,6 +10,7 @@ from typing import List, Sequence
 import numpy as np
 
 from . import utils
+from .atomic_io import atomic_write_text
 from .memory_store import MemoryItem
 
 _PERSISTENCE_VERSION = 1
@@ -50,13 +51,10 @@ def save_state(items: Sequence[MemoryItem], path: str | Path) -> Path:
         "checksum": checksum,
     }
     header_line = json.dumps(header, separators=(",", ":"), sort_keys=True)
-    tmp_path = target.with_suffix(target.suffix + ".tmp") if target.suffix else target.with_name(target.name + ".tmp")
-    with tmp_path.open("w", encoding="utf-8") as handle:
-        handle.write(header_line)
-        if payload_lines:
-            handle.write("\n")
-            handle.write("\n".join(payload_lines))
-    tmp_path.replace(target)
+    content = header_line
+    if payload_lines:
+        content += "\n" + "\n".join(payload_lines)
+    atomic_write_text(target, content)
     return target
 
 

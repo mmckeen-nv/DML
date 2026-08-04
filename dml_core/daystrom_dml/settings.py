@@ -181,6 +181,14 @@ class DMLSettings(BaseModel):
     enable_workflow_cache: bool = Field(
         False, description="Enable storing and suggesting reusable agent workflow templates."
     )
+    mirror_agentic_memory_to_rag: bool = Field(
+        False,
+        description=(
+            "Compatibility switch that mirrors normal agent/procedural memories "
+            "into persistent document RAG. Disabled by default so the synchronous "
+            "agent-memory path only persists the DML lattice."
+        ),
+    )
     gpu_acceleration: bool = Field(False, description="Enable GPU specific optimisations when available.")
     nim_default_id: str = Field("gpt-oss-20b", description="Default NIM model identifier.")
     nim_health_timeout: int = Field(60, ge=1)
