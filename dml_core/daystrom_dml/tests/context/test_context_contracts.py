@@ -171,6 +171,20 @@ def test_blank_manifest_digest_is_computed_for_fresh_objects():
     assert manifest.manifest_version == CONTEXT_MANIFEST_V1
 
 
+def test_manifest_rejects_serialization_after_digest_input_mutation():
+    manifest = ContextManifest(
+        model_id="model",
+        runtime_id="runtime",
+        segment_ids=["seg-1"],
+        estimated_input_tokens=1,
+        decisions={"admitted": ["seg-1"]},
+    )
+    manifest.segment_ids.append("seg-2")
+
+    with pytest.raises(ContractError, match="no longer matches"):
+        manifest.to_dict()
+
+
 def test_context_packet_validates_budget_and_roundtrips_json_payload():
     scope = DaystromScope(session_id="session")
     segment = ContextSegment(segment_id="seg-1", kind="message", content="hello", scope=scope, estimated_tokens=10)

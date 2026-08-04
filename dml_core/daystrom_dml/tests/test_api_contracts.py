@@ -43,6 +43,13 @@ def test_token_budget_remaining_tokens():
     assert budget.remaining_tokens == 65
 
 
+def test_token_budget_rejects_used_plus_reserved_over_limit_and_from_dict():
+    with pytest.raises(ContractError, match="plus reserved"):
+        TokenBudget(limit_tokens=100, used_tokens=90, reserved_tokens=20)
+    with pytest.raises(ContractError, match="plus reserved"):
+        TokenBudget.from_dict({"limit_tokens": 100, "used_tokens": 90, "reserved_tokens": 20})
+
+
 def test_risk_info_serialization_and_validation():
     risk = RiskInfo(level="medium", reasons=["delete"], requires_confirmation=True, side_effect_classes=["delete"])
     assert RiskInfo.from_dict(risk.to_dict()) == risk

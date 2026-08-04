@@ -122,7 +122,9 @@ setup(
         "dev": ["pytest>=7.4", "ruff>=0.1.9", "mypy>=1.6.0"],
         "cuda": ["pybind11>=2.10"],
     },
-    package_data={"daystrom_dml": ["web/*", "web/**/*", "provider_web/*"]},
+    package_data={
+        "daystrom_dml": ["web/*", "web/**/*", "provider_web/*", "contracts/schemas/*.json"],
+    },
     entry_points={
         "console_scripts": [
             "dml=daystrom_dml.provider_cli:main",

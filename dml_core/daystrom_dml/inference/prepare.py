@@ -125,13 +125,11 @@ class InferencePreparationPipeline:
         try:
             observation = self.context_controller.observe(
                 scope=packet.scope if packet is not None else req.scope,
-                model_limits={"context_window_tokens": result.token_budget.limit_tokens},
+                model_limits={
+                    "context_window_tokens": req.model_context_tokens or result.token_budget.limit_tokens,
+                },
                 current_prompt=result.frontier_prompt,
                 current_messages=[{"role": "user", "content": result.frontier_prompt}],
-                dcn_plan=packet.dcn_plan.to_dict() if packet is not None else None,
-                dcn_packet=packet.to_dict() if packet is not None else None,
-                dml_context=packet.dml_context if packet is not None else {},
-                dpm_overlay=packet.dpm_overlay if packet is not None else {},
                 output_reservation=result.frontier_max_tokens,
                 runtime_reserved_tokens=req.runtime_reserved_tokens,
             )
@@ -147,16 +145,27 @@ class InferencePreparationPipeline:
             "context_pressure_state": (observation.get("pressure_state") or {}).get("state"),
             "context_capabilities": dict(observation.get("capabilities") or {}),
         }
+        actual_input_tokens = int(result.telemetry.get("frontier_input_tokens") or 0)
+        if (
+            req.model_context_tokens is not None
+            and actual_input_tokens + result.frontier_max_tokens + req.runtime_reserved_tokens > req.model_context_tokens
+        ):
+            result.warnings = [*list(result.warnings or []), "context_budget_overflow_observed"]
+            result.telemetry["context_budget_overflow_observed"] = True
         return result
 
-    @staticmethod
-    def _token_budget(*, req: DIPPrepareRequest, input_tokens: int) -> TokenBudget:
+    def _token_budget(self, *, req: DIPPrepareRequest, input_tokens: int) -> TokenBudget:
         reserved_tokens = req.frontier_max_tokens + req.runtime_reserved_tokens
         limit_tokens = req.model_context_tokens
         if limit_tokens is None:
             limit_tokens = input_tokens + reserved_tokens
         elif input_tokens + reserved_tokens > limit_tokens:
-            raise ContractError("model_context_tokens cannot fit input tokens plus output/runtime reservations")
+            if self.context_controller is None:
+                raise ContractError("model_context_tokens cannot fit input tokens plus output/runtime reservations")
+            # Observe-only mode must preserve the prepared artifact. Keep this
+            # legacy result envelope internally valid; observation below uses the
+            # caller's real model limit and records the pressure state.
+            limit_tokens = input_tokens + reserved_tokens
         return TokenBudget(limit_tokens=limit_tokens, used_tokens=input_tokens, reserved_tokens=reserved_tokens)
 
     @staticmethod
