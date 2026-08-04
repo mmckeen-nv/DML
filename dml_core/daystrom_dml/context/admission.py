@@ -10,6 +10,7 @@ from daystrom_dml.context.adapters.base import RuntimeContextAdapter
 from daystrom_dml.context.budget import ContextBudget
 from daystrom_dml.context.capabilities import RuntimeCapabilities
 from daystrom_dml.context.manifest import ContextManifest, ContextPacket
+from daystrom_dml.context.probe import endpoint_identity_digest
 from daystrom_dml.context.schema import ContextAuthority, ContextPriority, ContextSegment
 
 OBSERVE_ONLY_MODE = "observe_only"
@@ -49,6 +50,7 @@ def admit_context_segments(
     segments: Iterable[ContextSegment | Dict[str, Any]],
     model_id: str,
     runtime_id: str,
+    endpoint_url: Optional[str] = None,
     model_limit_tokens: int,
     output_reserved_tokens: int = 0,
     runtime_reserved_tokens: int = 0,
@@ -64,6 +66,8 @@ def admit_context_segments(
     """
 
     scope_obj = scope if isinstance(scope, DaystromScope) else DaystromScope.from_dict(scope)
+    if endpoint_url is not None and (not isinstance(endpoint_url, str) or not endpoint_url):
+        raise ContractError("endpoint_url must be a non-empty string when provided")
     adapter = runtime_adapter or APIMessageAdapter()
     normalized = [
         ContextSegment.from_dict(json.loads(json.dumps(segment.to_dict(), sort_keys=True)))
@@ -122,13 +126,22 @@ def admit_context_segments(
 
     admitted_segments = [segment for _, segment in sorted(admitted, key=lambda item: item[0])]
     rendered = adapter.render_messages([_renderable_segment(segment) for segment in admitted_segments])
-    capability_obj = capabilities or _capabilities_from_adapter(
-        adapter,
-        model_id=model_id,
-        runtime_id=runtime_id,
-        model_limit_tokens=model_limit_tokens,
-        output_reserved_tokens=output_reserved_tokens,
-    )
+    if capabilities is not None:
+        capability_payload = capabilities.to_dict()
+        metadata = dict(capability_payload.get("metadata") or {})
+        if endpoint_url is not None:
+            metadata["endpoint_url_digest"] = endpoint_identity_digest(endpoint_url)
+        capability_payload["metadata"] = metadata
+        capability_obj = RuntimeCapabilities.from_dict(capability_payload)
+    else:
+        capability_obj = _capabilities_from_adapter(
+            adapter,
+            model_id=model_id,
+            runtime_id=runtime_id,
+            model_limit_tokens=model_limit_tokens,
+            output_reserved_tokens=output_reserved_tokens,
+            endpoint_url=endpoint_url,
+        )
     manifest = ContextManifest(
         scope=scope_obj,
         model_id=capability_obj.model_id,
@@ -256,8 +269,11 @@ def _capabilities_from_adapter(
     runtime_id: str,
     model_limit_tokens: int,
     output_reserved_tokens: int,
+    endpoint_url: Optional[str],
 ) -> RuntimeCapabilities:
-    metadata = {"adapter": adapter.capabilities()}
+    metadata: Dict[str, Any] = {"adapter": adapter.capabilities()}
+    if endpoint_url is not None:
+        metadata["endpoint_url_digest"] = endpoint_identity_digest(endpoint_url)
     return RuntimeCapabilities.api_only(
         model_id=model_id,
         backend_id=runtime_id,

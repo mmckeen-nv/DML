@@ -267,6 +267,10 @@ def test_no_payload_telemetry_or_logging() -> None:
 
 
 def test_json_roundtrip_and_contract_validation() -> None:
+    expected_digest = "sha256:" + hashlib.sha256(b"payload").hexdigest()
+    bound_request = request(expected_digest=expected_digest, expected_source_id="segment-1")
+    assert MemoryFaultRequest.from_dict(bound_request.to_dict()) == bound_request
+
     original = MemoryFaultResolver(
         dml1_hot=FakeLookup(MemorySourceTier.DML1_HOT, handle(MemorySourceTier.DML1_HOT, payload="payload"))
     ).resolve(request(include_payload=True))
@@ -278,3 +282,5 @@ def test_json_roundtrip_and_contract_validation() -> None:
         MemoryFaultRequest.from_dict({**request().to_dict(), "schema_version": "0.9"})
     with pytest.raises(ContractError, match="max_items"):
         MemoryFaultBudget(max_items=-1)
+    with pytest.raises(ContractError, match="expected_digest"):
+        request(expected_digest="sha256:not-a-digest")
