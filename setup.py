@@ -133,6 +133,7 @@ setup(
             "dml-server=daystrom_dml.server:main",
             "dml-provider=daystrom_dml.provider_server:main",
             "dml-mcp-server=dml_mcp.dml_mcp_server:main",
+            "dcm-model-probe=scripts.dcm_model_probe:main",
         ]
     },
     ext_modules=[cuda_extension],
