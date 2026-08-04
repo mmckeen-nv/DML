@@ -46,11 +46,11 @@ class STMHotContextAdapter:
         scope: DaystromScope,
         state: STMState,
         budget_tokens: int,
-        estimate_tokens: TokenEstimator = None,
+        estimate_tokens: Optional[TokenEstimator] = None,
     ) -> List[Dict[str, Any]]:
         if budget_tokens <= 0:
             return []
-        estimator = estimate_tokens or _estimate_tokens
+        estimator: TokenEstimator = estimate_tokens if estimate_tokens is not None else _estimate_tokens
         snapshot = self.snapshot(scope, state)
         candidates = self._segment_candidates(snapshot)
         segments: List[Dict[str, Any]] = []
@@ -198,8 +198,10 @@ def _scope_metadata(scope: DaystromScope) -> Dict[str, Any]:
         "tenant_id": scope.tenant_id,
         "client_id": scope.client_id,
         "session_id": scope.session_id,
+        "instance_id": scope.instance_id,
         "thread_id": scope.thread_id,
         "project_id": scope.project_id,
+        "relationship_id": scope.relationship_id,
     }
 
 

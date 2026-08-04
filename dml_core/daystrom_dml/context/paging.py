@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import json
 import uuid
 from dataclasses import dataclass, field, replace
 from typing import Any, Callable, Dict, List, Optional, Tuple
@@ -57,7 +58,7 @@ class ContextPage:
         payload = text.encode("utf-8")
         return cls(
             page_id=page_id or _new_page_id(),
-            scope=scope,
+            scope=_copy_scope(scope),
             payload_encoding="text",
             media_type=media_type,
             content_type=content_type,
@@ -67,7 +68,7 @@ class ContextPage:
             expires_at=float(expires_at) if expires_at is not None else None,
             content_digest=content_digest or _digest(payload),
             sensitivity_label=sensitivity_label,
-            metadata=dict(metadata or {}),
+            metadata=_copy_metadata(metadata),
             payload_text=text,
         )
 
@@ -90,7 +91,7 @@ class ContextPage:
     ) -> "ContextPage":
         return cls(
             page_id=page_id or _new_page_id(),
-            scope=scope,
+            scope=_copy_scope(scope),
             payload_encoding="base64",
             media_type=media_type,
             content_type=content_type,
@@ -100,7 +101,7 @@ class ContextPage:
             expires_at=float(expires_at) if expires_at is not None else None,
             content_digest=content_digest or _digest(payload),
             sensitivity_label=sensitivity_label,
-            metadata=dict(metadata or {}),
+            metadata=_copy_metadata(metadata),
             payload_bytes_b64=base64.b64encode(payload).decode("ascii"),
         )
 
@@ -130,7 +131,7 @@ class ContextPage:
     def to_dict(self) -> Dict[str, Any]:
         payload: Dict[str, Any] = {
             "page_id": self.page_id,
-            "scope": self.scope.to_dict(),
+            "scope": _copy_scope(self.scope).to_dict(),
             "payload_encoding": self.payload_encoding,
             "media_type": self.media_type,
             "content_type": self.content_type,
@@ -140,7 +141,7 @@ class ContextPage:
             "expires_at": self.expires_at,
             "content_digest": self.content_digest,
             "sensitivity_label": self.sensitivity_label,
-            "metadata": dict(self.metadata),
+            "metadata": _copy_metadata(self.metadata),
         }
         if self.payload_encoding == "text":
             payload["payload_text"] = self.payload_text
@@ -283,11 +284,11 @@ class MemoryContextPageCache:
         if existing:
             self._bytes -= existing.size_bytes
         accessed = float(self._now())
-        cached_page = replace(page, accessed_at=accessed)
+        cached_page = _copy_page(replace(page, accessed_at=accessed))
         entry = _CacheEntry(page=cached_page, size_bytes=size, last_access=float(self._monotonic()))
         self._entries[key] = entry
         self._bytes += size
-        return cached_page
+        return _copy_page(cached_page)
 
     def get(self, scope: DaystromScope, page_id: str) -> Optional[ContextPage]:
         self._validate_scope(scope)
@@ -334,7 +335,7 @@ class MemoryContextPageCache:
         self._evict_expired(now)
         scope_key = _scope_key(scope)
         entries = [entry for key, entry in self._entries.items() if key[0] == scope_key]
-        return [entry.page for entry in sorted(entries, key=lambda item: (item.last_access, item.page.page_id))]
+        return [_copy_page(entry.page) for entry in sorted(entries, key=lambda item: (item.last_access, item.page.page_id))]
 
     def clear_scope(self, scope: DaystromScope) -> int:
         self._validate_scope(scope)
@@ -374,7 +375,7 @@ class MemoryContextPageCache:
     def _touch_entry(self, key: Tuple[Tuple[Optional[str], ...], str], entry: _CacheEntry, now: float) -> ContextPage:
         page = replace(entry.page, accessed_at=now)
         self._entries[key] = _CacheEntry(page=page, size_bytes=entry.size_bytes, last_access=float(self._monotonic()))
-        return page
+        return _copy_page(page)
 
     def _evict_expired(self, now: float) -> None:
         expired = [key for key, entry in self._entries.items() if self._is_expired(entry.page, now)]
@@ -412,9 +413,34 @@ def _scope_key(scope: DaystromScope) -> Tuple[Optional[str], ...]:
         scope.tenant_id,
         scope.client_id,
         scope.session_id,
+        scope.instance_id,
         scope.thread_id,
         scope.project_id,
+        scope.relationship_id,
     )
+
+
+def _copy_scope(scope: DaystromScope) -> DaystromScope:
+    return DaystromScope.from_dict(scope.to_dict())
+
+
+def _copy_metadata(metadata: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    if metadata is None:
+        return {}
+    if not isinstance(metadata, dict):
+        raise ContextPageError("metadata must be JSON-compatible")
+    try:
+        encoded = json.dumps(metadata, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)
+        copied = json.loads(encoded)
+    except (TypeError, ValueError) as exc:
+        raise ContextPageError("metadata must be JSON-compatible") from exc
+    if not isinstance(copied, dict):
+        raise ContextPageError("metadata must be JSON-compatible")
+    return copied
+
+
+def _copy_page(page: ContextPage) -> ContextPage:
+    return replace(page, scope=_copy_scope(page.scope), metadata=_copy_metadata(page.metadata))
 
 
 def _default_now() -> float:

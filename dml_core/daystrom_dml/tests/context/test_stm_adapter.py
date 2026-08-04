@@ -16,8 +16,10 @@ def scope() -> DaystromScope:
         tenant_id="tenant-a",
         client_id="client-a",
         session_id="session-a",
+        instance_id="instance-a",
         thread_id="thread-a",
         project_id="project-a",
+        relationship_id="relationship-a",
     )
 
 
@@ -68,7 +70,15 @@ def test_snapshot_is_compact_json_friendly_and_deterministic() -> None:
     second = adapter.snapshot(scope(), make_state(last_updated=FIXED_B))
 
     assert first == second
-    assert first["scope"]["tenant_id"] == "tenant-a"
+    assert first["scope"] == {
+        "tenant_id": "tenant-a",
+        "client_id": "client-a",
+        "session_id": "session-a",
+        "instance_id": "instance-a",
+        "thread_id": "thread-a",
+        "project_id": "project-a",
+        "relationship_id": "relationship-a",
+    }
     assert first["goals"] == ["Implement context paging", "Preserve exact payloads"]
     assert first["current_plan_step"] == {
         "index": 1,
