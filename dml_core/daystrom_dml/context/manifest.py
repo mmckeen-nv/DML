@@ -68,6 +68,8 @@ class ContextManifest(SerializableDataclass):
             data = {}
         if not isinstance(data, dict):
             raise ContractError(f"{cls.__name__}.from_dict expected dict, got {type(data).__name__}")
+        if not data.get("content_digest"):
+            raise ContractError("content_digest is required when deserializing a context manifest")
         payload = {key: value for key, value in data.items() if key in cls.__dataclass_fields__}
         if "scope" in payload:
             payload["scope"] = DaystromScope.from_dict(payload["scope"])
@@ -114,6 +116,7 @@ class ContextPacket(SerializableDataclass):
     warnings: List[str] = field(default_factory=list)
     audit: AuditInfo = field(default_factory=AuditInfo)
     packet_version: str = CONTEXT_PACKET_V1
+    packet_content_digest: str = ""
 
     def __post_init__(self) -> None:
         if self.packet_version != CONTEXT_PACKET_V1:
@@ -137,6 +140,10 @@ class ContextPacket(SerializableDataclass):
         total = sum(segment.effective_tokens for segment in self.segments)
         if self.manifest.scope != self.scope:
             raise ContractError("manifest.scope must match packet scope")
+        if self.manifest.model_id != self.capabilities.model_id:
+            raise ContractError("manifest.model_id must match packet capabilities")
+        if self.manifest.runtime_id != self.capabilities.backend_id:
+            raise ContractError("manifest.runtime_id must match packet capabilities")
         if any(segment.scope != self.scope for segment in self.segments):
             raise ContractError("segment scopes must match packet scope")
         if total > self.budget.available_input_tokens:
@@ -152,6 +159,32 @@ class ContextPacket(SerializableDataclass):
                 raise ContractError(f"{name} must be a list")
         if not isinstance(self.decisions, dict):
             raise ContractError("decisions must be a dictionary")
+        computed_digest = self.compute_content_digest()
+        if self.packet_content_digest and self.packet_content_digest != computed_digest:
+            raise ContractError("packet_content_digest does not match packet content")
+        self.packet_content_digest = computed_digest
+
+    def to_dict(self) -> Dict[str, Any]:
+        # Re-run contract invariants so post-construction mutation cannot produce
+        # a packet whose segments, rendered messages, budget, and manifest disagree.
+        self.__post_init__()
+        return super().to_dict()
+
+    def compute_content_digest(self) -> str:
+        stable = {
+            "scope": _serialize(self.scope),
+            "capabilities": _serialize(self.capabilities),
+            "budget": _serialize(self.budget),
+            "segments": _serialize(self.segments),
+            "manifest": _serialize(self.manifest),
+            "rendered_messages": _serialize(self.rendered_messages),
+            "decisions": _serialize(self.decisions),
+            "warnings": _serialize(self.warnings),
+            "audit": _serialize(self.audit),
+            "packet_version": self.packet_version,
+        }
+        payload = json.dumps(stable, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
     @classmethod
     def from_dict(cls, data: Optional[Dict[str, Any]]):
@@ -159,5 +192,7 @@ class ContextPacket(SerializableDataclass):
             data = {}
         if not isinstance(data, dict):
             raise ContractError(f"{cls.__name__}.from_dict expected dict, got {type(data).__name__}")
+        if not data.get("packet_content_digest"):
+            raise ContractError("packet_content_digest is required when deserializing a context packet")
         payload = {key: value for key, value in data.items() if key in cls.__dataclass_fields__}
         return cls(**payload)

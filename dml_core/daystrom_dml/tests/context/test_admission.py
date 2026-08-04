@@ -132,8 +132,8 @@ def test_page_out_success_and_failure_are_contained_and_recorded():
     def page_out(page_scope, segment):
         assert page_scope == scope
         if segment.segment_id == "fail":
-            raise RuntimeError("page failed")
-        return {"page_id": segment.segment_id}
+            raise RuntimeError("failed on SECRET_EXCEPTION_PAYLOAD")
+        return {"page_id": segment.segment_id, "payload": "SECRET_HANDLE_PAYLOAD"}
 
     packet = admit_context_segments(
         scope=scope,
@@ -150,8 +150,13 @@ def test_page_out_success_and_failure_are_contained_and_recorded():
 
     assert [segment.segment_id for segment in packet.segments] == ["keep"]
     assert packet.decisions["by_segment"]["ok"]["page_out"] == {"status": "stored", "handle": {"page_id": "ok"}}
-    assert packet.decisions["by_segment"]["fail"]["page_out"]["status"] == "failed"
-    assert packet.decisions["by_segment"]["fail"]["page_out"]["error"] == "page failed"
+    assert packet.decisions["by_segment"]["fail"]["page_out"] == {
+        "status": "failed",
+        "error_type": "RuntimeError",
+    }
+    serialized = json.dumps(packet.to_dict(), sort_keys=True)
+    assert "SECRET_HANDLE_PAYLOAD" not in serialized
+    assert "SECRET_EXCEPTION_PAYLOAD" not in serialized
 
 
 def test_all_authority_classes_render_without_weaker_system_role_elevation():
@@ -214,3 +219,48 @@ def test_controller_active_mode_returns_json_roundtrippable_context_packet():
     assert packet.manifest.decisions == packet.decisions
     assert packet.capabilities.model_id == "model"
     assert packet.capabilities.backend_id == "runtime"
+
+
+def test_admission_copies_input_segments_and_packet_serialization_revalidates_integrity():
+    scope = DaystromScope(session_id="s1")
+    original = seg("current", authority=ContextAuthority.CURRENT_INSTRUCTION, tokens=1, scope=scope)
+    packet = admit_context_segments(
+        scope=scope,
+        segments=[original],
+        model_id="model",
+        runtime_id="runtime",
+        model_limit_tokens=8,
+    )
+
+    original.estimated_tokens = 99
+    assert packet.segments[0].estimated_tokens == 1
+    assert packet.to_dict()["segments"][0]["estimated_tokens"] == 1
+
+    packet.segments[0].estimated_tokens = 99
+    with pytest.raises(ContractError, match="segment token total cannot exceed available input budget"):
+        packet.to_dict()
+
+
+def test_packet_serialization_rejects_content_and_rendered_message_drift():
+    scope = DaystromScope(session_id="s1")
+    packet = admit_context_segments(
+        scope=scope,
+        segments=[seg("current", authority=ContextAuthority.CURRENT_INSTRUCTION, tokens=1, scope=scope)],
+        model_id="model",
+        runtime_id="runtime",
+        model_limit_tokens=8,
+    )
+    packet.segments[0].content = "tampered segment"
+    with pytest.raises(ContractError, match="packet_content_digest"):
+        packet.to_dict()
+
+    packet = admit_context_segments(
+        scope=scope,
+        segments=[seg("current", authority=ContextAuthority.CURRENT_INSTRUCTION, tokens=1, scope=scope)],
+        model_id="model",
+        runtime_id="runtime",
+        model_limit_tokens=8,
+    )
+    packet.rendered_messages[0]["content"] = "tampered prompt"
+    with pytest.raises(ContractError, match="packet_content_digest"):
+        packet.to_dict()

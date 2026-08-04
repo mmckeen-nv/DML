@@ -136,8 +136,14 @@ def test_manifest_digest_is_stable_and_excludes_timestamp():
     manifest_b = ContextManifest.from_dict({**manifest_a.to_dict(), "created_at": 200.0})
 
     assert manifest_a.content_digest == manifest_b.content_digest
-    changed = ContextManifest.from_dict(
-        {**manifest_a.to_dict(), "segment_ids": ["seg-2", "seg-1"], "content_digest": ""}
+    changed = ContextManifest(
+        scope=manifest_a.scope,
+        model_id=manifest_a.model_id,
+        runtime_id=manifest_a.runtime_id,
+        segment_ids=["seg-2", "seg-1"],
+        estimated_input_tokens=manifest_a.estimated_input_tokens,
+        decisions=manifest_a.decisions,
+        created_at=manifest_a.created_at,
     )
     assert changed.content_digest != manifest_a.content_digest
     assert ContextManifest.from_dict(manifest_a.to_dict()) == manifest_a
@@ -217,6 +223,16 @@ def test_context_packet_validates_budget_and_roundtrips_json_payload():
 
     assert ContextPacket.from_dict(data) == packet
     assert packet.packet_version == CONTEXT_PACKET_V1
+    assert len(packet.packet_content_digest) == 64
+
+    tampered = json.loads(json.dumps(data))
+    tampered["rendered_messages"][0]["content"] = "tampered"
+    with pytest.raises(ContractError, match="packet_content_digest"):
+        ContextPacket.from_dict(tampered)
+
+    tampered["packet_content_digest"] = ""
+    with pytest.raises(ContractError, match="packet_content_digest is required"):
+        ContextPacket.from_dict(tampered)
 
     with pytest.raises(ContractError, match="exceed"):
         ContextPacket(
@@ -245,6 +261,7 @@ def test_context_packet_rejects_cross_scope_manifest_and_segments(field):
     packet_scope = DaystromScope(**values)
     other_scope = DaystromScope(**{**values, field: f"{field}-b"})
     budget = ContextBudget(model_limit_tokens=10, admitted_input_tokens=1)
+    capabilities = RuntimeCapabilities.api_only(model_id="model", backend_id="runtime")
     segment = ContextSegment(segment_id="seg", kind="message", content="x", scope=packet_scope, estimated_tokens=1)
     manifest = ContextManifest(
         scope=packet_scope,
@@ -257,14 +274,22 @@ def test_context_packet_rejects_cross_scope_manifest_and_segments(field):
     with pytest.raises(ContractError, match="manifest.scope"):
         ContextPacket(
             scope=packet_scope,
+            capabilities=capabilities,
             budget=budget,
             segments=[segment],
-            manifest=ContextManifest.from_dict({**manifest.to_dict(), "scope": other_scope.to_dict(), "content_digest": ""}),
+            manifest=ContextManifest(
+                scope=other_scope,
+                model_id="model",
+                runtime_id="runtime",
+                segment_ids=["seg"],
+                estimated_input_tokens=1,
+            ),
         )
 
     with pytest.raises(ContractError, match="segment scopes"):
         ContextPacket(
             scope=packet_scope,
+            capabilities=capabilities,
             budget=budget,
             segments=[ContextSegment.from_dict({**segment.to_dict(), "scope": other_scope.to_dict()})],
             manifest=manifest,

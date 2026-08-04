@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Tuple
 
 from daystrom_dml.api_contracts import AuditInfo, ContractError, DaystromScope
 from daystrom_dml.context.adapters.api_messages import APIMessageAdapter
@@ -66,7 +66,10 @@ def admit_context_segments(
     scope_obj = scope if isinstance(scope, DaystromScope) else DaystromScope.from_dict(scope)
     adapter = runtime_adapter or APIMessageAdapter()
     normalized = [
-        segment if isinstance(segment, ContextSegment) else ContextSegment.from_dict(segment) for segment in segments
+        ContextSegment.from_dict(json.loads(json.dumps(segment.to_dict(), sort_keys=True)))
+        if isinstance(segment, ContextSegment)
+        else ContextSegment.from_dict(json.loads(json.dumps(segment, sort_keys=True)))
+        for segment in segments
     ]
     _validate_unique_segment_ids(normalized)
     _validate_segment_scopes(scope_obj, normalized)
@@ -208,10 +211,28 @@ def _page_out_omitted(
     decision = decisions["by_segment"][segment.segment_id]
     try:
         handle = page_out(scope, segment)
-        json_handle = json.loads(json.dumps(handle, sort_keys=True))
-        decision["page_out"] = {"status": "stored", "handle": json_handle}
+        decision["page_out"] = {"status": "stored", "handle": _sanitize_page_handle(handle)}
     except Exception as exc:  # pragma: no cover - exact exception type is callback-defined
-        decision["page_out"] = {"status": "failed", "error": str(exc)}
+        decision["page_out"] = {"status": "failed", "error_type": type(exc).__name__}
+
+
+def _sanitize_page_handle(handle: Any) -> Dict[str, Any]:
+    if not isinstance(handle, Mapping):
+        raise ContractError("page_out handle must be an object")
+    allowed = ("page_id", "handle_id", "digest", "tier", "source_segment_id", "expires_at", "size_bytes")
+    safe: Dict[str, Any] = {}
+    for key in allowed:
+        value = handle.get(key)
+        if value is None:
+            continue
+        if not isinstance(value, (str, int, float, bool)):
+            raise ContractError("page_out handle fields must be scalar")
+        if isinstance(value, str) and len(value) > 512:
+            raise ContractError("page_out handle fields are too long")
+        safe[key] = value
+    if not safe.get("page_id") and not safe.get("handle_id"):
+        raise ContractError("page_out handle requires page_id or handle_id")
+    return safe
 
 
 def _renderable_segment(segment: ContextSegment) -> Dict[str, Any]:

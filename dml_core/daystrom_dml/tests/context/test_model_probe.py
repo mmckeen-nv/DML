@@ -122,9 +122,43 @@ def test_runner_sends_identical_settings_and_requires_managed_authority_manifest
     assert [call["label"] for call in client.calls] == ["baseline", "managed"]
     assert client.calls[0]["settings"] == client.calls[1]["settings"] == request.settings.to_dict()
 
+    with pytest.raises(ValueError, match="endpoint_url must match"):
+        run_ab_probe(
+            request,
+            client,
+            EvaluationSpec(),
+            endpoint_url="https://other.example/v1/chat/completions",
+        )
+
     missing_authority = ModelProbeRequest.from_dict({**request.to_dict(), "managed_authority_manifest_digest": ""})
     with pytest.raises(ValueError, match="managed_authority_manifest_digest"):
         run_ab_probe(missing_authority, client, EvaluationSpec())
+
+
+def test_probe_copies_attached_messages_and_rejects_runtime_manifest_drift() -> None:
+    baseline = [{"role": "user", "content": "original baseline"}]
+    managed = [{"role": "user", "content": "original managed"}]
+    request = build_probe_request(
+        endpoint_url="https://example.test/v1/chat/completions",
+        model_id="gpt-test",
+        baseline_messages=baseline,
+        managed_messages=managed,
+        managed_authority_manifest={"authority": "current_instruction"},
+    )
+    baseline[0]["content"] = "tampered after build"
+    managed[0]["content"] = "tampered after build"
+
+    result = run_ab_probe(request, FakeModelClient({"baseline": "ok", "managed": "ok"}), EvaluationSpec())
+    assert result.status == "completed"
+
+    with pytest.raises(ValueError, match="baseline messages do not match"):
+        run_ab_probe(
+            request,
+            FakeModelClient({"baseline": "ok", "managed": "ok"}),
+            EvaluationSpec(),
+            baseline_messages=baseline,
+            managed_messages=MANAGED_MESSAGES,
+        )
 
 
 def test_endpoint_redaction_removes_userinfo_and_secret_query_values() -> None:

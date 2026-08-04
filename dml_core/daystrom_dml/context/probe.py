@@ -381,6 +381,15 @@ def run_ab_probe(
     if baseline_messages is None or managed_messages is None:
         raise ValueError("baseline_messages and managed_messages are required at run time")
     resolved_endpoint = endpoint_url or request_contract.endpoint.url
+    resolved_identity = endpoint_identity(resolved_endpoint)
+    if resolved_identity != request_contract.endpoint:
+        raise ValueError("endpoint_url must match the probe request endpoint identity")
+    baseline_messages = _copy_messages(baseline_messages)
+    managed_messages = _copy_messages(managed_messages)
+    if manifest_messages(baseline_messages, "baseline") != request_contract.baseline_manifest:
+        raise ValueError("baseline messages do not match the probe manifest")
+    if manifest_messages(managed_messages, "managed") != request_contract.managed_manifest:
+        raise ValueError("managed messages do not match the probe manifest")
     baseline_response = _call_model(client, resolved_endpoint, request_contract, baseline_messages, "baseline")
     managed_response = _call_model(client, resolved_endpoint, request_contract, managed_messages, "managed")
     outcomes = evaluate_responses(
@@ -460,8 +469,8 @@ def attach_runtime_messages(
 ) -> ModelProbeRequest:
     """Attach messages for immediate in-process execution without serializing them."""
 
-    setattr(request_contract, "_baseline_messages", baseline_messages)
-    setattr(request_contract, "_managed_messages", managed_messages)
+    setattr(request_contract, "_baseline_messages", _copy_messages(baseline_messages))
+    setattr(request_contract, "_managed_messages", _copy_messages(managed_messages))
     return request_contract
 
 
@@ -498,6 +507,19 @@ def _extract_chat_content(parsed: Any) -> str:
     if not isinstance(content, str) or content == "":
         raise ProbeTransportError("missing_content", "response content is missing")
     return content
+
+
+def _copy_messages(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    _validate_messages(messages)
+    try:
+        copied = json.loads(json.dumps(messages, sort_keys=True, ensure_ascii=False, allow_nan=False))
+    except (TypeError, ValueError) as exc:
+        raise ContractError("messages must be JSON-compatible") from exc
+    if not isinstance(copied, list) or any(not isinstance(item, dict) for item in copied):
+        raise ContractError("messages must contain objects")
+    result: List[Dict[str, Any]] = [dict(item) for item in copied]
+    _validate_messages(result)
+    return result
 
 
 def _validate_messages(messages: List[Dict[str, Any]]) -> None:

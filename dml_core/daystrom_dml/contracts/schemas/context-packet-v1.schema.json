@@ -14,7 +14,8 @@
     "rendered_messages",
     "decisions",
     "warnings",
-    "audit"
+    "audit",
+    "packet_content_digest"
   ],
   "properties": {
     "packet_version": {
@@ -35,7 +36,8 @@
     },
     "decisions": {"type": "object", "additionalProperties": true},
     "warnings": {"type": "array", "items": {"type": "string"}},
-    "audit": {"$ref": "#/$defs/audit_info"}
+    "audit": {"$ref": "#/$defs/audit_info"},
+    "packet_content_digest": {"type": "string", "minLength": 64, "maxLength": 64}
   },
   "$defs": {
     "context_authority": {
