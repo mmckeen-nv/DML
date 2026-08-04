@@ -5,8 +5,11 @@ import time
 from typing import Any, Dict, Iterable, List, Optional
 
 from daystrom_dml.api_contracts import ContractError, DaystromScope
+from daystrom_dml.context.admission import ACTIVE_ADMISSION_MODE, OBSERVE_ONLY_MODE, admit_context_segments, validate_admission_mode
 from daystrom_dml.context.adapters.api_messages import APIMessageAdapter
 from daystrom_dml.context.adapters.base import RuntimeContextAdapter
+from daystrom_dml.context.manifest import ContextPacket
+from daystrom_dml.context.schema import ContextSegment
 
 
 class ContextController:
@@ -21,10 +24,12 @@ class ContextController:
         runtime_adapter: Optional[RuntimeContextAdapter] = None,
         *,
         retrieval_adapter: Any = None,
+        mode: str = OBSERVE_ONLY_MODE,
         clock: Any = None,
     ) -> None:
         self.runtime_adapter = runtime_adapter or APIMessageAdapter()
         self.retrieval_adapter = retrieval_adapter
+        self.mode = validate_admission_mode(mode)
         self.clock = clock or time.time
 
     def observe(
@@ -101,6 +106,32 @@ class ContextController:
                 "packet_id": (dcn_packet or {}).get("packet_id") if isinstance(dcn_packet, dict) else None,
             },
         }
+
+    def admit(
+        self,
+        *,
+        scope: DaystromScope | Dict[str, Any] | None = None,
+        segments: Iterable[ContextSegment | Dict[str, Any]],
+        model_id: str,
+        runtime_id: str,
+        model_limit_tokens: int,
+        output_reserved_tokens: int = 0,
+        runtime_reserved_tokens: int = 0,
+        page_out: Any = None,
+    ) -> ContextPacket:
+        if self.mode != ACTIVE_ADMISSION_MODE:
+            raise ContractError(f"context admission requires mode {ACTIVE_ADMISSION_MODE!r}")
+        return admit_context_segments(
+            scope=scope,
+            segments=segments,
+            model_id=model_id,
+            runtime_id=runtime_id,
+            model_limit_tokens=model_limit_tokens,
+            output_reserved_tokens=output_reserved_tokens,
+            runtime_reserved_tokens=runtime_reserved_tokens,
+            runtime_adapter=self.runtime_adapter,
+            page_out=page_out,
+        )
 
     @staticmethod
     def _segments(
