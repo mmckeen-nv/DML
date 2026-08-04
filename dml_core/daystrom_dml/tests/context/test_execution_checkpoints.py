@@ -19,6 +19,7 @@ from daystrom_dml.context.admission import admit_context_segments
 from daystrom_dml.context.execution import (
     RuntimeCacheOperation,
     RuntimeCacheOperationResult,
+    RuntimeCheckpointDeleteResult,
     RuntimeExecutionCapabilities,
     RuntimeExecutionError,
 )
@@ -81,11 +82,13 @@ class FakeExecutionAdapter:
             supports_kv_checkpoint=True,
             supports_kv_restore=True,
             supports_kv_erase=True,
+            supports_kv_checkpoint_delete=True,
             supports_slot_affinity=True,
             supports_metrics=True,
         )
         self.calls: list[tuple[Any, ...]] = []
         self.save_result_override: RuntimeCacheOperationResult | None = None
+        self.delete_error: Exception | None = None
 
     def capabilities(self) -> RuntimeExecutionCapabilities:
         return self._capabilities
@@ -114,6 +117,17 @@ class FakeExecutionAdapter:
             bytes_affected=4096,
             elapsed_ms=2.0,
             checkpoint_name=filename,
+        )
+    def delete_checkpoint(self, filename: str) -> RuntimeCheckpointDeleteResult:
+        self.calls.append(("delete", filename))
+        if self.delete_error is not None:
+            raise self.delete_error
+        return RuntimeCheckpointDeleteResult(
+            runtime_id="llama-local",
+            checkpoint_name=filename,
+            bytes_deleted=4096,
+            existed=True,
+            elapsed_ms=1.0,
         )
 
 
@@ -217,6 +231,25 @@ def test_duplicate_checkpoint_is_rejected_before_second_runtime_save(tmp_path: P
     assert adapter.calls[0][0] == "save"
 
 
+def test_registry_write_failure_compensates_by_deleting_saved_checkpoint(tmp_path: Path) -> None:
+    class FailingRegistry(FileExecutionCheckpointRegistry):
+        def create(self, checkpoint_id: str, build_record: Any) -> Any:
+            build_record()
+            raise OSError("disk full")
+
+    adapter = FakeExecutionAdapter()
+    controller = ExecutionCheckpointController(
+        adapter=adapter,
+        registry=FailingRegistry(tmp_path),
+        clock=lambda: 100.0,
+    )
+
+    with pytest.raises(OSError, match="disk full"):
+        controller.save("checkpoint-a", _identity(), slot_id=0, ttl_seconds=60)
+
+    assert [call[0] for call in adapter.calls] == ["save", "delete"]
+
+
 def test_controller_fails_closed_when_capability_or_runtime_result_is_invalid(tmp_path: Path) -> None:
     unsupported = RuntimeExecutionCapabilities(
         runtime_id="llama-local",
@@ -247,6 +280,69 @@ def test_controller_fails_closed_when_capability_or_runtime_result_is_invalid(tm
         malformed_controller.save("checkpoint-a", _identity(), slot_id=0, ttl_seconds=60)
     with pytest.raises(RuntimeExecutionError, match="not found"):
         malformed_registry.require("checkpoint-a", _identity())
+
+
+def test_controller_purge_deletes_runtime_bytes_before_registry_metadata(tmp_path: Path) -> None:
+    registry = FileExecutionCheckpointRegistry(tmp_path, clock=lambda: 150.0)
+    adapter = FakeExecutionAdapter()
+    controller = ExecutionCheckpointController(adapter=adapter, registry=registry, clock=lambda: 100.0)
+    record = controller.save("checkpoint-a", _identity(), slot_id=0, ttl_seconds=60)
+
+    deleted = controller.purge("checkpoint-a", _identity())
+
+    assert deleted.checkpoint_name_digest == _digest(record.checkpoint_name)
+    assert adapter.calls[-1] == ("delete", record.checkpoint_name)
+    with pytest.raises(RuntimeExecutionError, match="not found"):
+        registry.require("checkpoint-a", _identity())
+
+
+def test_failed_runtime_delete_retains_registry_authorization_record(tmp_path: Path) -> None:
+    registry = FileExecutionCheckpointRegistry(tmp_path, clock=lambda: 150.0)
+    adapter = FakeExecutionAdapter()
+    controller = ExecutionCheckpointController(adapter=adapter, registry=registry, clock=lambda: 100.0)
+    controller.save("checkpoint-a", _identity(), slot_id=0, ttl_seconds=60)
+    adapter.delete_error = RuntimeExecutionError("delete unavailable")
+
+    with pytest.raises(RuntimeExecutionError, match="delete unavailable"):
+        controller.purge("checkpoint-a", _identity())
+
+    assert registry.require("checkpoint-a", _identity()).checkpoint_id == "checkpoint-a"
+
+
+def test_expired_gc_physically_purges_checkpoint_and_metadata(tmp_path: Path) -> None:
+    now = [100.0]
+    registry = FileExecutionCheckpointRegistry(tmp_path, clock=lambda: now[0])
+    adapter = FakeExecutionAdapter()
+    controller = ExecutionCheckpointController(adapter=adapter, registry=registry, clock=lambda: now[0])
+    controller.save("expired-a", _identity(), slot_id=0, ttl_seconds=5)
+    controller.save("live-b", _identity(), slot_id=0, ttl_seconds=50)
+    now[0] = 110.0
+
+    results = controller.purge_expired(max_records=10)
+
+    assert [item.checkpoint_id_digest for item in results] == [_digest("expired-a")]
+    with pytest.raises(RuntimeExecutionError, match="not found"):
+        registry.require("expired-a", _identity())
+    assert registry.require("live-b", _identity()).checkpoint_id == "live-b"
+
+
+def test_save_refuses_runtime_without_physical_delete_capability(tmp_path: Path) -> None:
+    caps = RuntimeExecutionCapabilities(
+        runtime_id="llama-local",
+        adapter_id="llama_cpp_server",
+        runtime_version="10250",
+        supports_kv_checkpoint=True,
+        supports_kv_restore=True,
+    )
+    adapter = FakeExecutionAdapter(capabilities=caps)
+    controller = ExecutionCheckpointController(
+        adapter=adapter,
+        registry=FileExecutionCheckpointRegistry(tmp_path),
+    )
+
+    with pytest.raises(RuntimeExecutionError, match="checkpoint deletion"):
+        controller.save("checkpoint-a", _identity(), slot_id=0, ttl_seconds=60)
+    assert adapter.calls == []
 
 
 def test_identity_is_derived_from_revalidated_packet_and_hashes_raw_runtime_inputs(tmp_path: Path) -> None:

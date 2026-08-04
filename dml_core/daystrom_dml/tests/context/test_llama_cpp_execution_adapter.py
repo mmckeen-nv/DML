@@ -95,6 +95,54 @@ def test_checkpoint_filename_and_runtime_payloads_fail_closed() -> None:
         malformed.complete("prompt", slot_id=0)
 
 
+def test_local_checkpoint_delete_is_confined_to_configured_directory(tmp_path: Any) -> None:
+    checkpoint = tmp_path / "prefix.bin"
+    checkpoint.write_bytes(b"sensitive-kv")
+    adapter = LlamaCppExecutionAdapter(
+        "http://127.0.0.1:18080",
+        runtime_id="llama-test",
+        runtime_version="10250",
+        checkpoint_directory=tmp_path,
+        opener=Opener([]),
+    )
+
+    result = adapter.delete_checkpoint("prefix.bin")
+
+    assert result.existed is True
+    assert result.bytes_deleted == len(b"sensitive-kv")
+    assert not checkpoint.exists()
+    assert adapter.capabilities().supports_kv_checkpoint_delete is True
+    with pytest.raises(RuntimeExecutionError, match="filename"):
+        adapter.delete_checkpoint("../outside.bin")
+
+
+def test_checkpoint_delete_rejects_symlink_and_unconfigured_remote_runtime(tmp_path: Any) -> None:
+    target = tmp_path / "outside.bin"
+    target.write_bytes(b"keep")
+    link = tmp_path / "link.bin"
+    try:
+        link.symlink_to(target)
+    except (OSError, NotImplementedError):
+        pytest.skip("symlinks unavailable")
+    configured = LlamaCppExecutionAdapter(
+        "http://127.0.0.1:18080",
+        runtime_id="llama-test",
+        runtime_version="10250",
+        checkpoint_directory=tmp_path,
+        opener=Opener([]),
+    )
+    with pytest.raises(RuntimeExecutionError, match="regular file"):
+        configured.delete_checkpoint("link.bin")
+    assert target.exists()
+
+    remote = LlamaCppExecutionAdapter(
+        "http://127.0.0.1:18080", runtime_id="llama-test", runtime_version="10250", opener=Opener([])
+    )
+    assert remote.capabilities().supports_kv_checkpoint_delete is False
+    with pytest.raises(RuntimeExecutionError, match="not configured"):
+        remote.delete_checkpoint("prefix.bin")
+
+
 def test_capabilities_are_explicit_and_provider_neutral() -> None:
     adapter = LlamaCppExecutionAdapter("http://127.0.0.1:18080", runtime_id="llama-test", runtime_version="10250")
     caps = adapter.capabilities()

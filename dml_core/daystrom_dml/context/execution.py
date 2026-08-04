@@ -28,6 +28,7 @@ class RuntimeExecutionCapabilities(SerializableDataclass):
     supports_kv_checkpoint: bool = False
     supports_kv_restore: bool = False
     supports_kv_erase: bool = False
+    supports_kv_checkpoint_delete: bool = False
     supports_slot_affinity: bool = False
     supports_metrics: bool = False
     metadata: Dict[str, Any] = field(default_factory=dict)
@@ -70,3 +71,14 @@ class RuntimeCacheOperationResult(SerializableDataclass):
     bytes_affected: int = 0
     elapsed_ms: float = 0.0
     checkpoint_name: Optional[str] = None
+
+
+@dataclass
+class RuntimeCheckpointDeleteResult(SerializableDataclass):
+    """Result of deleting runtime-owned checkpoint bytes outside a slot."""
+
+    runtime_id: str
+    checkpoint_name: str
+    bytes_deleted: int = 0
+    existed: bool = False
+    elapsed_ms: float = 0.0

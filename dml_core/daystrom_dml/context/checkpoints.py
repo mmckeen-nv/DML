@@ -21,6 +21,7 @@ from daystrom_dml.atomic_io import atomic_write_text
 from daystrom_dml.context.execution import (
     RuntimeCacheOperation,
     RuntimeCacheOperationResult,
+    RuntimeCheckpointDeleteResult,
     RuntimeExecutionCapabilities,
     RuntimeExecutionError,
 )
@@ -39,6 +40,8 @@ class ExecutionStateAdapter(Protocol):
     def save_slot(self, slot_id: int, filename: str) -> RuntimeCacheOperationResult: ...
 
     def restore_slot(self, slot_id: int, filename: str) -> RuntimeCacheOperationResult: ...
+
+    def delete_checkpoint(self, filename: str) -> RuntimeCheckpointDeleteResult: ...
 
 
 @dataclass
@@ -278,6 +281,16 @@ class ExecutionCheckpointRecord(SerializableDataclass):
             raise RuntimeExecutionError("invalid checkpoint record") from exc
 
 
+@dataclass(frozen=True)
+class CheckpointPurgeResult:
+    checkpoint_id_digest: str
+    binding_digest: str
+    checkpoint_name_digest: str
+    bytes_deleted: int
+    existed: bool
+    elapsed_ms: float
+
+
 class FileExecutionCheckpointRegistry:
     """Atomic, bounded metadata registry keyed by a safe checkpoint identifier."""
 
@@ -338,6 +351,46 @@ class FileExecutionCheckpointRegistry:
         checkpoint_id: str,
         expected_identity: ExecutionCheckpointIdentity,
     ) -> ExecutionCheckpointRecord:
+        record = self._read(checkpoint_id)
+        self._validate_identity(record, expected_identity)
+        if self.clock() >= record.expires_at:
+            raise RuntimeExecutionError("checkpoint record expired")
+        return record
+
+    def expired_records(self, *, max_records: int) -> list[ExecutionCheckpointRecord]:
+        if not isinstance(max_records, int) or isinstance(max_records, bool) or max_records <= 0:
+            raise RuntimeExecutionError("max_records must be a positive integer")
+        records: list[ExecutionCheckpointRecord] = []
+        for path in sorted(self.root.glob("*.json")):
+            if len(records) >= max_records:
+                break
+            checkpoint_id = path.stem
+            _safe_id("checkpoint_id", checkpoint_id)
+            record = self._read(checkpoint_id)
+            if self.clock() >= record.expires_at:
+                records.append(record)
+        return records
+
+    def purge(
+        self,
+        checkpoint_id: str,
+        expected_identity: ExecutionCheckpointIdentity,
+        delete_runtime: Callable[[ExecutionCheckpointRecord], RuntimeCheckpointDeleteResult],
+    ) -> RuntimeCheckpointDeleteResult:
+        path = self._path(checkpoint_id)
+        with self._lock(checkpoint_id):
+            record = self._read(checkpoint_id)
+            self._validate_identity(record, expected_identity)
+            result = delete_runtime(record)
+            if not isinstance(result, RuntimeCheckpointDeleteResult):
+                raise RuntimeExecutionError("runtime checkpoint delete result is invalid")
+            try:
+                path.unlink()
+            except OSError as exc:
+                raise RuntimeExecutionError("checkpoint metadata could not be deleted") from exc
+        return result
+
+    def _read(self, checkpoint_id: str) -> ExecutionCheckpointRecord:
         path = self._path(checkpoint_id)
         try:
             with path.open("rb") as handle:
@@ -358,11 +411,16 @@ class FileExecutionCheckpointRegistry:
             raise RuntimeExecutionError("checkpoint record integrity check failed") from exc
         if record.checkpoint_id != checkpoint_id:
             raise RuntimeExecutionError("checkpoint record integrity check failed")
+        return record
+
+    @staticmethod
+    def _validate_identity(
+        record: ExecutionCheckpointRecord,
+        expected_identity: ExecutionCheckpointIdentity,
+    ) -> None:
+        expected_identity.to_dict()
         if record.identity.binding_digest != expected_identity.binding_digest or record.identity != expected_identity:
             raise RuntimeExecutionError("checkpoint identity mismatch")
-        if self.clock() >= record.expires_at:
-            raise RuntimeExecutionError("checkpoint record expired")
-        return record
 
     def _path(self, checkpoint_id: str) -> Path:
         _safe_id("checkpoint_id", checkpoint_id)
@@ -423,11 +481,16 @@ class ExecutionCheckpointController:
         caps = self._authorize(identity, operation="save")
         if not caps.supports_kv_checkpoint:
             raise RuntimeExecutionError("runtime does not support checkpoint save")
+        if not caps.supports_kv_checkpoint_delete:
+            raise RuntimeExecutionError("runtime does not support checkpoint deletion")
         checkpoint_name = _runtime_checkpoint_name(checkpoint_id, identity.binding_digest)
+        saved = False
 
         def save_and_build_record() -> ExecutionCheckpointRecord:
+            nonlocal saved
             result = self.adapter.save_slot(slot_id, checkpoint_name)
             self._validate_result(result, RuntimeCacheOperation.SAVE, identity, slot_id, checkpoint_name)
+            saved = True
             created_at = float(self.clock())
             return ExecutionCheckpointRecord(
                 checkpoint_id=checkpoint_id,
@@ -439,7 +502,16 @@ class ExecutionCheckpointController:
                 expires_at=created_at + float(ttl_seconds),
             )
 
-        return self.registry.create(checkpoint_id, save_and_build_record)
+        try:
+            return self.registry.create(checkpoint_id, save_and_build_record)
+        except Exception:
+            if saved:
+                try:
+                    deleted = self.adapter.delete_checkpoint(checkpoint_name)
+                    self._validate_delete_result(deleted, identity, checkpoint_name)
+                except Exception as delete_exc:
+                    raise RuntimeExecutionError("checkpoint save failed and compensation deletion failed") from delete_exc
+            raise
 
     def restore(
         self,
@@ -458,6 +530,36 @@ class ExecutionCheckpointController:
             raise RuntimeExecutionError("runtime restore result did not match checkpoint record")
         return result
 
+    def purge(
+        self,
+        checkpoint_id: str,
+        identity: ExecutionCheckpointIdentity,
+    ) -> CheckpointPurgeResult:
+        caps = self._authorize(identity, operation="purge")
+        if not caps.supports_kv_checkpoint_delete:
+            raise RuntimeExecutionError("runtime does not support checkpoint deletion")
+
+        def delete_runtime(record: ExecutionCheckpointRecord) -> RuntimeCheckpointDeleteResult:
+            deleted = self.adapter.delete_checkpoint(record.checkpoint_name)
+            self._validate_delete_result(deleted, identity, record.checkpoint_name)
+            return deleted
+
+        deleted = self.registry.purge(checkpoint_id, identity, delete_runtime)
+        return CheckpointPurgeResult(
+            checkpoint_id_digest=_text_digest(checkpoint_id),
+            binding_digest=identity.binding_digest,
+            checkpoint_name_digest=_text_digest(deleted.checkpoint_name),
+            bytes_deleted=deleted.bytes_deleted,
+            existed=deleted.existed,
+            elapsed_ms=deleted.elapsed_ms,
+        )
+
+    def purge_expired(self, *, max_records: int = 100) -> list[CheckpointPurgeResult]:
+        results: list[CheckpointPurgeResult] = []
+        for record in self.registry.expired_records(max_records=max_records):
+            results.append(self.purge(record.checkpoint_id, record.identity))
+        return results
+
     def _authorize(
         self,
         identity: ExecutionCheckpointIdentity,
@@ -475,6 +577,27 @@ class ExecutionCheckpointController:
         ):
             raise RuntimeExecutionError(f"runtime identity mismatch before checkpoint {operation}")
         return caps
+
+    @staticmethod
+    def _validate_delete_result(
+        result: RuntimeCheckpointDeleteResult,
+        identity: ExecutionCheckpointIdentity,
+        checkpoint_name: str,
+    ) -> None:
+        if (
+            not isinstance(result, RuntimeCheckpointDeleteResult)
+            or result.runtime_id != identity.runtime_id
+            or result.checkpoint_name != checkpoint_name
+            or not isinstance(result.bytes_deleted, int)
+            or isinstance(result.bytes_deleted, bool)
+            or result.bytes_deleted < 0
+            or not isinstance(result.existed, bool)
+            or (result.existed and result.bytes_deleted <= 0)
+            or not isinstance(result.elapsed_ms, (int, float))
+            or isinstance(result.elapsed_ms, bool)
+            or result.elapsed_ms < 0
+        ):
+            raise RuntimeExecutionError("runtime checkpoint delete result failed validation")
 
     @staticmethod
     def _validate_result(
