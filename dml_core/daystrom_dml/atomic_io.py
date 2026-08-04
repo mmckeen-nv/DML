@@ -62,7 +62,10 @@ def atomic_write_via(path: str | Path, writer: Callable[[Path], None]) -> Path:
     tmp = Path(raw_tmp)
     try:
         writer(tmp)
-        with tmp.open("rb") as handle:
+        # Windows' CRT rejects ``fsync`` on a read-only descriptor even though
+        # POSIX accepts it. Open the completed artifact read/write so the same
+        # durability barrier works on every supported platform.
+        with tmp.open("rb+") as handle:
             os.fsync(handle.fileno())
         replace_with_retry(tmp, target)
         _sync_directory(target.parent)
