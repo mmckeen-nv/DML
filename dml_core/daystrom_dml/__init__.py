@@ -7,14 +7,22 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from .api_client import DMLClient
     from .config import load_config
-    from .dml_adapter import DMLAdapter
+    from .dml_adapter import DMLAdapter, PersistenceCommitError
     from .personality_matrix import PersonalityMatrix
 
-__all__ = ["DMLAdapter", "DMLClient", "PersonalityMatrix", "load_config", "utils"]
+__all__ = [
+    "DMLAdapter",
+    "DMLClient",
+    "PersistenceCommitError",
+    "PersonalityMatrix",
+    "load_config",
+    "utils",
+]
 
 _LAZY_EXPORTS = {
     "DMLAdapter": (".dml_adapter", "DMLAdapter"),
     "DMLClient": (".api_client", "DMLClient"),
+    "PersistenceCommitError": (".dml_adapter", "PersistenceCommitError"),
     "PersonalityMatrix": (".personality_matrix", "PersonalityMatrix"),
     "load_config": (".config", "load_config"),
 }

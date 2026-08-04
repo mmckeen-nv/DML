@@ -48,6 +48,10 @@ from .policy_router import PolicyRouter, TaskType, RouterDecision
 LOGGER = logging.getLogger(__name__)
 
 
+class PersistenceCommitError(RuntimeError):
+    """Raised when a configured durability write does not commit."""
+
+
 def _serialized_mutation(method):
     """Run a public durable mutation inside the adapter's process-wide transaction."""
 
@@ -199,6 +203,7 @@ class DMLAdapter:
         self.rag_state_path = self.storage_dir / "rag_store.json"
         self.checkpoint_dir = self.storage_dir / "checkpoints"
         self._persist_lock = RLock()
+        self._durability_failures: Dict[str, str] = {}
         self._refresh_lock = RLock()
         self._mutation_local = threading.local()
         self._last_observed_state: Optional[tuple[int, int]] = None
@@ -1423,10 +1428,15 @@ class DMLAdapter:
                 try:
                     save_persisted_memories(items, self._persistence_path)
                     self._last_observed_state = self._state_stamp()
-                except Exception:
+                except Exception as exc:
+                    self._record_durability_failure_locked("dml", exc)
                     LOGGER.exception(
                         "Failed to persist DML state to %s", self._persistence_path
                     )
+                    raise PersistenceCommitError(
+                        f"DML state persistence failed: {self._persistence_path}"
+                    ) from exc
+                self._clear_durability_failure_locked("dml")
             return
         with self._persist_lock:
             data = self.store.export_state()
@@ -1434,26 +1444,53 @@ class DMLAdapter:
                 self.dml_state_path.parent.mkdir(parents=True, exist_ok=True)
                 atomic_write_text(self.dml_state_path, json.dumps(data, indent=2))
                 self._last_observed_state = self._state_stamp()
-            except Exception:
+            except Exception as exc:
+                self._record_durability_failure_locked("dml", exc)
                 LOGGER.exception("Failed to persist DML state to %s", self.dml_state_path)
+                raise PersistenceCommitError(
+                    f"DML state persistence failed: {self.dml_state_path}"
+                ) from exc
+            self._clear_durability_failure_locked("dml")
 
     def _persist_rag_state(self) -> None:
         with self._persist_lock:
-            if self.persistent_rag_store is not None:
-                try:
+            try:
+                if self.persistent_rag_store is not None:
                     self.persistent_rag_store.persist()
                     self._last_observed_persistent_rag = self._path_stamp(
                         self.persistent_rag_store.manifest_path
                     )
-                except Exception:
-                    LOGGER.exception("Failed to persist persistent RAG index.")
-            data = self.rag_store.export_state()
-            try:
+                data = self.rag_store.export_state()
                 self.rag_state_path.parent.mkdir(parents=True, exist_ok=True)
                 atomic_write_text(self.rag_state_path, json.dumps(data, indent=2))
                 self._last_observed_rag_state = self._path_stamp(self.rag_state_path)
-            except Exception:
+            except Exception as exc:
+                self._record_durability_failure_locked("rag", exc)
                 LOGGER.exception("Failed to persist RAG state to %s", self.rag_state_path)
+                raise PersistenceCommitError(
+                    f"RAG state persistence failed: {self.rag_state_path}"
+                ) from exc
+            self._clear_durability_failure_locked("rag")
+
+    def _record_durability_failure_locked(self, component: str, exc: Exception) -> None:
+        """Record a component failure while the caller owns ``_persist_lock``."""
+
+        self._durability_failures[component] = f"{type(exc).__name__}: {exc}"
+
+    def _clear_durability_failure_locked(self, component: str) -> None:
+        """Clear a component failure while the caller owns ``_persist_lock``."""
+
+        self._durability_failures.pop(component, None)
+
+    def durability_status(self) -> Dict[str, Any]:
+        """Return a thread-safe summary of failed durability writes."""
+
+        with self._persist_lock:
+            failures = dict(self._durability_failures)
+        return {
+            "status": "degraded" if failures else "ok",
+            "failures": failures,
+        }
 
     def _embedding_compatibility_report_path(self) -> Path:
         return self.storage_dir / "embedding_compatibility_report.json"
