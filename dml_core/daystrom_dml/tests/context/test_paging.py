@@ -27,8 +27,10 @@ def scope(**overrides: str) -> DaystromScope:
         "tenant_id": "tenant-a",
         "client_id": "client-a",
         "session_id": "session-a",
+        "instance_id": "instance-a",
         "thread_id": "thread-a",
         "project_id": "project-a",
+        "relationship_id": "relationship-a",
     }
     values.update(overrides)
     return DaystromScope(**values)
@@ -74,11 +76,23 @@ def test_bytes_page_exact_round_trip() -> None:
     assert page.to_dict()["payload_encoding"] == "base64"
 
 
-def test_cache_isolates_scope_without_metadata_leak() -> None:
+@pytest.mark.parametrize(
+    ("field", "other_value"),
+    [
+        ("tenant_id", "tenant-b"),
+        ("client_id", "client-b"),
+        ("session_id", "session-b"),
+        ("instance_id", "instance-b"),
+        ("thread_id", "thread-b"),
+        ("project_id", "project-b"),
+        ("relationship_id", "relationship-b"),
+    ],
+)
+def test_cache_isolates_scope_without_metadata_leak(field: str, other_value: str) -> None:
     clock = FakeClock()
     cache = MemoryContextPageCache(max_pages=4, max_bytes=1024, now=clock.now, monotonic=clock.monotonic)
     original = scope()
-    other = scope(session_id="session-b")
+    other = scope(**{field: other_value})
 
     page = cache.put_text(original, "secret payload", ttl_seconds=60)
 
@@ -87,6 +101,74 @@ def test_cache_isolates_scope_without_metadata_leak() -> None:
     assert cache.evict(other, page.page_id) is False
     assert cache.list_pages(other) == []
     assert cache.stats().misses == 1
+
+
+@pytest.mark.parametrize(
+    ("field", "other_value"),
+    [
+        ("tenant_id", "tenant-b"),
+        ("client_id", "client-b"),
+        ("session_id", "session-b"),
+        ("instance_id", "instance-b"),
+        ("thread_id", "thread-b"),
+        ("project_id", "project-b"),
+        ("relationship_id", "relationship-b"),
+    ],
+)
+def test_put_rejects_page_scope_mismatch_on_all_isolation_fields(field: str, other_value: str) -> None:
+    cache = MemoryContextPageCache(max_pages=4, max_bytes=1024)
+    page = ContextPage.from_text(scope=scope(**{field: other_value}), text="payload")
+
+    with pytest.raises(ContextPageError, match="page scope mismatch"):
+        cache.put(scope(), page)
+
+    assert cache.list_pages(scope()) == []
+
+
+def test_cache_copies_scope_and_metadata_on_ingress_and_egress() -> None:
+    clock = FakeClock()
+    cache = MemoryContextPageCache(max_pages=4, max_bytes=1024, now=clock.now, monotonic=clock.monotonic)
+    caller_scope = scope()
+    metadata = {"rank": 1, "nested": {"labels": ["initial"]}}
+
+    page = cache.put_text(caller_scope, "stable payload", ttl_seconds=60, metadata=metadata, page_id="stable")
+    metadata["nested"]["labels"].append("caller-mutated")
+    object.__setattr__(caller_scope, "session_id", "caller-mutated")
+    page.metadata["nested"]["labels"].append("returned-mutated")
+    object.__setattr__(page.scope, "thread_id", "returned-mutated")
+
+    cached = cache.get(scope(), "stable")
+
+    assert cached is not None
+    assert cached.scope == scope()
+    assert cached.metadata == {"rank": 1, "nested": {"labels": ["initial"]}}
+
+    cached.metadata["nested"]["labels"].append("egress-mutated")
+    again = cache.get(scope(), "stable")
+
+    assert again is not None
+    assert again.metadata == {"rank": 1, "nested": {"labels": ["initial"]}}
+
+
+def test_put_copies_supplied_page_and_rejects_non_json_metadata() -> None:
+    cache = MemoryContextPageCache(max_pages=4, max_bytes=1024)
+    caller_scope = scope()
+    caller_metadata = {"nested": {"labels": ["initial"]}}
+    page = ContextPage.from_text(scope=caller_scope, text="stable payload", metadata=caller_metadata, page_id="stable")
+
+    stored = cache.put(caller_scope, page)
+    caller_metadata["nested"]["labels"].append("caller-mutated")
+    page.metadata["nested"]["labels"].append("page-mutated")
+    object.__setattr__(caller_scope, "client_id", "caller-mutated")
+
+    cached = cache.get(scope(), stored.page_id)
+
+    assert cached is not None
+    assert cached.scope == scope()
+    assert cached.metadata == {"nested": {"labels": ["initial"]}}
+
+    with pytest.raises(ContextPageError, match="metadata must be JSON-compatible"):
+        ContextPage.from_text(scope=scope(), text="payload", metadata={"bad": object()})
 
 
 def test_ttl_expiration_behaves_as_unavailable() -> None:
