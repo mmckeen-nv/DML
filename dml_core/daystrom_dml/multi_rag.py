@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import threading
 import time
 import uuid
@@ -266,7 +267,9 @@ class MultiRAGStore:
         backends: Optional[Iterable[RAGBackendDescriptor]] = None,
     ) -> None:
         self.embedder = embedder
-        self._descriptors: List[RAGBackendDescriptor] = list(backends or DEFAULT_BACKENDS)
+        self._descriptors: List[RAGBackendDescriptor] = list(
+            DEFAULT_BACKENDS if backends is None else backends
+        )
         self._backends: List[Dict[str, Any]] = []
         for descriptor in self._descriptors:
             try:
@@ -444,7 +447,41 @@ class MultiRAGStore:
 
     def export_state(self) -> Dict[str, Any]:
         with self._lock:
-            return {"documents": list(self._raw_documents)}
+            return {"documents": copy.deepcopy(self._raw_documents)}
+
+    def snapshot_state(self) -> Dict[str, Any]:
+        """Capture rollback-safe Python state without copying native backend objects."""
+
+        with self._lock:
+            return {
+                "documents": copy.deepcopy(self._raw_documents),
+                "backends": [
+                    {
+                        "id": backend["id"],
+                        "available": bool(backend["available"]),
+                        "error": backend.get("error"),
+                    }
+                    for backend in self._backends
+                ],
+            }
+
+    def restore_state(self, payload: Dict[str, Any]) -> None:
+        """Atomically restore raw documents and backend health metadata."""
+
+        documents = copy.deepcopy(payload.get("documents") or [])
+        statuses = {
+            str(entry.get("id")): entry
+            for entry in (payload.get("backends") or [])
+            if isinstance(entry, dict) and entry.get("id")
+        }
+        with self._lock:
+            self._raw_documents = documents
+            for backend in self._backends:
+                status = statuses.get(str(backend["id"]))
+                if status is None:
+                    continue
+                backend["available"] = bool(status.get("available"))
+                backend["error"] = copy.deepcopy(status.get("error"))
 
     def import_state(self, payload: Optional[Dict[str, Any]]) -> None:
         if not payload:

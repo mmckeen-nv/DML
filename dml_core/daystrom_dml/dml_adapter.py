@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import contextlib
+import copy
 import json
 import logging
 import os
@@ -52,13 +53,57 @@ class PersistenceCommitError(RuntimeError):
     """Raised when a configured durability write does not commit."""
 
 
+class PersistenceRollbackError(RuntimeError):
+    """Raised when a failed mutation cannot restore its pre-mutation state."""
+
+    def __init__(self, original_error: Exception, rollback_error: Exception) -> None:
+        super().__init__(
+            f"Persistence failed and rollback also failed: {type(rollback_error).__name__}"
+        )
+        self.original_error = original_error
+        self.rollback_error = rollback_error
+
+
 def _serialized_mutation(method):
-    """Run a public durable mutation inside the adapter's process-wide transaction."""
+    """Run a public mutation as a rollback-capable durable transaction."""
 
     @wraps(method)
     def wrapped(self, *args, **kwargs):
         with self._mutation_transaction(method.__name__):
-            return method(self, *args, **kwargs)
+            snapshot = self._capture_mutation_snapshot()
+            previous_commits = getattr(
+                self._mutation_local, "committed_components", None
+            )
+            committed_components: set[str] = set()
+            self._mutation_local.committed_components = committed_components
+            succeeded = False
+            try:
+                result = method(self, *args, **kwargs)
+                succeeded = True
+                return result
+            except Exception as original_error:
+                self._mutation_local.committed_components = None
+                try:
+                    self._rollback_mutation(snapshot, committed_components)
+                except Exception as rollback_error:
+                    root_rollback_error = (
+                        rollback_error.__cause__
+                        if isinstance(rollback_error, PersistenceCommitError)
+                        and isinstance(rollback_error.__cause__, Exception)
+                        else rollback_error
+                    )
+                    with self._persist_lock:
+                        self._record_durability_failure_locked(
+                            "rollback", root_rollback_error
+                        )
+                    raise PersistenceRollbackError(
+                        original_error, root_rollback_error
+                    ) from original_error
+                raise
+            finally:
+                if succeeded and previous_commits is not None:
+                    previous_commits.update(committed_components)
+                self._mutation_local.committed_components = previous_commits
 
     return wrapped
 
@@ -1273,6 +1318,54 @@ class DMLAdapter:
             finally:
                 self._mutation_local.depth = 0
 
+    def _capture_mutation_snapshot(self) -> Dict[str, Any]:
+        """Capture rollback state while the cross-process mutation lock is held."""
+
+        persistent_rag = None
+        if self.persistent_rag_store is not None:
+            persistent_rag = self.persistent_rag_store.snapshot_state()
+        return {
+            "dml": copy.deepcopy(self.store.export_state()),
+            "rag": self.rag_store.snapshot_state(),
+            "persistent_rag": persistent_rag,
+        }
+
+    def _rollback_mutation(
+        self,
+        snapshot: Dict[str, Any],
+        committed_components: set[str],
+    ) -> None:
+        """Restore runtime state and compensate durable components already committed."""
+
+        self.store.import_state(copy.deepcopy(snapshot["dml"]))
+        self.rag_store.restore_state(snapshot["rag"])
+        persistent_snapshot = snapshot.get("persistent_rag")
+        if self.persistent_rag_store is not None and persistent_snapshot is not None:
+            self.persistent_rag_store.restore_state(persistent_snapshot)
+        self._query_embedding_cache.clear()
+
+        # The outer store lock remains held here, so no cooperating writer can
+        # commit between the failed write and these compensating replacements.
+        if "dml" in committed_components:
+            self._persist_dml_state()
+        if (
+            "persistent_rag" in committed_components
+            and self.persistent_rag_store is not None
+        ):
+            self.persistent_rag_store.persist()
+            self._last_observed_persistent_rag = self._path_stamp(
+                self.persistent_rag_store.manifest_path
+            )
+        if "rag" in committed_components:
+            legacy_payload = {
+                "documents": copy.deepcopy(snapshot["rag"].get("documents") or [])
+            }
+            atomic_write_text(
+                self.rag_state_path,
+                json.dumps(legacy_payload, indent=2),
+            )
+            self._last_observed_rag_state = self._path_stamp(self.rag_state_path)
+
     def _state_stamp(self) -> Optional[tuple[int, int]]:
         return self._path_stamp(self._active_state_path())
 
@@ -1428,6 +1521,7 @@ class DMLAdapter:
                 try:
                     save_persisted_memories(items, self._persistence_path)
                     self._last_observed_state = self._state_stamp()
+                    self._mark_committed_component("dml")
                 except Exception as exc:
                     self._record_durability_failure_locked("dml", exc)
                     LOGGER.exception(
@@ -1444,6 +1538,7 @@ class DMLAdapter:
                 self.dml_state_path.parent.mkdir(parents=True, exist_ok=True)
                 atomic_write_text(self.dml_state_path, json.dumps(data, indent=2))
                 self._last_observed_state = self._state_stamp()
+                self._mark_committed_component("dml")
             except Exception as exc:
                 self._record_durability_failure_locked("dml", exc)
                 LOGGER.exception("Failed to persist DML state to %s", self.dml_state_path)
@@ -1460,10 +1555,12 @@ class DMLAdapter:
                     self._last_observed_persistent_rag = self._path_stamp(
                         self.persistent_rag_store.manifest_path
                     )
+                    self._mark_committed_component("persistent_rag")
                 data = self.rag_store.export_state()
                 self.rag_state_path.parent.mkdir(parents=True, exist_ok=True)
                 atomic_write_text(self.rag_state_path, json.dumps(data, indent=2))
                 self._last_observed_rag_state = self._path_stamp(self.rag_state_path)
+                self._mark_committed_component("rag")
             except Exception as exc:
                 self._record_durability_failure_locked("rag", exc)
                 LOGGER.exception("Failed to persist RAG state to %s", self.rag_state_path)
@@ -1471,6 +1568,11 @@ class DMLAdapter:
                     f"RAG state persistence failed: {self.rag_state_path}"
                 ) from exc
             self._clear_durability_failure_locked("rag")
+
+    def _mark_committed_component(self, component: str) -> None:
+        committed = getattr(self._mutation_local, "committed_components", None)
+        if committed is not None:
+            committed.add(component)
 
     def _record_durability_failure_locked(self, component: str, exc: Exception) -> None:
         """Record a component failure while the caller owns ``_persist_lock``."""

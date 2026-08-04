@@ -1,9 +1,11 @@
 """Lightweight persistent FAISS-backed retrieval store."""
 from __future__ import annotations
 
+import copy
 import json
 import hashlib
 import logging
+import threading
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
@@ -52,6 +54,7 @@ class PersistentRAGStore:
         self._index: Any = None
         self._next_id = 0
         self._dim = int(dim)
+        self._lock = threading.RLock()
         if self.backend != "faiss":
             raise ValueError(f"Unsupported backend: {backend}")
         if self.enable and faiss is None:
@@ -133,40 +136,44 @@ class PersistentRAGStore:
     def persist(self) -> None:
         """Persist the FAISS index and metadata to disk."""
 
-        if not self.enable or self._index is None:
-            return
-        self.index_path.parent.mkdir(parents=True, exist_ok=True)
-        self.meta_path.parent.mkdir(parents=True, exist_ok=True)
-        generation = uuid.uuid4().hex
-        payload = {
-            "generation": generation,
-            "dim": self._dim,
-            "next_id": self._next_id,
-            "records": [record.__dict__ for record in self._records],
-        }
-        index_gen = self.index_path.with_name(f"{self.index_path.name}.{generation}")
-        meta_gen = self.meta_path.with_name(f"{self.meta_path.name}.{generation}")
-        assert faiss is not None
-        faiss_module = faiss
-        atomic_write_via(index_gen, lambda path: faiss_module.write_index(self._index, str(path)))
-        atomic_write_text(meta_gen, json.dumps(payload, ensure_ascii=False, indent=2))
-        previous = None
-        if self.manifest_path.exists():
-            try:
-                previous = json.loads(self.manifest_path.read_text(encoding="utf-8")).get("current")
-            except Exception:
-                LOGGER.warning("Ignoring unreadable prior RAG manifest", exc_info=True)
-        current = {
-            "generation": generation,
-            "index": index_gen.name,
-            "metadata": meta_gen.name,
-            "index_sha256": self._sha256(index_gen),
-            "metadata_sha256": self._sha256(meta_gen),
-        }
-        atomic_write_text(
-            self.manifest_path,
-            json.dumps({"version": 1, "current": current, "previous": previous}, indent=2),
-        )
+        with self._lock:
+            if not self.enable:
+                return
+            if self._index is None:
+                assert faiss is not None
+                self._index = faiss.IndexFlatIP(self._dim)
+            self.index_path.parent.mkdir(parents=True, exist_ok=True)
+            self.meta_path.parent.mkdir(parents=True, exist_ok=True)
+            generation = uuid.uuid4().hex
+            payload = {
+                "generation": generation,
+                "dim": self._dim,
+                "next_id": self._next_id,
+                "records": [record.__dict__ for record in self._records],
+            }
+            index_gen = self.index_path.with_name(f"{self.index_path.name}.{generation}")
+            meta_gen = self.meta_path.with_name(f"{self.meta_path.name}.{generation}")
+            assert faiss is not None
+            faiss_module = faiss
+            atomic_write_via(index_gen, lambda path: faiss_module.write_index(self._index, str(path)))
+            atomic_write_text(meta_gen, json.dumps(payload, ensure_ascii=False, indent=2))
+            previous = None
+            if self.manifest_path.exists():
+                try:
+                    previous = json.loads(self.manifest_path.read_text(encoding="utf-8")).get("current")
+                except Exception:
+                    LOGGER.warning("Ignoring unreadable prior RAG manifest", exc_info=True)
+            current = {
+                "generation": generation,
+                "index": index_gen.name,
+                "metadata": meta_gen.name,
+                "index_sha256": self._sha256(index_gen),
+                "metadata_sha256": self._sha256(meta_gen),
+            }
+            atomic_write_text(
+                self.manifest_path,
+                json.dumps({"version": 1, "current": current, "previous": previous}, indent=2),
+            )
 
     def _clear_loaded_state(self) -> None:
         self._index = None
@@ -188,6 +195,10 @@ class PersistentRAGStore:
     def add(self, text: str, embedding: Iterable[float], meta: Optional[Dict[str, Any]] = None) -> int:
         """Add a new document to the persistent index."""
 
+        with self._lock:
+            return self._add_locked(text, embedding, meta)
+
+    def _add_locked(self, text: str, embedding: Iterable[float], meta: Optional[Dict[str, Any]]) -> int:
         if not text or not self.enable:
             return -1
         vector = self._prepare_vector(embedding)
@@ -212,6 +223,10 @@ class PersistentRAGStore:
     def search(self, embedding: Iterable[float], top_k: int = 4) -> List[Dict[str, Any]]:
         """Retrieve the closest matches for the supplied embedding."""
 
+        with self._lock:
+            return self._search_locked(embedding, top_k)
+
+    def _search_locked(self, embedding: Iterable[float], top_k: int) -> List[Dict[str, Any]]:
         if not self.enable or self._index is None or not self._records:
             return []
         vector = self._prepare_vector(embedding)
@@ -234,6 +249,49 @@ class PersistentRAGStore:
                 }
             )
         return results
+
+    def snapshot_state(self) -> Dict[str, Any]:
+        """Capture an in-memory generation without exposing mutable native objects."""
+
+        with self._lock:
+            index_bytes: Optional[bytes] = None
+            if self._index is not None:
+                assert faiss is not None
+                index_bytes = bytes(faiss.serialize_index(self._index))
+            return {
+                "index": index_bytes,
+                "records": [
+                    {"id": record.id, "text": record.text, "meta": dict(record.meta)}
+                    for record in self._records
+                ],
+                "next_id": self._next_id,
+                "dim": self._dim,
+            }
+
+    def restore_state(self, snapshot: Dict[str, Any]) -> None:
+        """Restore one runtime generation with an atomic in-memory swap."""
+
+        index = None
+        index_bytes = snapshot.get("index")
+        if index_bytes is not None:
+            assert faiss is not None
+            encoded = np.frombuffer(index_bytes, dtype=np.uint8).copy()
+            index = faiss.deserialize_index(encoded)
+        records = [
+            RAGRecord(
+                id=int(entry.get("id", position)),
+                text=str(entry.get("text") or ""),
+                meta=copy.deepcopy(entry.get("meta") or {}),
+            )
+            for position, entry in enumerate(snapshot.get("records") or [])
+        ]
+        id_lookup = {record.id: position for position, record in enumerate(records)}
+        with self._lock:
+            self._index = index
+            self._records = records
+            self._id_lookup = id_lookup
+            self._next_id = int(snapshot.get("next_id", len(records)))
+            self._dim = int(snapshot.get("dim", self._dim))
 
     # ------------------------------------------------------------------
     # helpers

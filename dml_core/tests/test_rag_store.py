@@ -91,3 +91,23 @@ def test_load_recovers_previous_complete_generation(tmp_path):
     assert restored.load() is True
     results = restored.search(_vec([1.0, 0.0, 0.0]), top_k=3)
     assert [item["meta"]["source"] for item in results] == ["stable"]
+
+
+def test_runtime_snapshot_restore_is_atomic_and_complete(tmp_path):
+    index_path = tmp_path / "snapshot.faiss"
+    meta_path = tmp_path / "snapshot.json"
+    store = PersistentRAGStore(enable=True, index_path=index_path, meta_path=meta_path, dim=3)
+    store.add("stable document", _vec([1.0, 0.0, 0.0]), {"source": "stable"})
+    snapshot = store.snapshot_state()
+
+    store.add("transient document", _vec([0.0, 1.0, 0.0]), {"source": "transient"})
+    store.restore_state(snapshot)
+
+    results = store.search(_vec([1.0, 0.0, 0.0]), top_k=3)
+    assert [item["meta"]["source"] for item in results] == ["stable"]
+    assert store._index is not None
+    assert store._index.ntotal == 1
+
+    store.restore_state(snapshot)
+    assert store._index is not None
+    assert store._index.ntotal == 1
