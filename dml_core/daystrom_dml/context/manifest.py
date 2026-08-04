@@ -35,6 +35,8 @@ class ContextManifest(SerializableDataclass):
     content_digest: str = ""
 
     def __post_init__(self) -> None:
+        if self.manifest_version != CONTEXT_MANIFEST_V1:
+            raise ContractError(f"manifest_version must be {CONTEXT_MANIFEST_V1!r}")
         if isinstance(self.scope, dict):
             self.scope = DaystromScope.from_dict(self.scope)
         if not self.model_id:
@@ -50,7 +52,10 @@ class ContextManifest(SerializableDataclass):
         for name in ("decisions", "audit"):
             if not isinstance(getattr(self, name), dict):
                 raise ContractError(f"{name} must be a dictionary")
-        self.content_digest = self.compute_content_digest()
+        computed_digest = self.compute_content_digest()
+        if self.content_digest and self.content_digest != computed_digest:
+            raise ContractError("content_digest does not match manifest content")
+        self.content_digest = computed_digest
 
     @classmethod
     def from_dict(cls, data: Optional[Dict[str, Any]]):
@@ -101,6 +106,8 @@ class ContextPacket(SerializableDataclass):
     packet_version: str = CONTEXT_PACKET_V1
 
     def __post_init__(self) -> None:
+        if self.packet_version != CONTEXT_PACKET_V1:
+            raise ContractError(f"packet_version must be {CONTEXT_PACKET_V1!r}")
         if isinstance(self.scope, dict):
             self.scope = DaystromScope.from_dict(self.scope)
         if isinstance(self.capabilities, dict):
