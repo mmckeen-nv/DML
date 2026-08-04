@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.daystrom.local/daystrom/runtime-capabilities-v1.schema.json",
+  "title": "Daystrom Runtime Capabilities v1",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["model_id", "backend_id"],
+  "properties": {
+    "model_id": {"type": "string", "minLength": 1},
+    "backend_id": {"type": "string", "minLength": 1},
+    "model_context_window": {"type": "integer", "minimum": 0},
+    "max_output_tokens": {"type": "integer", "minimum": 0},
+    "tokenizer_mode": {
+      "type": "string",
+      "enum": ["provider_estimated", "provider_exact", "local_compatible", "unknown"]
+    },
+    "prompt_cache_visibility": {
+      "type": "string",
+      "enum": ["opaque", "usage_only", "token_ranges", "none"]
+    },
+    "supports_kv_checkpoint_restore": {"type": "boolean"},
+    "supports_kv_offload": {"type": "boolean"},
+    "supports_nvcache": {"type": "boolean"},
+    "supports_context_branching": {"type": "boolean"},
+    "metadata": {"type": "object", "additionalProperties": true}
+  }
+}
