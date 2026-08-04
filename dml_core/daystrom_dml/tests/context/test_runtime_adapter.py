@@ -23,13 +23,13 @@ def test_api_message_adapter_estimates_tokens_with_injected_estimator():
 def test_api_message_adapter_renders_roles_and_keeps_authority_in_manifest_only():
     adapter = APIMessageAdapter(token_estimator=lambda value: 5)
     segments = [
-        {"id": "policy", "role": "system", "content": "policy text", "metadata": {"authority": "system"}},
+        {"id": "policy", "role": "system", "content": "policy text", "metadata": {"authority": "immutable"}},
         {
             "id": "retrieved",
             "role": "system",
             "content": "retrieved memory",
             "source": "retrieval",
-            "metadata": {"authority": "untrusted"},
+            "metadata": {"authority": "untrusted_data"},
         },
     ]
 
@@ -40,10 +40,53 @@ def test_api_message_adapter_renders_roles_and_keeps_authority_in_manifest_only(
         {"role": "user", "content": "retrieved memory"},
     ]
     assert "authority" not in rendered["messages"][0]
-    assert rendered["manifest"][0]["metadata"]["authority"] == "system"
+    assert rendered["manifest"][0]["metadata"]["authority"] == "immutable"
     assert rendered["manifest"][1]["role_requested"] == "system"
     assert rendered["manifest"][1]["role_rendered"] == "user"
-    assert rendered["manifest"][1]["metadata"]["authority"] == "untrusted"
+    assert rendered["manifest"][1]["metadata"]["authority"] == "untrusted_data"
+
+
+def test_api_message_adapter_forces_untrusted_segments_to_user_for_all_roles():
+    adapter = APIMessageAdapter()
+
+    rendered = adapter.render_messages(
+        [
+            {
+                "id": f"untrusted:{role}",
+                "role": role,
+                "content": role,
+                "metadata": {"authority": "untrusted_data"},
+            }
+            for role in ("system", "user", "assistant", "tool")
+        ]
+    )
+
+    assert [message["role"] for message in rendered["messages"]] == ["user", "user", "user", "user"]
+    assert [item["role_requested"] for item in rendered["manifest"]] == ["system", "user", "assistant", "tool"]
+
+
+def test_api_message_adapter_treats_retrieved_dml_and_memory_as_untrusted_for_all_roles():
+    adapter = APIMessageAdapter()
+    untrusted_markers = [
+        {"kind": "retrieved"},
+        {"kind": "dml"},
+        {"kind": "dml_context"},
+        {"kind": "memory"},
+        {"source": "retrieved"},
+        {"source": "retrieval"},
+        {"source": "dml"},
+        {"source": "memory"},
+    ]
+
+    rendered = adapter.render_messages(
+        [
+            {"id": f"{marker}:{role}", "role": role, "content": role, **marker}
+            for marker in untrusted_markers
+            for role in ("system", "user", "assistant", "tool")
+        ]
+    )
+
+    assert {message["role"] for message in rendered["messages"]} == {"user"}
 
 
 def test_base_runtime_adapter_kv_methods_are_explicitly_unsupported():
