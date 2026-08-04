@@ -73,6 +73,11 @@ class ContextManifest(SerializableDataclass):
             payload["scope"] = DaystromScope.from_dict(payload["scope"])
         return cls(**payload)
 
+    def to_dict(self) -> Dict[str, Any]:
+        if self.content_digest != self.compute_content_digest():
+            raise ContractError("content_digest no longer matches manifest content")
+        return super().to_dict()
+
     def compute_content_digest(self) -> str:
         stable = {
             "scope": _serialize(self.scope),

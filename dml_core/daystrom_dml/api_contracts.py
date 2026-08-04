@@ -116,8 +116,8 @@ class TokenBudget(SerializableDataclass):
             value = getattr(self, name)
             if value < 0:
                 raise ContractError(f"{name} must be non-negative")
-        if self.used_tokens > self.limit_tokens and self.limit_tokens > 0:
-            raise ContractError("used_tokens cannot exceed limit_tokens")
+        if self.used_tokens + self.reserved_tokens > self.limit_tokens and self.limit_tokens > 0:
+            raise ContractError("used_tokens plus reserved_tokens cannot exceed limit_tokens")
 
     @property
     def remaining_tokens(self) -> int:
