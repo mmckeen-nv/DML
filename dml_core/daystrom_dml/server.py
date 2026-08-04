@@ -36,9 +36,12 @@ from structlog.contextvars import bind_contextvars, clear_contextvars
 from structlog.stdlib import ProcessorFormatter
 
 from . import utils, visualizer_bridge
+from .auth import BearerAuthMiddleware
 from .dml_adapter import DMLAdapter
 from .frontier_pipeline import FrontierCompressionPipeline, FrontierPipelineConfig
+from .ingestion_limits import IngestionBudget, IngestionLimitExceeded, IngestionLimits
 from .metrics import latest_metrics, record_tokens
+from .secret_storage import persist_secret
 
 try:  # httpx is required for proxying the visualizer through the API origin
     import httpx
@@ -144,10 +147,6 @@ def _load_local_env_files() -> None:
 
 _load_local_env_files()
 
-MAX_ARCHIVE_MEMBER_SIZE = int(
-    os.environ.get("DML_MAX_ARCHIVE_MEMBER_SIZE", str(5 * 1024 * 1024))
-)
-
 @asynccontextmanager
 async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
     _auto_launch_visualizer()
@@ -155,6 +154,7 @@ async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(title="Daystrom Memory Lattice", lifespan=_lifespan)
+app.add_middleware(BearerAuthMiddleware)
 if WEB_DIR.exists():
     app.mount("/static", StaticFiles(directory=WEB_DIR), name="static")
 
@@ -317,12 +317,13 @@ DEFAULT_NIM_ID = adapter.settings.nim_default_id
 VISUALIZER_URL = os.environ.get("DML_VISUALIZER_URL")
 VISUALIZER_PORT = int(os.environ.get("DML_VISUALIZER_PORT", "8501"))
 VISUALIZER_PATH = os.environ.get("DML_VISUALIZER_PATH", "/")
-NGC_KEY_FILE = Path(
-    os.environ.get(
-        "NGC_KEY_FILE",
-        REPO_ROOT / "ngc_api_key.txt",
-    )
-)
+NGC_KEY_FILE = os.environ.get("NGC_KEY_FILE")
+PERSIST_NGC_KEY = os.environ.get("DML_PERSIST_NGC_KEY", "").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
 
 CURRENT_NIM: Optional[dict] = None
 CURRENT_NIM_RUNTIME: dict = {"container_id": None, "running": False, "healthy": False}
@@ -1177,6 +1178,7 @@ async def upload(
     if not uploads:
         raise HTTPException(status_code=400, detail="No files were provided for upload.")
 
+    budget = IngestionBudget(IngestionLimits.from_env())
     total_chunks = 0
     total_tokens = 0
     document_count = 0
@@ -1189,46 +1191,53 @@ async def upload(
             continue
         filename = upload_file.filename or "uploaded file"
         try:
-            contents = await upload_file.read()
+            contents = await _read_bounded_upload(upload_file, budget)
+        except IngestionLimitExceeded as exc:
+            raise HTTPException(status_code=413, detail=str(exc)) from exc
         except Exception as exc:  # pragma: no cover - depends on Starlette internals
             errors.append(f"{filename}: failed to read upload ({exc})")
             skipped_files += 1
             continue
 
         try:
-            documents = list(
-                _iter_ingest_documents(
-                    filename,
-                    contents,
-                    upload_file.content_type,
-                )
+            documents = _iter_ingest_documents(
+                filename,
+                contents,
+                upload_file.content_type,
+                budget=budget,
             )
+            file_documents = 0
+            for text, meta in documents:
+                if not text.strip():
+                    continue
+                chunks = utils.chunk_text(text)
+                if not chunks:
+                    errors.append(
+                        f"{meta.get('doc_path', filename)}: document produced no ingestible chunks."
+                    )
+                    continue
+                tokens = sum(utils.estimate_tokens(chunk) for chunk in chunks)
+                budget.add_document()
+                budget.add_chunks(len(chunks))
+                budget.add_tokens(tokens)
+                document_count += 1
+                file_documents += 1
+                total_chunks += len(chunks)
+                total_tokens += tokens
+                for chunk in chunks:
+                    adapter.ingest(chunk, meta=meta)
+        except IngestionLimitExceeded as exc:
+            raise HTTPException(status_code=413, detail=str(exc)) from exc
         except HTTPException as exc:
             errors.append(f"{filename}: {exc.detail}")
             skipped_files += 1
             continue
 
-        if not documents:
+        if not file_documents:
             errors.append(f"{filename}: no supported text documents detected.")
             skipped_files += 1
             continue
-
         processed_files += 1
-        for text, meta in documents:
-            if not text.strip():
-                continue
-            chunks = utils.chunk_text(text)
-            if not chunks:
-                errors.append(
-                    f"{meta.get('doc_path', filename)}: document produced no ingestible chunks."
-                )
-                continue
-            document_count += 1
-            total_chunks += len(chunks)
-            for chunk in chunks:
-                tokens = utils.estimate_tokens(chunk)
-                total_tokens += tokens
-                adapter.ingest(chunk, meta=meta)
 
     if total_chunks == 0:
         message = errors[0] if errors else "Document produced no ingestible chunks."
@@ -1980,12 +1989,35 @@ def nim_stop(payload: NimStopPayload | None = None) -> dict:
     }
 
 
+async def _read_bounded_upload(
+    upload_file: UploadFile,
+    budget: IngestionBudget,
+    *,
+    chunk_size: int = 64 * 1024,
+) -> bytes:
+    """Read an uploaded file incrementally while enforcing request limits."""
+
+    parts: list[bytes] = []
+    file_bytes = 0
+    while chunk := await upload_file.read(chunk_size):
+        file_bytes += len(chunk)
+        if file_bytes > budget.limits.max_file_bytes:
+            raise IngestionLimitExceeded(
+                f"File exceeds size limit ({budget.limits.max_file_bytes})."
+            )
+        budget.add_upload_bytes(len(chunk))
+        parts.append(chunk)
+    return b"".join(parts)
+
+
 def _iter_ingest_documents(
     filename: str,
     contents: bytes,
     content_type: str | None,
     *,
     parent: str | None = None,
+    budget: IngestionBudget | None = None,
+    archive_depth: int = 0,
 ) -> Iterable[tuple[str, dict[str, str]]]:
     """Yield ``(text, meta)`` tuples extracted from ``contents``.
 
@@ -1996,11 +2028,17 @@ def _iter_ingest_documents(
 
     source_name = _compose_source_path(parent, filename)
     if _is_archive_like(filename, content_type):
+        if budget is not None:
+            budget.check_depth(archive_depth + 1)
         try:
             with zipfile.ZipFile(io.BytesIO(contents)) as archive:
                 for member in archive.infolist():
                     if member.is_dir():
                         continue
+                    if budget is not None:
+                        budget.add_archive_member()
+                        budget.check_archive_member_size(member.file_size)
+                        budget.add_decompressed_bytes(member.file_size)
                     inner_type, _ = mimetypes.guess_type(member.filename)
                     if _should_skip_binary(member.filename, inner_type):
                         LOGGER.debug(
@@ -2009,7 +2047,7 @@ def _iter_ingest_documents(
                             source_name,
                         )
                         continue
-                    if member.file_size and member.file_size > MAX_ARCHIVE_MEMBER_SIZE:
+                    if budget is None and member.file_size > 5 * 1024 * 1024:
                         LOGGER.debug(
                             "Skipping oversized archive member %s inside %s (%s bytes)",
                             member.filename,
@@ -2032,6 +2070,8 @@ def _iter_ingest_documents(
                         payload,
                         inner_type,
                         parent=source_name,
+                        budget=budget,
+                        archive_depth=archive_depth + 1,
                     )
         except zipfile.BadZipFile as exc:
             raise HTTPException(status_code=400, detail=f"Failed to open archive: {exc}") from exc
@@ -2218,7 +2258,6 @@ def _apply_nim_configuration(option: dict, api_key: str) -> None:
     """Set environment variables and reload the adapter for the selected NIM."""
 
     os.environ["NIM_API_KEY"] = api_key
-    os.environ["OPENAI_API_KEY"] = api_key
     os.environ["NIM_API_BASE"] = option["default_api_base"]
     os.environ["OPENAI_API_BASE"] = option["default_api_base"]
     _save_ngc_key(api_key)
@@ -2226,13 +2265,13 @@ def _apply_nim_configuration(option: dict, api_key: str) -> None:
 
 
 def _save_ngc_key(api_key: str) -> None:
-    """Persist the provided NGC API key for convenience."""
+    """Persist the NGC key only when external secret storage is opted into."""
 
-    try:
-        NGC_KEY_FILE.parent.mkdir(parents=True, exist_ok=True)
-        NGC_KEY_FILE.write_text(api_key.strip() + "\n", encoding="utf-8")
-    except Exception as exc:  # pragma: no cover - filesystem permissions vary
-        LOGGER.warning("Failed to persist NGC API key: %s", exc)
+    if not PERSIST_NGC_KEY:
+        return
+    if not NGC_KEY_FILE:
+        raise ValueError("NGC_KEY_FILE is required when DML_PERSIST_NGC_KEY is enabled")
+    persist_secret(api_key, Path(NGC_KEY_FILE), repository_root=REPO_ROOT)
 
 
 def _reload_adapter(*, config_overrides: Optional[dict] = None) -> None:
@@ -2390,8 +2429,8 @@ def main(argv: Optional[list[str]] = None) -> None:
     parser = argparse.ArgumentParser(description="Run the Daystrom Memory Lattice API server.")
     parser.add_argument(
         "--host",
-        default=os.environ.get("DML_HOST", "0.0.0.0"),
-        help="Host interface for uvicorn to bind (default: 0.0.0.0).",
+        default=os.environ.get("DML_HOST", "127.0.0.1"),
+        help="Host interface for uvicorn to bind (default: 127.0.0.1).",
     )
     parser.add_argument(
         "--port",
