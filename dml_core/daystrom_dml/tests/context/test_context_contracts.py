@@ -92,6 +92,20 @@ def test_context_budget_rejects_negative_and_impossible_values():
         ContextBudget(model_limit_tokens=10, admitted_input_tokens=11)
 
 
+@pytest.mark.parametrize("bad", [1.5, "1", True])
+def test_context_token_fields_reject_non_integer_values(bad):
+    with pytest.raises(ContractError, match="integer"):
+        ContextBudget(model_limit_tokens=bad)
+    with pytest.raises(ContractError, match="integer"):
+        ContextBudget(model_limit_tokens=10).admit(bad)
+    with pytest.raises(ContractError, match="integer"):
+        ContextSegment(segment_id="seg", kind="message", content="x", estimated_tokens=bad)
+    with pytest.raises(ContractError, match="integer"):
+        ContextManifest(model_id="model", runtime_id="runtime", estimated_input_tokens=bad)
+    with pytest.raises(ContractError, match="integer"):
+        RuntimeCapabilities(model_id="model", backend_id="runtime", model_context_window=bad)
+
+
 def test_runtime_capabilities_api_only_defaults_are_conservative():
     capabilities = RuntimeCapabilities.api_only(model_id="gpt-test", backend_id="openai")
 
@@ -158,11 +172,17 @@ def test_blank_manifest_digest_is_computed_for_fresh_objects():
 
 
 def test_context_packet_validates_budget_and_roundtrips_json_payload():
-    segment = ContextSegment(segment_id="seg-1", kind="message", content="hello", estimated_tokens=10)
-    budget = ContextBudget(model_limit_tokens=100, output_reserved_tokens=30, runtime_reserved_tokens=10)
+    scope = DaystromScope(session_id="session")
+    segment = ContextSegment(segment_id="seg-1", kind="message", content="hello", scope=scope, estimated_tokens=10)
+    budget = ContextBudget(
+        model_limit_tokens=100,
+        output_reserved_tokens=30,
+        runtime_reserved_tokens=10,
+        admitted_input_tokens=10,
+    )
     capabilities = RuntimeCapabilities.api_only(model_id="model", backend_id="api")
     manifest = ContextManifest(
-        scope=DaystromScope(session_id="session"),
+        scope=scope,
         model_id=capabilities.model_id,
         runtime_id=capabilities.backend_id,
         segment_ids=[segment.segment_id],
@@ -194,10 +214,53 @@ def test_context_packet_validates_budget_and_roundtrips_json_payload():
         )
 
 
+@pytest.mark.parametrize(
+    "field",
+    ["tenant_id", "client_id", "session_id", "instance_id", "thread_id", "project_id", "relationship_id"],
+)
+def test_context_packet_rejects_cross_scope_manifest_and_segments(field):
+    values = {
+        "tenant_id": "tenant-a",
+        "client_id": "client-a",
+        "session_id": "session-a",
+        "instance_id": "instance-a",
+        "thread_id": "thread-a",
+        "project_id": "project-a",
+        "relationship_id": "relationship-a",
+    }
+    packet_scope = DaystromScope(**values)
+    other_scope = DaystromScope(**{**values, field: f"{field}-b"})
+    budget = ContextBudget(model_limit_tokens=10, admitted_input_tokens=1)
+    segment = ContextSegment(segment_id="seg", kind="message", content="x", scope=packet_scope, estimated_tokens=1)
+    manifest = ContextManifest(
+        scope=packet_scope,
+        model_id="model",
+        runtime_id="runtime",
+        segment_ids=["seg"],
+        estimated_input_tokens=1,
+    )
+
+    with pytest.raises(ContractError, match="manifest.scope"):
+        ContextPacket(
+            scope=packet_scope,
+            budget=budget,
+            segments=[segment],
+            manifest=ContextManifest.from_dict({**manifest.to_dict(), "scope": other_scope.to_dict(), "content_digest": ""}),
+        )
+
+    with pytest.raises(ContractError, match="segment scopes"):
+        ContextPacket(
+            scope=packet_scope,
+            budget=budget,
+            segments=[ContextSegment.from_dict({**segment.to_dict(), "scope": other_scope.to_dict()})],
+            manifest=manifest,
+        )
+
+
 def test_context_packet_rejects_unknown_version():
     segment = ContextSegment(segment_id="seg-1", kind="message", content="hello", estimated_tokens=1)
     packet = ContextPacket(
-        budget=ContextBudget(model_limit_tokens=10),
+        budget=ContextBudget(model_limit_tokens=10, admitted_input_tokens=1),
         segments=[segment],
         manifest=ContextManifest(
             model_id="unknown",
@@ -212,11 +275,17 @@ def test_context_packet_rejects_unknown_version():
 
 
 def test_context_schemas_parse_and_reject_bad_required_or_negative_fields():
-    segment = ContextSegment(segment_id="seg-1", kind="message", content="hello", estimated_tokens=10)
-    budget = ContextBudget(model_limit_tokens=100, output_reserved_tokens=30, runtime_reserved_tokens=10)
+    scope = DaystromScope(session_id="session")
+    segment = ContextSegment(segment_id="seg-1", kind="message", content="hello", scope=scope, estimated_tokens=10)
+    budget = ContextBudget(
+        model_limit_tokens=100,
+        output_reserved_tokens=30,
+        runtime_reserved_tokens=10,
+        admitted_input_tokens=10,
+    )
     capabilities = RuntimeCapabilities.api_only(model_id="model", backend_id="api")
     manifest = ContextManifest(
-        scope=DaystromScope(session_id="session"),
+        scope=scope,
         model_id=capabilities.model_id,
         runtime_id=capabilities.backend_id,
         segment_ids=[segment.segment_id],

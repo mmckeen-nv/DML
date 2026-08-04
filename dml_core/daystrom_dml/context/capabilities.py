@@ -31,7 +31,10 @@ class RuntimeCapabilities(SerializableDataclass):
         if not self.backend_id:
             raise ContractError("backend_id must be non-empty")
         for name in ("model_context_window", "max_output_tokens"):
-            if getattr(self, name) < 0:
+            value = getattr(self, name)
+            if not isinstance(value, int) or isinstance(value, bool):
+                raise ContractError(f"{name} must be an integer")
+            if value < 0:
                 raise ContractError(f"{name} must be non-negative")
         if not isinstance(self.metadata, dict):
             raise ContractError("metadata must be a dictionary")

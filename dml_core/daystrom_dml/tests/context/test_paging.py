@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from daystrom_dml.api_contracts import ContractError, DaystromScope
@@ -74,6 +76,46 @@ def test_bytes_page_exact_round_trip() -> None:
     assert page.bytes() == payload
     assert page.text() is None
     assert page.to_dict()["payload_encoding"] == "base64"
+
+
+@pytest.mark.parametrize("kind", ["text", "bytes"])
+def test_page_json_roundtrip(kind: str) -> None:
+    if kind == "text":
+        page = ContextPage.from_text(scope=scope(), text="exact text", created_at=1, accessed_at=1, expires_at=2)
+    else:
+        page = ContextPage.from_bytes(scope=scope(), payload=b"\x00exact\xff", created_at=1, accessed_at=1, expires_at=2)
+
+    restored = ContextPage.from_dict(json.loads(json.dumps(page.to_dict())))
+
+    assert restored == page
+    assert restored.bytes() == page.bytes()
+
+
+def test_page_from_dict_rejects_payload_and_digest_tampering() -> None:
+    page = ContextPage.from_text(scope=scope(), text="exact", created_at=1, accessed_at=1, expires_at=2)
+    payload = page.to_dict()
+
+    with pytest.raises(ContextPageError, match="only payload_text"):
+        ContextPage.from_dict({**payload, "payload_bytes_b64": "ZXhhY3Q="})
+    without_payload = dict(payload)
+    without_payload.pop("payload_text")
+    with pytest.raises(ContextPageError, match="only payload_text"):
+        ContextPage.from_dict(without_payload)
+    with pytest.raises(ContextPageError, match="digest mismatch"):
+        ContextPage.from_dict({**payload, "content_digest": "sha256:not-real"})
+
+    byte_payload = ContextPage.from_bytes(scope=scope(), payload=b"exact", created_at=1, accessed_at=1).to_dict()
+    with pytest.raises(ContextPageError, match="invalid base64"):
+        ContextPage.from_dict({**byte_payload, "payload_bytes_b64": "***"})
+
+
+def test_page_rejects_invalid_temporal_ordering() -> None:
+    with pytest.raises(ContextPageError, match="timestamps"):
+        ContextPage.from_text(scope=scope(), text="x", created_at=-1, accessed_at=0)
+    with pytest.raises(ContextPageError, match="accessed_at"):
+        ContextPage.from_text(scope=scope(), text="x", created_at=2, accessed_at=1)
+    with pytest.raises(ContextPageError, match="expires_at"):
+        ContextPage.from_text(scope=scope(), text="x", created_at=1, accessed_at=2, expires_at=1)
 
 
 @pytest.mark.parametrize(

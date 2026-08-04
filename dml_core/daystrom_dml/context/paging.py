@@ -38,6 +38,58 @@ class ContextPage:
     payload_text: Optional[str] = None
     payload_bytes_b64: Optional[str] = None
 
+    def __post_init__(self) -> None:
+        if not self.page_id:
+            raise ContextPageError("page_id must be non-empty")
+        if not isinstance(self.scope, DaystromScope):
+            raise ContextPageError("scope must be a DaystromScope")
+        if self.created_at < 0 or self.accessed_at < 0 or (self.expires_at is not None and self.expires_at < 0):
+            raise ContextPageError("page timestamps must be non-negative")
+        if self.accessed_at < self.created_at:
+            raise ContextPageError("accessed_at must not precede created_at")
+        if self.expires_at is not None and self.expires_at < self.accessed_at:
+            raise ContextPageError("expires_at must not precede accessed_at")
+        if self.payload_encoding == "text":
+            if not isinstance(self.payload_text, str) or self.payload_bytes_b64 is not None:
+                raise ContextPageError("text page must contain only payload_text")
+        elif self.payload_encoding == "base64":
+            if not isinstance(self.payload_bytes_b64, str) or self.payload_text is not None:
+                raise ContextPageError("base64 page must contain only payload_bytes_b64")
+            self.bytes()
+        else:
+            raise ContextPageError(f"unsupported payload_encoding: {self.payload_encoding}")
+        _copy_metadata(self.metadata)
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "ContextPage":
+        if not isinstance(data, dict):
+            raise ContextPageError("ContextPage.from_dict expected a dictionary")
+        try:
+            scope = DaystromScope.from_dict(data.get("scope"))
+            page = cls(
+                page_id=data["page_id"],
+                scope=scope,
+                payload_encoding=data["payload_encoding"],
+                media_type=data["media_type"],
+                content_type=data["content_type"],
+                source_segment_id=data.get("source_segment_id"),
+                created_at=data["created_at"],
+                accessed_at=data["accessed_at"],
+                expires_at=data.get("expires_at"),
+                content_digest=data["content_digest"],
+                sensitivity_label=data.get("sensitivity_label", "unspecified"),
+                metadata=_copy_metadata(data.get("metadata")),
+                payload_text=data.get("payload_text"),
+                payload_bytes_b64=data.get("payload_bytes_b64"),
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            if isinstance(exc, ContextPageError):
+                raise
+            raise ContextPageError("invalid serialized context page") from exc
+        if page.content_digest != _digest(page.bytes()):
+            raise ContextPageError("digest mismatch")
+        return page
+
     @classmethod
     def from_text(
         cls,

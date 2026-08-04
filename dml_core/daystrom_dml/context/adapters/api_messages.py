@@ -59,7 +59,6 @@ class APIMessageAdapter(BaseRuntimeContextAdapter):
 
     @staticmethod
     def _safe_role(role: str, segment: SegmentLike) -> str:
-        normalized = role if role in {"system", "user", "assistant", "tool"} else "user"
         metadata = dict(segment.get("metadata") or {})
         authority = str(metadata.get("authority") or segment.get("authority") or "").lower()
         source = str(segment.get("source") or "").lower()
@@ -72,4 +71,8 @@ class APIMessageAdapter(BaseRuntimeContextAdapter):
         }
         if untrusted or kind in {"retrieved", "dml", "dml_context", "memory"}:
             return "user"
-        return normalized
+        # Role elevation is authority-driven, never caller-driven. Only immutable
+        # instructions may occupy the system role.
+        if authority == "immutable":
+            return "system"
+        return "user"

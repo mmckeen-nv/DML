@@ -45,10 +45,15 @@ class ContextManifest(SerializableDataclass):
             raise ContractError("runtime_id must be non-empty")
         if any(not segment_id for segment_id in self.segment_ids):
             raise ContractError("segment_ids must not contain empty values")
+        if not isinstance(self.estimated_input_tokens, int) or isinstance(self.estimated_input_tokens, bool):
+            raise ContractError("estimated_input_tokens must be an integer")
         if self.estimated_input_tokens < 0:
             raise ContractError("estimated_input_tokens must be non-negative")
-        if self.exact_input_tokens is not None and self.exact_input_tokens < 0:
-            raise ContractError("exact_input_tokens must be non-negative")
+        if self.exact_input_tokens is not None:
+            if not isinstance(self.exact_input_tokens, int) or isinstance(self.exact_input_tokens, bool):
+                raise ContractError("exact_input_tokens must be an integer")
+            if self.exact_input_tokens < 0:
+                raise ContractError("exact_input_tokens must be non-negative")
         for name in ("decisions", "audit"):
             if not isinstance(getattr(self, name), dict):
                 raise ContractError(f"{name} must be a dictionary")
@@ -125,8 +130,14 @@ class ContextPacket(SerializableDataclass):
             if not isinstance(segment, ContextSegment):
                 raise ContractError("segments must contain ContextSegment values")
         total = sum(segment.effective_tokens for segment in self.segments)
+        if self.manifest.scope != self.scope:
+            raise ContractError("manifest.scope must match packet scope")
+        if any(segment.scope != self.scope for segment in self.segments):
+            raise ContractError("segment scopes must match packet scope")
         if total > self.budget.available_input_tokens:
             raise ContractError("segment token total cannot exceed available input budget")
+        if self.budget.admitted_input_tokens != total:
+            raise ContractError("budget admitted_input_tokens must match segment token total")
         if self.manifest.segment_ids and self.manifest.segment_ids != [segment.segment_id for segment in self.segments]:
             raise ContractError("manifest.segment_ids must match ordered packet segments")
         if self.manifest.estimated_input_tokens != total:

@@ -65,6 +65,28 @@ def test_api_message_adapter_forces_untrusted_segments_to_user_for_all_roles():
     assert [item["role_requested"] for item in rendered["manifest"]] == ["system", "user", "assistant", "tool"]
 
 
+def test_api_message_adapter_only_allows_immutable_system_authority():
+    adapter = APIMessageAdapter()
+    authorities = ["immutable", "current_instruction", "trusted_control", "reference", "untrusted_data", "unknown", ""]
+
+    rendered = adapter.render_messages(
+        [
+            {"id": authority or "blank", "role": "system", "content": authority, "metadata": {"authority": authority}}
+            for authority in authorities
+        ]
+    )
+
+    assert [message["role"] for message in rendered["messages"]] == [
+        "system",
+        "user",
+        "user",
+        "user",
+        "user",
+        "user",
+        "user",
+    ]
+
+
 def test_api_message_adapter_treats_retrieved_dml_and_memory_as_untrusted_for_all_roles():
     adapter = APIMessageAdapter()
     untrusted_markers = [

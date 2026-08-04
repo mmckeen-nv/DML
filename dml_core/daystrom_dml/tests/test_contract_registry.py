@@ -69,7 +69,7 @@ def test_context_contract_payloads_validate_against_registered_schemas():
     )
     packet = ContextPacket(
         capabilities=capabilities,
-        budget=ContextBudget(model_limit_tokens=100),
+        budget=ContextBudget(model_limit_tokens=100, admitted_input_tokens=segment.effective_tokens),
         segments=[segment],
         manifest=manifest,
     )
