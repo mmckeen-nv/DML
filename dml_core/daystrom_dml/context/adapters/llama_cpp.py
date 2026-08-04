@@ -2,13 +2,17 @@
 from __future__ import annotations
 
 import json
-from pathlib import PurePath
+import os
+import stat
+import time
+from pathlib import Path, PurePath
 from typing import Any, Dict, Optional, cast
 from urllib import error, request
 
 from daystrom_dml.context.execution import (
     RuntimeCacheOperation,
     RuntimeCacheOperationResult,
+    RuntimeCheckpointDeleteResult,
     RuntimeCompletionTrace,
     RuntimeExecutionCapabilities,
     RuntimeExecutionError,
@@ -24,6 +28,7 @@ class LlamaCppExecutionAdapter:
         runtime_version: str = "unknown",
         timeout_seconds: float = 120.0,
         max_response_bytes: int = 4 * 1024 * 1024,
+        checkpoint_directory: Optional[str | Path] = None,
         opener: Optional[Any] = None,
     ) -> None:
         if not endpoint_url or not runtime_id:
@@ -33,6 +38,12 @@ class LlamaCppExecutionAdapter:
         self.runtime_version = runtime_version
         self.timeout_seconds = timeout_seconds
         self.max_response_bytes = max_response_bytes
+        self.checkpoint_directory: Optional[Path] = None
+        if checkpoint_directory is not None:
+            directory = Path(checkpoint_directory).expanduser().resolve()
+            if not directory.is_dir():
+                raise RuntimeExecutionError("checkpoint_directory must be an existing directory")
+            self.checkpoint_directory = directory
         self.opener = opener or request.urlopen
 
     def capabilities(self) -> RuntimeExecutionCapabilities:
@@ -44,6 +55,7 @@ class LlamaCppExecutionAdapter:
             supports_kv_checkpoint=True,
             supports_kv_restore=True,
             supports_kv_erase=True,
+            supports_kv_checkpoint_delete=self.checkpoint_directory is not None,
             supports_slot_affinity=True,
             supports_metrics=True,
         )
@@ -116,6 +128,38 @@ class LlamaCppExecutionAdapter:
             slot_id=slot_id,
             operation=RuntimeCacheOperation.ERASE,
             tokens_affected=_counter(payload, "n_erased", default=0),
+        )
+
+    def delete_checkpoint(self, filename: str) -> RuntimeCheckpointDeleteResult:
+        """Delete a local runtime checkpoint without following links."""
+        _filename(filename)
+        if self.checkpoint_directory is None:
+            raise RuntimeExecutionError("local checkpoint deletion is not configured")
+        path = self.checkpoint_directory / filename
+        started = time.monotonic()
+        try:
+            details = os.lstat(path)
+        except FileNotFoundError:
+            return RuntimeCheckpointDeleteResult(
+                runtime_id=self.runtime_id,
+                checkpoint_name=filename,
+                existed=False,
+                elapsed_ms=(time.monotonic() - started) * 1000,
+            )
+        except OSError as exc:
+            raise RuntimeExecutionError("checkpoint metadata could not be inspected") from exc
+        if not stat.S_ISREG(details.st_mode):
+            raise RuntimeExecutionError("checkpoint path must be a regular file")
+        try:
+            path.unlink()
+        except OSError as exc:
+            raise RuntimeExecutionError("checkpoint bytes could not be deleted") from exc
+        return RuntimeCheckpointDeleteResult(
+            runtime_id=self.runtime_id,
+            checkpoint_name=filename,
+            bytes_deleted=details.st_size,
+            existed=True,
+            elapsed_ms=(time.monotonic() - started) * 1000,
         )
 
     def _slot_operation(

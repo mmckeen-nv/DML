@@ -5,6 +5,7 @@ from daystrom_dml.context.capabilities import RUNTIME_CAPABILITIES_V1, RuntimeCa
 from daystrom_dml.context.checkpoints import (
     EXECUTION_CHECKPOINT_IDENTITY_V1,
     EXECUTION_CHECKPOINT_RECORD_V1,
+    CheckpointPurgeResult,
     ExecutionCheckpointController,
     ExecutionCheckpointIdentity,
     ExecutionCheckpointRecord,
@@ -13,6 +14,7 @@ from daystrom_dml.context.checkpoints import (
 from daystrom_dml.context.execution import (
     RuntimeCacheOperation,
     RuntimeCacheOperationResult,
+    RuntimeCheckpointDeleteResult,
     RuntimeCompletionTrace,
     RuntimeExecutionCapabilities,
     RuntimeExecutionError,
@@ -34,6 +36,7 @@ __all__ = [
     "CONTEXT_PACKET_V1",
     "ContextAuthority",
     "ContextBudget",
+    "CheckpointPurgeResult",
     "ContextManifest",
     "ContextPacket",
     "ContextPriority",
@@ -50,6 +53,7 @@ __all__ = [
     "RUNTIME_CAPABILITIES_V1",
     "RuntimeCacheOperation",
     "RuntimeCacheOperationResult",
+    "RuntimeCheckpointDeleteResult",
     "RuntimeCompletionTrace",
     "RecoveryStatus",
     "RuntimeCapabilities",
