@@ -18,6 +18,7 @@ from daystrom_dml.context.probe import (
     ProbeTransportError,
     atomic_write_json,
     build_probe_request,
+    endpoint_origin_identity_digest,
     manifest_messages,
     redact_endpoint_url,
     run_ab_probe,
@@ -159,6 +160,21 @@ def test_probe_copies_attached_messages_and_rejects_runtime_manifest_drift() -> 
             baseline_messages=baseline,
             managed_messages=MANAGED_MESSAGES,
         )
+
+
+def test_endpoint_origin_digest_is_secret_safe_route_neutral_and_canonical() -> None:
+    expected = endpoint_origin_identity_digest("https://example.test")
+
+    assert endpoint_origin_identity_digest(
+        "https://user:pass@example.test:443/v1/chat/completions?api_key=secret"
+    ) == expected
+    assert endpoint_origin_identity_digest("HTTPS://EXAMPLE.TEST/other/path") == expected
+    assert endpoint_origin_identity_digest("http://[::1]:80/v1/chat/completions") == endpoint_origin_identity_digest(
+        "http://[::1]/slots/0"
+    )
+    assert endpoint_origin_identity_digest("https://example.test:444") != expected
+    with pytest.raises(ValueError, match="http or https"):
+        endpoint_origin_identity_digest("file:///tmp/socket")
 
 
 def test_endpoint_redaction_removes_userinfo_and_secret_query_values() -> None:

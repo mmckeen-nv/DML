@@ -6,8 +6,8 @@ import os
 import stat
 import time
 from pathlib import Path, PurePath
-from typing import Any, Dict, Optional, cast
-from urllib import error, request
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, cast
+from urllib import error, parse, request
 
 from daystrom_dml.context.execution import (
     RuntimeCacheOperation,
@@ -17,6 +17,9 @@ from daystrom_dml.context.execution import (
     RuntimeExecutionCapabilities,
     RuntimeExecutionError,
 )
+
+if TYPE_CHECKING:
+    from daystrom_dml.context.probe import ModelClientResponse, ProbeSettings
 
 
 class LlamaCppExecutionAdapter:
@@ -47,6 +50,8 @@ class LlamaCppExecutionAdapter:
         self.opener = opener or request.urlopen
 
     def capabilities(self) -> RuntimeExecutionCapabilities:
+        from daystrom_dml.context.probe import endpoint_origin_identity_digest
+
         return RuntimeExecutionCapabilities(
             runtime_id=self.runtime_id,
             adapter_id="llama_cpp_server",
@@ -58,6 +63,9 @@ class LlamaCppExecutionAdapter:
             supports_kv_checkpoint_delete=self.checkpoint_directory is not None,
             supports_slot_affinity=True,
             supports_metrics=True,
+            metadata={
+                "endpoint_origin_digest": "sha256:" + endpoint_origin_identity_digest(self.endpoint_url),
+            },
         )
 
     def complete(
@@ -112,6 +120,98 @@ class LlamaCppExecutionAdapter:
             output_text=content,
             output_token_ids=token_ids,
             truncated=bool(payload.get("truncated")),
+        )
+
+    def complete_on_slot(
+        self,
+        endpoint_url: str,
+        model_id: str,
+        messages: List[Dict[str, Any]],
+        settings: ProbeSettings,
+        *,
+        slot_id: int,
+        label: str = "",
+    ) -> ModelClientResponse:
+        """Continue chat inference on the exact slot restored by this adapter."""
+
+        del label
+        from daystrom_dml.context.probe import (
+            ModelClientResponse,
+            ProbeSettings,
+            endpoint_origin_identity_digest,
+        )
+
+        _slot(slot_id)
+        if not isinstance(settings, ProbeSettings):
+            raise RuntimeExecutionError("settings must be ProbeSettings")
+        if not isinstance(model_id, str) or not model_id:
+            raise RuntimeExecutionError("model_id must be non-empty")
+        if (
+            "sha256:" + endpoint_origin_identity_digest(endpoint_url)
+            != self.capabilities().metadata.get("endpoint_origin_digest")
+        ):
+            raise RuntimeExecutionError("model endpoint origin does not match runtime endpoint")
+        parsed_endpoint = parse.urlsplit(endpoint_url)
+        if (
+            parsed_endpoint.path not in {"/chat/completions", "/v1/chat/completions"}
+            or parsed_endpoint.query
+            or parsed_endpoint.fragment
+        ):
+            raise RuntimeExecutionError("unsupported llama.cpp chat completion endpoint")
+        if not isinstance(messages, list) or not messages:
+            raise RuntimeExecutionError("messages must be a non-empty list")
+        copied: List[Dict[str, Any]] = []
+        for message in messages:
+            if not isinstance(message, dict):
+                raise RuntimeExecutionError("message must be an object")
+            role = message.get("role")
+            content = message.get("content")
+            if not isinstance(role, str) or not role or not isinstance(content, str):
+                raise RuntimeExecutionError("message role and content are required")
+            copied.append({"role": role, "content": content})
+        started = time.perf_counter()
+        payload = self._post(
+            parsed_endpoint.path,
+            {
+                "model": model_id,
+                "messages": copied,
+                "temperature": settings.temperature,
+                "max_tokens": settings.max_output_tokens,
+                "id_slot": slot_id,
+                "cache_prompt": True,
+            },
+        )
+        choices = payload.get("choices")
+        if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
+            raise RuntimeExecutionError("malformed chat completion response")
+        chat_message = choices[0].get("message")
+        if not isinstance(chat_message, dict) or not isinstance(chat_message.get("content"), str):
+            raise RuntimeExecutionError("malformed chat completion response")
+        usage_raw = payload.get("usage")
+        usage: Dict[str, Any] = dict(usage_raw) if isinstance(usage_raw, dict) else {}
+        timings_raw = payload.get("timings")
+        total_raw = payload.get("tokens_evaluated")
+        details_raw = usage.get("prompt_tokens_details")
+        prompt_tokens_raw = usage.get("prompt_tokens")
+        cached_tokens_raw = details_raw.get("cached_tokens") if isinstance(details_raw, dict) else None
+        if (
+            _non_negative_int(prompt_tokens_raw)
+            and _non_negative_int(cached_tokens_raw)
+            and cast(int, cached_tokens_raw) <= cast(int, prompt_tokens_raw)
+        ):
+            usage["prompt_tokens_processed"] = cast(int, prompt_tokens_raw) - cast(int, cached_tokens_raw)
+            usage["prompt_tokens_reused"] = cast(int, cached_tokens_raw)
+        elif isinstance(timings_raw, dict) and _non_negative_int(total_raw):
+            processed_raw = timings_raw.get("prompt_n")
+            if _non_negative_int(processed_raw) and cast(int, processed_raw) <= cast(int, total_raw):
+                usage["prompt_tokens_processed"] = cast(int, processed_raw)
+                usage["prompt_tokens_reused"] = cast(int, total_raw) - cast(int, processed_raw)
+        if isinstance(timings_raw, dict):
+            usage["prompt_ms"] = float(timings_raw.get("prompt_ms") or 0)
+        return ModelClientResponse(
+            content=cast(str, chat_message["content"]),
+            latency_ms=(time.perf_counter() - started) * 1000,
+            usage=usage,
         )
 
     def save_slot(self, slot_id: int, filename: str) -> RuntimeCacheOperationResult:

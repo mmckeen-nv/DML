@@ -13,6 +13,7 @@ import re
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass
+from itertools import islice
 from pathlib import Path, PurePath
 from typing import Any, Callable, Dict, Iterator, Mapping, Optional, Protocol
 
@@ -27,6 +28,7 @@ from daystrom_dml.context.execution import (
 )
 
 EXECUTION_CHECKPOINT_IDENTITY_V1 = "daystrom-execution-checkpoint-identity-v1"
+EXECUTION_CHECKPOINT_IDENTITY_V2 = "daystrom-execution-checkpoint-identity-v2"
 EXECUTION_CHECKPOINT_RECORD_V1 = "daystrom-execution-checkpoint-record-v1"
 _DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 _ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
@@ -44,6 +46,14 @@ class ExecutionStateAdapter(Protocol):
     def delete_checkpoint(self, filename: str) -> RuntimeCheckpointDeleteResult: ...
 
 
+class CheckpointSelectionError(RuntimeExecutionError):
+    """Bounded checkpoint selection failed without exposing record identifiers."""
+
+    def __init__(self, reason_code: str):
+        super().__init__(reason_code)
+        self.reason_code = reason_code
+
+
 @dataclass
 class ExecutionCheckpointIdentity(SerializableDataclass):
     """Complete compatibility and authority identity for one materialized prefix."""
@@ -59,7 +69,8 @@ class ExecutionCheckpointIdentity(SerializableDataclass):
     runtime_id: str
     runtime_version: str
     adapter_id: str
-    identity_version: str = EXECUTION_CHECKPOINT_IDENTITY_V1
+    identity_version: str = EXECUTION_CHECKPOINT_IDENTITY_V2
+    runtime_endpoint_digest: str = ""
     binding_digest: str = ""
 
     def __post_init__(self) -> None:
@@ -96,7 +107,12 @@ class ExecutionCheckpointIdentity(SerializableDataclass):
             "manifest_digest",
         ):
             _strong_digest(name, getattr(self, name))
-        if self.identity_version != EXECUTION_CHECKPOINT_IDENTITY_V1:
+        if self.identity_version == EXECUTION_CHECKPOINT_IDENTITY_V2:
+            _strong_digest("runtime_endpoint_digest", self.runtime_endpoint_digest)
+        elif self.identity_version == EXECUTION_CHECKPOINT_IDENTITY_V1:
+            if self.runtime_endpoint_digest:
+                raise RuntimeExecutionError("v1 checkpoint identity cannot bind a runtime endpoint")
+        else:
             raise RuntimeExecutionError("unsupported checkpoint identity version")
         computed = self.compute_binding_digest()
         if self.binding_digest and self.binding_digest != computed:
@@ -113,6 +129,7 @@ class ExecutionCheckpointIdentity(SerializableDataclass):
         tokenizer_digest: str,
         positional_config: Mapping[str, Any],
         immutable_prefix: str,
+        runtime_endpoint_url: str,
     ) -> "ExecutionCheckpointIdentity":
         """Build a binding from a revalidated packet and the exact rendered prefix.
 
@@ -137,6 +154,15 @@ class ExecutionCheckpointIdentity(SerializableDataclass):
             raise RuntimeExecutionError("immutable_prefix must be non-empty")
         if not isinstance(positional_config, Mapping) or not positional_config:
             raise RuntimeExecutionError("positional_config must be non-empty")
+        from daystrom_dml.context.probe import endpoint_origin_identity_digest
+
+        try:
+            runtime_endpoint_digest = "sha256:" + endpoint_origin_identity_digest(runtime_endpoint_url)
+        except (TypeError, ValueError) as exc:
+            raise RuntimeExecutionError("runtime_endpoint_url is invalid") from exc
+        expected_endpoint_digest = runtime_capabilities.metadata.get("endpoint_origin_digest")
+        if expected_endpoint_digest != runtime_endpoint_digest:
+            raise RuntimeExecutionError("runtime endpoint identity mismatch")
         try:
             positional_payload = json.dumps(
                 dict(positional_config), sort_keys=True, separators=(",", ":"), ensure_ascii=True
@@ -155,6 +181,7 @@ class ExecutionCheckpointIdentity(SerializableDataclass):
             runtime_id=runtime_capabilities.runtime_id,
             runtime_version=runtime_capabilities.runtime_version,
             adapter_id=runtime_capabilities.adapter_id,
+            runtime_endpoint_digest=runtime_endpoint_digest,
         )
 
     def compute_binding_digest(self) -> str:
@@ -172,12 +199,17 @@ class ExecutionCheckpointIdentity(SerializableDataclass):
             "adapter_id": self.adapter_id,
             "identity_version": self.identity_version,
         }
+        if self.identity_version == EXECUTION_CHECKPOINT_IDENTITY_V2:
+            stable["runtime_endpoint_digest"] = self.runtime_endpoint_digest
         return _json_digest(stable)
 
     def to_dict(self) -> Dict[str, Any]:
         if self.binding_digest != self.compute_binding_digest():
             raise RuntimeExecutionError("checkpoint identity integrity check failed")
-        return super().to_dict()
+        payload = super().to_dict()
+        if self.identity_version == EXECUTION_CHECKPOINT_IDENTITY_V1:
+            payload.pop("runtime_endpoint_digest", None)
+        return payload
 
     @classmethod
     def from_dict(cls, data: Optional[Dict[str, Any]]) -> "ExecutionCheckpointIdentity":
@@ -291,6 +323,28 @@ class CheckpointPurgeResult:
     elapsed_ms: float
 
 
+@dataclass(frozen=True)
+class CheckpointRestoreResult:
+    """Payload-free evidence for one identity-selected checkpoint restore."""
+
+    checkpoint_id_digest: str
+    binding_digest: str
+    tokens_restored: int
+    bytes_restored: int
+    elapsed_ms: float
+    slot_id: int
+
+    def to_telemetry(self) -> Dict[str, Any]:
+        return {
+            "checkpoint_id_digest": self.checkpoint_id_digest,
+            "binding_digest": self.binding_digest,
+            "tokens_restored": self.tokens_restored,
+            "bytes_restored": self.bytes_restored,
+            "elapsed_ms": self.elapsed_ms,
+            "slot_id": self.slot_id,
+        }
+
+
 class FileExecutionCheckpointRegistry:
     """Atomic, bounded metadata registry keyed by a safe checkpoint identifier."""
 
@@ -356,6 +410,35 @@ class FileExecutionCheckpointRegistry:
         if self.clock() >= record.expires_at:
             raise RuntimeExecutionError("checkpoint record expired")
         return record
+
+    def select(
+        self,
+        expected_identity: ExecutionCheckpointIdentity,
+        *,
+        max_records: int = 1024,
+    ) -> ExecutionCheckpointRecord:
+        """Select exactly one live record matching the complete bound identity."""
+
+        if not isinstance(max_records, int) or isinstance(max_records, bool) or max_records <= 0:
+            raise RuntimeExecutionError("max_records must be a positive integer")
+        expected_identity.to_dict()
+        matches: list[ExecutionCheckpointRecord] = []
+        paths = list(islice(self.root.glob("*.json"), max_records + 1))
+        if len(paths) > max_records:
+            raise CheckpointSelectionError("checkpoint_selection_scan_limit")
+        for path in sorted(paths):
+            checkpoint_id = path.stem
+            _safe_id("checkpoint_id", checkpoint_id)
+            record = self._read(checkpoint_id)
+            if self.clock() >= record.expires_at:
+                continue
+            if record.identity.binding_digest == expected_identity.binding_digest and record.identity == expected_identity:
+                matches.append(record)
+                if len(matches) > 1:
+                    raise CheckpointSelectionError("checkpoint_selection_ambiguous")
+        if not matches:
+            raise CheckpointSelectionError("checkpoint_selection_not_found")
+        return matches[0]
 
     def expired_records(self, *, max_records: int) -> list[ExecutionCheckpointRecord]:
         if not isinstance(max_records, int) or isinstance(max_records, bool) or max_records <= 0:
@@ -530,6 +613,27 @@ class ExecutionCheckpointController:
             raise RuntimeExecutionError("runtime restore result did not match checkpoint record")
         return result
 
+    def restore_matching(
+        self,
+        identity: ExecutionCheckpointIdentity,
+        *,
+        slot_id: int,
+        max_records: int = 1024,
+    ) -> CheckpointRestoreResult:
+        """Select one exact live identity match, revalidate it, and restore it."""
+
+        self._authorize(identity, operation="restore")
+        record = self.registry.select(identity, max_records=max_records)
+        restored = self.restore(record.checkpoint_id, identity, slot_id=slot_id)
+        return CheckpointRestoreResult(
+            checkpoint_id_digest=_text_digest(record.checkpoint_id),
+            binding_digest=identity.binding_digest,
+            tokens_restored=restored.tokens_affected,
+            bytes_restored=restored.bytes_affected,
+            elapsed_ms=restored.elapsed_ms,
+            slot_id=slot_id,
+        )
+
     def purge(
         self,
         checkpoint_id: str,
@@ -570,10 +674,17 @@ class ExecutionCheckpointController:
             raise RuntimeExecutionError("checkpoint identity is required")
         identity.to_dict()
         caps = self.adapter.capabilities()
+        legacy_v1_purge = identity.identity_version == EXECUTION_CHECKPOINT_IDENTITY_V1 and operation == "purge"
+        if identity.identity_version == EXECUTION_CHECKPOINT_IDENTITY_V1 and not legacy_v1_purge:
+            raise RuntimeExecutionError("legacy checkpoint identity is purge-only")
         if (
             caps.runtime_id != identity.runtime_id
             or caps.runtime_version != identity.runtime_version
             or caps.adapter_id != identity.adapter_id
+            or (
+                not legacy_v1_purge
+                and caps.metadata.get("endpoint_origin_digest") != identity.runtime_endpoint_digest
+            )
         ):
             raise RuntimeExecutionError(f"runtime identity mismatch before checkpoint {operation}")
         return caps

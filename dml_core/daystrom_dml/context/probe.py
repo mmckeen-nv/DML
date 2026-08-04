@@ -326,6 +326,25 @@ def endpoint_identity_digest(endpoint_url: str) -> str:
     return hashlib.sha256(redact_endpoint_url(endpoint_url).encode("utf-8")).hexdigest()
 
 
+def endpoint_origin_identity_digest(endpoint_url: str) -> str:
+    """Bind the credential-redacted runtime origin while ignoring API route paths."""
+
+    parsed = parse.urlsplit(endpoint_url)
+    scheme = parsed.scheme.casefold()
+    if scheme not in {"http", "https"} or not parsed.hostname:
+        raise ValueError("endpoint_url must use http or https with a hostname")
+    host = parsed.hostname.casefold()
+    if ":" in host:
+        host = f"[{host}]"
+    port = parsed.port
+    if (scheme == "http" and port == 80) or (scheme == "https" and port == 443):
+        port = None
+    if port is not None:
+        host = f"{host}:{port}"
+    origin = parse.urlunsplit((scheme, host, "", "", ""))
+    return hashlib.sha256(origin.encode("utf-8")).hexdigest()
+
+
 def endpoint_identity(endpoint_url: str) -> EndpointIdentity:
     safe = redact_endpoint_url(endpoint_url)
     parsed = parse.urlsplit(safe)
