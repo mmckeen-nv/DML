@@ -264,3 +264,51 @@ def test_packet_serialization_rejects_content_and_rendered_message_drift():
     packet.rendered_messages[0]["content"] = "tampered prompt"
     with pytest.raises(ContractError, match="packet_content_digest"):
         packet.to_dict()
+
+
+def test_endpoint_identity_is_digest_bound_without_persisting_url_or_credentials():
+    scope = DaystromScope(session_id="s1")
+    endpoint = "https://user:pass@example.test/v1/chat/completions?api_key=secret"
+
+    packet = admit_context_segments(
+        scope=scope,
+        segments=[seg("current", authority=ContextAuthority.CURRENT_INSTRUCTION, scope=scope)],
+        model_id="m",
+        runtime_id="r",
+        endpoint_url=endpoint,
+        model_limit_tokens=10,
+    )
+
+    digest = packet.capabilities.metadata["endpoint_url_digest"]
+    rotated = admit_context_segments(
+        scope=scope,
+        segments=[seg("current", authority=ContextAuthority.CURRENT_INSTRUCTION, scope=scope)],
+        model_id="m",
+        runtime_id="r",
+        endpoint_url="https://example.test/v1/chat/completions?api_key=other-secret",
+        model_limit_tokens=10,
+    )
+    serialized = json.dumps(packet.to_dict(), sort_keys=True)
+    assert isinstance(digest, str) and len(digest) == 64
+    assert rotated.capabilities.metadata["endpoint_url_digest"] == digest
+    assert endpoint not in serialized
+    assert "user:pass" not in serialized
+    assert "api_key=secret" not in serialized
+
+
+def test_invalid_endpoint_identity_fails_before_page_out_side_effects():
+    scope = DaystromScope(session_id="s1")
+    paged: list[str] = []
+
+    with pytest.raises(ContractError, match="endpoint_url"):
+        admit_context_segments(
+            scope=scope,
+            segments=[seg("omitted", tokens=9, scope=scope)],
+            model_id="m",
+            runtime_id="r",
+            endpoint_url="",
+            model_limit_tokens=1,
+            page_out=lambda _, item: paged.append(item.segment_id),
+        )
+
+    assert paged == []

@@ -320,6 +320,12 @@ def redact_endpoint_url(endpoint_url: str) -> str:
     return parse.urlunsplit((parsed.scheme, netloc, parsed.path, redacted_query, ""))
 
 
+def endpoint_identity_digest(endpoint_url: str) -> str:
+    """Bind a redacted endpoint identity without deriving artifacts from credentials."""
+
+    return hashlib.sha256(redact_endpoint_url(endpoint_url).encode("utf-8")).hexdigest()
+
+
 def endpoint_identity(endpoint_url: str) -> EndpointIdentity:
     safe = redact_endpoint_url(endpoint_url)
     parsed = parse.urlsplit(safe)

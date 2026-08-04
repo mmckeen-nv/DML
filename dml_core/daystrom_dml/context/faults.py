@@ -44,6 +44,7 @@ class MemoryFaultReason(str, Enum):
     SCOPE_MISMATCH = "scope_mismatch"
     ADAPTER_EXCEPTION = "adapter_exception"
     INVALID_AUTHORITY = "invalid_authority"
+    BINDING_MISMATCH = "binding_mismatch"
 
 
 class EvidenceAuthority(str, Enum):
@@ -92,6 +93,8 @@ class MemoryFaultRequest(SerializableDataclass):
     scope: DaystromScope = field(default_factory=DaystromScope)
     query: Optional[str] = None
     key: Optional[str] = None
+    expected_digest: Optional[str] = None
+    expected_source_id: Optional[str] = None
     budget: MemoryFaultBudget = field(default_factory=MemoryFaultBudget)
     include_payload: bool = False
     allow_durable: bool = False
@@ -110,6 +113,12 @@ class MemoryFaultRequest(SerializableDataclass):
             raise ContractError("query must be a string when provided")
         if self.key is not None and not isinstance(self.key, str):
             raise ContractError("key must be a string when provided")
+        if self.expected_digest is not None:
+            if not isinstance(self.expected_digest, str) or not _valid_sha256_digest(self.expected_digest):
+                raise ContractError("expected_digest must be a sha256 digest when provided")
+        if self.expected_source_id is not None:
+            if not isinstance(self.expected_source_id, str) or not self.expected_source_id:
+                raise ContractError("expected_source_id must be a non-empty string when provided")
         if not isinstance(self.include_payload, bool):
             raise ContractError("include_payload must be boolean")
         if not isinstance(self.allow_durable, bool):
@@ -362,6 +371,8 @@ class MemoryFaultResolver:
             return MemoryFaultResult.empty(request, result.status, expected_tier, result.reason_codes or [MemoryFaultReason.NOT_FOUND])
 
         normalized: List[EvidenceHandle] = []
+        binding_mismatch = False
+        payload_over_budget = False
         for item in result.evidence[: request.budget.max_items]:
             if item.tier is not expected_tier:
                 return MemoryFaultResult.empty(
@@ -393,13 +404,21 @@ class MemoryFaultResolver:
                     expected_tier,
                     [MemoryFaultReason.DIGEST_MISMATCH],
                 )
-            normalized.append(_apply_payload_budget(item, request))
+            if request.expected_digest is not None and item.digest != request.expected_digest:
+                binding_mismatch = True
+                continue
+            if request.expected_source_id is not None and item.provenance.source_id != request.expected_source_id:
+                binding_mismatch = True
+                continue
+            normalized_item = _apply_payload_budget(item, request)
+            if request.include_payload and _had_payload(item) and not _had_payload(normalized_item):
+                payload_over_budget = True
+            normalized.append(normalized_item)
 
         if not normalized:
-            return MemoryFaultResult.empty(request, MemoryFaultStatus.MISS, expected_tier, [MemoryFaultReason.NOT_FOUND])
-        if request.include_payload and any(
-            _had_payload(item) and not _had_payload(normalized[index]) for index, item in enumerate(result.evidence[: len(normalized)])
-        ):
+            reason = MemoryFaultReason.BINDING_MISMATCH if binding_mismatch else MemoryFaultReason.NOT_FOUND
+            return MemoryFaultResult.empty(request, MemoryFaultStatus.MISS, expected_tier, [reason])
+        if payload_over_budget:
             return MemoryFaultResult(
                 request_id=request.request_id,
                 scope=request.scope,
@@ -424,10 +443,20 @@ def _apply_payload_budget(item: EvidenceHandle, request: MemoryFaultRequest) -> 
     return item
 
 
+def _valid_sha256_digest(value: str) -> bool:
+    if not value.startswith("sha256:") or len(value) != 71:
+        return False
+    try:
+        int(value[7:], 16)
+    except ValueError:
+        return False
+    return True
+
+
 def _validate_digest(item: EvidenceHandle) -> None:
     payload = item.payload_bytes()
     if payload is None:
-        if not item.digest.startswith("sha256:") or len(item.digest) != 71:
+        if not _valid_sha256_digest(item.digest):
             raise ContractError("invalid digest")
         return
     expected = "sha256:" + hashlib.sha256(payload).hexdigest()
