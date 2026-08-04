@@ -63,6 +63,8 @@ class DIPPrepareResult(SerializableDataclass):
     dcn_policy_version: Optional[str] = None
     dml_context_used: bool = False
     local_draft: str = ""
+    context_observation: Dict[str, Any] = field(default_factory=dict)
+    context_packet: Dict[str, Any] = field(default_factory=dict)
     telemetry: Dict[str, Any] = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)
 
@@ -81,6 +83,8 @@ class DIPPrepareResult(SerializableDataclass):
             dcn_policy_version=data.get("dcn_policy_version"),
             dml_context_used=bool(data.get("dml_context_used", False)),
             local_draft=data.get("local_draft", ""),
+            context_observation=dict(data.get("context_observation") or {}),
+            context_packet=dict(data.get("context_packet") or {}),
             telemetry=dict(data.get("telemetry") or {}),
             warnings=list(data.get("warnings") or []),
         )

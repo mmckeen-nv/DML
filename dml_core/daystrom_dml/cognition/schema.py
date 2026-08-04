@@ -13,7 +13,6 @@ from daystrom_dml.api_contracts import (
     DaystromScope,
     RiskInfo,
     SerializableDataclass,
-    TokenBudget,
 )
 from daystrom_dml.contracts import COGNITIVE_PACKET_V1
 
@@ -178,6 +177,8 @@ class CognitivePacket(SerializableDataclass):
     dml_context: Dict[str, Any] = field(default_factory=dict)
     dpm_overlay: Dict[str, Any] = field(default_factory=dict)
     assembled_context: str = ""
+    context_observation: Dict[str, Any] = field(default_factory=dict)
+    context_packet: Dict[str, Any] = field(default_factory=dict)
     guardrails: List[str] = field(default_factory=list)
     telemetry: Dict[str, Any] = field(default_factory=dict)
     audit: AuditInfo = field(default_factory=AuditInfo)
@@ -200,6 +201,8 @@ class CognitivePacket(SerializableDataclass):
             dml_context=dict(data.get("dml_context") or {}),
             dpm_overlay=dict(data.get("dpm_overlay") or {}),
             assembled_context=data.get("assembled_context", ""),
+            context_observation=dict(data.get("context_observation") or {}),
+            context_packet=dict(data.get("context_packet") or {}),
             guardrails=list(data.get("guardrails") or []),
             telemetry=dict(data.get("telemetry") or {}),
             audit=AuditInfo.from_dict(data.get("audit")),
