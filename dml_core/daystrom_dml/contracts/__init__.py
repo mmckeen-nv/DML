@@ -99,6 +99,8 @@ def _validate_schema(value: Any, schema: Mapping[str, Any], *, path: str, root: 
 
     if isinstance(value, str) and "minLength" in schema and len(value) < int(schema["minLength"]):
         errors.append(f"{path}: string shorter than minLength {schema['minLength']}")
+    if isinstance(value, str) and "maxLength" in schema and len(value) > int(schema["maxLength"]):
+        errors.append(f"{path}: string longer than maxLength {schema['maxLength']}")
 
     if isinstance(value, Mapping):
         for key in schema.get("required", []):

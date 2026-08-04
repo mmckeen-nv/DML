@@ -23,7 +23,10 @@ class ContextBudget(SerializableDataclass):
             "runtime_reserved_tokens",
             "admitted_input_tokens",
         ):
-            if getattr(self, name) < 0:
+            value = getattr(self, name)
+            if not isinstance(value, int) or isinstance(value, bool):
+                raise ContractError(f"{name} must be an integer")
+            if value < 0:
                 raise ContractError(f"{name} must be non-negative")
         if self.output_reserved_tokens + self.runtime_reserved_tokens > self.model_limit_tokens:
             raise ContractError("reservations cannot exceed model_limit_tokens")
@@ -61,6 +64,8 @@ class ContextBudget(SerializableDataclass):
     def admit(self, tokens: int) -> bool:
         """Admit a non-negative token count without exceeding input allowance."""
 
+        if not isinstance(tokens, int) or isinstance(tokens, bool):
+            raise ContractError("tokens must be an integer")
         if tokens < 0:
             raise ContractError("tokens must be non-negative")
         if tokens > self.remaining_input_tokens:

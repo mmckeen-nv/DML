@@ -246,4 +246,4 @@ def _prepared_message_authority(role: Any, index: int, total_messages: int) -> s
         return "immutable"
     if normalized_role == "user" and index == total_messages - 1:
         return "current_instruction"
-    return "trusted_control"
+    return "reference"

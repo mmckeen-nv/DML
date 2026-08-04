@@ -53,10 +53,15 @@ class ContextSegment(SerializableDataclass):
         self.priority = enum_from_value(ContextPriority, self.priority)
         if isinstance(self.scope, dict):
             self.scope = DaystromScope.from_dict(self.scope)
+        if not isinstance(self.estimated_tokens, int) or isinstance(self.estimated_tokens, bool):
+            raise ContractError("estimated_tokens must be an integer")
         if self.estimated_tokens < 0:
             raise ContractError("estimated_tokens must be non-negative")
-        if self.exact_tokens is not None and self.exact_tokens < 0:
-            raise ContractError("exact_tokens must be non-negative")
+        if self.exact_tokens is not None:
+            if not isinstance(self.exact_tokens, int) or isinstance(self.exact_tokens, bool):
+                raise ContractError("exact_tokens must be an integer")
+            if self.exact_tokens < 0:
+                raise ContractError("exact_tokens must be non-negative")
         for name in ("source", "provenance", "cache", "retention"):
             if not isinstance(getattr(self, name), dict):
                 raise ContractError(f"{name} must be a dictionary")
