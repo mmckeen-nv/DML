@@ -55,13 +55,47 @@ def test_existing_frontier_compression_pipeline_still_works():
 
 
 def test_dip_result_roundtrips_through_dict():
-    result = DIPPrepareResult(prompt="p", frontier_prompt="fp", inference_enabled=False, mode="prepare_only")
+    result = DIPPrepareResult(
+        prompt="p",
+        frontier_prompt="fp",
+        inference_enabled=False,
+        mode="prepare_only",
+        context_observation={"mode": "observe_only"},
+        context_packet={"segments": []},
+    )
 
     restored = DIPPrepareResult.from_dict(result.to_dict())
 
     assert restored.prompt == "p"
     assert restored.frontier_prompt == "fp"
     assert restored.inference_enabled is False
+    assert restored.context_observation == {"mode": "observe_only"}
+    assert restored.context_packet == {"segments": []}
+
+
+def test_dip_prepare_can_attach_context_observation_without_changing_frontier_prompt():
+    class ObserveController:
+        def observe(self, **kwargs):
+            assert kwargs["current_prompt"] == baseline.frontier_prompt
+            assert kwargs["current_messages"] == [{"role": "user", "content": baseline.frontier_prompt}]
+            return {
+                "mode": "observe_only",
+                "capabilities": {"api_messages": True},
+                "pressure_state": {"state": "ok"},
+                "token_estimate": {"input_tokens": 10},
+                "audit": {"reason_codes": ["observe_only_no_mutation"]},
+            }
+
+    baseline = InferencePreparationPipeline().prepare({"prompt": "hello", "frontier_max_tokens": 64})
+    result = InferencePreparationPipeline(context_controller=ObserveController()).prepare(
+        {"prompt": "hello", "frontier_max_tokens": 64}
+    )
+
+    assert result.prompt == baseline.prompt
+    assert result.frontier_prompt == baseline.frontier_prompt
+    assert result.context_observation["mode"] == "observe_only"
+    assert result.telemetry["context_pressure_state"] == "ok"
+    assert result.telemetry["context_capabilities"] == {"api_messages": True}
 
 
 def test_dip_preparation_alias_points_to_pipeline():

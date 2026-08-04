@@ -17,6 +17,8 @@ packages = [
     "daystrom_dml.llm_backends",
     "daystrom_dml.provider_web",
     "daystrom_dml.stm",
+    "daystrom_dml.context",
+    "daystrom_dml.context.adapters",
     "daystrom_dml.cognition",
     "daystrom_dml.inference",
     "daystrom_dml.contracts",

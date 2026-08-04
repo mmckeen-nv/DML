@@ -4,7 +4,7 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from daystrom_dml import utils
-from daystrom_dml.api_contracts import DaystromScope, TokenBudget
+from daystrom_dml.api_contracts import TokenBudget
 from daystrom_dml.cognition.schema import CognitivePacket
 from daystrom_dml.frontier_pipeline import DraftGenerator, FrontierCompressionPipeline, FrontierPipelineConfig
 from daystrom_dml.inference.schema import DIPPrepareRequest, DIPPrepareResult
@@ -24,16 +24,20 @@ class InferencePreparationPipeline:
         *,
         config: Optional[FrontierPipelineConfig] = None,
         draft_generator: Optional[DraftGenerator] = None,
+        context_controller: Any = None,
     ) -> None:
         self.adapter = adapter
         self.config = config or FrontierPipelineConfig()
         self.draft_generator = draft_generator
+        self.context_controller = context_controller
 
     def prepare(self, request: DIPPrepareRequest | dict[str, Any]) -> DIPPrepareResult:
         req = request if isinstance(request, DIPPrepareRequest) else DIPPrepareRequest.from_dict(request)
         if req.cognitive_packet is not None:
-            return self._prepare_from_packet(req, req.cognitive_packet)
-        return self._prepare_from_prompt(req)
+            result = self._prepare_from_packet(req, req.cognitive_packet)
+        else:
+            result = self._prepare_from_prompt(req)
+        return self._attach_context_observation(req, result)
 
     def _prepare_from_packet(self, req: DIPPrepareRequest, packet: CognitivePacket) -> DIPPrepareResult:
         prompt = req.prompt or packet.assembled_context or self._prompt_from_packet(packet)
@@ -54,6 +58,8 @@ class InferencePreparationPipeline:
                 "packet_version": packet.packet_version,
                 "inference_enabled": False,
             },
+            context_observation=dict(packet.context_observation or {}),
+            context_packet=dict(packet.context_packet or {}),
         )
 
     def _prepare_from_prompt(self, req: DIPPrepareRequest) -> DIPPrepareResult:
@@ -111,6 +117,31 @@ class InferencePreparationPipeline:
             local_draft=str(prepared.get("local_draft") or ""),
             telemetry={**dict(prepared.get("telemetry") or {}), "inference_enabled": False},
         )
+
+    def _attach_context_observation(self, req: DIPPrepareRequest, result: DIPPrepareResult) -> DIPPrepareResult:
+        if self.context_controller is None:
+            return result
+        packet = req.cognitive_packet
+        observation = self.context_controller.observe(
+            scope=packet.scope if packet is not None else req.scope,
+            model_limits={"max_input_tokens": result.token_budget.limit_tokens},
+            current_prompt=result.frontier_prompt,
+            current_messages=[{"role": "user", "content": result.frontier_prompt}],
+            dcn_plan=packet.dcn_plan.to_dict() if packet is not None else None,
+            dcn_packet=packet.to_dict() if packet is not None else None,
+            dml_context=packet.dml_context if packet is not None else {},
+            dpm_overlay=packet.dpm_overlay if packet is not None else {},
+            output_reservation=result.frontier_max_tokens,
+        )
+        result.context_observation = dict(observation or {})
+        if packet is not None:
+            result.context_packet = dict(packet.context_packet or {})
+        result.telemetry = {
+            **dict(result.telemetry or {}),
+            "context_pressure_state": (observation.get("pressure_state") or {}).get("state"),
+            "context_capabilities": dict(observation.get("capabilities") or {}),
+        }
+        return result
 
     @staticmethod
     def _prompt_from_packet(packet: CognitivePacket) -> str:
