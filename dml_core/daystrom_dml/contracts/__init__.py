@@ -11,12 +11,17 @@ from importlib import resources
 from typing import Any, Dict, List, Mapping
 
 from daystrom_dml.api_contracts import ContractError
+from daystrom_dml.context.capabilities import RUNTIME_CAPABILITIES_V1
+from daystrom_dml.context.manifest import CONTEXT_MANIFEST_V1, CONTEXT_PACKET_V1
 
 COGNITIVE_PACKET_V1 = "daystrom-cognitive-packet-v1"
 SCHEMA_DRAFT = "https://json-schema.org/draft/2020-12/schema"
 
 _SCHEMA_FILES = {
     COGNITIVE_PACKET_V1: "cognitive-packet-v1.schema.json",
+    CONTEXT_MANIFEST_V1: "context-manifest-v1.schema.json",
+    CONTEXT_PACKET_V1: "context-packet-v1.schema.json",
+    RUNTIME_CAPABILITIES_V1: "runtime-capabilities-v1.schema.json",
 }
 
 
@@ -51,11 +56,23 @@ def validate_cognitive_packet_v1(payload: Mapping[str, Any]) -> Dict[str, Any]:
     with path-qualified messages on invalid input.
     """
 
-    schema = ContractRegistry.load_schema(COGNITIVE_PACKET_V1)
+    return validate_contract(COGNITIVE_PACKET_V1, payload, label="cognitive packet v1")
+
+
+def validate_contract(
+    contract_name: str,
+    payload: Mapping[str, Any],
+    *,
+    label: str | None = None,
+) -> Dict[str, Any]:
+    """Validate a payload against a registered Daystrom contract schema."""
+
+    schema = ContractRegistry.load_schema(contract_name)
     errors = _validate_schema(payload, schema, path="$", root=schema)
     if errors:
-        raise ContractError("Invalid cognitive packet v1: " + "; ".join(errors))
-    return {"valid": True, "schema_version": COGNITIVE_PACKET_V1, "errors": []}
+        contract_label = label or contract_name
+        raise ContractError(f"Invalid {contract_label}: " + "; ".join(errors))
+    return {"valid": True, "schema_version": contract_name, "errors": []}
 
 
 def _validate_schema(value: Any, schema: Mapping[str, Any], *, path: str, root: Mapping[str, Any]) -> List[str]:

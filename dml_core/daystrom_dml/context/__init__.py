@@ -1,6 +1,6 @@
 """Daystrom Context Manager contract primitives."""
 from daystrom_dml.context.budget import ContextBudget
-from daystrom_dml.context.capabilities import RuntimeCapabilities
+from daystrom_dml.context.capabilities import RUNTIME_CAPABILITIES_V1, RuntimeCapabilities
 from daystrom_dml.context.manifest import CONTEXT_MANIFEST_V1, CONTEXT_PACKET_V1, ContextManifest, ContextPacket
 from daystrom_dml.context.schema import ContextAuthority, ContextPriority, ContextSegment
 
@@ -13,5 +13,6 @@ __all__ = [
     "ContextPacket",
     "ContextPriority",
     "ContextSegment",
+    "RUNTIME_CAPABILITIES_V1",
     "RuntimeCapabilities",
 ]

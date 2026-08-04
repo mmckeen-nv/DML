@@ -5,6 +5,8 @@ import pytest
 
 from daystrom_dml.api_contracts import ContractError, DaystromScope
 from daystrom_dml.context import (
+    CONTEXT_MANIFEST_V1,
+    CONTEXT_PACKET_V1,
     ContextAuthority,
     ContextBudget,
     ContextManifest,
@@ -120,9 +122,39 @@ def test_manifest_digest_is_stable_and_excludes_timestamp():
     manifest_b = ContextManifest.from_dict({**manifest_a.to_dict(), "created_at": 200.0})
 
     assert manifest_a.content_digest == manifest_b.content_digest
-    changed = ContextManifest.from_dict({**manifest_a.to_dict(), "segment_ids": ["seg-2", "seg-1"]})
+    changed = ContextManifest.from_dict(
+        {**manifest_a.to_dict(), "segment_ids": ["seg-2", "seg-1"], "content_digest": ""}
+    )
     assert changed.content_digest != manifest_a.content_digest
     assert ContextManifest.from_dict(manifest_a.to_dict()) == manifest_a
+
+
+def test_manifest_rejects_unknown_version_and_tampered_digest():
+    manifest = ContextManifest(
+        model_id="model",
+        runtime_id="runtime",
+        segment_ids=["seg-1"],
+        estimated_input_tokens=5,
+    )
+
+    with pytest.raises(ContractError, match="manifest_version"):
+        ContextManifest.from_dict({**manifest.to_dict(), "manifest_version": "daystrom-context-manifest-v2"})
+
+    with pytest.raises(ContractError, match="content_digest"):
+        ContextManifest.from_dict({**manifest.to_dict(), "content_digest": "0" * 64})
+
+
+def test_blank_manifest_digest_is_computed_for_fresh_objects():
+    manifest = ContextManifest(
+        model_id="model",
+        runtime_id="runtime",
+        segment_ids=["seg-1"],
+        estimated_input_tokens=5,
+        content_digest="",
+    )
+
+    assert len(manifest.content_digest) == 64
+    assert manifest.manifest_version == CONTEXT_MANIFEST_V1
 
 
 def test_context_packet_validates_budget_and_roundtrips_json_payload():
@@ -150,6 +182,7 @@ def test_context_packet_validates_budget_and_roundtrips_json_payload():
     data = json.loads(json.dumps(packet.to_dict(), sort_keys=True))
 
     assert ContextPacket.from_dict(data) == packet
+    assert packet.packet_version == CONTEXT_PACKET_V1
 
     with pytest.raises(ContractError, match="exceed"):
         ContextPacket(
@@ -159,6 +192,23 @@ def test_context_packet_validates_budget_and_roundtrips_json_payload():
             segments=[segment],
             manifest=manifest,
         )
+
+
+def test_context_packet_rejects_unknown_version():
+    segment = ContextSegment(segment_id="seg-1", kind="message", content="hello", estimated_tokens=1)
+    packet = ContextPacket(
+        budget=ContextBudget(model_limit_tokens=10),
+        segments=[segment],
+        manifest=ContextManifest(
+            model_id="unknown",
+            runtime_id="unknown",
+            segment_ids=[segment.segment_id],
+            estimated_input_tokens=segment.effective_tokens,
+        ),
+    )
+
+    with pytest.raises(ContractError, match="packet_version"):
+        ContextPacket.from_dict({**packet.to_dict(), "packet_version": "daystrom-context-packet-v2"})
 
 
 def test_context_schemas_parse_and_reject_bad_required_or_negative_fields():

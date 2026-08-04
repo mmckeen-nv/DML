@@ -6,6 +6,8 @@ from typing import Any, Dict, Optional
 
 from daystrom_dml.api_contracts import ContractError, SerializableDataclass
 
+RUNTIME_CAPABILITIES_V1 = "daystrom-runtime-capabilities-v1"
+
 
 @dataclass
 class RuntimeCapabilities(SerializableDataclass):
