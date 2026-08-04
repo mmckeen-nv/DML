@@ -64,12 +64,12 @@ class APIMessageAdapter(BaseRuntimeContextAdapter):
         authority = str(metadata.get("authority") or segment.get("authority") or "").lower()
         source = str(segment.get("source") or "").lower()
         kind = str(segment.get("kind") or "").lower()
-        untrusted = authority in {"untrusted", "retrieved", "external"} or source in {
+        untrusted = authority == "untrusted_data" or source in {
             "retrieval",
             "retrieved",
             "dml",
             "memory",
         }
-        if normalized == "system" and (untrusted or kind in {"retrieved", "dml_context", "memory"}):
+        if untrusted or kind in {"retrieved", "dml", "dml_context", "memory"}:
             return "user"
         return normalized

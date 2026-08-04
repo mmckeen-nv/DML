@@ -1,4 +1,6 @@
-from daystrom_dml.api_contracts import DaystromScope
+import pytest
+
+from daystrom_dml.api_contracts import ContractError, DaystromScope
 from daystrom_dml.cognition.schema import CognitivePacket, CognitionPlan, RetrievalPlan
 from daystrom_dml.frontier_pipeline import FrontierCompressionPipeline
 from daystrom_dml.inference.prepare import DIPPreparationPipeline, InferencePreparationPipeline
@@ -96,6 +98,99 @@ def test_dip_prepare_can_attach_context_observation_without_changing_frontier_pr
     assert result.context_observation["mode"] == "observe_only"
     assert result.telemetry["context_pressure_state"] == "ok"
     assert result.telemetry["context_capabilities"] == {"api_messages": True}
+
+
+def test_dip_prepare_observe_failure_is_fail_contained_and_preserves_prompt():
+    class FailingController:
+        def observe(self, **kwargs):
+            raise RuntimeError("observe failed")
+
+    baseline = InferencePreparationPipeline().prepare({"prompt": "hello", "frontier_max_tokens": 64})
+    result = InferencePreparationPipeline(context_controller=FailingController()).prepare(
+        {"prompt": "hello", "frontier_max_tokens": 64}
+    )
+
+    assert result.prompt == baseline.prompt
+    assert result.frontier_prompt == baseline.frontier_prompt
+    assert result.context_observation == {}
+    assert result.warnings == ["no_dml_adapter_configured", "context_observation_failed"]
+    assert result.telemetry["context_observation_warning"] == "context_observation_failed"
+    assert result.telemetry["context_observation_error_type"] == "RuntimeError"
+
+
+def test_dip_prepare_non_dict_observation_is_fail_contained_and_preserves_prompt():
+    class BadController:
+        def observe(self, **kwargs):
+            return ["not", "a", "dict"]
+
+    baseline = InferencePreparationPipeline().prepare({"prompt": "hello", "frontier_max_tokens": 64})
+    result = InferencePreparationPipeline(context_controller=BadController()).prepare(
+        {"prompt": "hello", "frontier_max_tokens": 64}
+    )
+
+    assert result.prompt == baseline.prompt
+    assert result.frontier_prompt == baseline.frontier_prompt
+    assert result.context_observation == {}
+    assert result.warnings == ["no_dml_adapter_configured", "context_observation_invalid"]
+    assert result.telemetry["context_observation_warning"] == "context_observation_invalid"
+
+
+def test_dip_prepare_explicit_model_context_budget_fit_uses_total_context_and_reservations():
+    result = InferencePreparationPipeline().prepare(
+        DIPPrepareRequest(
+            prompt="hello",
+            frontier_max_tokens=64,
+            model_context_tokens=128,
+            runtime_reserved_tokens=8,
+        )
+    )
+
+    assert result.token_budget.limit_tokens == 128
+    assert result.token_budget.used_tokens == result.telemetry["frontier_input_tokens"]
+    assert result.token_budget.reserved_tokens == 72
+    assert result.token_budget.remaining_tokens == 128 - result.token_budget.used_tokens - 72
+
+
+def test_dip_prepare_explicit_model_context_budget_overflow_fails_closed():
+    with pytest.raises(ContractError, match="model_context_tokens cannot fit"):
+        InferencePreparationPipeline().prepare(
+            DIPPrepareRequest(
+                prompt="hello",
+                frontier_max_tokens=64,
+                model_context_tokens=10,
+                runtime_reserved_tokens=8,
+            )
+        )
+
+
+def test_dip_prepare_without_explicit_model_context_derives_synthetic_total_limit():
+    result = InferencePreparationPipeline().prepare({"prompt": "hello", "frontier_max_tokens": 64})
+
+    assert result.token_budget.limit_tokens == result.token_budget.used_tokens + result.frontier_max_tokens
+    assert result.token_budget.reserved_tokens == result.frontier_max_tokens
+    assert result.token_budget.remaining_tokens == 0
+
+
+def test_dip_prepare_passes_total_context_and_reservations_to_observe():
+    class ObserveController:
+        def observe(self, **kwargs):
+            observed.update(kwargs)
+            return {"pressure_state": {"state": "ok"}, "capabilities": {}}
+
+    observed = {}
+    result = InferencePreparationPipeline(context_controller=ObserveController()).prepare(
+        DIPPrepareRequest(
+            prompt="hello",
+            frontier_max_tokens=64,
+            model_context_tokens=128,
+            runtime_reserved_tokens=8,
+        )
+    )
+
+    assert observed["model_limits"] == {"context_window_tokens": 128}
+    assert observed["output_reservation"] == 64
+    assert observed["runtime_reserved_tokens"] == 8
+    assert result.telemetry["context_pressure_state"] == "ok"
 
 
 def test_dip_preparation_alias_points_to_pipeline():

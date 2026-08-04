@@ -4,7 +4,7 @@ from __future__ import annotations
 import time
 from typing import Any, Dict, Iterable, List, Optional
 
-from daystrom_dml.api_contracts import DaystromScope
+from daystrom_dml.api_contracts import ContractError, DaystromScope
 from daystrom_dml.context.adapters.api_messages import APIMessageAdapter
 from daystrom_dml.context.adapters.base import RuntimeContextAdapter
 
@@ -40,12 +40,20 @@ class ContextController:
         dml_context: Optional[Dict[str, Any]] = None,
         dpm_overlay: Optional[Dict[str, Any]] = None,
         output_reservation: int = 0,
+        runtime_reserved_tokens: Optional[int] = None,
     ) -> Dict[str, Any]:
         scope_obj = scope if isinstance(scope, DaystromScope) else DaystromScope.from_dict(scope)
         limits = {**dict(backend_limits or {}), **dict(model_limits or {})}
         max_input = int(limits.get("max_input_tokens") or limits.get("context_window_tokens") or 0)
-        reservation = max(0, int(output_reservation or limits.get("output_reservation_tokens") or 0))
-        available_input = max(0, max_input - reservation) if max_input else 0
+        output_reserved = _non_negative_reservation(
+            "output_reservation_tokens",
+            output_reservation or limits.get("output_reservation_tokens", 0),
+        )
+        runtime_reserved = _non_negative_reservation(
+            "runtime_reserved_tokens",
+            runtime_reserved_tokens if runtime_reserved_tokens is not None else limits.get("runtime_reserved_tokens", 0),
+        )
+        available_input = max(0, max_input - output_reserved - runtime_reserved) if max_input else 0
 
         segments = self._segments(
             current_prompt=current_prompt,
@@ -69,7 +77,8 @@ class ContextController:
             "token_estimate": {
                 "input_tokens": input_tokens,
                 "max_input_tokens": max_input,
-                "reserved_output_tokens": reservation,
+                "reserved_output_tokens": output_reserved,
+                "reserved_runtime_tokens": runtime_reserved,
                 "available_input_tokens": available_input,
             },
             "pressure_state": pressure,
@@ -81,6 +90,8 @@ class ContextController:
                 "observed_at": float(self.clock()),
                 "segment_count": len(segments),
                 "input_tokens": input_tokens,
+                "reserved_output_tokens": output_reserved,
+                "reserved_runtime_tokens": runtime_reserved,
                 "pressure_state": pressure["state"],
                 "capabilities": self._capability_telemetry(self.runtime_adapter.capabilities()),
             },
@@ -109,7 +120,7 @@ class ContextController:
                     "kind": "prepared_message",
                     "role": message.get("role", "user"),
                     "content": message.get("content", ""),
-                    "metadata": {"authority": "prepared_input"},
+                    "metadata": {"authority": _prepared_message_authority(message.get("role"), index, len(current_messages or []))},
                 }
             )
         if current_prompt and not current_messages:
@@ -119,7 +130,7 @@ class ContextController:
                     "kind": "prepared_prompt",
                     "role": "user",
                     "content": current_prompt,
-                    "metadata": {"authority": "prepared_input"},
+                    "metadata": {"authority": "current_instruction"},
                 }
             )
         if dcn_plan or dcn_packet:
@@ -129,7 +140,7 @@ class ContextController:
                     "kind": "dcn_plan",
                     "role": "user",
                     "content": _summarize_keys(dcn_plan or (dcn_packet or {}).get("dcn_plan") or {}),
-                    "metadata": {"authority": "control"},
+                    "metadata": {"authority": "trusted_control"},
                 }
             )
         if dpm_overlay:
@@ -139,7 +150,7 @@ class ContextController:
                     "kind": "dpm_overlay",
                     "role": "user",
                     "content": str(dpm_overlay.get("overlay_text") or dpm_overlay.get("text") or ""),
-                    "metadata": {"authority": "bounded_overlay"},
+                    "metadata": {"authority": "reference"},
                 }
             )
         if dml_context:
@@ -151,7 +162,7 @@ class ContextController:
                         "source": "dml",
                         "role": "user",
                         "content": item,
-                        "metadata": {"authority": "untrusted"},
+                        "metadata": {"authority": "untrusted_data"},
                     }
                 )
         return segments
@@ -220,3 +231,19 @@ def _iter_dml_items(payload: Dict[str, Any]) -> Iterable[str]:
     text = payload.get("raw_context") or payload.get("context")
     if text:
         yield str(text)
+
+
+def _non_negative_reservation(name: str, value: Any) -> int:
+    reservation = int(value or 0)
+    if reservation < 0:
+        raise ContractError(f"{name} must be non-negative")
+    return reservation
+
+
+def _prepared_message_authority(role: Any, index: int, total_messages: int) -> str:
+    normalized_role = str(role or "user").lower()
+    if normalized_role == "system":
+        return "immutable"
+    if normalized_role == "user" and index == total_messages - 1:
+        return "current_instruction"
+    return "trusted_control"
