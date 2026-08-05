@@ -11,7 +11,7 @@ from daystrom_dml.context.budget import ContextBudget
 from daystrom_dml.context.capabilities import RuntimeCapabilities
 from daystrom_dml.context.manifest import ContextManifest, ContextPacket
 from daystrom_dml.context.probe import endpoint_identity_digest
-from daystrom_dml.context.schema import ContextAuthority, ContextPriority, ContextSegment
+from daystrom_dml.context.schema import ContextAuthority, ContextPriority, ContextSegment, context_segment_digest
 
 OBSERVE_ONLY_MODE = "observe_only"
 ACTIVE_ADMISSION_MODE = "active_admission"
@@ -147,6 +147,7 @@ def admit_context_segments(
         model_id=capability_obj.model_id,
         runtime_id=capability_obj.backend_id,
         segment_ids=[segment.segment_id for segment in admitted_segments],
+        segment_digests={segment.segment_id: context_segment_digest(segment) for segment in admitted_segments},
         estimated_input_tokens=budget.admitted_input_tokens,
         exact_input_tokens=_exact_input_tokens(admitted_segments),
         decisions=decisions,

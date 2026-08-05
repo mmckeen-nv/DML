@@ -30,7 +30,8 @@ from daystrom_dml.context.recovery import (
     FaultRetryResult,
     RecoveryStatus,
 )
-from daystrom_dml.context.schema import ContextAuthority, ContextPriority, ContextSegment
+from daystrom_dml.context.schema import ContextAuthority, ContextPriority, ContextSegment, context_segment_digest
+from daystrom_dml.context.working_set import WORKING_SET_TRANSITION_V1, WorkingSetManager
 
 __all__ = [
     "ACTIVE_ADMISSION_MODE",
@@ -67,5 +68,8 @@ __all__ = [
     "RuntimeCapabilities",
     "RuntimeExecutionCapabilities",
     "RuntimeExecutionError",
+    "WORKING_SET_TRANSITION_V1",
+    "WorkingSetManager",
     "admit_context_segments",
+    "context_segment_digest",
 ]

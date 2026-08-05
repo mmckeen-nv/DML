@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional
 from daystrom_dml.api_contracts import AuditInfo, ContractError, DaystromScope, SerializableDataclass, _serialize
 from daystrom_dml.context.budget import ContextBudget
 from daystrom_dml.context.capabilities import RuntimeCapabilities
-from daystrom_dml.context.schema import ContextSegment
+from daystrom_dml.context.schema import ContextSegment, context_segment_digest
 
 CONTEXT_MANIFEST_V1 = "daystrom-context-manifest-v1"
 CONTEXT_PACKET_V1 = "daystrom-context-packet-v1"
@@ -24,6 +24,7 @@ class ContextManifest(SerializableDataclass):
     model_id: str = ""
     runtime_id: str = ""
     segment_ids: List[str] = field(default_factory=list)
+    segment_digests: Dict[str, str] = field(default_factory=dict)
     estimated_input_tokens: int = 0
     exact_input_tokens: Optional[int] = None
     parent_checkpoint_id: Optional[str] = None
@@ -45,6 +46,14 @@ class ContextManifest(SerializableDataclass):
             raise ContractError("runtime_id must be non-empty")
         if any(not segment_id for segment_id in self.segment_ids):
             raise ContractError("segment_ids must not contain empty values")
+        if len(set(self.segment_ids)) != len(self.segment_ids):
+            raise ContractError("segment_ids must not contain duplicate values")
+        if not isinstance(self.segment_digests, dict):
+            raise ContractError("segment_digests must be a dictionary")
+        if self.segment_digests and set(self.segment_digests) != set(self.segment_ids):
+            raise ContractError("segment_digests keys must match segment_ids")
+        if any(not _is_sha256_digest(value) for value in self.segment_digests.values()):
+            raise ContractError("segment_digests values must be SHA-256 digests")
         if not isinstance(self.estimated_input_tokens, int) or isinstance(self.estimated_input_tokens, bool):
             raise ContractError("estimated_input_tokens must be an integer")
         if self.estimated_input_tokens < 0:
@@ -94,6 +103,10 @@ class ContextManifest(SerializableDataclass):
             "audit": _serialize(self.audit),
             "manifest_version": self.manifest_version,
         }
+        # Preserve validation compatibility for manifests emitted before exact
+        # per-segment digest binding was introduced.
+        if self.segment_digests:
+            stable["segment_digests"] = dict(self.segment_digests)
         payload = json.dumps(stable, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
         return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
@@ -152,6 +165,10 @@ class ContextPacket(SerializableDataclass):
             raise ContractError("budget admitted_input_tokens must match segment token total")
         if self.manifest.segment_ids and self.manifest.segment_ids != [segment.segment_id for segment in self.segments]:
             raise ContractError("manifest.segment_ids must match ordered packet segments")
+        if self.manifest.segment_digests:
+            actual_digests = {segment.segment_id: context_segment_digest(segment) for segment in self.segments}
+            if self.manifest.segment_digests != actual_digests:
+                raise ContractError("packet_content_digest no longer matches manifest.segment_digests")
         if self.manifest.estimated_input_tokens != total:
             raise ContractError("manifest estimated_input_tokens must match segment token total")
         for name in ("rendered_messages", "warnings"):
@@ -196,3 +213,7 @@ class ContextPacket(SerializableDataclass):
             raise ContractError("packet_content_digest is required when deserializing a context packet")
         payload = {key: value for key, value in data.items() if key in cls.__dataclass_fields__}
         return cls(**payload)
+
+
+def _is_sha256_digest(value: Any) -> bool:
+    return isinstance(value, str) and len(value) == 64 and all(character in "0123456789abcdef" for character in value)
