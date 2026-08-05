@@ -13,10 +13,13 @@ import time
 from dataclasses import dataclass, field
 from enum import Enum
 from statistics import fmean
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Protocol, Sequence
+
+import numpy as np
 
 from daystrom_dml.api_contracts import DaystromScope
 from daystrom_dml.context.admission import ACTIVE_ADMISSION_MODE
+from daystrom_dml.context.adapters.dml_catalog import DMLSemanticPageCatalog
 from daystrom_dml.context.catalog import PageCatalogQuery, PageCatalogResult
 from daystrom_dml.context.controller import ContextController
 from daystrom_dml.context.probe import (
@@ -68,6 +71,11 @@ class WorkloadClass(str, Enum):
     LONG_HORIZON = "long_horizon"
 
 
+class SemanticEmbedder(Protocol):
+    def embed(self, text: str) -> np.ndarray:
+        ...
+
+
 @dataclass(frozen=True)
 class BenchmarkPage:
     page_id: str
@@ -113,6 +121,8 @@ class BenchmarkConfig:
     timeout_seconds: float = 60.0
     rag_top_k: int = 1
     dcm_semantic_candidates: int = 2
+    embedding_model_id: Optional[str] = None
+    embedding_endpoint_url: Optional[str] = None
 
     def __post_init__(self) -> None:
         if not self.endpoint_url or not self.model_id or not self.runtime_id:
@@ -121,6 +131,8 @@ class BenchmarkConfig:
             raise ValueError("benchmark budgets must be positive")
         if self.rag_top_k <= 0 or self.dcm_semantic_candidates <= 0:
             raise ValueError("retrieval candidate bounds must be positive")
+        if bool(self.embedding_model_id) != bool(self.embedding_endpoint_url):
+            raise ValueError("embedding model and endpoint must be configured together")
 
 
 @dataclass
@@ -129,11 +141,17 @@ class StrategyContext:
     admitted_tokens: int
     resident_context_bytes: int
     lookup_ms: float = 0.0
+    retrieval_total_ms: float = 0.0
+    lookup_attempts: int = 0
     catalog_hits: int = 0
     lookup_miss: bool = False
     authority_manifest_digest: str = ""
     packet_digest: str = ""
     retrieval_recall: float = 0.0
+    retrieval_backend: str = "none"
+    budget_constrained: bool = False
+    candidate_limit_requested: int = 0
+    candidate_limit_used: int = 0
 
 
 @dataclass
@@ -145,7 +163,13 @@ class BenchmarkResult:
     explicit_miss: bool
     lookup_miss: bool
     retrieval_recall: float
+    retrieval_backend: str
+    budget_constrained: bool
+    candidate_limit_requested: int
+    candidate_limit_used: int
     lookup_ms: float
+    retrieval_total_ms: float
+    lookup_attempts: int
     prefill_ms: Optional[float]
     total_latency_ms: float
     admitted_tokens: int
@@ -244,7 +268,107 @@ class _BenchmarkCatalog:
         )
 
 
-def build_strategy_context(case: BenchmarkCase, strategy: Strategy, config: BenchmarkConfig) -> StrategyContext:
+@dataclass
+class _BenchmarkCatalogItem:
+    id: str
+    text: str
+    embedding: np.ndarray
+    meta: Dict[str, Any]
+    timestamp: float = 0.0
+    fidelity: float = 1.0
+    salience: float = 1.0
+    level: int = 0
+
+
+class _EmbeddingBenchmarkStore:
+    """Read-only in-memory store that exercises the production DML catalog adapter."""
+
+    def __init__(
+        self,
+        scope: DaystromScope,
+        pages: Sequence[BenchmarkPage],
+        embedder: SemanticEmbedder,
+    ) -> None:
+        self.scope = scope
+        self.items: list[_BenchmarkCatalogItem] = []
+        for page in pages:
+            text = _page_text(page)
+            meta = dict(scope.to_dict())
+            meta.update({"context_page_id": page.page_id, "kind": "benchmark-page"})
+            self.items.append(
+                _BenchmarkCatalogItem(
+                    id=page.page_id,
+                    text=text,
+                    embedding=_validated_embedding(embedder.embed(text), page.page_id),
+                    meta=meta,
+                )
+            )
+
+    def find_filtered_by_handles(self, *, handles: list[str], limit: int, **scope: Any) -> list[_BenchmarkCatalogItem]:
+        self._validate_scope(scope)
+        wanted = set(handles)
+        return [item for item in self.items if item.id in wanted][:limit]
+
+    def retrieve_filtered_for_catalog(
+        self,
+        embedding: np.ndarray,
+        *,
+        top_k: int,
+        **scope: Any,
+    ) -> list[_BenchmarkCatalogItem]:
+        self._validate_scope(scope)
+        query = _validated_embedding(embedding, "query")
+        ranked = sorted(
+            self.items,
+            key=lambda item: (-_cosine_similarity(query, item.embedding), item.id),
+        )
+        return ranked[:top_k]
+
+    def _validate_scope(self, values: Mapping[str, Any]) -> None:
+        for name in (
+            "tenant_id",
+            "client_id",
+            "session_id",
+            "instance_id",
+            "thread_id",
+            "project_id",
+            "relationship_id",
+        ):
+            if values.get(name) != getattr(self.scope, name):
+                raise ValueError("embedding benchmark store scope mismatch")
+
+
+class _CachingSemanticEmbedder:
+    def __init__(self, embedder: SemanticEmbedder) -> None:
+        self._embedder = embedder
+        self._cache: Dict[str, np.ndarray] = {}
+
+    def embed(self, text: str) -> np.ndarray:
+        cached = self._cache.get(text)
+        if cached is None:
+            cached = _validated_embedding(self._embedder.embed(text), "payload")
+            self._cache[text] = cached
+        return cached.copy()
+
+
+class _EmbeddingBenchmarkAdapter:
+    def __init__(
+        self,
+        scope: DaystromScope,
+        pages: Sequence[BenchmarkPage],
+        embedder: SemanticEmbedder,
+    ) -> None:
+        self.embedder = _CachingSemanticEmbedder(embedder)
+        self.store = _EmbeddingBenchmarkStore(scope, pages, self.embedder)
+
+
+def build_strategy_context(
+    case: BenchmarkCase,
+    strategy: Strategy,
+    config: BenchmarkConfig,
+    *,
+    semantic_embedder: Optional[SemanticEmbedder] = None,
+) -> StrategyContext:
     scope = _benchmark_scope(case)
     if strategy is Strategy.FULL_CONTEXT:
         messages = _base_messages(case, [_page_text(page) for page in case.pages], include_history=True)
@@ -264,6 +388,8 @@ def build_strategy_context(case: BenchmarkCase, strategy: Strategy, config: Benc
         messages = _fit_prefix(case, [_page_text(page) for page in selected], config.context_budget_tokens)
         context = _plain_context(messages)
         context.lookup_ms = lookup_ms
+        context.retrieval_total_ms = lookup_ms
+        context.lookup_attempts = 1
         context.catalog_hits = len(selected)
         context.retrieval_recall = _retrieval_recall(
             case.relevant_page_ids, {page.page_id for page in selected}
@@ -291,42 +417,71 @@ def build_strategy_context(case: BenchmarkCase, strategy: Strategy, config: Benc
         scope=scope,
         estimated_tokens=_estimate_text_tokens(case.question),
     )
-    catalog = _BenchmarkCatalog(scope, case.pages)
-    candidate_count = (
+    retrieval_started = time.perf_counter()
+    if semantic_embedder is None:
+        catalog: Any = _BenchmarkCatalog(scope, case.pages)
+        retrieval_backend = "benchmark_lexical_catalog"
+    else:
+        adapter = _EmbeddingBenchmarkAdapter(scope, case.pages, semantic_embedder)
+        catalog = DMLSemanticPageCatalog(adapter, clock=lambda: 0.0)
+        retrieval_backend = "dml_semantic_page_catalog"
+
+    requested_candidates = (
         len(case.exact_page_handles)
         if case.exact_page_handles
         else config.dcm_semantic_candidates
     )
-    query = PageCatalogQuery(
-        scope=scope,
-        query=case.question,
-        exact_handles=list(case.exact_page_handles),
-        max_candidates=candidate_count,
-        max_payload_bytes=64 * 1024,
-        max_payload_tokens=config.context_budget_tokens,
+    candidate_limits = (
+        [requested_candidates]
+        if case.exact_page_handles
+        else list(range(requested_candidates, 0, -1))
     )
-    started = time.perf_counter()
-    packet = ContextController(
-        retrieval_adapter=catalog,
-        mode=ACTIVE_ADMISSION_MODE,
-        clock=lambda: 0.0,
-        working_set_max_candidates=len(case.pages) + 2,
-    ).reconcile_catalog_working_set(
-        scope=scope,
-        pinned_segments=[policy, question],
-        catalog_query=query,
-        model_id=config.model_id,
-        runtime_id=config.runtime_id,
-        endpoint_url=config.endpoint_url,
-        model_limit_tokens=config.context_budget_tokens,
-    )
-    lookup_ms = (time.perf_counter() - started) * 1000
+    budget_constrained = False
+    packet = None
+    messages = []
+    used_candidates = requested_candidates
+    attempt_durations_ms: list[float] = []
+    for candidate_limit in candidate_limits:
+        attempt_started = time.perf_counter()
+        query = PageCatalogQuery(
+            scope=scope,
+            query=case.question,
+            exact_handles=list(case.exact_page_handles),
+            max_candidates=candidate_limit,
+            max_payload_bytes=64 * 1024,
+            max_payload_tokens=config.context_budget_tokens,
+        )
+        packet = ContextController(
+            retrieval_adapter=catalog,
+            mode=ACTIVE_ADMISSION_MODE,
+            clock=lambda: 0.0,
+            working_set_max_candidates=len(case.pages) + 2,
+        ).reconcile_catalog_working_set(
+            scope=scope,
+            pinned_segments=[policy, question],
+            catalog_query=query,
+            model_id=config.model_id,
+            runtime_id=config.runtime_id,
+            endpoint_url=config.endpoint_url,
+            model_limit_tokens=config.context_budget_tokens,
+        )
+        attempt_durations_ms.append((time.perf_counter() - attempt_started) * 1000)
+        messages = [dict(item) for item in packet.rendered_messages]
+        used_candidates = candidate_limit
+        if _estimate_tokens(messages) <= config.context_budget_tokens:
+            break
+        budget_constrained = True
+        packet = None
+    if packet is None:
+        raise ValueError("DCM rendered messages exceed the context budget")
+
+    retrieval_total_ms = (time.perf_counter() - retrieval_started) * 1000
+    lookup_ms = attempt_durations_ms[-1]
     hits = int(packet.decisions.get("page_catalog", {}).get("returned_candidates", 0))
     authority = [
         {"segment_digest": packet.manifest.segment_digests[item.segment_id], "authority": item.authority.value}
         for item in packet.segments
     ]
-    messages = [dict(item) for item in packet.rendered_messages]
     selected_page_ids = {
         item.removeprefix("dml-page:")
         for item in packet.manifest.segment_ids
@@ -340,9 +495,15 @@ def build_strategy_context(case: BenchmarkCase, strategy: Strategy, config: Benc
         admitted_tokens=_estimate_tokens(messages),
         resident_context_bytes=_message_bytes(messages),
         lookup_ms=lookup_ms,
+        retrieval_total_ms=retrieval_total_ms,
+        lookup_attempts=len(attempt_durations_ms),
         catalog_hits=hits,
         lookup_miss=retrieval_recall < 1.0,
         retrieval_recall=retrieval_recall,
+        retrieval_backend=retrieval_backend,
+        budget_constrained=budget_constrained,
+        candidate_limit_requested=requested_candidates,
+        candidate_limit_used=used_candidates,
         authority_manifest_digest=_digest_json(authority),
         packet_digest=packet.packet_content_digest,
     )
@@ -354,6 +515,7 @@ def run_workload(
     config: BenchmarkConfig,
     *,
     strategies: Optional[Sequence[Strategy]] = None,
+    semantic_embedder: Optional[SemanticEmbedder] = None,
 ) -> BenchmarkReport:
     selected = list(strategies or Strategy)
     settings = ProbeSettings(
@@ -364,7 +526,23 @@ def run_workload(
     results: list[BenchmarkResult] = []
     for case in cases:
         for strategy in selected:
-            context = build_strategy_context(case, strategy, config)
+            try:
+                context = build_strategy_context(
+                    case,
+                    strategy,
+                    config,
+                    semantic_embedder=semantic_embedder if strategy is Strategy.DCM else None,
+                )
+            except Exception as exc:
+                results.append(
+                    _context_build_error_result(
+                        case,
+                        strategy,
+                        exc,
+                        semantic_embedder_configured=semantic_embedder is not None,
+                    )
+                )
+                continue
             message_manifest = manifest_messages(context.messages, strategy.value)
             try:
                 response = client.complete(
@@ -385,9 +563,15 @@ def run_workload(
                         explicit_miss=output.casefold() == "unknown",
                         lookup_miss=context.lookup_miss,
                         retrieval_recall=context.retrieval_recall,
+                        retrieval_backend=context.retrieval_backend,
+                        budget_constrained=context.budget_constrained,
+                        candidate_limit_requested=context.candidate_limit_requested,
+                        candidate_limit_used=context.candidate_limit_used,
                         lookup_ms=context.lookup_ms,
+                        retrieval_total_ms=context.retrieval_total_ms,
+                        lookup_attempts=context.lookup_attempts,
                         prefill_ms=_prefill_ms(usage),
-                        total_latency_ms=response.latency_ms + context.lookup_ms,
+                        total_latency_ms=response.latency_ms + context.retrieval_total_ms,
                         admitted_tokens=context.admitted_tokens,
                         budget_overflow_tokens=max(
                             0, context.admitted_tokens - config.context_budget_tokens
@@ -413,9 +597,15 @@ def run_workload(
                         explicit_miss=False,
                         lookup_miss=context.lookup_miss,
                         retrieval_recall=context.retrieval_recall,
+                        retrieval_backend=context.retrieval_backend,
+                        budget_constrained=context.budget_constrained,
+                        candidate_limit_requested=context.candidate_limit_requested,
+                        candidate_limit_used=context.candidate_limit_used,
                         lookup_ms=context.lookup_ms,
+                        retrieval_total_ms=context.retrieval_total_ms,
+                        lookup_attempts=context.lookup_attempts,
                         prefill_ms=None,
-                        total_latency_ms=context.lookup_ms,
+                        total_latency_ms=context.retrieval_total_ms,
                         admitted_tokens=context.admitted_tokens,
                         budget_overflow_tokens=max(
                             0, context.admitted_tokens - config.context_budget_tokens
@@ -442,16 +632,75 @@ def run_workload(
             "max_output_tokens": config.max_output_tokens,
             "rag_top_k": config.rag_top_k,
             "dcm_semantic_candidates": config.dcm_semantic_candidates,
+            "embedding_model_id": config.embedding_model_id,
+            "embedding_endpoint": (
+                endpoint_identity(config.embedding_endpoint_url).to_dict()
+                if config.embedding_endpoint_url
+                else None
+            ),
             "case_count": len(cases),
             "workload_classes": sorted({case.workload_class.value for case in cases}),
             "strategies": [item.value for item in selected],
             "runtime_memory_metric": "resident_context_bytes_only",
+            "retrieval_latency_metric": "lookup_ms is the final successful lookup; retrieval_total_ms includes embedding setup and budget retries",
             "full_context_baseline": "all synthetic pages plus recent history",
             "ordinary_rag_baseline": "lexical overlap top-k without exact handles",
             "summarization_baseline": "fixed lossy summaries; generation cost excluded",
-            "dcm_retrieval": "authorized exact handles when available; otherwise bounded deterministic lexical stand-in through production contracts",
+            "dcm_retrieval": (
+                "production DML semantic page-catalog adapter over embedding-ranked synthetic pages"
+                if semantic_embedder is not None
+                else "authorized exact handles when available; otherwise bounded deterministic lexical stand-in through production contracts"
+            ),
         },
         results=results,
+    )
+
+
+def _context_build_error_result(
+    case: BenchmarkCase,
+    strategy: Strategy,
+    exc: Exception,
+    *,
+    semantic_embedder_configured: bool,
+) -> BenchmarkResult:
+    if strategy is Strategy.DCM:
+        retrieval_backend = (
+            "dml_semantic_page_catalog"
+            if semantic_embedder_configured
+            else "benchmark_lexical_catalog"
+        )
+    else:
+        retrieval_backend = "none"
+    return BenchmarkResult(
+        case_digest=_sha256_text(case.case_id),
+        workload_class=case.workload_class.value,
+        strategy=strategy.value,
+        success=False,
+        explicit_miss=False,
+        lookup_miss=True,
+        retrieval_recall=0.0,
+        retrieval_backend=retrieval_backend,
+        budget_constrained=False,
+        candidate_limit_requested=0,
+        candidate_limit_used=0,
+        lookup_ms=0.0,
+        retrieval_total_ms=0.0,
+        lookup_attempts=0,
+        prefill_ms=None,
+        total_latency_ms=0.0,
+        admitted_tokens=0,
+        budget_overflow_tokens=0,
+        prompt_tokens=None,
+        completion_tokens=None,
+        resident_context_bytes=0,
+        catalog_hits=0,
+        message_digest="",
+        authority_manifest_digest="",
+        packet_digest="",
+        expected_digest=_sha256_text(case.expected_answer),
+        output_digest="",
+        status="error",
+        error_type=type(exc).__name__,
     )
 
 
@@ -722,6 +971,20 @@ def _terms(text: str) -> set[str]:
     return {word for word in _WORD.findall(text.casefold()) if word not in _STOPWORDS}
 
 
+def _validated_embedding(value: Any, label: str) -> np.ndarray:
+    embedding = np.asarray(value, dtype=np.float32)
+    if embedding.ndim != 1 or embedding.size < 1 or not np.all(np.isfinite(embedding)):
+        raise ValueError(f"benchmark {label} embedding is invalid")
+    return embedding
+
+
+def _cosine_similarity(left: np.ndarray, right: np.ndarray) -> float:
+    if left.shape != right.shape:
+        raise ValueError("benchmark embedding dimensions do not match")
+    denominator = float(np.linalg.norm(left) * np.linalg.norm(right))
+    return float(np.dot(left, right) / denominator) if denominator else 0.0
+
+
 def _retrieval_recall(required_page_ids: Sequence[str], selected_page_ids: set[str]) -> float:
     required = set(required_page_ids)
     return len(required.intersection(selected_page_ids)) / len(required)
@@ -793,7 +1056,14 @@ def _aggregate(results: Sequence[BenchmarkResult]) -> Dict[str, Dict[str, Any]]:
             "mean_budget_overflow_tokens": round(
                 fmean(item.budget_overflow_tokens for item in items), 3
             ),
+            "budget_constrained_rate": round(
+                sum(item.budget_constrained for item in items) / len(items), 6
+            ),
             "mean_lookup_ms": round(fmean(item.lookup_ms for item in items), 3),
+            "mean_retrieval_total_ms": round(
+                fmean(item.retrieval_total_ms for item in items), 3
+            ),
+            "mean_lookup_attempts": round(fmean(item.lookup_attempts for item in items), 3),
             "mean_total_latency_ms": round(fmean(item.total_latency_ms for item in items), 3),
             "mean_resident_context_bytes": round(fmean(item.resident_context_bytes for item in items), 3),
             "error_count": sum(item.status != "ok" for item in items),

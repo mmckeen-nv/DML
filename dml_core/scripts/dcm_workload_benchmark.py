@@ -17,6 +17,7 @@ from daystrom_dml.context.benchmark import (
     stress_workload,
 )
 from daystrom_dml.context.probe import OpenAICompatibleModelClient, atomic_write_json
+from daystrom_dml.embeddings import OllamaEmbedder
 
 
 def main(argv: Optional[list[str]] = None) -> int:
@@ -32,6 +33,15 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument("--rag-top-k", type=int, default=1)
     parser.add_argument("--dcm-semantic-candidates", type=int, default=2)
     parser.add_argument(
+        "--embedding-model",
+        default=os.environ.get("DCM_BENCHMARK_EMBEDDING_MODEL", ""),
+        help="optional Ollama embedding model for the production semantic catalog path",
+    )
+    parser.add_argument(
+        "--embedding-base-url",
+        default=os.environ.get("DCM_BENCHMARK_EMBEDDING_BASE_URL", "http://127.0.0.1:11434"),
+    )
+    parser.add_argument(
         "--suite",
         choices=("regression", "stress", "extended"),
         default="regression",
@@ -43,6 +53,8 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     if not args.offline and not args.allow_network:
         parser.error("live benchmark requires explicit --allow-network")
+    if args.embedding_model and not args.allow_network:
+        parser.error("embedding-backed retrieval requires explicit --allow-network")
     if not args.offline and (not args.endpoint_url or not args.model):
         parser.error("live benchmark requires --endpoint-url and --model")
 
@@ -57,11 +69,18 @@ def main(argv: Optional[list[str]] = None) -> int:
         timeout_seconds=args.timeout_seconds,
         rag_top_k=args.rag_top_k,
         dcm_semantic_candidates=args.dcm_semantic_candidates,
+        embedding_model_id=args.embedding_model or None,
+        embedding_endpoint_url=args.embedding_base_url if args.embedding_model else None,
     )
     client = (
         DeterministicEvidenceClient()
         if args.offline
         else OpenAICompatibleModelClient(api_key=args.api_key)
+    )
+    semantic_embedder = (
+        OllamaEmbedder(args.embedding_model, base_url=args.embedding_base_url.rstrip("/"))
+        if args.embedding_model
+        else None
     )
     strategies = [Strategy(value) for value in args.strategy] if args.strategy else list(Strategy)
     workload = {
@@ -69,7 +88,13 @@ def main(argv: Optional[list[str]] = None) -> int:
         "stress": stress_workload,
         "extended": extended_workload,
     }[args.suite]()
-    report = run_workload(workload, client, config, strategies=strategies)
+    report = run_workload(
+        workload,
+        client,
+        config,
+        strategies=strategies,
+        semantic_embedder=semantic_embedder,
+    )
     payload = report.to_dict()
     print(json.dumps(payload, sort_keys=True, indent=2))
     if args.output_json:

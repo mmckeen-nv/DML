@@ -157,6 +157,8 @@ dcm-workload-benchmark \
   --allow-network \
   --endpoint-url http://127.0.0.1:11434/v1/chat/completions \
   --model llama3:8b \
+  --embedding-model qwen3-embedding:0.6b \
+  --embedding-base-url http://127.0.0.1:11434 \
   --suite extended \
   --output-json /tmp/dcm-workload-llama3-8b.json
 ```
@@ -169,12 +171,21 @@ the endpoint exposes it; direct runtime/KV validation remains a separate benchma
 The default `regression` suite preserves the original three-case slice. `stress`
 adds no-handle paraphrase, contradiction, true multi-hop, and long-horizon cases;
 `extended` runs both. These are regression slices, not claims of broad model-quality
-superiority. DCM uses an authorized exact page handle when available and a bounded
-deterministic lexical retrieval stand-in when no handle exists; ordinary RAG uses
-lexical top-k without handles, and the fixed lossy-summary baseline excludes
-summary-generation cost. Candidate depth is an explicit benchmark parameter rather
-than a claimed universal production default. Those differences are recorded in
-every artifact.
+superiority. DCM uses an authorized exact page handle when available. Without
+`--embedding-model`, no-handle cases use a bounded deterministic lexical stand-in.
+With `--embedding-model`, synthetic pages are embedded through the configured
+Ollama HTTP endpoint and ranked through the production `DMLSemanticPageCatalog`
+adapter; the generation endpoint remains OpenAI-compatible and can be Ollama,
+vLLM, or another provider. Ordinary RAG remains lexical top-k without handles,
+and the fixed lossy-summary baseline excludes summary-generation cost. Candidate
+depth is an explicit benchmark parameter rather than a claimed universal production
+default. If the final rendered-message estimate exceeds the configured benchmark
+budget, no-handle DCM retries with fewer candidates and records the requested/used
+depth plus `budget_constrained`; it never sends an overflowing DCM prompt. Final
+successful lookup time is reported as `lookup_ms`, while `retrieval_total_ms` also
+includes embedding setup and rejected budget-retry attempts. Context-construction
+failures are recorded per case as digest-only errors instead of aborting the suite.
+Those differences are recorded in every artifact.
 
 ---
 
