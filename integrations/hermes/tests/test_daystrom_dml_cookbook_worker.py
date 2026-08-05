@@ -1,9 +1,15 @@
 """Tests for the Daystrom DML Ollama cookbook worker."""
 
+import importlib.util
 import json
 from pathlib import Path
 
-from plugins.memory.daystrom_dml import cookbook_worker as cw
+
+COOKBOOK_WORKER_PATH = Path(__file__).resolve().parents[1] / "plugins" / "daystrom_dml" / "cookbook_worker.py"
+_SPEC = importlib.util.spec_from_file_location("daystrom_dml_cookbook_worker", COOKBOOK_WORKER_PATH)
+assert _SPEC is not None and _SPEC.loader is not None
+cw = importlib.util.module_from_spec(_SPEC)
+_SPEC.loader.exec_module(cw)
 
 
 def _write_state(path: Path, records):

@@ -24,7 +24,15 @@
     "runtime_id": {"type": "string", "minLength": 1},
     "segment_ids": {
       "type": "array",
+      "uniqueItems": true,
       "items": {"type": "string", "minLength": 1}
+    },
+    "segment_digests": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^[0-9a-f]{64}$"
+      }
     },
     "estimated_input_tokens": {"type": "integer", "minimum": 0},
     "exact_input_tokens": {"type": ["integer", "null"], "minimum": 0},

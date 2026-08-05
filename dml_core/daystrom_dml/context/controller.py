@@ -8,8 +8,9 @@ from daystrom_dml.api_contracts import ContractError, DaystromScope
 from daystrom_dml.context.admission import ACTIVE_ADMISSION_MODE, OBSERVE_ONLY_MODE, admit_context_segments, validate_admission_mode
 from daystrom_dml.context.adapters.api_messages import APIMessageAdapter
 from daystrom_dml.context.adapters.base import RuntimeContextAdapter
-from daystrom_dml.context.manifest import ContextPacket
+from daystrom_dml.context.manifest import ContextManifest, ContextPacket
 from daystrom_dml.context.schema import ContextSegment
+from daystrom_dml.context.working_set import WorkingSetManager
 
 
 class ContextController:
@@ -26,11 +27,17 @@ class ContextController:
         retrieval_adapter: Any = None,
         mode: str = OBSERVE_ONLY_MODE,
         clock: Any = None,
+        working_set_max_candidates: int = 4096,
     ) -> None:
         self.runtime_adapter = runtime_adapter or APIMessageAdapter()
         self.retrieval_adapter = retrieval_adapter
         self.mode = validate_admission_mode(mode)
         self.clock = clock or time.time
+        self.working_set_manager = WorkingSetManager(
+            self.runtime_adapter,
+            max_candidates=working_set_max_candidates,
+            clock=self.clock,
+        )
 
     def observe(
         self,
@@ -132,6 +139,37 @@ class ContextController:
             output_reserved_tokens=output_reserved_tokens,
             runtime_reserved_tokens=runtime_reserved_tokens,
             runtime_adapter=self.runtime_adapter,
+            page_out=page_out,
+        )
+
+    def reconcile_working_set(
+        self,
+        *,
+        scope: DaystromScope | Dict[str, Any] | None = None,
+        segments: Iterable[ContextSegment | Dict[str, Any]],
+        model_id: str,
+        runtime_id: str,
+        model_limit_tokens: int,
+        output_reserved_tokens: int = 0,
+        runtime_reserved_tokens: int = 0,
+        endpoint_url: Optional[str] = None,
+        parent_manifest: ContextManifest | Dict[str, Any] | None = None,
+        page_out: Any = None,
+    ) -> ContextPacket:
+        """Replace the active working set and emit prefix-reuse lineage."""
+
+        if self.mode != ACTIVE_ADMISSION_MODE:
+            raise ContractError(f"working-set reconciliation requires mode {ACTIVE_ADMISSION_MODE!r}")
+        return self.working_set_manager.reconcile(
+            scope=scope,
+            segments=segments,
+            model_id=model_id,
+            runtime_id=runtime_id,
+            endpoint_url=endpoint_url,
+            model_limit_tokens=model_limit_tokens,
+            output_reserved_tokens=output_reserved_tokens,
+            runtime_reserved_tokens=runtime_reserved_tokens,
+            parent_manifest=parent_manifest,
             page_out=page_out,
         )
 

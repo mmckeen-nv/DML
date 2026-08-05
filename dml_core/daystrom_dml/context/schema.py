@@ -1,6 +1,8 @@
 """Provider-agnostic context segment contracts for Daystrom Context Manager."""
 from __future__ import annotations
 
+import hashlib
+import json
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Dict, Optional
@@ -82,3 +84,12 @@ class ContextSegment(SerializableDataclass):
         """Return exact token count when available, otherwise the estimate."""
 
         return self.exact_tokens if self.exact_tokens is not None else self.estimated_tokens
+
+
+def context_segment_digest(segment: ContextSegment) -> str:
+    """Bind a resident working-set entry to its complete canonical content."""
+
+    if not isinstance(segment, ContextSegment):
+        raise ContractError("segment must be a ContextSegment")
+    payload = json.dumps(segment.to_dict(), sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
