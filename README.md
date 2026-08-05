@@ -146,7 +146,7 @@ SentenceTransformers remain supported for alternate experiments and compatibilit
 Run the deterministic offline contract and strategy smoke:
 
 ```bash
-dcm-workload-benchmark --offline --output-json /tmp/dcm-workload-offline.json
+dcm-workload-benchmark --offline --suite extended --output-json /tmp/dcm-workload-offline.json
 ```
 
 Run the same sanitized synthetic workload against an explicitly approved local
@@ -157,19 +157,24 @@ dcm-workload-benchmark \
   --allow-network \
   --endpoint-url http://127.0.0.1:11434/v1/chat/completions \
   --model llama3:8b \
+  --suite extended \
   --output-json /tmp/dcm-workload-llama3-8b.json
 ```
 
 Artifacts contain message, answer, and completion digests—not prompt or response
-text. Reported metrics include answer fidelity, explicit/lookup misses, admitted
-tokens, lookup and total latency, and serialized resident-context bytes. Prefill
-time is reported only when the endpoint exposes it; direct runtime/KV validation
-remains a separate benchmark. The bundled three-case workload is a regression
-slice, not a claim of broad model-quality superiority. Its DCM lane uses an
-authorized exact page handle when available and a bounded two-candidate
-deterministic retrieval stand-in when no handle exists; ordinary RAG uses lexical top-k without handles,
-and the fixed lossy-summary baseline excludes summary-generation cost. Those
-differences are recorded in every artifact.
+text. Reported metrics include answer fidelity, explicit/lookup misses, required-page
+retrieval recall, rendered-message budget overflow, admitted tokens, lookup and total
+latency, and serialized resident-context bytes. Prefill time is reported only when
+the endpoint exposes it; direct runtime/KV validation remains a separate benchmark.
+The default `regression` suite preserves the original three-case slice. `stress`
+adds no-handle paraphrase, contradiction, true multi-hop, and long-horizon cases;
+`extended` runs both. These are regression slices, not claims of broad model-quality
+superiority. DCM uses an authorized exact page handle when available and a bounded
+deterministic lexical retrieval stand-in when no handle exists; ordinary RAG uses
+lexical top-k without handles, and the fixed lossy-summary baseline excludes
+summary-generation cost. Candidate depth is an explicit benchmark parameter rather
+than a claimed universal production default. Those differences are recorded in
+every artifact.
 
 ---
 

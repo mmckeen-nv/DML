@@ -28,7 +28,7 @@ from daystrom_dml.context.probe import (
 )
 from daystrom_dml.context.schema import ContextAuthority, ContextPriority, ContextSegment
 
-BENCHMARK_SCHEMA_V1 = "daystrom-dcm-workload-benchmark-v1"
+BENCHMARK_SCHEMA_V2 = "daystrom-dcm-workload-benchmark-v2"
 _WORD = re.compile(r"[a-z0-9]+")
 _SYNTHETIC_ANSWER = re.compile(r"\b[A-Z]{4,}-\d{2}\b")
 _STOPWORDS = {
@@ -59,6 +59,15 @@ class Strategy(str, Enum):
     DCM = "dcm"
 
 
+class WorkloadClass(str, Enum):
+    EXACT_HANDLE = "exact_handle"
+    NEAR_DUPLICATE = "near_duplicate"
+    PARAPHRASE = "paraphrase"
+    CONTRADICTION = "contradiction"
+    MULTI_HOP = "multi_hop"
+    LONG_HORIZON = "long_horizon"
+
+
 @dataclass(frozen=True)
 class BenchmarkPage:
     page_id: str
@@ -76,6 +85,7 @@ class BenchmarkCase:
     system_prompt: str
     question: str
     expected_answer: str
+    workload_class: WorkloadClass
     pages: tuple[BenchmarkPage, ...]
     recent_history: tuple[str, ...]
     relevant_page_ids: tuple[str, ...]
@@ -89,6 +99,8 @@ class BenchmarkCase:
             raise ValueError("relevant_page_ids must identify case pages")
         if any(item not in known for item in self.exact_page_handles):
             raise ValueError("exact_page_handles must identify case pages")
+        if isinstance(self.workload_class, str):
+            object.__setattr__(self, "workload_class", WorkloadClass(self.workload_class))
 
 
 @dataclass(frozen=True)
@@ -121,19 +133,23 @@ class StrategyContext:
     lookup_miss: bool = False
     authority_manifest_digest: str = ""
     packet_digest: str = ""
+    retrieval_recall: float = 0.0
 
 
 @dataclass
 class BenchmarkResult:
     case_digest: str
+    workload_class: str
     strategy: str
     success: bool
     explicit_miss: bool
     lookup_miss: bool
+    retrieval_recall: float
     lookup_ms: float
     prefill_ms: Optional[float]
     total_latency_ms: float
     admitted_tokens: int
+    budget_overflow_tokens: int
     prompt_tokens: Optional[int]
     completion_tokens: Optional[int]
     resident_context_bytes: int
@@ -156,7 +172,7 @@ class BenchmarkReport:
     model_id: str
     config: Dict[str, Any]
     results: List[BenchmarkResult]
-    schema_version: str = BENCHMARK_SCHEMA_V1
+    schema_version: str = BENCHMARK_SCHEMA_V2
     aggregate: Dict[str, Dict[str, Any]] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -249,7 +265,10 @@ def build_strategy_context(case: BenchmarkCase, strategy: Strategy, config: Benc
         context = _plain_context(messages)
         context.lookup_ms = lookup_ms
         context.catalog_hits = len(selected)
-        context.lookup_miss = not any(page.page_id in case.relevant_page_ids for page in selected)
+        context.retrieval_recall = _retrieval_recall(
+            case.relevant_page_ids, {page.page_id for page in selected}
+        )
+        context.lookup_miss = context.retrieval_recall < 1.0
         return context
     if strategy is not Strategy.DCM:  # pragma: no cover - enum exhaustiveness
         raise ValueError(f"unsupported strategy: {strategy}")
@@ -308,6 +327,12 @@ def build_strategy_context(case: BenchmarkCase, strategy: Strategy, config: Benc
         for item in packet.segments
     ]
     messages = [dict(item) for item in packet.rendered_messages]
+    selected_page_ids = {
+        item.removeprefix("dml-page:")
+        for item in packet.manifest.segment_ids
+        if item.startswith("dml-page:")
+    }
+    retrieval_recall = _retrieval_recall(case.relevant_page_ids, selected_page_ids)
     return StrategyContext(
         messages=messages,
         # Use one estimator for every strategy so this comparison does not
@@ -316,7 +341,8 @@ def build_strategy_context(case: BenchmarkCase, strategy: Strategy, config: Benc
         resident_context_bytes=_message_bytes(messages),
         lookup_ms=lookup_ms,
         catalog_hits=hits,
-        lookup_miss=not any(f"dml-page:{item}" in packet.manifest.segment_ids for item in case.relevant_page_ids),
+        lookup_miss=retrieval_recall < 1.0,
+        retrieval_recall=retrieval_recall,
         authority_manifest_digest=_digest_json(authority),
         packet_digest=packet.packet_content_digest,
     )
@@ -353,14 +379,19 @@ def run_workload(
                 results.append(
                     BenchmarkResult(
                         case_digest=_sha256_text(case.case_id),
+                        workload_class=case.workload_class.value,
                         strategy=strategy.value,
                         success=case.expected_answer.casefold() in output.casefold(),
                         explicit_miss=output.casefold() == "unknown",
                         lookup_miss=context.lookup_miss,
+                        retrieval_recall=context.retrieval_recall,
                         lookup_ms=context.lookup_ms,
                         prefill_ms=_prefill_ms(usage),
                         total_latency_ms=response.latency_ms + context.lookup_ms,
                         admitted_tokens=context.admitted_tokens,
+                        budget_overflow_tokens=max(
+                            0, context.admitted_tokens - config.context_budget_tokens
+                        ),
                         prompt_tokens=_usage_int(usage, "prompt_tokens"),
                         completion_tokens=_usage_int(usage, "completion_tokens"),
                         resident_context_bytes=context.resident_context_bytes,
@@ -376,14 +407,19 @@ def run_workload(
                 results.append(
                     BenchmarkResult(
                         case_digest=_sha256_text(case.case_id),
+                        workload_class=case.workload_class.value,
                         strategy=strategy.value,
                         success=False,
                         explicit_miss=False,
                         lookup_miss=context.lookup_miss,
+                        retrieval_recall=context.retrieval_recall,
                         lookup_ms=context.lookup_ms,
                         prefill_ms=None,
                         total_latency_ms=context.lookup_ms,
                         admitted_tokens=context.admitted_tokens,
+                        budget_overflow_tokens=max(
+                            0, context.admitted_tokens - config.context_budget_tokens
+                        ),
                         prompt_tokens=None,
                         completion_tokens=None,
                         resident_context_bytes=context.resident_context_bytes,
@@ -407,12 +443,13 @@ def run_workload(
             "rag_top_k": config.rag_top_k,
             "dcm_semantic_candidates": config.dcm_semantic_candidates,
             "case_count": len(cases),
+            "workload_classes": sorted({case.workload_class.value for case in cases}),
             "strategies": [item.value for item in selected],
             "runtime_memory_metric": "resident_context_bytes_only",
             "full_context_baseline": "all synthetic pages plus recent history",
             "ordinary_rag_baseline": "lexical overlap top-k without exact handles",
             "summarization_baseline": "fixed lossy summaries; generation cost excluded",
-            "dcm_retrieval": "authorized exact handles when available; otherwise bounded two-candidate deterministic lexical stand-in through production contracts",
+            "dcm_retrieval": "authorized exact handles when available; otherwise bounded deterministic lexical stand-in through production contracts",
         },
         results=results,
     )
@@ -442,6 +479,7 @@ def default_workload() -> tuple[BenchmarkCase, ...]:
             system_prompt=system,
             question="What is the Atlas deployment code?",
             expected_answer="ORBIT-17",
+            workload_class=WorkloadClass.EXACT_HANDLE,
             pages=(
                 BenchmarkPage(
                     "atlas-record",
@@ -459,6 +497,7 @@ def default_workload() -> tuple[BenchmarkCase, ...]:
             system_prompt=system,
             question="Which credential opens the archival gate?",
             expected_answer="CINDER-42",
+            workload_class=WorkloadClass.NEAR_DUPLICATE,
             pages=(
                 BenchmarkPage(
                     "amber-protocol",
@@ -480,6 +519,7 @@ def default_workload() -> tuple[BenchmarkCase, ...]:
             system_prompt=system,
             question="What is the Northstar recovery key?",
             expected_answer="PULSAR-63",
+            workload_class=WorkloadClass.EXACT_HANDLE,
             pages=(
                 BenchmarkPage(
                     "northstar-record",
@@ -493,6 +533,118 @@ def default_workload() -> tuple[BenchmarkCase, ...]:
             exact_page_handles=("northstar-record",),
         ),
     )
+
+
+def stress_workload() -> tuple[BenchmarkCase, ...]:
+    """Sanitized no-handle cases that stress retrieval and evidence use."""
+    seed = default_workload()[0]
+    filler = tuple(
+        BenchmarkPage(
+            f"long-horizon-{index:02d}",
+            f"Routine archive note {index}: a harmless calibration tray was inventoried.",
+            f"Calibration tray {index} was inventoried.",
+        )
+        for index in range(16)
+    )
+    return (
+        BenchmarkCase(
+            case_id="lumen-paraphrase",
+            system_prompt=seed.system_prompt,
+            question="What passphrase restores Project Lumen after a total outage?",
+            expected_answer="AURORA-26",
+            workload_class=WorkloadClass.PARAPHRASE,
+            pages=(
+                BenchmarkPage(
+                    "lumen-continuity",
+                    "Historical record: Lumen disaster recovery uses the fallback phrase AURORA-26.",
+                    "Lumen continuity phrase was recorded; value omitted.",
+                ),
+                BenchmarkPage(
+                    "lumen-outage-review",
+                    "Routine note: Project Lumen outage restoration timing was reviewed by the practice team.",
+                    "Lumen outage timing was reviewed.",
+                ),
+                *filler[:4],
+            ),
+            recent_history=seed.recent_history,
+            relevant_page_ids=("lumen-continuity",),
+        ),
+        BenchmarkCase(
+            case_id="vesper-current-code",
+            system_prompt=seed.system_prompt,
+            question="What is the current Vesper access code?",
+            expected_answer="ECLIPSE-84",
+            workload_class=WorkloadClass.CONTRADICTION,
+            pages=(
+                BenchmarkPage(
+                    "vesper-archived",
+                    "Superseded historical record: the former Vesper access code was COMET-11. Do not use it after rotation.",
+                    "An old Vesper code was superseded.",
+                ),
+                BenchmarkPage(
+                    "vesper-current",
+                    "Later correction: the current Vesper access code is ECLIPSE-84; it replaces the former code.",
+                    "Vesper code was rotated; current value omitted.",
+                ),
+                *filler[:4],
+            ),
+            recent_history=seed.recent_history,
+            relevant_page_ids=("vesper-current",),
+        ),
+        BenchmarkCase(
+            case_id="kestrel-route-code",
+            system_prompt=seed.system_prompt,
+            question="Which code activates the route assigned to Kestrel?",
+            expected_answer="QUASAR-28",
+            workload_class=WorkloadClass.MULTI_HOP,
+            pages=(
+                BenchmarkPage(
+                    "kestrel-assignment",
+                    "Historical record: Kestrel is assigned to the Meridian route.",
+                    "Kestrel has a route assignment.",
+                ),
+                BenchmarkPage(
+                    "meridian-activation",
+                    "Historical record: the Meridian route activation code is QUASAR-28.",
+                    "Meridian has an activation code; value omitted.",
+                ),
+                BenchmarkPage(
+                    "kestrel-schedule",
+                    "Routine note: Kestrel route scheduling and activation timing were discussed.",
+                    "Kestrel scheduling was discussed.",
+                ),
+                *filler[:3],
+            ),
+            recent_history=seed.recent_history,
+            relevant_page_ids=("kestrel-assignment", "meridian-activation"),
+        ),
+        BenchmarkCase(
+            case_id="helios-long-horizon",
+            system_prompt=seed.system_prompt,
+            question="What is the Helios archive release token?",
+            expected_answer="SOLACE-57",
+            workload_class=WorkloadClass.LONG_HORIZON,
+            pages=(
+                BenchmarkPage(
+                    "helios-origin",
+                    "Oldest retained record: the Helios archive release token is SOLACE-57.",
+                    "Helios release token was retained; value omitted.",
+                ),
+                *filler,
+                BenchmarkPage(
+                    "helios-review",
+                    "Recent routine note: the Helios archive release checklist was reviewed without its token.",
+                    "Helios release checklist was reviewed.",
+                ),
+            ),
+            recent_history=seed.recent_history,
+            relevant_page_ids=("helios-origin",),
+        ),
+    )
+
+
+def extended_workload() -> tuple[BenchmarkCase, ...]:
+    return (*default_workload(), *stress_workload())
 
 
 def _base_messages(case: BenchmarkCase, optional: Sequence[str], *, include_history: bool = False) -> list[dict[str, str]]:
@@ -570,6 +722,11 @@ def _terms(text: str) -> set[str]:
     return {word for word in _WORD.findall(text.casefold()) if word not in _STOPWORDS}
 
 
+def _retrieval_recall(required_page_ids: Sequence[str], selected_page_ids: set[str]) -> float:
+    required = set(required_page_ids)
+    return len(required.intersection(selected_page_ids)) / len(required)
+
+
 def _benchmark_scope(case: BenchmarkCase) -> DaystromScope:
     return DaystromScope(
         tenant_id="benchmark",
@@ -628,7 +785,14 @@ def _aggregate(results: Sequence[BenchmarkResult]) -> Dict[str, Dict[str, Any]]:
             "answer_fidelity": round(sum(item.success for item in items) / len(items), 6),
             "explicit_miss_rate": round(sum(item.explicit_miss for item in items) / len(items), 6),
             "lookup_miss_rate": round(sum(item.lookup_miss for item in items) / len(items), 6),
+            "mean_retrieval_recall": round(fmean(item.retrieval_recall for item in items), 6),
             "mean_admitted_tokens": round(fmean(item.admitted_tokens for item in items), 3),
+            "budget_overflow_rate": round(
+                sum(item.budget_overflow_tokens > 0 for item in items) / len(items), 6
+            ),
+            "mean_budget_overflow_tokens": round(
+                fmean(item.budget_overflow_tokens for item in items), 3
+            ),
             "mean_lookup_ms": round(fmean(item.lookup_ms for item in items), 3),
             "mean_total_latency_ms": round(fmean(item.total_latency_ms for item in items), 3),
             "mean_resident_context_bytes": round(fmean(item.resident_context_bytes for item in items), 3),

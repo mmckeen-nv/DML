@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 
 from daystrom_dml.context.benchmark import (
     BenchmarkConfig,
@@ -8,7 +9,9 @@ from daystrom_dml.context.benchmark import (
     Strategy,
     build_strategy_context,
     default_workload,
+    extended_workload,
     run_workload,
+    stress_workload,
 )
 
 
@@ -65,7 +68,7 @@ def test_offline_report_is_digest_only_and_aggregates_required_metrics() -> None
     payload = report.to_dict()
     serialized = json.dumps(payload, sort_keys=True)
 
-    assert payload["schema_version"] == "daystrom-dcm-workload-benchmark-v1"
+    assert payload["schema_version"] == "daystrom-dcm-workload-benchmark-v2"
     assert set(payload["aggregate"]) == {strategy.value for strategy in Strategy}
     assert payload["aggregate"]["dcm"]["answer_fidelity"] == 1.0
     assert payload["aggregate"]["dcm"]["lookup_miss_rate"] == 0.0
@@ -92,3 +95,55 @@ def test_strategy_order_and_report_are_deterministic_with_offline_client() -> No
             metrics["mean_prefill_ms"] = 0
             metrics["mean_total_latency_ms"] = 0
     assert first == second
+
+
+def test_multi_hop_lookup_requires_every_supporting_page() -> None:
+    case = next(item for item in stress_workload() if item.workload_class.value == "multi_hop")
+
+    rag = build_strategy_context(case, Strategy.ORDINARY_RAG, _config())
+    dcm_two = build_strategy_context(case, Strategy.DCM, _config())
+    dcm_three = build_strategy_context(
+        case,
+        Strategy.DCM,
+        replace(_config(), dcm_semantic_candidates=3),
+    )
+
+    assert rag.retrieval_recall == 0.5
+    assert rag.lookup_miss is True
+    assert dcm_two.retrieval_recall == 0.5
+    assert dcm_two.lookup_miss is True
+    assert dcm_three.retrieval_recall == 1.0
+    assert dcm_three.lookup_miss is False
+
+
+def test_extended_report_remains_digest_only_and_classified() -> None:
+    cases = extended_workload()
+    payload = run_workload(cases, DeterministicEvidenceClient(), _config()).to_dict()
+    serialized = json.dumps(payload, sort_keys=True)
+
+    assert payload["config"]["case_count"] == 7
+    assert payload["config"]["workload_classes"] == [
+        "contradiction",
+        "exact_handle",
+        "long_horizon",
+        "multi_hop",
+        "near_duplicate",
+        "paraphrase",
+    ]
+    assert {item["workload_class"] for item in payload["results"]} == {
+        "exact_handle",
+        "near_duplicate",
+        "paraphrase",
+        "contradiction",
+        "multi_hop",
+        "long_horizon",
+    }
+    assert all("retrieval_recall" in item for item in payload["results"])
+    assert all("budget_overflow_tokens" in item for item in payload["results"])
+    assert all("mean_retrieval_recall" in item for item in payload["aggregate"].values())
+    assert all("budget_overflow_rate" in item for item in payload["aggregate"].values())
+    for case in cases:
+        assert case.case_id not in serialized
+        assert case.expected_answer not in serialized
+        assert case.question not in serialized
+        assert all(page.content not in serialized for page in case.pages)

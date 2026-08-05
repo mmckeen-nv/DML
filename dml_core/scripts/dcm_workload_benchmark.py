@@ -12,7 +12,9 @@ from daystrom_dml.context.benchmark import (
     DeterministicEvidenceClient,
     Strategy,
     default_workload,
+    extended_workload,
     run_workload,
+    stress_workload,
 )
 from daystrom_dml.context.probe import OpenAICompatibleModelClient, atomic_write_json
 
@@ -29,6 +31,12 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument("--timeout-seconds", type=float, default=60.0)
     parser.add_argument("--rag-top-k", type=int, default=1)
     parser.add_argument("--dcm-semantic-candidates", type=int, default=2)
+    parser.add_argument(
+        "--suite",
+        choices=("regression", "stress", "extended"),
+        default="regression",
+        help="sanitized workload suite to run",
+    )
     parser.add_argument("--strategy", action="append", choices=[item.value for item in Strategy])
     parser.add_argument("--output-json")
     args = parser.parse_args(argv)
@@ -56,7 +64,12 @@ def main(argv: Optional[list[str]] = None) -> int:
         else OpenAICompatibleModelClient(api_key=args.api_key)
     )
     strategies = [Strategy(value) for value in args.strategy] if args.strategy else list(Strategy)
-    report = run_workload(default_workload(), client, config, strategies=strategies)
+    workload = {
+        "regression": default_workload,
+        "stress": stress_workload,
+        "extended": extended_workload,
+    }[args.suite]()
+    report = run_workload(workload, client, config, strategies=strategies)
     payload = report.to_dict()
     print(json.dumps(payload, sort_keys=True, indent=2))
     if args.output_json:
