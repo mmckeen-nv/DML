@@ -95,6 +95,7 @@ dml-server = "daystrom_dml.server:main"
 dml-provider = "daystrom_dml.provider_server:main"
 dml-mcp-server = "dml_mcp.dml_mcp_server:main"
 dcm-model-probe = "scripts.dcm_model_probe:main"
+dcm-workload-benchmark = "scripts.dcm_workload_benchmark:main"
 
 [tool.pytest.ini_options]
 addopts = "-q"

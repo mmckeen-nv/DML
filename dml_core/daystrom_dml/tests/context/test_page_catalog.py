@@ -256,9 +256,10 @@ def test_working_set_hydrates_catalog_pages_and_preserves_integrity_lineage():
         model_limit_tokens=32,
     )
 
-    assert packet.manifest.segment_ids == ["task", "dml-page:evidence"]
+    assert packet.manifest.segment_ids == ["dml-page:evidence", "task"]
+    assert packet.rendered_messages[-1]["content"] == "continue work"
     assert packet.decisions["page_catalog"]["returned_candidates"] == 1
-    assert packet.decisions["working_set"]["added"] == ["task", "dml-page:evidence"]
+    assert packet.decisions["working_set"]["added"] == ["dml-page:evidence", "task"]
     assert packet.packet_content_digest == packet.compute_content_digest()
 
 

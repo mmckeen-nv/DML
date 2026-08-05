@@ -15,7 +15,7 @@ from daystrom_dml.context.budget import ContextBudget
 from daystrom_dml.context.capabilities import RuntimeCapabilities
 from daystrom_dml.context.catalog import PageCatalogQuery, PageCatalogResult, SemanticPageCatalog
 from daystrom_dml.context.manifest import ContextManifest, ContextPacket
-from daystrom_dml.context.schema import ContextSegment, context_segment_digest
+from daystrom_dml.context.schema import ContextAuthority, ContextSegment, context_segment_digest
 
 WORKING_SET_TRANSITION_V1 = "daystrom-working-set-transition-v1"
 
@@ -202,9 +202,18 @@ class WorkingSetManager:
             raise ContractError("page catalog result attempted to elevate context authority")
         if any(segment.priority.value not in {"reference", "disposable"} for segment in result.segments):
             raise ContractError("page catalog result attempted to elevate context priority")
+        leading_pinned = [
+            segment for segment in pinned if segment.authority is not ContextAuthority.CURRENT_INSTRUCTION
+        ]
+        current_instructions = [
+            segment for segment in pinned if segment.authority is ContextAuthority.CURRENT_INSTRUCTION
+        ]
         return self.reconcile(
             scope=scope_obj,
-            segments=[*pinned, *result.segments],
+            # Retrieved evidence is untrusted data. Place it after stable policy
+            # and control context but before the current instruction so the
+            # model sees the authoritative question last.
+            segments=[*leading_pinned, *result.segments, *current_instructions],
             model_id=model_id,
             runtime_id=runtime_id,
             model_limit_tokens=model_limit_tokens,

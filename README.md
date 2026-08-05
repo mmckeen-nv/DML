@@ -87,6 +87,7 @@ Important entrypoints:
 - `dml-ollama` — Ollama-shaped memory clone for tools that expect Ollama APIs.
 - `dml` — Ollama-style client CLI for provider operations.
 - `dml-mcp-server` — MCP integration surface.
+- `dcm-workload-benchmark` — digest-only comparison of full context, ordinary RAG, truncation, summarization, and DCM working-set hydration.
 - `integrations/hermes/plugins/daystrom_dml` — Hermes memory provider with DML/DPM/DCN integration.
 - [`AGENT_README_TO_OMNOM.md`](AGENT_README_TO_OMNOM.md) — agent-facing integration playbook and endpoint wizard.
 
@@ -139,6 +140,35 @@ persistence:
 ```
 
 SentenceTransformers remain supported for alternate experiments and compatibility, but Ollama-native embeddings/summarization are the clean default for the current Daystrom runtime.
+
+### DCM workload benchmark
+
+Run the deterministic offline contract and strategy smoke:
+
+```bash
+dcm-workload-benchmark --offline --output-json /tmp/dcm-workload-offline.json
+```
+
+Run the same sanitized synthetic workload against an explicitly approved local
+OpenAI-compatible endpoint:
+
+```bash
+dcm-workload-benchmark \
+  --allow-network \
+  --endpoint-url http://127.0.0.1:11434/v1/chat/completions \
+  --model llama3:8b \
+  --output-json /tmp/dcm-workload-llama3-8b.json
+```
+
+Artifacts contain message, answer, and completion digests—not prompt or response
+text. Reported metrics include answer fidelity, explicit/lookup misses, admitted
+tokens, lookup and total latency, and serialized resident-context bytes. Prefill
+time is reported only when the endpoint exposes it; direct runtime/KV validation
+remains a separate benchmark. The bundled three-case workload is a regression
+slice, not a claim of broad model-quality superiority. Its DCM lane uses an
+authorized exact page handle before lexical fallback, ordinary RAG uses lexical
+top-k without handles, and the fixed lossy-summary baseline excludes summary
+generation cost; those differences are recorded in every artifact.
 
 ---
 
