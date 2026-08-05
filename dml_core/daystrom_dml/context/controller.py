@@ -8,6 +8,7 @@ from daystrom_dml.api_contracts import ContractError, DaystromScope
 from daystrom_dml.context.admission import ACTIVE_ADMISSION_MODE, OBSERVE_ONLY_MODE, admit_context_segments, validate_admission_mode
 from daystrom_dml.context.adapters.api_messages import APIMessageAdapter
 from daystrom_dml.context.adapters.base import RuntimeContextAdapter
+from daystrom_dml.context.catalog import PageCatalogQuery, SemanticPageCatalog
 from daystrom_dml.context.manifest import ContextManifest, ContextPacket
 from daystrom_dml.context.schema import ContextSegment
 from daystrom_dml.context.working_set import WorkingSetManager
@@ -169,6 +170,44 @@ class ContextController:
             model_limit_tokens=model_limit_tokens,
             output_reserved_tokens=output_reserved_tokens,
             runtime_reserved_tokens=runtime_reserved_tokens,
+            parent_manifest=parent_manifest,
+            page_out=page_out,
+        )
+
+    def reconcile_catalog_working_set(
+        self,
+        *,
+        scope: DaystromScope | Dict[str, Any] | None = None,
+        pinned_segments: Iterable[ContextSegment | Dict[str, Any]],
+        catalog_query: PageCatalogQuery | Dict[str, Any],
+        model_id: str,
+        runtime_id: str,
+        model_limit_tokens: int,
+        output_reserved_tokens: int = 0,
+        runtime_reserved_tokens: int = 0,
+        endpoint_url: Optional[str] = None,
+        parent_manifest: ContextManifest | Dict[str, Any] | None = None,
+        page_out: Any = None,
+        catalog: Optional[SemanticPageCatalog] = None,
+    ) -> ContextPacket:
+        """Hydrate and reconcile a resident set through an authorized catalog."""
+
+        if self.mode != ACTIVE_ADMISSION_MODE:
+            raise ContractError(f"catalog reconciliation requires mode {ACTIVE_ADMISSION_MODE!r}")
+        selected_catalog = catalog if catalog is not None else self.retrieval_adapter
+        if selected_catalog is None or not callable(getattr(selected_catalog, "lookup", None)):
+            raise ContractError("catalog reconciliation requires a semantic page catalog")
+        return self.working_set_manager.reconcile_from_catalog(
+            scope=scope,
+            pinned_segments=pinned_segments,
+            catalog=selected_catalog,
+            catalog_query=catalog_query,
+            model_id=model_id,
+            runtime_id=runtime_id,
+            model_limit_tokens=model_limit_tokens,
+            output_reserved_tokens=output_reserved_tokens,
+            runtime_reserved_tokens=runtime_reserved_tokens,
+            endpoint_url=endpoint_url,
             parent_manifest=parent_manifest,
             page_out=page_out,
         )

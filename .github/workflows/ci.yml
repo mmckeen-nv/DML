@@ -16,12 +16,14 @@ jobs:
         dml_core/daystrom_dml/personality_matrix.py
         dml_core/daystrom_dml/config.py
         dml_core/daystrom_dml/settings.py
+        dml_core/daystrom_dml/context
         integrations/hermes/plugins/daystrom_dml
         dml_core/daystrom_dml/tests/test_dml.py
       DML_CI_MYPY_TARGETS: >-
         dml_core/daystrom_dml/personality_matrix.py
         dml_core/daystrom_dml/config.py
         dml_core/daystrom_dml/settings.py
+        dml_core/daystrom_dml/context
         dml_mcp/dml_mcp_server.py
     steps:
       - uses: actions/checkout@v6
@@ -39,6 +41,7 @@ jobs:
       - name: DML core and Hermes hardening tests
         run: |
           pytest dml_core/daystrom_dml/tests/test_dml.py -k personality
+          pytest dml_core/daystrom_dml/tests/context
           pytest dml_core/tests/test_mcp_server.py dml_core/tests/test_store_lock.py dml_core/daystrom_dml/tests/test_agentic_hot_path.py integrations/hermes/tests/test_daystrom_iteration_extension.py
           python integrations/hermes/plugins/daystrom_dml/smoke_hygiene.py
 
@@ -65,5 +68,7 @@ jobs:
           dml_core/tests/test_atomic_io.py
           dml_core/tests/test_fail_closed_persistence.py
           dml_core/tests/test_rag_store.py
+          dml_core/daystrom_dml/tests/context/test_page_catalog.py
+          dml_core/daystrom_dml/tests/context/test_working_set.py
           openclaw-wrapper/tests/test_dml_memory.py
           -q
