@@ -10,9 +10,16 @@ from __future__ import annotations
 import hashlib
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, List, Mapping, Optional, Sequence
+from typing import Any, Dict, List, Mapping, Optional, Protocol, Sequence
 
 from daystrom_dml.context.adapters.api_messages import APIMessageAdapter
+from daystrom_dml.context.checkpoints import (
+    CheckpointRestoreResult,
+    CheckpointSelectionError,
+    ExecutionCheckpointController,
+    ExecutionCheckpointIdentity,
+)
+from daystrom_dml.context.execution import RuntimeExecutionError
 from daystrom_dml.context.faults import (
     EvidenceHandle,
     MemoryFaultBudget,
@@ -22,7 +29,13 @@ from daystrom_dml.context.faults import (
     MemoryFaultStatus,
 )
 from daystrom_dml.context.manifest import ContextPacket
-from daystrom_dml.context.probe import ModelClient, ModelClientResponse, ProbeSettings, endpoint_identity_digest
+from daystrom_dml.context.probe import (
+    ModelClient,
+    ModelClientResponse,
+    ProbeSettings,
+    endpoint_identity_digest,
+    endpoint_origin_identity_digest,
+)
 from daystrom_dml.context.schema import ContextAuthority, ContextSegment
 
 
@@ -65,6 +78,7 @@ class FaultRetryResult:
     reason_code: str = "completed"
     attempted_tiers: List[str] = field(default_factory=list)
     evidence: List[EvidenceHandle] = field(default_factory=list)
+    checkpoint_restore: Optional[CheckpointRestoreResult] = None
 
     def to_telemetry(self) -> Dict[str, Any]:
         return {
@@ -73,6 +87,9 @@ class FaultRetryResult:
             "reason_code": self.reason_code,
             "attempted_tiers": list(self.attempted_tiers),
             "output_digest": hashlib.sha256(self.response.content.encode("utf-8")).hexdigest(),
+            "checkpoint_restore": (
+                self.checkpoint_restore.to_telemetry() if self.checkpoint_restore is not None else None
+            ),
             "evidence": [
                 {
                     "handle_id": item.handle_id,
@@ -93,6 +110,48 @@ class _PageCandidate:
     digest: str
 
 
+class SlotBoundRuntime(Protocol):
+    def complete_on_slot(
+        self,
+        endpoint_url: str,
+        model_id: str,
+        messages: List[Dict[str, Any]],
+        settings: ProbeSettings,
+        *,
+        slot_id: int,
+        label: str = "",
+    ) -> ModelClientResponse: ...
+
+
+@dataclass(frozen=True)
+class CheckpointRecoveryPlan:
+    """Explicitly bind selection, restore, and retry to one runtime object and slot."""
+
+    controller: ExecutionCheckpointController
+    identity: ExecutionCheckpointIdentity
+    slot_id: int
+    runtime: SlotBoundRuntime
+    max_selection_records: int = 1024
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.controller, ExecutionCheckpointController):
+            raise ValueError("checkpoint controller is required")
+        if not isinstance(self.identity, ExecutionCheckpointIdentity):
+            raise ValueError("checkpoint identity is required")
+        if self.runtime is not self.controller.adapter:
+            raise ValueError("checkpoint control and continuation must use the same runtime")
+        if not isinstance(self.slot_id, int) or isinstance(self.slot_id, bool) or self.slot_id < 0:
+            raise ValueError("checkpoint slot_id must be a non-negative integer")
+        if (
+            not isinstance(self.max_selection_records, int)
+            or isinstance(self.max_selection_records, bool)
+            or self.max_selection_records <= 0
+        ):
+            raise ValueError("max_selection_records must be a positive integer")
+        if not callable(getattr(self.runtime, "complete_on_slot", None)):
+            raise ValueError("checkpoint runtime must support slot-bound completion")
+
+
 class AutonomousFaultRetryRunner:
     """Provider-neutral, fail-closed model fault/retry orchestrator."""
 
@@ -107,6 +166,7 @@ class AutonomousFaultRetryRunner:
         settings: ProbeSettings,
         policy: Optional[FaultRetryPolicy] = None,
         runtime_adapter: Optional[APIMessageAdapter] = None,
+        checkpoint_plan: Optional[CheckpointRecoveryPlan] = None,
     ) -> None:
         if not endpoint_url:
             raise ValueError("endpoint_url must be non-empty")
@@ -122,6 +182,7 @@ class AutonomousFaultRetryRunner:
         self.settings = settings
         self.policy = policy or FaultRetryPolicy()
         self.runtime_adapter = runtime_adapter or APIMessageAdapter()
+        self.checkpoint_plan = checkpoint_plan
 
     def run(self, packet: ContextPacket) -> FaultRetryResult:
         # Reconstruct from the wire contract before using mutable caller-owned
@@ -135,6 +196,8 @@ class AutonomousFaultRetryRunner:
         actual_endpoint_digest = endpoint_identity_digest(self.endpoint_url)
         if not isinstance(expected_endpoint_digest, str) or expected_endpoint_digest != actual_endpoint_digest:
             raise ValueError("endpoint_url must match packet capabilities")
+        if self.checkpoint_plan is not None:
+            self._validate_checkpoint_plan(validated, self.checkpoint_plan)
 
         initial = self._call(validated.rendered_messages, "initial")
         if initial is None:
@@ -228,16 +291,47 @@ class AutonomousFaultRetryRunner:
                 reason_code="recovered_evidence_over_budget",
                 attempted_tiers=attempted_tiers,
             )
-        retried = self._call(retry_messages, "fault-retry-1")
         safe_evidence = [item.without_payload()]
+        checkpoint_restore: Optional[CheckpointRestoreResult] = None
+        success_reason = "bounded_page_in_retry_completed"
+        retry_error_reason = "retry_model_error"
+        if self.checkpoint_plan is not None:
+            try:
+                checkpoint_restore = self.checkpoint_plan.controller.restore_matching(
+                    self.checkpoint_plan.identity,
+                    slot_id=self.checkpoint_plan.slot_id,
+                    max_records=self.checkpoint_plan.max_selection_records,
+                )
+            except CheckpointSelectionError as exc:
+                return FaultRetryResult(
+                    status=RecoveryStatus.FAULT_UNRESOLVED,
+                    response=initial,
+                    reason_code=exc.reason_code,
+                    attempted_tiers=attempted_tiers,
+                    evidence=safe_evidence,
+                )
+            except RuntimeExecutionError:
+                return FaultRetryResult(
+                    status=RecoveryStatus.FAULT_UNRESOLVED,
+                    response=initial,
+                    reason_code="checkpoint_restore_failed",
+                    attempted_tiers=attempted_tiers,
+                    evidence=safe_evidence,
+                )
+            retried = self._call_on_slot(retry_messages, "fault-retry-1", self.checkpoint_plan)
+            success_reason = "bounded_checkpoint_page_in_retry_completed"
+            retry_error_reason = "checkpoint_retry_model_error"
+        else:
+            retried = self._call(retry_messages, "fault-retry-1")
         if retried is None:
             return FaultRetryResult(
                 status=RecoveryStatus.MODEL_ERROR,
                 response=_empty_response(),
                 retry_count=1,
-                reason_code="retry_model_error",
+                reason_code=retry_error_reason,
                 attempted_tiers=attempted_tiers,
                 evidence=safe_evidence,
+                checkpoint_restore=checkpoint_restore,
             )
         if self.policy.is_explicit_miss(retried.content):
             return FaultRetryResult(
@@ -247,15 +341,64 @@ class AutonomousFaultRetryRunner:
                 reason_code="explicit_miss_after_retry",
                 attempted_tiers=attempted_tiers,
                 evidence=safe_evidence,
+                checkpoint_restore=checkpoint_restore,
             )
         return FaultRetryResult(
             status=RecoveryStatus.RECOVERED,
             response=retried,
             retry_count=1,
-            reason_code="bounded_page_in_retry_completed",
+            reason_code=success_reason,
             attempted_tiers=attempted_tiers,
             evidence=safe_evidence,
+            checkpoint_restore=checkpoint_restore,
         )
+
+    def _validate_checkpoint_plan(self, packet: ContextPacket, plan: CheckpointRecoveryPlan) -> None:
+        identity = plan.identity
+        try:
+            identity.to_dict()
+            capabilities = plan.controller.adapter.capabilities()
+        except Exception as exc:
+            raise ValueError("checkpoint identity preflight failed") from exc
+        if (
+            identity.scope != packet.scope
+            or identity.model_id != self.model_id
+            or identity.runtime_id != self.runtime_id
+            or identity.packet_digest != "sha256:" + packet.packet_content_digest
+            or identity.manifest_digest != "sha256:" + packet.manifest.content_digest
+        ):
+            raise ValueError("checkpoint identity must match the context packet")
+        endpoint_digest = "sha256:" + endpoint_origin_identity_digest(self.endpoint_url)
+        if identity.runtime_endpoint_digest != endpoint_digest:
+            raise ValueError("checkpoint endpoint must match the model endpoint")
+        if (
+            capabilities.runtime_id != identity.runtime_id
+            or capabilities.runtime_version != identity.runtime_version
+            or capabilities.adapter_id != identity.adapter_id
+            or capabilities.metadata.get("endpoint_origin_digest") != endpoint_digest
+            or not capabilities.supports_kv_restore
+            or not capabilities.supports_slot_affinity
+        ):
+            raise ValueError("checkpoint runtime capabilities do not match the bound identity")
+
+    def _call_on_slot(
+        self,
+        messages: Sequence[Mapping[str, Any]],
+        label: str,
+        plan: CheckpointRecoveryPlan,
+    ) -> Optional[ModelClientResponse]:
+        copied = [dict(message) for message in messages]
+        try:
+            return plan.runtime.complete_on_slot(
+                self.endpoint_url,
+                self.model_id,
+                copied,
+                self.settings,
+                slot_id=plan.slot_id,
+                label=label,
+            )
+        except Exception:
+            return None
 
     def _retry_messages(
         self,

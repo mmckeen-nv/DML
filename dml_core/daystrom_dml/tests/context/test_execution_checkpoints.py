@@ -14,6 +14,7 @@ from daystrom_dml.context.checkpoints import (
     ExecutionCheckpointIdentity,
     ExecutionCheckpointRecord,
     FileExecutionCheckpointRegistry,
+    EXECUTION_CHECKPOINT_IDENTITY_V1,
 )
 from daystrom_dml.context.admission import admit_context_segments
 from daystrom_dml.context.execution import (
@@ -24,6 +25,11 @@ from daystrom_dml.context.execution import (
     RuntimeExecutionError,
 )
 from daystrom_dml.context.schema import ContextAuthority, ContextPriority, ContextSegment
+from daystrom_dml.context.probe import endpoint_origin_identity_digest
+
+
+RUNTIME_ENDPOINT = "http://127.0.0.1:18080"
+RUNTIME_ENDPOINT_DIGEST = "sha256:" + endpoint_origin_identity_digest(RUNTIME_ENDPOINT)
 
 
 def _digest(label: str) -> str:
@@ -53,6 +59,7 @@ def _identity(**overrides: Any) -> ExecutionCheckpointIdentity:
         "runtime_id": "llama-local",
         "runtime_version": "10250",
         "adapter_id": "llama_cpp_server",
+        "runtime_endpoint_digest": RUNTIME_ENDPOINT_DIGEST,
     }
     values.update(overrides)
     return ExecutionCheckpointIdentity(**values)
@@ -85,6 +92,7 @@ class FakeExecutionAdapter:
             supports_kv_checkpoint_delete=True,
             supports_slot_affinity=True,
             supports_metrics=True,
+            metadata={"endpoint_origin_digest": RUNTIME_ENDPOINT_DIGEST},
         )
         self.calls: list[tuple[Any, ...]] = []
         self.save_result_override: RuntimeCacheOperationResult | None = None
@@ -255,6 +263,7 @@ def test_controller_fails_closed_when_capability_or_runtime_result_is_invalid(tm
         runtime_id="llama-local",
         adapter_id="llama_cpp_server",
         runtime_version="10250",
+        metadata={"endpoint_origin_digest": RUNTIME_ENDPOINT_DIGEST},
     )
     unsupported_adapter = FakeExecutionAdapter(capabilities=unsupported)
     controller = ExecutionCheckpointController(
@@ -333,6 +342,7 @@ def test_save_refuses_runtime_without_physical_delete_capability(tmp_path: Path)
         runtime_version="10250",
         supports_kv_checkpoint=True,
         supports_kv_restore=True,
+        metadata={"endpoint_origin_digest": RUNTIME_ENDPOINT_DIGEST},
     )
     adapter = FakeExecutionAdapter(capabilities=caps)
     controller = ExecutionCheckpointController(
@@ -375,6 +385,7 @@ def test_identity_is_derived_from_revalidated_packet_and_hashes_raw_runtime_inpu
         tokenizer_digest=_digest("tokenizer"),
         positional_config=raw_positional,
         immutable_prefix=raw_prefix,
+        runtime_endpoint_url=RUNTIME_ENDPOINT,
     )
     registry = FileExecutionCheckpointRegistry(tmp_path, clock=lambda: 150.0)
     registry.put(_record(identity=identity))
@@ -394,7 +405,31 @@ def test_identity_is_derived_from_revalidated_packet_and_hashes_raw_runtime_inpu
             tokenizer_digest=_digest("tokenizer"),
             positional_config=raw_positional,
             immutable_prefix=raw_prefix,
+            runtime_endpoint_url=RUNTIME_ENDPOINT,
         )
+
+
+def test_legacy_v1_records_remain_readable_and_purge_only(tmp_path: Path) -> None:
+    legacy = _identity(
+        identity_version=EXECUTION_CHECKPOINT_IDENTITY_V1,
+        runtime_endpoint_digest="",
+    )
+    record = _record(identity=legacy)
+    registry = FileExecutionCheckpointRegistry(tmp_path, clock=lambda: 150.0)
+    registry.put(record)
+    raw = json.loads((tmp_path / "checkpoint-a.json").read_text())
+    adapter = FakeExecutionAdapter()
+    controller = ExecutionCheckpointController(adapter=adapter, registry=registry)
+
+    assert "runtime_endpoint_digest" not in raw["identity"]
+    assert registry.require("checkpoint-a", legacy) == record
+    with pytest.raises(RuntimeExecutionError, match="purge-only"):
+        controller.restore("checkpoint-a", legacy, slot_id=0)
+
+    purged = controller.purge("checkpoint-a", legacy)
+    assert purged.existed is True
+    with pytest.raises(RuntimeExecutionError, match="not found"):
+        registry.require("checkpoint-a", legacy)
 
 
 def test_records_require_complete_strong_digests_and_session_scope() -> None:

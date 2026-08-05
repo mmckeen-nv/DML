@@ -7,6 +7,7 @@ import pytest
 
 from daystrom_dml.context.adapters.llama_cpp import LlamaCppExecutionAdapter
 from daystrom_dml.context.execution import RuntimeCacheOperation, RuntimeExecutionError
+from daystrom_dml.context.probe import ProbeSettings
 
 
 class Response:
@@ -141,6 +142,56 @@ def test_checkpoint_delete_rejects_symlink_and_unconfigured_remote_runtime(tmp_p
     assert remote.capabilities().supports_kv_checkpoint_delete is False
     with pytest.raises(RuntimeExecutionError, match="not configured"):
         remote.delete_checkpoint("prefix.bin")
+
+
+def test_slot_bound_chat_completion_uses_restored_slot_and_reports_native_reuse() -> None:
+    opener = Opener(
+        [
+            {
+                "choices": [{"message": {"role": "assistant", "content": "ORBIT-9"}}],
+                "usage": {
+                    "prompt_tokens": 130,
+                    "completion_tokens": 2,
+                    "prompt_tokens_details": {"cached_tokens": 128},
+                },
+                "tokens_evaluated": 130,
+                "timings": {"prompt_n": 2, "prompt_ms": 4.5},
+            }
+        ]
+    )
+    adapter = LlamaCppExecutionAdapter(
+        "http://127.0.0.1:18080",
+        runtime_id="llama-test",
+        runtime_version="10250",
+        opener=opener,
+    )
+
+    response = adapter.complete_on_slot(
+        "http://127.0.0.1:18080/v1/chat/completions",
+        "llama3:8b",
+        [{"role": "user", "content": "Use restored context.", "tool_calls": [{"secret": "drop"}]}],
+        ProbeSettings(max_output_tokens=8),
+        slot_id=4,
+        label="fault-retry-1",
+    )
+
+    assert response.content == "ORBIT-9"
+    assert response.usage["prompt_tokens_processed"] == 2
+    assert response.usage["prompt_tokens_reused"] == 128
+    assert opener.calls[0]["url"].endswith("/v1/chat/completions")
+    assert opener.calls[0]["body"]["id_slot"] == 4
+    assert opener.calls[0]["body"]["cache_prompt"] is True
+    assert opener.calls[0]["body"]["messages"] == [
+        {"role": "user", "content": "Use restored context."}
+    ]
+    with pytest.raises(RuntimeExecutionError, match="origin"):
+        adapter.complete_on_slot(
+            "http://127.0.0.1:19999/v1/chat/completions",
+            "llama3:8b",
+            [{"role": "user", "content": "x"}],
+            ProbeSettings(),
+            slot_id=4,
+        )
 
 
 def test_capabilities_are_explicit_and_provider_neutral() -> None:
