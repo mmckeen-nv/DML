@@ -2,6 +2,7 @@
 from daystrom_dml.context.admission import ACTIVE_ADMISSION_MODE, ADMISSION_MODES, OBSERVE_ONLY_MODE, admit_context_segments
 from daystrom_dml.context.budget import ContextBudget
 from daystrom_dml.context.capabilities import RUNTIME_CAPABILITIES_V1, RuntimeCapabilities
+from daystrom_dml.context.catalog import PAGE_CATALOG_V1, PageCatalogQuery, PageCatalogResult, SemanticPageCatalog
 from daystrom_dml.context.checkpoints import (
     EXECUTION_CHECKPOINT_IDENTITY_V1,
     EXECUTION_CHECKPOINT_IDENTITY_V2,
@@ -59,6 +60,9 @@ __all__ = [
     "FaultRetryResult",
     "FileExecutionCheckpointRegistry",
     "OBSERVE_ONLY_MODE",
+    "PAGE_CATALOG_V1",
+    "PageCatalogQuery",
+    "PageCatalogResult",
     "RUNTIME_CAPABILITIES_V1",
     "RuntimeCacheOperation",
     "RuntimeCacheOperationResult",
@@ -68,6 +72,7 @@ __all__ = [
     "RuntimeCapabilities",
     "RuntimeExecutionCapabilities",
     "RuntimeExecutionError",
+    "SemanticPageCatalog",
     "WORKING_SET_TRANSITION_V1",
     "WorkingSetManager",
     "admit_context_segments",

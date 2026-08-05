@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import time
+from dataclasses import replace
 from itertools import islice
 from typing import Any, Dict, Iterable, Optional
 
@@ -12,6 +13,7 @@ from daystrom_dml.context.adapters.base import RuntimeContextAdapter
 from daystrom_dml.context.admission import PageOutCallback, admit_context_segments
 from daystrom_dml.context.budget import ContextBudget
 from daystrom_dml.context.capabilities import RuntimeCapabilities
+from daystrom_dml.context.catalog import PageCatalogQuery, PageCatalogResult, SemanticPageCatalog
 from daystrom_dml.context.manifest import ContextManifest, ContextPacket
 from daystrom_dml.context.schema import ContextSegment, context_segment_digest
 
@@ -51,6 +53,7 @@ class WorkingSetManager:
         endpoint_url: Optional[str] = None,
         parent_manifest: ContextManifest | Dict[str, Any] | None = None,
         page_out: Optional[PageOutCallback] = None,
+        additional_decisions: Optional[Dict[str, Any]] = None,
     ) -> ContextPacket:
         scope_obj = scope if isinstance(scope, DaystromScope) else DaystromScope.from_dict(scope)
         if not isinstance(model_id, str) or not model_id:
@@ -59,6 +62,11 @@ class WorkingSetManager:
             raise ContractError("runtime_id must be non-empty")
         parent = self._copy_parent(parent_manifest)
         self._validate_parent(parent, scope=scope_obj, model_id=model_id, runtime_id=runtime_id)
+        extra_decisions = _json_copy(additional_decisions or {})
+        if not isinstance(extra_decisions, dict):
+            raise ContractError("additional_decisions must be a dictionary")
+        if set(extra_decisions).intersection({"working_set", "by_segment", "admitted", "omitted"}):
+            raise ContractError("additional_decisions contain a reserved decision key")
         candidates = list(islice(iter(segments), self.max_candidates + 1))
         if len(candidates) > self.max_candidates:
             raise ContractError("working-set candidates exceed max_candidates")
@@ -95,6 +103,9 @@ class WorkingSetManager:
             "prefill_segment_ids": current_ids[len(stable_prefix) :],
         }
         decisions = _json_copy(admitted.decisions)
+        if set(extra_decisions).intersection(decisions):
+            raise ContractError("additional_decisions contain a reserved decision key")
+        decisions.update(extra_decisions)
         decisions["working_set"] = transition
         manifest = ContextManifest(
             scope=scope_obj,
@@ -126,6 +137,83 @@ class WorkingSetManager:
                 policy="working_set_v1",
                 reason_codes=["working_set_reconciled"],
             ),
+        )
+
+    def reconcile_from_catalog(
+        self,
+        *,
+        scope: DaystromScope | Dict[str, Any] | None = None,
+        pinned_segments: Iterable[ContextSegment | Dict[str, Any]],
+        catalog: SemanticPageCatalog,
+        catalog_query: PageCatalogQuery | Dict[str, Any],
+        model_id: str,
+        runtime_id: str,
+        model_limit_tokens: int,
+        output_reserved_tokens: int = 0,
+        runtime_reserved_tokens: int = 0,
+        endpoint_url: Optional[str] = None,
+        parent_manifest: ContextManifest | Dict[str, Any] | None = None,
+        page_out: Optional[PageOutCallback] = None,
+    ) -> ContextPacket:
+        """Hydrate a bounded resident set from pinned and durable DML pages."""
+
+        scope_obj = scope if isinstance(scope, DaystromScope) else DaystromScope.from_dict(scope)
+        if not isinstance(model_id, str) or not model_id:
+            raise ContractError("model_id must be non-empty")
+        if not isinstance(runtime_id, str) or not runtime_id:
+            raise ContractError("runtime_id must be non-empty")
+        parent = self._copy_parent(parent_manifest)
+        self._validate_parent(parent, scope=scope_obj, model_id=model_id, runtime_id=runtime_id)
+        if isinstance(catalog_query, dict):
+            query_obj = PageCatalogQuery.from_dict(_json_copy(catalog_query))
+        elif isinstance(catalog_query, PageCatalogQuery):
+            query_obj = PageCatalogQuery.from_dict(_json_copy(catalog_query.to_dict()))
+        else:
+            raise ContractError("catalog_query must be a PageCatalogQuery or dictionary")
+        if query_obj.scope != scope_obj:
+            raise ContractError("catalog query scope does not match working-set scope")
+        raw_pinned = list(islice(iter(pinned_segments), self.max_candidates + 1))
+        if len(raw_pinned) > self.max_candidates:
+            raise ContractError("pinned segments exceed max_candidates")
+        pinned = []
+        for item in raw_pinned:
+            if isinstance(item, ContextSegment):
+                pinned.append(ContextSegment.from_dict(_json_copy(item.to_dict())))
+            elif isinstance(item, dict):
+                pinned.append(ContextSegment.from_dict(_json_copy(item)))
+            else:
+                raise ContractError("pinned segments must be ContextSegment objects or dictionaries")
+        available = self.max_candidates - len(pinned)
+        if available < 1:
+            raise ContractError("working set has no capacity for page-catalog candidates")
+        if len(query_obj.exact_handles) > available:
+            raise ContractError("exact_handles exceed available working-set capacity")
+        if query_obj.max_candidates > available:
+            query_obj = replace(query_obj, max_candidates=available)
+
+        result = catalog.lookup(query_obj)
+        if not isinstance(result, PageCatalogResult):
+            raise ContractError("page catalog returned a malformed result")
+        if result.scope != scope_obj:
+            raise ContractError("page catalog result scope does not match working-set scope")
+        if len(result.segments) > query_obj.max_candidates:
+            raise ContractError("page catalog result exceeds its candidate bound")
+        if any(segment.authority.value != "untrusted_data" for segment in result.segments):
+            raise ContractError("page catalog result attempted to elevate context authority")
+        if any(segment.priority.value not in {"reference", "disposable"} for segment in result.segments):
+            raise ContractError("page catalog result attempted to elevate context priority")
+        return self.reconcile(
+            scope=scope_obj,
+            segments=[*pinned, *result.segments],
+            model_id=model_id,
+            runtime_id=runtime_id,
+            model_limit_tokens=model_limit_tokens,
+            output_reserved_tokens=output_reserved_tokens,
+            runtime_reserved_tokens=runtime_reserved_tokens,
+            endpoint_url=endpoint_url,
+            parent_manifest=parent,
+            page_out=page_out,
+            additional_decisions={"page_catalog": result.telemetry},
         )
 
     @staticmethod

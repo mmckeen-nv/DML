@@ -1,7 +1,7 @@
 """Core Daystrom Memory Lattice implementation."""
 from __future__ import annotations
 
-import contextlib
+import heapq
 import logging
 import math
 import random
@@ -237,9 +237,137 @@ class MemoryStore:
                 candidates, query_vec, top_k, now, scores, similarities
             )
 
+    def retrieve_filtered_for_catalog(
+        self,
+        query_embedding: np.ndarray,
+        *,
+        tenant_id: str,
+        client_id: Optional[str] = None,
+        session_id: Optional[str] = None,
+        instance_id: Optional[str] = None,
+        thread_id: Optional[str] = None,
+        project_id: Optional[str] = None,
+        relationship_id: Optional[str] = None,
+        top_k: int = 6,
+    ) -> List[MemoryItem]:
+        """Bounded strict-scope retrieval without quality-repair mutations."""
+
+        if not isinstance(top_k, int) or isinstance(top_k, bool) or top_k < 1:
+            return []
+        query_vec = np.asarray(query_embedding, dtype=np.float32)
+        if query_vec.ndim != 1 or query_vec.size < 1 or not np.all(np.isfinite(query_vec)):
+            return []
+        now = time.time()
+        selected: List[Tuple[float, int, int, MemoryItem]] = []
+        with self._lock:
+            for ordinal, item in enumerate(self._items):
+                meta = item.meta or {}
+                if not self._matches_filters(
+                    item,
+                    tenant_id=tenant_id,
+                    client_id=client_id,
+                    session_id=session_id,
+                    instance_id=instance_id,
+                    kinds=None,
+                ):
+                    continue
+                if any(
+                    expected is not None and meta.get(name) != expected
+                    for name, expected in (
+                        ("thread_id", thread_id),
+                        ("project_id", project_id),
+                        ("relationship_id", relationship_id),
+                    )
+                ):
+                    continue
+                embedding = np.asarray(item.embedding, dtype=np.float32)
+                if embedding.ndim != 1 or embedding.size != query_vec.size or not np.all(np.isfinite(embedding)):
+                    continue
+                similarity = float(utils.cosine_similarity(embedding, query_vec))
+                if not math.isfinite(similarity) or similarity < self.similarity_threshold:
+                    continue
+                score = float(self._score_item(item, query_vec, now, similarity=similarity))
+                if not math.isfinite(score):
+                    continue
+                entry = (score, -int(item.id), -ordinal, item)
+                if len(selected) < top_k:
+                    heapq.heappush(selected, entry)
+                elif entry[:3] > selected[0][:3]:
+                    heapq.heapreplace(selected, entry)
+        selected.sort(key=lambda entry: (-entry[0], -entry[1], -entry[2]))
+        return [entry[3] for entry in selected]
+
     def items(self) -> Sequence[MemoryItem]:
         with self._lock:
             return list(self._items)
+
+    def find_filtered_by_handles(
+        self,
+        *,
+        handles: Iterable[str],
+        tenant_id: str,
+        client_id: Optional[str] = None,
+        session_id: Optional[str] = None,
+        instance_id: Optional[str] = None,
+        thread_id: Optional[str] = None,
+        project_id: Optional[str] = None,
+        relationship_id: Optional[str] = None,
+        limit: int = 1,
+    ) -> List[MemoryItem]:
+        """Resolve a bounded set of exact context-page handles in strict scope.
+
+        This deliberately scans under the store lock without copying the whole
+        lattice into an intermediate list. Returned objects are read-only by
+        contract; page-catalog adapters must copy selected payload metadata.
+        """
+
+        if not isinstance(limit, int) or isinstance(limit, bool) or limit < 1:
+            return []
+        ordered_handles = []
+        for index, value in enumerate(handles):
+            if index >= limit:
+                return []
+            handle = str(value).strip()
+            if len(handle) > 1024:
+                return []
+            if handle and handle not in ordered_handles:
+                ordered_handles.append(handle)
+        if not ordered_handles:
+            return []
+        handle_set = set(ordered_handles)
+        found: Dict[str, MemoryItem] = {}
+        with self._lock:
+            for item in self._items:
+                meta = item.meta or {}
+                if not self._matches_filters(
+                    item,
+                    tenant_id=tenant_id,
+                    client_id=client_id,
+                    session_id=session_id,
+                    instance_id=instance_id,
+                    kinds=None,
+                ):
+                    continue
+                if any(
+                    expected is not None and meta.get(name) != expected
+                    for name, expected in (
+                        ("thread_id", thread_id),
+                        ("project_id", project_id),
+                        ("relationship_id", relationship_id),
+                    )
+                ):
+                    continue
+                candidates = {
+                    str(meta.get(key)).strip()
+                    for key in ("context_page_id", "page_id", "handle_id")
+                    if meta.get(key) is not None and str(meta.get(key)).strip()
+                }
+                candidates.add(f"dml:{item.id}")
+                for handle in candidates.intersection(handle_set):
+                    previous = found.get(handle)
+                    if previous is None or item.id < previous.id:
+                        found[handle] = item
+        return [found[handle] for handle in ordered_handles if handle in found][:limit]
 
     def add(
         self,
