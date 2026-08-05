@@ -28,6 +28,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument("--max-output-tokens", type=int, default=24)
     parser.add_argument("--timeout-seconds", type=float, default=60.0)
     parser.add_argument("--rag-top-k", type=int, default=1)
+    parser.add_argument("--dcm-semantic-candidates", type=int, default=2)
     parser.add_argument("--strategy", action="append", choices=[item.value for item in Strategy])
     parser.add_argument("--output-json")
     args = parser.parse_args(argv)
@@ -47,6 +48,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         max_output_tokens=args.max_output_tokens,
         timeout_seconds=args.timeout_seconds,
         rag_top_k=args.rag_top_k,
+        dcm_semantic_candidates=args.dcm_semantic_candidates,
     )
     client = (
         DeterministicEvidenceClient()

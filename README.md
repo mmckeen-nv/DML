@@ -166,9 +166,10 @@ tokens, lookup and total latency, and serialized resident-context bytes. Prefill
 time is reported only when the endpoint exposes it; direct runtime/KV validation
 remains a separate benchmark. The bundled three-case workload is a regression
 slice, not a claim of broad model-quality superiority. Its DCM lane uses an
-authorized exact page handle before lexical fallback, ordinary RAG uses lexical
-top-k without handles, and the fixed lossy-summary baseline excludes summary
-generation cost; those differences are recorded in every artifact.
+authorized exact page handle when available and a bounded two-candidate
+deterministic retrieval stand-in when no handle exists; ordinary RAG uses lexical top-k without handles,
+and the fixed lossy-summary baseline excludes summary-generation cost. Those
+differences are recorded in every artifact.
 
 ---
 

@@ -421,7 +421,13 @@ class AutonomousFaultRetryRunner:
         if sum(segment.effective_tokens for segment in essential) + evidence_tokens > packet.budget.available_input_tokens:
             return None
 
-        renderable = [_renderable(segment) for segment in essential]
+        leading = [
+            segment for segment in essential if segment.authority is not ContextAuthority.CURRENT_INSTRUCTION
+        ]
+        current = [
+            segment for segment in essential if segment.authority is ContextAuthority.CURRENT_INSTRUCTION
+        ]
+        renderable = [_renderable(segment) for segment in leading]
         renderable.append(
             {
                 "id": f"recovered:{source_segment_id}",
@@ -432,6 +438,7 @@ class AutonomousFaultRetryRunner:
                 "metadata": {"authority": ContextAuthority.UNTRUSTED_DATA.value},
             }
         )
+        renderable.extend(_renderable(segment) for segment in current)
         rendered = self.runtime_adapter.render_messages(renderable)
         return [dict(message) for message in rendered["messages"]]
 

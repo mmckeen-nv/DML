@@ -150,6 +150,7 @@ def test_autonomous_miss_resolves_exact_page_reinjects_as_data_and_retries_once(
     assert result.retry_count == 1
     assert [call["label"] for call in client.calls] == ["initial", "fault-retry-1"]
     retry_messages = client.calls[1]["messages"]
+    assert retry_messages[-1]["content"] == "What is the synthetic launch code?"
     assert all(message["content"] != "Low-value context that occupies the normal working set." for message in retry_messages)
     evidence_messages = [message for message in retry_messages if "NEBULA-7" in message["content"]]
     assert len(evidence_messages) == 1
