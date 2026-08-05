@@ -18,6 +18,7 @@ DEFAULT_MAX_REQUEST_BYTES = 256 * 1024
 DEFAULT_MAX_RESPONSE_BYTES = 1024 * 1024
 DEFAULT_TIMEOUT_SECONDS = 30.0
 SECRET_QUERY_KEYS = {"api_key", "apikey", "key", "token", "access_token", "secret", "password"}
+RESERVED_REQUEST_OVERRIDE_KEYS = {"model", "messages", "temperature", "max_tokens", "stream"}
 
 
 class ProbeTransportError(RuntimeError):
@@ -187,6 +188,7 @@ class ModelClientResponse:
     content: str
     latency_ms: float
     usage: Dict[str, Any] = field(default_factory=dict)
+    finish_reason: Optional[str] = None
 
 
 class ModelClient(Protocol):
@@ -249,11 +251,28 @@ class OpenAICompatibleModelClient:
         max_request_bytes: int = DEFAULT_MAX_REQUEST_BYTES,
         max_response_bytes: int = DEFAULT_MAX_RESPONSE_BYTES,
         opener: Optional[Any] = None,
+        request_overrides: Optional[Mapping[str, Any]] = None,
     ) -> None:
         self.api_key = api_key
         self.max_request_bytes = max_request_bytes
         self.max_response_bytes = max_response_bytes
         self.opener = opener or request.urlopen
+        raw_overrides = dict(request_overrides or {})
+        if any(not isinstance(key, str) or not key for key in raw_overrides):
+            raise ContractError("request override keys must be non-empty strings")
+        reserved = sorted(set(raw_overrides).intersection(RESERVED_REQUEST_OVERRIDE_KEYS))
+        if reserved:
+            raise ContractError(f"request overrides contain reserved keys: {', '.join(reserved)}")
+        try:
+            encoded_overrides = json.dumps(
+                raw_overrides,
+                ensure_ascii=True,
+                allow_nan=False,
+                separators=(",", ":"),
+            )
+        except (TypeError, ValueError) as exc:
+            raise ContractError("request overrides must be JSON-compatible") from exc
+        self.request_overrides: Dict[str, Any] = json.loads(encoded_overrides)
 
     def complete(
         self,
@@ -270,6 +289,7 @@ class OpenAICompatibleModelClient:
             "temperature": settings.temperature,
             "max_tokens": settings.max_output_tokens,
         }
+        payload.update(self.request_overrides)
         body = json.dumps(payload, ensure_ascii=True, separators=(",", ":")).encode("utf-8")
         if len(body) > self.max_request_bytes:
             raise ProbeTransportError("oversized_request", "request JSON exceeds configured byte limit")
@@ -301,10 +321,21 @@ class OpenAICompatibleModelClient:
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
             raise ProbeTransportError("non_json", "endpoint returned non-JSON response") from exc
         content = _extract_chat_content(parsed)
+        choices = parsed.get("choices", [])
+        finish_reason = None
+        if isinstance(choices, list) and choices and isinstance(choices[0], dict):
+            raw_finish_reason = choices[0].get("finish_reason")
+            if raw_finish_reason is not None:
+                finish_reason = str(raw_finish_reason)
         usage = parsed.get("usage", {})
         if not isinstance(usage, dict):
             usage = {}
-        return ModelClientResponse(content=content, latency_ms=latency_ms, usage=usage)
+        return ModelClientResponse(
+            content=content,
+            latency_ms=latency_ms,
+            usage=usage,
+            finish_reason=finish_reason,
+        )
 
 
 def redact_endpoint_url(endpoint_url: str) -> str:

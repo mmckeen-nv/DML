@@ -123,6 +123,8 @@ class BenchmarkConfig:
     dcm_semantic_candidates: int = 2
     embedding_model_id: Optional[str] = None
     embedding_endpoint_url: Optional[str] = None
+    request_overrides_digest: Optional[str] = None
+    request_override_keys: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if not self.endpoint_url or not self.model_id or not self.runtime_id:
@@ -133,6 +135,15 @@ class BenchmarkConfig:
             raise ValueError("retrieval candidate bounds must be positive")
         if bool(self.embedding_model_id) != bool(self.embedding_endpoint_url):
             raise ValueError("embedding model and endpoint must be configured together")
+        if bool(self.request_overrides_digest) != bool(self.request_override_keys):
+            raise ValueError("request override digest and keys must be configured together")
+        if self.request_overrides_digest and (
+            len(self.request_overrides_digest) != 64
+            or any(character not in "0123456789abcdef" for character in self.request_overrides_digest)
+        ):
+            raise ValueError("request override digest must be lowercase SHA-256")
+        if tuple(sorted(set(self.request_override_keys))) != self.request_override_keys:
+            raise ValueError("request override keys must be sorted and unique")
 
 
 @dataclass
@@ -638,6 +649,8 @@ def run_workload(
                 if config.embedding_endpoint_url
                 else None
             ),
+            "request_overrides_digest": config.request_overrides_digest,
+            "request_override_keys": list(config.request_override_keys),
             "case_count": len(cases),
             "workload_classes": sorted({case.workload_class.value for case in cases}),
             "strategies": [item.value for item in selected],

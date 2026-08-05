@@ -158,6 +158,25 @@ def test_offline_report_is_digest_only_and_aggregates_required_metrics() -> None
         assert all(page.content not in serialized for page in case.pages)
 
 
+def test_request_override_metadata_is_digest_only() -> None:
+    config = replace(
+        _config(),
+        request_overrides_digest="a" * 64,
+        request_override_keys=("chat_template_kwargs",),
+    )
+
+    payload = run_workload(
+        [default_workload()[0]],
+        DeterministicEvidenceClient(),
+        config,
+        strategies=[Strategy.DCM],
+    ).to_dict()
+
+    assert payload["config"]["request_overrides_digest"] == "a" * 64
+    assert payload["config"]["request_override_keys"] == ["chat_template_kwargs"]
+    assert "enable_thinking" not in json.dumps(payload, sort_keys=True)
+
+
 def test_strategy_order_and_report_are_deterministic_with_offline_client() -> None:
     first = run_workload(default_workload(), DeterministicEvidenceClient(), _config()).to_dict()
     second = run_workload(default_workload(), DeterministicEvidenceClient(), _config()).to_dict()

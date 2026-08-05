@@ -9,6 +9,7 @@ from urllib.error import HTTPError
 
 import pytest
 
+from daystrom_dml.api_contracts import ContractError
 from daystrom_dml.context.probe import (
     EvaluationSpec,
     FakeModelClient,
@@ -275,9 +276,12 @@ class _FakeOpener:
 
 def test_openai_compatible_client_http_success_and_secret_header() -> None:
     opener = _FakeOpener(
-        json.dumps({"choices": [{"message": {"content": "hello alpha"}}], "usage": {"total_tokens": 7}}).encode(
-            "utf-8"
-        )
+        json.dumps(
+            {
+                "choices": [{"message": {"content": "hello alpha"}, "finish_reason": "stop"}],
+                "usage": {"total_tokens": 7},
+            }
+        ).encode("utf-8")
     )
     client = OpenAICompatibleModelClient(api_key="sk-secret", max_response_bytes=2048, opener=opener)
     response = client.complete(
@@ -289,10 +293,51 @@ def test_openai_compatible_client_http_success_and_secret_header() -> None:
 
     assert response.content == "hello alpha"
     assert response.usage == {"total_tokens": 7}
+    assert response.finish_reason == "stop"
     assert opener.calls[0]["authorization"] == "Bearer sk-secret"
     assert opener.calls[0]["body"]["model"] == "gpt-test"
     assert opener.calls[0]["body"]["temperature"] == 0
     assert opener.calls[0]["body"]["max_tokens"] == 5
+
+
+def test_openai_compatible_client_request_overrides_are_bounded_and_copied() -> None:
+    opener = _FakeOpener(
+        json.dumps({"choices": [{"message": {"content": "ok"}}]}).encode("utf-8")
+    )
+    overrides = {"chat_template_kwargs": {"enable_thinking": False}}
+    client = OpenAICompatibleModelClient(request_overrides=overrides, opener=opener)
+    overrides["chat_template_kwargs"]["enable_thinking"] = True
+
+    client.complete(
+        "http://127.0.0.1/v1/chat/completions",
+        "gpt-test",
+        BASELINE_MESSAGES,
+        ProbeSettings(max_output_tokens=5),
+    )
+
+    assert opener.calls[0]["body"]["chat_template_kwargs"] == {"enable_thinking": False}
+    assert opener.calls[0]["body"]["max_tokens"] == 5
+    with pytest.raises(ContractError, match="reserved"):
+        OpenAICompatibleModelClient(request_overrides={"messages": []})
+    with pytest.raises(ContractError, match="JSON-compatible"):
+        OpenAICompatibleModelClient(request_overrides={"unsupported": object()})
+
+    oversized_opener = _FakeOpener(
+        json.dumps({"choices": [{"message": {"content": "unreachable"}}]}).encode("utf-8")
+    )
+    oversized_client = OpenAICompatibleModelClient(
+        max_request_bytes=128,
+        request_overrides={"vendor_payload": "x" * 256},
+        opener=oversized_opener,
+    )
+    with pytest.raises(ProbeTransportError, match="oversized_request"):
+        oversized_client.complete(
+            "http://127.0.0.1/v1/chat/completions",
+            "gpt-test",
+            BASELINE_MESSAGES,
+            ProbeSettings(max_output_tokens=5),
+        )
+    assert oversized_opener.calls == []
 
 
 def test_openai_compatible_client_http_error_non_json_missing_content_and_oversize() -> None:

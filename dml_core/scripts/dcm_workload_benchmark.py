@@ -2,11 +2,13 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
+from daystrom_dml.api_contracts import ContractError
 from daystrom_dml.context.benchmark import (
     BenchmarkConfig,
     DeterministicEvidenceClient,
@@ -16,7 +18,7 @@ from daystrom_dml.context.benchmark import (
     run_workload,
     stress_workload,
 )
-from daystrom_dml.context.probe import OpenAICompatibleModelClient, atomic_write_json
+from daystrom_dml.context.probe import ModelClient, OpenAICompatibleModelClient, atomic_write_json
 from daystrom_dml.embeddings import OllamaEmbedder
 
 
@@ -48,6 +50,11 @@ def main(argv: Optional[list[str]] = None) -> int:
         help="sanitized workload suite to run",
     )
     parser.add_argument("--strategy", action="append", choices=[item.value for item in Strategy])
+    parser.add_argument(
+        "--request-extra-json",
+        default=os.environ.get("DCM_BENCHMARK_REQUEST_EXTRA_JSON", ""),
+        help="non-secret JSON object merged into live OpenAI-compatible requests; core request fields are reserved",
+    )
     parser.add_argument("--output-json")
     args = parser.parse_args(argv)
 
@@ -57,6 +64,29 @@ def main(argv: Optional[list[str]] = None) -> int:
         parser.error("embedding-backed retrieval requires explicit --allow-network")
     if not args.offline and (not args.endpoint_url or not args.model):
         parser.error("live benchmark requires --endpoint-url and --model")
+
+    request_overrides: dict[str, Any] = {}
+    request_overrides_digest: Optional[str] = None
+    request_override_keys: tuple[str, ...] = ()
+    if args.request_extra_json:
+        if args.offline:
+            parser.error("request extras are only valid for live benchmarks")
+        try:
+            parsed_overrides = json.loads(args.request_extra_json)
+            if not isinstance(parsed_overrides, dict):
+                raise ValueError("request extras must be a JSON object")
+            canonical_overrides = json.dumps(
+                parsed_overrides,
+                sort_keys=True,
+                ensure_ascii=True,
+                allow_nan=False,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        except (TypeError, ValueError, json.JSONDecodeError) as exc:
+            parser.error(f"invalid --request-extra-json: {exc}")
+        request_overrides = parsed_overrides
+        request_overrides_digest = hashlib.sha256(canonical_overrides).hexdigest()
+        request_override_keys = tuple(sorted(request_overrides))
 
     endpoint = args.endpoint_url or "http://127.0.0.1:11434/v1/chat/completions"
     model = args.model or "deterministic-evidence-model"
@@ -71,12 +101,20 @@ def main(argv: Optional[list[str]] = None) -> int:
         dcm_semantic_candidates=args.dcm_semantic_candidates,
         embedding_model_id=args.embedding_model or None,
         embedding_endpoint_url=args.embedding_base_url if args.embedding_model else None,
+        request_overrides_digest=request_overrides_digest,
+        request_override_keys=request_override_keys,
     )
-    client = (
-        DeterministicEvidenceClient()
-        if args.offline
-        else OpenAICompatibleModelClient(api_key=args.api_key)
-    )
+    client: ModelClient
+    if args.offline:
+        client = DeterministicEvidenceClient()
+    else:
+        try:
+            client = OpenAICompatibleModelClient(
+                api_key=args.api_key,
+                request_overrides=request_overrides,
+            )
+        except ContractError as exc:
+            parser.error(str(exc))
     semantic_embedder = (
         OllamaEmbedder(args.embedding_model, base_url=args.embedding_base_url.rstrip("/"))
         if args.embedding_model

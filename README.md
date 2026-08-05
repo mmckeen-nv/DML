@@ -159,6 +159,7 @@ dcm-workload-benchmark \
   --model llama3:8b \
   --embedding-model qwen3-embedding:0.6b \
   --embedding-base-url http://127.0.0.1:11434 \
+  --request-extra-json '{"chat_template_kwargs":{"enable_thinking":false}}' \
   --suite extended \
   --output-json /tmp/dcm-workload-llama3-8b.json
 ```
@@ -176,7 +177,11 @@ superiority. DCM uses an authorized exact page handle when available. Without
 With `--embedding-model`, synthetic pages are embedded through the configured
 Ollama HTTP endpoint and ranked through the production `DMLSemanticPageCatalog`
 adapter; the generation endpoint remains OpenAI-compatible and can be Ollama,
-vLLM, or another provider. Ordinary RAG remains lexical top-k without handles,
+vLLM, or another provider. `--request-extra-json` supplies bounded, non-secret
+provider/runtime options such as vLLM chat-template kwargs. It cannot replace core
+benchmark fields (`model`, `messages`, sampling, token limit, or streaming), and
+artifacts retain only its top-level keys and canonical SHA-256 digest—not values.
+Ordinary RAG remains lexical top-k without handles,
 and the fixed lossy-summary baseline excludes summary-generation cost. Candidate
 depth is an explicit benchmark parameter rather than a claimed universal production
 default. If the final rendered-message estimate exceeds the configured benchmark
