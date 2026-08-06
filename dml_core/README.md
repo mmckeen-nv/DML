@@ -53,6 +53,15 @@ budgets are also enforced. Deployments can lower these limits with the
 `DML_MAX_INGEST_DOCUMENTS`, `DML_MAX_INGEST_CHUNKS`, and
 `DML_MAX_INGEST_TOKENS` environment variables.
 
+## Runtime-native context probe
+
+The experimental `dcm-kv-probe` command validates real runtime KV reuse through
+a fail-closed cold/hot/save/erase/restore/purge lifecycle. It currently supports
+llama.cpp servers exposing slot checkpoint controls; ordinary vLLM OpenAI
+serving is explicitly unsupported. See
+[`docs/dcm-runtime-execution-probe.md`](../docs/dcm-runtime-execution-probe.md)
+for identity, cleanup, artifact, and cross-platform requirements.
+
 ## Docker
 ```bash
 docker build -f dml_core/Dockerfile -t daystrom-dml-core .
