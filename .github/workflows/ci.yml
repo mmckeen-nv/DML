@@ -10,6 +10,7 @@ jobs:
   lint-test:
     runs-on: ubuntu-latest
     strategy:
+      max-parallel: 2
       matrix:
         python-version: ["3.10", "3.11"]
     env:
@@ -48,6 +49,7 @@ jobs:
 
   cross-platform-portability:
     strategy:
+      max-parallel: 2
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
         python-version: ["3.10", "3.13"]
