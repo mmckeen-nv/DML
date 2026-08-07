@@ -30,6 +30,9 @@ class VLLMCooperativeKVTrace:
     reason_code: str
     matched_tokens: int
     saved_tokens: int
+    purged_blocks: int
+    purged_bytes: int
+    shared_blocks: int
 
     def to_telemetry(self) -> Dict[str, Any]:
         import hashlib
@@ -44,6 +47,9 @@ class VLLMCooperativeKVTrace:
             "reason_code": self.reason_code,
             "matched_tokens": self.matched_tokens,
             "saved_tokens": self.saved_tokens,
+            "purged_blocks": self.purged_blocks,
+            "purged_bytes": self.purged_bytes,
+            "shared_blocks": self.shared_blocks,
             "output_digest": "sha256:" + hashlib.sha256(self.output_text.encode()).hexdigest(),
         }
 
@@ -102,8 +108,66 @@ class VLLMCooperativeExecutionAdapter:
                 + endpoint_origin_identity_digest(self.endpoint_url),
                 "protocol": DAYSTROM_KV_SCHEMA_VERSION,
                 "physical_purge": False,
+                "request_bound_selective_purge": True,
+                "purge_requires_resident_unshared_blocks": True,
+                "purge_eager_offload_only": True,
             },
         )
+
+    def purge_checkpoint(
+        self,
+        *,
+        checkpoint_digest: str,
+        expires_at: float,
+        nonce: str,
+    ) -> VLLMCooperativeKVTrace:
+        """Request and verify connector-native selective physical purge.
+
+        This is intentionally not exposed as DML's generic checkpoint-delete
+        capability: it only applies to this request-bound cooperative connector,
+        requires eager-mode inventory with every unshared target row resident,
+        and fails closed if a worker does not acknowledge zeroization.
+        """
+
+        first = self.complete_with_checkpoint(
+            "Daystrom selective KV purge control request.",
+            operation="purge",
+            checkpoint_digest=checkpoint_digest,
+            expires_at=expires_at,
+            nonce=nonce,
+            max_tokens=1,
+            temperature=0.0,
+            seed=0,
+        )
+        if first.reason_code == "purge_complete":
+            return first
+        if first.reason_code != "purge_pending":
+            raise RuntimeExecutionError("selective KV purge was not scheduled")
+
+        # vLLM constructs each request's response metadata before applying that
+        # same step's worker acknowledgement on the scheduler. Independently
+        # signed status requests read committed state and can safely retry an
+        # idempotent zero command after one worker-side failure.
+        import hashlib
+
+        last = first
+        for attempt in range(2):
+            status_nonce = hashlib.sha256(
+                f"{nonce}|purge-status|{attempt}".encode()
+            ).hexdigest()
+            last = self.complete_with_checkpoint(
+                "Daystrom selective KV purge status request.",
+                operation="purge",
+                checkpoint_digest=checkpoint_digest,
+                expires_at=expires_at,
+                nonce=status_nonce,
+                max_tokens=1,
+                temperature=0.0,
+                seed=0,
+            )
+            if last.reason_code == "purge_complete":
+                return last
+        raise RuntimeExecutionError("selective KV purge did not complete")
 
     def complete_with_checkpoint(
         self,
@@ -168,6 +232,9 @@ class VLLMCooperativeExecutionAdapter:
             reason_code=cast(str, daystrom["reason_code"]),
             matched_tokens=_counter(daystrom, "matched_tokens"),
             saved_tokens=_counter(daystrom, "saved_tokens"),
+            purged_blocks=_counter(daystrom, "purged_blocks"),
+            purged_bytes=_counter(daystrom, "purged_bytes"),
+            shared_blocks=_counter(daystrom, "shared_blocks"),
         )
 
     @staticmethod
@@ -181,10 +248,18 @@ class VLLMCooperativeExecutionAdapter:
         if evidence.get("checkpoint_digest") != checkpoint_digest:
             raise RuntimeExecutionError("cooperative KV checkpoint mismatch")
         reason = evidence.get("reason_code")
-        if not isinstance(reason, str) or reason != f"{operation}_authorized":
+        expected_reasons = (
+            {"purge_pending", "purge_complete"}
+            if operation == "purge"
+            else {f"{operation}_authorized"}
+        )
+        if not isinstance(reason, str) or reason not in expected_reasons:
             raise RuntimeExecutionError("cooperative KV request was not authorized")
         _counter(evidence, "matched_tokens")
         _counter(evidence, "saved_tokens")
+        _counter(evidence, "purged_blocks")
+        _counter(evidence, "purged_bytes")
+        _counter(evidence, "shared_blocks")
 
     def _post(self, path: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         body = json.dumps(payload, separators=(",", ":")).encode()

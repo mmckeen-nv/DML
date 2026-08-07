@@ -737,7 +737,8 @@ class TestTelemetry:
         tele = d.telemetry()
         assert set(tele) == {
             "schema_version", "authorized", "operation", "checkpoint_digest",
-            "reason_code", "matched_tokens", "saved_tokens",
+            "reason_code", "matched_tokens", "saved_tokens", "purged_blocks",
+            "purged_bytes", "shared_blocks",
         }
         # No block-hash bytes, no nonce, no authorization, no secret
         blob = json.dumps(tele)
@@ -880,6 +881,10 @@ def _install_vllm_stubs(monkeypatch, tmp_path: Path) -> None:
     class KVConnectorMetadata:  # noqa: B024
         pass
 
+    class KVConnectorWorkerMetadata:  # noqa: B024
+        def aggregate(self, other):
+            return self
+
     class KVConnectorRole(enum.Enum):
         SCHEDULER = 0
         WORKER = 1
@@ -901,6 +906,7 @@ def _install_vllm_stubs(monkeypatch, tmp_path: Path) -> None:
             return self._role
 
     base_mod.KVConnectorMetadata = KVConnectorMetadata
+    base_mod.KVConnectorWorkerMetadata = KVConnectorWorkerMetadata  # type: ignore[attr-defined]
     base_mod.KVConnectorRole = KVConnectorRole
     base_mod.SupportsHMA = SupportsHMA
     base_mod.KVConnectorBase_V1 = KVConnectorBase_V1
@@ -926,7 +932,18 @@ def _install_vllm_stubs(monkeypatch, tmp_path: Path) -> None:
     class SimpleCPUOffloadMetadata(KVConnectorMetadata):
         pass
 
+    class SimpleCPUOffloadWorkerMetadata(KVConnectorWorkerMetadata):
+        def __init__(self, completed_store_events=None):
+            self.completed_store_events = completed_store_events or {}
+
+        def aggregate(self, other):
+            merged = dict(self.completed_store_events)
+            for event, count in other.completed_store_events.items():
+                merged[event] = merged.get(event, 0) + count
+            return SimpleCPUOffloadWorkerMetadata(merged)
+
     meta_mod.SimpleCPUOffloadMetadata = SimpleCPUOffloadMetadata
+    meta_mod.SimpleCPUOffloadWorkerMetadata = SimpleCPUOffloadWorkerMetadata  # type: ignore[attr-defined]
     monkeypatch.setitem(sys.modules, "vllm.v1.simple_kv_offload.metadata", meta_mod)
 
     # vllm.v1.simple_kv_offload.manager

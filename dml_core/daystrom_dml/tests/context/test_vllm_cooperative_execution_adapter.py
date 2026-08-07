@@ -36,6 +36,18 @@ class Opener:
         return Response(self.payload)
 
 
+class SequenceOpener(Opener):
+    def __init__(self, payloads: list[dict[str, Any]]) -> None:
+        super().__init__(payloads[0])
+        self.payloads = list(payloads)
+
+    def __call__(self, req: Any, timeout: float) -> Response:
+        self.calls.append(
+            {"url": req.full_url, "body": json.loads(req.data), "timeout": timeout}
+        )
+        return Response(self.payloads.pop(0))
+
+
 def _secret(tmp_path: Path) -> Path:
     path = tmp_path / "control.key"
     path.write_text("bounded-test-secret\n")
@@ -59,9 +71,14 @@ def _response(operation: str = "save", digest: str | None = None) -> dict[str, A
                 "schema_version": "daystrom-vllm-kv-v1",
                 "operation": operation,
                 "checkpoint_digest": digest or _digest(),
-                "reason_code": f"{operation}_authorized",
+                "reason_code": (
+                    "purge_complete" if operation == "purge" else f"{operation}_authorized"
+                ),
                 "matched_tokens": 96 if operation == "restore" else 0,
                 "saved_tokens": 128 if operation == "save" else 0,
+                "purged_blocks": 2 if operation == "purge" else 0,
+                "purged_bytes": 4096 if operation == "purge" else 0,
+                "shared_blocks": 1 if operation == "purge" else 0,
             }
         },
     }
@@ -120,6 +137,44 @@ def test_restore_uses_native_matched_token_count(tmp_path: Path) -> None:
     assert trace.operation == "restore"
     assert trace.matched_tokens == 96
     assert trace.reason_code == "restore_authorized"
+
+
+def test_purge_requires_completed_physical_counters(tmp_path: Path) -> None:
+    pending = _response("purge")
+    pending["kv_transfer_params"]["daystrom"].update(
+        {
+            "reason_code": "purge_pending",
+            "purged_blocks": 0,
+            "purged_bytes": 0,
+            "shared_blocks": 1,
+        }
+    )
+    opener = SequenceOpener([pending, _response("purge")])
+    adapter = VLLMCooperativeExecutionAdapter(
+        "http://127.0.0.1:8000",
+        model_id="model",
+        runtime_id="vllm-test",
+        runtime_version="0.20.0",
+        secret_path=_secret(tmp_path),
+        opener=opener,
+    )
+
+    trace = adapter.purge_checkpoint(
+        checkpoint_digest=_digest(),
+        expires_at=4_000_000_000.0,
+        nonce="nonce-purge",
+    )
+
+    assert trace.reason_code == "purge_complete"
+    assert trace.purged_blocks == 2
+    assert trace.purged_bytes == 4096
+    assert trace.shared_blocks == 1
+    assert len(opener.calls) == 2
+    first_envelope = opener.calls[0]["body"]["kv_transfer_params"]["daystrom"]
+    second_envelope = opener.calls[1]["body"]["kv_transfer_params"]["daystrom"]
+    assert first_envelope["operation"] == "purge"
+    assert second_envelope["operation"] == "purge"
+    assert first_envelope["nonce"] != second_envelope["nonce"]
 
 
 def test_capabilities_fail_closed_for_unimplemented_lifecycle(tmp_path: Path) -> None:

@@ -67,7 +67,7 @@ from typing import Any, Mapping, Sequence
 # --------------------------------------------------------------------------- #
 
 DAYSTROM_KV_SCHEMA_VERSION = "daystrom-vllm-kv-v1"
-_VALID_OPERATIONS = frozenset({"save", "restore"})
+_VALID_OPERATIONS = frozenset({"save", "restore", "purge"})
 _DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 _HEX64_RE = re.compile(r"^[0-9a-f]{64}$")
 # Printable ASCII, no control chars, no whitespace-only.
@@ -176,6 +176,19 @@ class DaystromKVRecord:
 
 
 @dataclass
+class DaystromKVPurgeState:
+    """Payload-free lifecycle state for one selective physical purge."""
+
+    checkpoint_digest: str
+    purge_event: int
+    blocks_scheduled: int
+    shared_blocks: int
+    completed: bool = False
+    blocks_zeroed: int = 0
+    bytes_zeroed: int = 0
+
+
+@dataclass
 class DaystromKVDecision:
     """Outcome of a policy evaluation. Payload-free telemetry only."""
 
@@ -186,6 +199,9 @@ class DaystromKVDecision:
     schema_version: str = ""
     matched_tokens: int = 0
     saved_tokens: int = 0
+    purged_blocks: int = 0
+    purged_bytes: int = 0
+    shared_blocks: int = 0
 
     def telemetry(self) -> dict[str, Any]:
         return {
@@ -196,6 +212,9 @@ class DaystromKVDecision:
             "reason_code": self.reason_code,
             "matched_tokens": self.matched_tokens,
             "saved_tokens": self.saved_tokens,
+            "purged_blocks": self.purged_blocks,
+            "purged_bytes": self.purged_bytes,
+            "shared_blocks": self.shared_blocks,
         }
 
 
@@ -409,6 +428,8 @@ class DaystromKVPolicy:
         self._max_records = max_records
         self._time_fn = time_fn
         self._records: dict[str, DaystromKVRecord] = {}
+        self._purges: dict[str, DaystromKVPurgeState] = {}
+        self._purge_events: dict[int, str] = {}
 
     # -- introspection ------------------------------------------------------ #
 
@@ -487,7 +508,9 @@ class DaystromKVPolicy:
 
         if request.operation == "save":
             return self._evaluate_save(request, now, tokens)
-        return self._evaluate_restore(request, now, tokens)
+        if request.operation == "restore":
+            return self._evaluate_restore(request, now, tokens)
+        return self._evaluate_purge(request, now)
 
     def _evaluate_save(
         self, request: DaystromKVRequest, now: float, tokens: int
@@ -499,6 +522,15 @@ class DaystromKVPolicy:
         # the in-memory record.  compute_block_hash_digest is kept only as an
         # internal/telemetry helper, never as an API precondition.
         self._evict_expired(now)
+        purge = self._purges.get(request.checkpoint_digest)
+        if purge is not None and not purge.completed:
+            return DaystromKVDecision(
+                authorized=False,
+                operation="save",
+                checkpoint_digest=request.checkpoint_digest,
+                reason_code="purge_pending",
+                schema_version=request.schema_version,
+            )
         if len(self._records) >= self._max_records and request.checkpoint_digest not in self._records:
             return DaystromKVDecision(
                 authorized=False,
@@ -515,6 +547,9 @@ class DaystromKVPolicy:
             created_at=now,
         )
         self._records[request.checkpoint_digest] = record
+        previous = self._purges.pop(request.checkpoint_digest, None)
+        if previous is not None:
+            self._purge_events.pop(previous.purge_event, None)
         return DaystromKVDecision(
             authorized=True,
             operation="save",
@@ -527,6 +562,18 @@ class DaystromKVPolicy:
     def _evaluate_restore(
         self, request: DaystromKVRequest, now: float, tokens: int
     ) -> DaystromKVDecision:
+        purge = self._purges.get(request.checkpoint_digest)
+        if purge is not None:
+            return DaystromKVDecision(
+                authorized=False,
+                operation="restore",
+                checkpoint_digest=request.checkpoint_digest,
+                reason_code="purge_complete" if purge.completed else "purge_pending",
+                schema_version=request.schema_version,
+                purged_blocks=purge.blocks_zeroed,
+                purged_bytes=purge.bytes_zeroed,
+                shared_blocks=purge.shared_blocks,
+            )
         record = self._records.get(request.checkpoint_digest)
         if record is None:
             return DaystromKVDecision(
@@ -570,6 +617,136 @@ class DaystromKVPolicy:
             matched_tokens=0,
         )
 
+    def _evaluate_purge(
+        self, request: DaystromKVRequest, now: float
+    ) -> DaystromKVDecision:
+        purge = self._purges.get(request.checkpoint_digest)
+        if purge is not None:
+            return DaystromKVDecision(
+                authorized=True,
+                operation="purge",
+                checkpoint_digest=request.checkpoint_digest,
+                reason_code="purge_complete" if purge.completed else "purge_pending",
+                schema_version=request.schema_version,
+                purged_blocks=purge.blocks_zeroed,
+                purged_bytes=purge.bytes_zeroed,
+                shared_blocks=purge.shared_blocks,
+            )
+        record = self._records.get(request.checkpoint_digest)
+        if record is None:
+            return DaystromKVDecision(
+                authorized=False,
+                operation="purge",
+                checkpoint_digest=request.checkpoint_digest,
+                reason_code="record_not_found",
+                schema_version=request.schema_version,
+            )
+        if record.is_expired(now):
+            del self._records[request.checkpoint_digest]
+            return DaystromKVDecision(
+                authorized=False,
+                operation="purge",
+                checkpoint_digest=request.checkpoint_digest,
+                reason_code="record_expired",
+                schema_version=request.schema_version,
+            )
+        return DaystromKVDecision(
+            authorized=True,
+            operation="purge",
+            checkpoint_digest=request.checkpoint_digest,
+            reason_code="purge_authorized",
+            schema_version=request.schema_version,
+        )
+
+    def partition_purge_hashes(
+        self, checkpoint_digest: str
+    ) -> tuple[tuple[bytes, ...], tuple[bytes, ...]]:
+        """Partition one record's hashes into unique and still-shared prefixes."""
+
+        record = self._records.get(checkpoint_digest)
+        if record is None:
+            raise DaystromKVAuthorizationError("record_not_found")
+        other_hashes = {
+            block_hash
+            for digest, other in self._records.items()
+            if digest != checkpoint_digest and digest not in self._purges
+            for block_hash in other.block_hashes
+        }
+        unique = tuple(h for h in record.block_hashes if h not in other_hashes)
+        shared = tuple(h for h in record.block_hashes if h in other_hashes)
+        return unique, shared
+
+    def begin_purge(
+        self,
+        checkpoint_digest: str,
+        *,
+        purge_event: int,
+        blocks_scheduled: int,
+        shared_blocks: int,
+    ) -> DaystromKVPurgeState:
+        """Logically invalidate a checkpoint before worker-side zeroization."""
+
+        if checkpoint_digest not in self._records:
+            raise DaystromKVAuthorizationError("record_not_found")
+        if purge_event < 0 or purge_event in self._purge_events:
+            raise DaystromKVAuthorizationError("purge_event_invalid")
+        if blocks_scheduled < 0 or shared_blocks < 0:
+            raise DaystromKVAuthorizationError("purge_counter_invalid")
+        state = DaystromKVPurgeState(
+            checkpoint_digest=checkpoint_digest,
+            purge_event=purge_event,
+            blocks_scheduled=blocks_scheduled,
+            shared_blocks=shared_blocks,
+        )
+        self._purges[checkpoint_digest] = state
+        self._purge_events[purge_event] = checkpoint_digest
+        return state
+
+    def complete_purge(
+        self, purge_event: int, *, blocks_zeroed: int, bytes_zeroed: int
+    ) -> DaystromKVDecision:
+        """Commit physical purge only after all runtime workers acknowledge it."""
+
+        checkpoint_digest = self._purge_events.get(purge_event)
+        if checkpoint_digest is None:
+            raise DaystromKVAuthorizationError("purge_event_not_found")
+        state = self._purges[checkpoint_digest]
+        if blocks_zeroed != state.blocks_scheduled:
+            raise DaystromKVAuthorizationError("purge_block_count_mismatch")
+        if bytes_zeroed < 0:
+            raise DaystromKVAuthorizationError("purge_counter_invalid")
+        state.completed = True
+        state.blocks_zeroed = blocks_zeroed
+        state.bytes_zeroed = bytes_zeroed
+        self._records.pop(checkpoint_digest, None)
+        self._trim_completed_purges()
+        return DaystromKVDecision(
+            authorized=True,
+            operation="purge",
+            checkpoint_digest=checkpoint_digest,
+            reason_code="purge_complete",
+            schema_version=DAYSTROM_KV_SCHEMA_VERSION,
+            purged_blocks=blocks_zeroed,
+            purged_bytes=bytes_zeroed,
+            shared_blocks=state.shared_blocks,
+        )
+
+    def _trim_completed_purges(self) -> None:
+        while len(self._purges) > self._max_records:
+            oldest_completed = next(
+                (
+                    (digest, state)
+                    for digest, state in self._purges.items()
+                    if state.completed
+                ),
+                None,
+            )
+            if oldest_completed is None:
+                return
+            digest, state = oldest_completed
+            self._purges.pop(digest, None)
+            self._purge_events.pop(state.purge_event, None)
+
     def _evict_expired(self, now: float) -> None:
         expired = [d for d, r in self._records.items() if r.is_expired(now)]
         for d in expired:
@@ -586,6 +763,13 @@ class DaystromKVPolicy:
         """
 
         self._records.clear()
+        pending = {
+            digest: state for digest, state in self._purges.items() if not state.completed
+        }
+        self._purges = pending
+        self._purge_events = {
+            state.purge_event: digest for digest, state in pending.items()
+        }
         return True
 
     # -- telemetry ---------------------------------------------------------- #
