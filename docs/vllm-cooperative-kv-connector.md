@@ -92,3 +92,7 @@ Local unit tests stub the exact vLLM 0.20 connector methods and verify:
 - target rows are held out of the allocator, zeroed in place only after DMA flush, acknowledged across workers, and freed only after commit;
 - missing, busy, or incomplete purge paths fail closed;
 - generic reset/delete capabilities remain unsupported.
+
+## Next-step recovery design
+
+The default-off, capability-gated rollout plan is documented in [Capability-gated autonomous recovery plan for cooperative vLLM KV](vllm-autonomous-recovery-plan.md). The plan preserves the unsupported generic capability flags and does not enable autonomy.
