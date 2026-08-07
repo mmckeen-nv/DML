@@ -111,6 +111,21 @@ def test_adapter_owned_mutation_avoids_duplicate_wrapper_lock():
     assert events == ["wrapper-ingest", "enter", "body", "exit"]
 
 
+def test_modern_adapter_close_skips_nested_persistence_before_unlock():
+    events = []
+
+    class _ModernAdapter:
+        def close(self, *, persist=True):
+            events.append(("close", persist))
+
+    class _Transaction:
+        def __exit__(self, *_args):
+            events.append("unlock")
+
+    mod._finish_adapter_mutation(_ModernAdapter(), _Transaction())
+    assert events == [("close", False), "unlock"]
+
+
 def test_legacy_adapter_close_persists_before_wrapper_unlock():
     events = []
 
