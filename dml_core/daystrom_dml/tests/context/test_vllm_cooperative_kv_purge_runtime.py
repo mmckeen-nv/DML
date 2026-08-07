@@ -393,3 +393,7 @@ def test_scheduler_protects_evicts_commits_and_denies_restore(
         block_hashes=block_hashes,
     )
     assert connector.get_num_new_matched_tokens(restore_request, 0) == (0, False)
+    _, denied_response = connector.request_finished(restore_request, [])
+    assert denied_response is not None
+    assert denied_response["daystrom"]["reason_code"] == "purge_complete"
+    assert denied_response["daystrom"]["matched_tokens"] == 0

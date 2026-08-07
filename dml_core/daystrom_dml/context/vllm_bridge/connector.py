@@ -618,7 +618,20 @@ class DaystromCooperativeKVConnector(SimpleCPUOffloadConnector, SupportsHMA):
             return False, self._merge_daystrom_meta(
                 None, self._build_daystrom_response_meta(telemetry)
             )
-        if not decision.authorized or decision.operation not in {"save", "restore"}:
+        if not decision.authorized:
+            # Preserve payload-free lifecycle evidence for a correctly signed
+            # restore denied because this checkpoint is being, or has been,
+            # physically purged. Other failures stay silent so this does not
+            # become a checkpoint-existence oracle.
+            if decision.operation == "restore" and decision.reason_code in {
+                "purge_pending",
+                "purge_complete",
+            }:
+                return False, self._merge_daystrom_meta(
+                    None, self._build_daystrom_response_meta(decision)
+                )
+            return False, None
+        if decision.operation not in {"save", "restore"}:
             return False, None
         # Both paths must delegate: save finalizes store tracking, while restore
         # releases CPU/GPU touch refs and load-event state in the parent manager.
@@ -658,7 +671,20 @@ class DaystromCooperativeKVConnector(SimpleCPUOffloadConnector, SupportsHMA):
             return False, self._merge_daystrom_meta(
                 None, self._build_daystrom_response_meta(telemetry)
             )
-        if not decision.authorized or decision.operation not in {"save", "restore"}:
+        if not decision.authorized:
+            # Preserve payload-free lifecycle evidence for a correctly signed
+            # restore denied because this checkpoint is being, or has been,
+            # physically purged. Other failures stay silent so this does not
+            # become a checkpoint-existence oracle.
+            if decision.operation == "restore" and decision.reason_code in {
+                "purge_pending",
+                "purge_complete",
+            }:
+                return False, self._merge_daystrom_meta(
+                    None, self._build_daystrom_response_meta(decision)
+                )
+            return False, None
+        if decision.operation not in {"save", "restore"}:
             return False, None
         parent_retain, parent_meta = False, None
         if self.scheduler_manager is not None:
