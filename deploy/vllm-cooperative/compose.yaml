@@ -1,0 +1,73 @@
+name: daystrom-vllm
+
+services:
+  vllm:
+    image: ${VLLM_IMAGE:-vllm/vllm-openai:v0.20.0}
+    container_name: ${VLLM_CONTAINER_NAME:-nemotron-warroom-vllm}
+    restart: unless-stopped
+    gpus: all
+    shm_size: 16gb
+    ports:
+      - "${VLLM_BIND_ADDRESS:-0.0.0.0}:${VLLM_PORT:-8000}:8000"
+    environment:
+      PYTHONPATH: /opt/daystrom/dml_core
+      VLLM_SERVER_DEV_MODE: "1"
+    volumes:
+      - ${HF_CACHE_DIR:?set HF_CACHE_DIR}:/root/.cache/huggingface
+      - ${DML_REPO_ROOT:?set DML_REPO_ROOT}/dml_core:/opt/daystrom/dml_core:ro
+    secrets:
+      - source: daystrom_kv_control
+        target: daystrom-kv-control.key
+        mode: 0400
+    healthcheck:
+      test:
+        - CMD
+        - python3
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3).read()"
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 8m
+    command:
+      - --model
+      - ${VLLM_MODEL_PATH:-nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4}
+      - --served-model-name
+      - ${VLLM_SERVED_MODEL:-nvidia/nemotron-3-super}
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --async-scheduling
+      - --dtype
+      - auto
+      - --kv-cache-dtype
+      - fp8
+      - --tensor-parallel-size
+      - "1"
+      - --pipeline-parallel-size
+      - "1"
+      - --data-parallel-size
+      - "1"
+      - --trust-remote-code
+      - --gpu-memory-utilization
+      - ${VLLM_GPU_MEMORY_UTILIZATION:-0.70}
+      - --enable-chunked-prefill
+      - --enable-prefix-caching
+      - --no-disable-hybrid-kv-cache-manager
+      - --max-num-seqs
+      - ${VLLM_MAX_NUM_SEQS:-2}
+      - --max-model-len
+      - ${VLLM_MAX_MODEL_LEN:-65536}
+      - --moe-backend
+      - ${VLLM_MOE_BACKEND:-marlin}
+      - --mamba_ssm_cache_dtype
+      - float16
+      - --quantization
+      - ${VLLM_QUANTIZATION:-fp4}
+      - --kv-transfer-config
+      - '{"kv_connector":"DaystromCooperativeKVConnector","kv_role":"kv_both","kv_connector_module_path":"daystrom_dml.context.vllm_bridge.connector","kv_connector_extra_config":{"cpu_bytes_to_use":8589934592,"daystrom_secret_path":"/run/secrets/daystrom-kv-control.key","daystrom_max_ttl_seconds":900,"daystrom_max_records":128}}'
+
+secrets:
+  daystrom_kv_control:
+    file: ${DAYSTROM_KV_SECRET_FILE:?set DAYSTROM_KV_SECRET_FILE}
