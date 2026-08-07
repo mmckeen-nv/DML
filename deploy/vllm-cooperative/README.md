@@ -2,6 +2,8 @@
 
 This deployment pins the DML source commit, mounts `dml_core` read-only, delivers the HMAC control key through a Compose secret, enables vLLM's hybrid KV manager and prefix caching, and keeps a stopped rollback container during migration from an unmanaged runtime.
 
+The runtime is explicitly GPU-first: vLLM APC serves a matching resident prefix from VRAM before the connector checks the managed CPU fallback. CPU offload remains enabled because APC entries are opportunistic, consume inference VRAM, and disappear on eviction or restart. GPU APC is not controller-scoped and is never reported as managed checkpoint restoration.
+
 It is intentionally specific to a Linux NVIDIA Docker host running vLLM 0.20.x. The connector and policy remain dependency-gated so ordinary DML installs on macOS and Windows do not import vLLM.
 
 ## Security and lifecycle boundaries

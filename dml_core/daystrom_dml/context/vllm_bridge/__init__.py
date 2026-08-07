@@ -1,8 +1,10 @@
 """Experimental vLLM 0.20 KV-connector bridge for Daystrom cooperative KV offload.
 
-This package provides a controller-gated vertical slice that subclasses vLLM's
-``SimpleCPUOffloadConnector`` and gates save/restore by request-level
-``kv_transfer_params`` and exact checkpoint identity.
+This package provides a GPU-first hybrid vertical slice. vLLM checks local GPU
+Automatic Prefix Caching before the controller-gated
+``SimpleCPUOffloadConnector`` fallback, which gates managed save/restore by
+request-level ``kv_transfer_params`` and exact checkpoint identity. GPU APC is
+opportunistic and is not a controller authorization boundary.
 
 * :mod:`policy` is a pure, runtime-neutral authorization policy.  It imports
   only the Python standard library and the dependency-light

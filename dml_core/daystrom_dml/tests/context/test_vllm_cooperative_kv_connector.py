@@ -1092,6 +1092,87 @@ class TestConnectorGating:
         tele = connector.take_telemetry()
         assert tele["r-restore"]["matched_tokens"] == 5
 
+    @pytest.mark.parametrize(
+        ("gpu_tokens", "cpu_tokens", "expected_route"),
+        [
+            (64, 0, "gpu_apc"),
+            (0, 5, "cpu_fallback"),
+            (64, 5, "gpu_apc_and_cpu"),
+            (0, 0, "miss"),
+        ],
+    )
+    def test_restore_reports_gpu_first_cache_route(
+        self,
+        connector_env,
+        secret_file,
+        fixed_time,
+        gpu_tokens,
+        cpu_tokens,
+        expected_route,
+    ):
+        connector, _ = connector_env
+        connector.policy._time_fn = lambda: fixed_time  # type: ignore[attr-defined]
+        saved_hashes = _block_hashes(2)
+        digest = _digest(f"gpu-first-{expected_route}")
+        save_params = build_kv_transfer_params(
+            operation="save",
+            checkpoint_digest=digest,
+            expires_at=fixed_time + 500.0,
+            nonce=f"save-{expected_route}",
+            secret_path=secret_file,
+        )
+        connector.request_finished(
+            _FakeRequest(
+                f"save-{expected_route}",
+                kv_transfer_params=save_params,
+                block_hashes=saved_hashes,
+                num_computed_tokens=64,
+            ),
+            [1, 2],
+        )
+        connector.scheduler_manager.get_num_new_matched_tokens = (
+            lambda request, num_computed_tokens: (cpu_tokens, False)
+        )
+        restore_params = build_kv_transfer_params(
+            operation="restore",
+            checkpoint_digest=digest,
+            expires_at=fixed_time + 500.0,
+            nonce=f"restore-{expected_route}",
+            secret_path=secret_file,
+        )
+        restore = _FakeRequest(
+            f"restore-{expected_route}",
+            kv_transfer_params=restore_params,
+            block_hashes=saved_hashes + _block_hashes(1, seed=99),
+        )
+
+        assert connector.get_num_new_matched_tokens(restore, gpu_tokens) == (
+            cpu_tokens,
+            False,
+        )
+        telemetry = connector.take_telemetry()[restore.request_id]
+        assert telemetry["gpu_apc_matched_tokens"] == gpu_tokens
+        assert telemetry["cpu_offload_matched_tokens"] == cpu_tokens
+        assert telemetry["matched_tokens"] == cpu_tokens
+        assert telemetry["cache_route"] == expected_route
+
+    def test_connector_requires_gpu_prefix_caching_for_hybrid_mode(
+        self, monkeypatch, tmp_path, secret_file
+    ):
+        _install_vllm_stubs(monkeypatch, tmp_path)
+        sys.modules.pop("daystrom_dml.context.vllm_bridge.connector", None)
+        import daystrom_dml.context.vllm_bridge.connector as conn_mod
+
+        config = sys.modules["vllm.config"].VllmConfig(
+            extra_config={"daystrom_secret_path": str(secret_file)},
+            enable_prefix_caching=False,
+        )
+        role = sys.modules[
+            "vllm.distributed.kv_transfer.kv_connector.v1.base"
+        ].KVConnectorRole.SCHEDULER
+        with pytest.raises(ValueError, match="prefix caching"):
+            conn_mod.DaystromCooperativeKVConnector(config, role)
+
     def test_update_state_after_alloc_unapproved_is_noop(self, connector_env):
         connector, _ = connector_env
         req = _FakeRequest("r2", kv_transfer_params=None)
@@ -1279,13 +1360,16 @@ class TestConnectorGating:
             block_hashes=saved_hashes + _block_hashes(1, seed=99),
             num_computed_tokens=64,
         )
-        assert connector.get_num_new_matched_tokens(restore_request, 0) == (5, True)
+        assert connector.get_num_new_matched_tokens(restore_request, 64) == (5, True)
         retain, response_meta = connector.request_finished(restore_request, [3, 4])
 
         assert retain is False
         assert response_meta is not None
         assert response_meta["daystrom"]["operation"] == "restore"
         assert response_meta["daystrom"]["matched_tokens"] == 5
+        assert response_meta["daystrom"]["gpu_apc_matched_tokens"] == 64
+        assert response_meta["daystrom"]["cpu_offload_matched_tokens"] == 5
+        assert response_meta["daystrom"]["cache_route"] == "gpu_apc_and_cpu"
         assert any(
             call[0] == "request_finished" and call[1] is restore_request
             for call in connector.scheduler_manager.calls

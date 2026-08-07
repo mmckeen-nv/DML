@@ -29,6 +29,9 @@ class VLLMCooperativeKVTrace:
     operation: str
     reason_code: str
     matched_tokens: int
+    gpu_apc_matched_tokens: int
+    cpu_offload_matched_tokens: int
+    cache_route: str
     saved_tokens: int
     purged_blocks: int
     purged_bytes: int
@@ -46,6 +49,9 @@ class VLLMCooperativeKVTrace:
             "operation": self.operation,
             "reason_code": self.reason_code,
             "matched_tokens": self.matched_tokens,
+            "gpu_apc_matched_tokens": self.gpu_apc_matched_tokens,
+            "cpu_offload_matched_tokens": self.cpu_offload_matched_tokens,
+            "cache_route": self.cache_route,
             "saved_tokens": self.saved_tokens,
             "purged_blocks": self.purged_blocks,
             "purged_bytes": self.purged_bytes,
@@ -111,6 +117,8 @@ class VLLMCooperativeExecutionAdapter:
                 "request_bound_selective_purge": True,
                 "purge_requires_resident_unshared_blocks": True,
                 "purge_eager_offload_only": True,
+                "cache_hierarchy": ["gpu_apc", "cpu_offload"],
+                "gpu_apc_controller_scoped": False,
             },
         )
 
@@ -231,6 +239,11 @@ class VLLMCooperativeExecutionAdapter:
             operation=operation,
             reason_code=cast(str, daystrom["reason_code"]),
             matched_tokens=_counter(daystrom, "matched_tokens"),
+            gpu_apc_matched_tokens=_counter(daystrom, "gpu_apc_matched_tokens"),
+            cpu_offload_matched_tokens=_counter(
+                daystrom, "cpu_offload_matched_tokens"
+            ),
+            cache_route=cast(str, daystrom.get("cache_route", "legacy")),
             saved_tokens=_counter(daystrom, "saved_tokens"),
             purged_blocks=_counter(daystrom, "purged_blocks"),
             purged_bytes=_counter(daystrom, "purged_bytes"),
@@ -256,6 +269,18 @@ class VLLMCooperativeExecutionAdapter:
         if not isinstance(reason, str) or reason not in expected_reasons:
             raise RuntimeExecutionError("cooperative KV request was not authorized")
         _counter(evidence, "matched_tokens")
+        _counter(evidence, "gpu_apc_matched_tokens")
+        _counter(evidence, "cpu_offload_matched_tokens")
+        cache_route = evidence.get("cache_route", "legacy")
+        if not isinstance(cache_route, str) or cache_route not in {
+            "gpu_apc",
+            "cpu_fallback",
+            "gpu_apc_and_cpu",
+            "miss",
+            "not_applicable",
+            "legacy",
+        }:
+            raise RuntimeExecutionError("invalid runtime cache route")
         _counter(evidence, "saved_tokens")
         _counter(evidence, "purged_blocks")
         _counter(evidence, "purged_bytes")
