@@ -222,6 +222,37 @@ class DaystromCooperativeKVConnector(SimpleCPUOffloadConnector, SupportsHMA):
         )
         self._decision_telemetry[request.request_id] = telemetry
 
+    def _capture_resident_checkpoint_inventory(self, checkpoint: str) -> None:
+        """Bind already-resident CPU rows reused by an authorized save.
+
+        The parent eager store skips allocation when an exact row is already in
+        the CPU cache. Those rows produce no new store event, but they are still
+        confirmed physical state owned by the new checkpoint and must remain in
+        its purge inventory.
+        """
+
+        manager = self.scheduler_manager
+        record = self._policy.record_for(checkpoint)
+        if manager is None or record is None or getattr(manager, "_lazy_mode", False):
+            return
+        try:
+            from vllm.v1.core.kv_cache_utils import make_block_hash_with_group_id
+
+            groups = manager.cpu_kv_cache_config.kv_cache_groups
+            hash_index = manager.cpu_block_pool.cached_block_hash_to_block
+            inventory = self._checkpoint_stored_hashes.setdefault(checkpoint, set())
+            for block_hash in record.block_hashes:
+                for group_id in range(len(groups)):
+                    exact_hash = make_block_hash_with_group_id(block_hash, group_id)
+                    block = hash_index.get_one_block(exact_hash)
+                    if block is not None and block.block_hash is not None:
+                        inventory.add(bytes(block.block_hash))
+        except Exception:
+            logger.exception(
+                "Failed to capture resident CPU KV inventory for checkpoint %s",
+                checkpoint,
+            )
+
     def _schedule_purge(self, request: "Request", decision: DaystromKVDecision) -> None:
         """Protect, logically evict, and queue one selective CPU KV purge."""
 
@@ -243,6 +274,7 @@ class DaystromCooperativeKVConnector(SimpleCPUOffloadConnector, SupportsHMA):
             if getattr(manager, "_lazy_mode", False):
                 self._record_purge_error(request, "purge_lazy_mode_unsupported")
                 return
+            self._capture_resident_checkpoint_inventory(decision.checkpoint_digest)
             unique_hashes, shared_hashes = self._policy.partition_purge_hashes(
                 decision.checkpoint_digest
             )
@@ -251,6 +283,10 @@ class DaystromCooperativeKVConnector(SimpleCPUOffloadConnector, SupportsHMA):
             )
             if inventory is None:
                 self._record_purge_error(request, "purge_inventory_missing")
+                return
+            record = self._policy.record_for(decision.checkpoint_digest)
+            if not inventory and record is not None and record.block_hashes:
+                self._record_purge_error(request, "purge_inventory_empty")
                 return
             unique_set = set(unique_hashes)
             shared_set = set(shared_hashes)
@@ -497,6 +533,7 @@ class DaystromCooperativeKVConnector(SimpleCPUOffloadConnector, SupportsHMA):
                 self.scheduler_manager.update_state_after_alloc(
                     request, blocks, num_external_tokens
                 )
+            self._capture_resident_checkpoint_inventory(decision.checkpoint_digest)
         elif (
             decision.operation == "purge"
             and decision.reason_code == "purge_authorized"

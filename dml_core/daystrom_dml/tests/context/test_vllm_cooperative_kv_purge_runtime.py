@@ -266,6 +266,96 @@ def test_completed_store_inventory_tracks_only_confirmed_cpu_rows(
     assert connector._checkpoint_stored_hashes[checkpoint] == {exact_hash}  # type: ignore[attr-defined]
 
 
+def test_save_reuses_confirmed_resident_rows_in_checkpoint_inventory(
+    purge_env, secret_file, fixed_time
+) -> None:
+    connector_mod, _, VllmConfig, KVConnectorRole, extra = purge_env
+    connector = connector_mod.DaystromCooperativeKVConnector(
+        VllmConfig(extra_config=extra), KVConnectorRole.SCHEDULER
+    )
+    connector.policy._time_fn = lambda: fixed_time  # type: ignore[attr-defined]
+    block_hash = _HELPERS._block_hashes(1)[0]
+    exact_hash = block_hash + (0).to_bytes(4, "big")
+
+    class HashMap:
+        def get_one_block(self, key):
+            if key == exact_hash:
+                return types.SimpleNamespace(block_id=2, block_hash=exact_hash, ref_cnt=0)
+            return None
+
+    manager = connector.scheduler_manager
+    manager.cpu_block_pool = types.SimpleNamespace(
+        cached_block_hash_to_block=HashMap()
+    )
+    manager.cpu_kv_cache_config = types.SimpleNamespace(kv_cache_groups=[object()])
+
+    checkpoint = _HELPERS._digest("resident-reuse")
+    params = build_kv_transfer_params(
+        operation="save",
+        checkpoint_digest=checkpoint,
+        expires_at=fixed_time + 500,
+        nonce="resident-reuse-save",
+        secret_path=secret_file,
+    )
+    request = _HELPERS._FakeRequest(
+        "resident-reuse-request",
+        kv_transfer_params=params,
+        block_hashes=[block_hash],
+    )
+
+    connector.update_state_after_alloc(request, blocks=[], num_external_tokens=0)
+
+    assert connector._checkpoint_stored_hashes[checkpoint] == {exact_hash}  # type: ignore[attr-defined]
+
+
+def test_nonempty_checkpoint_with_empty_inventory_cannot_report_purge_complete(
+    purge_env, secret_file, fixed_time
+) -> None:
+    connector_mod, _, VllmConfig, KVConnectorRole, extra = purge_env
+    connector = connector_mod.DaystromCooperativeKVConnector(
+        VllmConfig(extra_config=extra), KVConnectorRole.SCHEDULER
+    )
+    connector.policy._time_fn = lambda: fixed_time  # type: ignore[attr-defined]
+    checkpoint = _HELPERS._digest("empty-inventory")
+    block_hash = _HELPERS._block_hashes(1)[0]
+    save_params = build_kv_transfer_params(
+        operation="save",
+        checkpoint_digest=checkpoint,
+        expires_at=fixed_time + 500,
+        nonce="empty-inventory-save",
+        secret_path=secret_file,
+    )
+    assert connector.policy.evaluate(save_params, [block_hash]).authorized
+    connector._checkpoint_stored_hashes[checkpoint] = set()  # type: ignore[attr-defined]
+    manager = connector.scheduler_manager
+    manager.cpu_kv_cache_config = types.SimpleNamespace(kv_cache_groups=[object()])
+    manager.cpu_block_pool = types.SimpleNamespace(
+        cached_block_hash_to_block=types.SimpleNamespace(
+            get_one_block=lambda key: None
+        )
+    )
+    manager.has_pending_stores = lambda: False
+
+    purge_params = build_kv_transfer_params(
+        operation="purge",
+        checkpoint_digest=checkpoint,
+        expires_at=fixed_time + 500,
+        nonce="empty-inventory-purge",
+        secret_path=secret_file,
+    )
+    request = _HELPERS._FakeRequest(
+        "empty-inventory-purge-request",
+        kv_transfer_params=purge_params,
+        block_hashes=[],
+    )
+
+    connector.update_state_after_alloc(request, blocks=[], num_external_tokens=0)
+    _, response = connector.request_finished(request, [])
+
+    assert response is not None
+    assert response["daystrom"]["reason_code"] == "purge_inventory_empty"
+
+
 def test_scheduler_protects_evicts_commits_and_denies_restore(
     purge_env, secret_file, fixed_time
 ) -> None:
