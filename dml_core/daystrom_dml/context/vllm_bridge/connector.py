@@ -591,12 +591,20 @@ class DaystromCooperativeKVConnector(SimpleCPUOffloadConnector, SupportsHMA):
             # protected CPU rows return to the allocator's free queue.
             if self.scheduler_manager is not None and blocks:
                 self.scheduler_manager.cpu_block_pool.free_blocks(blocks)
-            request_id = self._purge_event_to_request.pop(event, None)
-            if request_id is not None:
-                self._decision_telemetry[request_id] = completed.telemetry()
-            checkpoint = self._purge_event_to_checkpoint.pop(event, None)
-            if checkpoint is not None:
-                self._checkpoint_stored_hashes.pop(checkpoint, None)
+            completed_request_id = (
+                self._purge_event_to_request.pop(event)
+                if event in self._purge_event_to_request
+                else None
+            )
+            if completed_request_id is not None:
+                self._decision_telemetry[completed_request_id] = completed.telemetry()
+            completed_checkpoint = (
+                self._purge_event_to_checkpoint.pop(event)
+                if event in self._purge_event_to_checkpoint
+                else None
+            )
+            if completed_checkpoint is not None:
+                self._checkpoint_stored_hashes.pop(completed_checkpoint, None)
             self._purge_event_to_blocks.pop(event, None)
 
     def request_finished(
