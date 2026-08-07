@@ -1,6 +1,8 @@
 # Experimental controller-gated vLLM KV connector
 
-This vertical slice targets **vLLM 0.20.x** and uses vLLM's V1 `KVConnectorBase_V1` plugin path without forking vLLM. `DaystromCooperativeKVConnector` subclasses `SimpleCPUOffloadConnector`, so approved requests use the runtime's real GPU↔CPU KV transfer machinery.
+This vertical slice targets **vLLM 0.20.x** and uses vLLM's V1 `KVConnectorBase_V1` plugin path without forking vLLM. It operates as a **GPU-first hybrid**: vLLM checks its local GPU Automatic Prefix Cache first, then `DaystromCooperativeKVConnector` subclasses `SimpleCPUOffloadConnector` to restore any authorized prefix remainder from CPU RAM.
+
+GPU APC is opportunistic and hash-driven; it is not controller-scoped storage. Daystrom authorization, checkpoint identity, and selective physical purge continue to apply only to the managed CPU fallback tier.
 
 ## What is implemented
 
@@ -9,7 +11,8 @@ This vertical slice targets **vLLM 0.20.x** and uses vLLM's V1 `KVConnectorBase_
 - Controller checkpoint identity bound inside the runtime to the exact ordered vLLM block hashes observed during save.
 - Restore allowed only when the saved block-hash sequence is an exact prefix of the new request.
 - Unapproved requests neither register CPU stores nor query the external CPU cache.
-- Native matched-token counts come from `SimpleCPUOffloadScheduler`, not wall-clock inference.
+- Native matched-token counts come from vLLM's scheduler contracts, not wall-clock inference. Response evidence separates `gpu_apc_matched_tokens` from managed `cpu_offload_matched_tokens` and labels the route as `gpu_apc`, `cpu_fallback`, `gpu_apc_and_cpu`, or `miss`.
+- GPU prefix caching is mandatory: connector startup fails rather than silently degrading to CPU-only or cold behavior.
 - Selective purge partitions unique from still-shared prefix blocks, protects target CPU rows from allocator reuse, removes their lookup keys, flushes in-flight DMA on every worker, zeroes the pinned CPU tensors in place, aggregates all-worker acknowledgements, and only then frees the rows and removes the checkpoint record.
 - Shared rows remain available to their other authorized checkpoint owners and are reported separately.
 - Payload-free connector evidence is returned in response `kv_transfer_params.daystrom`.
@@ -77,7 +80,9 @@ The OpenAI completion request includes:
 }
 ```
 
-The response evidence contains only schema, operation, checkpoint digest, reason code, native token counters, and selective-purge counters (`purged_blocks`, `purged_bytes`, `shared_blocks`). It excludes prompts, outputs, token IDs, nonces, signatures, block hashes, and the control key. A purge client accepts only `reason_code: "purge_complete"`; `purge_pending`, busy/missing-block failures, and worker-count mismatches are failures.
+The response evidence contains only schema, operation, checkpoint digest, reason code, native token counters, cache route, and selective-purge counters (`purged_blocks`, `purged_bytes`, `shared_blocks`). `matched_tokens` remains the backward-compatible managed CPU restore count; `gpu_apc_matched_tokens` reports the local GPU prefix count supplied by vLLM, and `cpu_offload_matched_tokens` reports the external fallback count. It excludes prompts, outputs, token IDs, nonces, signatures, block hashes, and the control key. A purge client accepts only `reason_code: "purge_complete"`; `purge_pending`, busy/missing-block failures, and worker-count mismatches are failures.
+
+A `gpu_apc` route proves a native local-cache hit, not controller-authorized checkpoint restoration. Only positive `cpu_offload_matched_tokens` is evidence that the managed Daystrom fallback restored KV.
 
 ## Verification
 

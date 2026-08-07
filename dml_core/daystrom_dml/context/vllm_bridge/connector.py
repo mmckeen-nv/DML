@@ -1,4 +1,4 @@
-"""Experimental controller-gated vLLM 0.20 SimpleCPUOffload KV connector.
+"""Experimental GPU-first vLLM 0.20 hybrid KV connector.
 
 This module is **dependency-gated**: it imports vLLM and torch at module load.
 Importing the ``daystrom_dml.context.vllm_bridge`` package does NOT import this
@@ -144,6 +144,10 @@ class DaystromCooperativeKVConnector(SimpleCPUOffloadConnector, SupportsHMA):
         role: KVConnectorRole,
         kv_cache_config: "KVCacheConfig | None" = None,
     ) -> None:
+        if not bool(vllm_config.cache_config.enable_prefix_caching):
+            raise ValueError(
+                "Daystrom GPU-first hybrid mode requires vLLM prefix caching"
+            )
         super().__init__(vllm_config, role, kv_cache_config)
         extra_config = self._kv_transfer_config.kv_connector_extra_config or {}
         secret_path_str = extra_config.get("daystrom_secret_path")
@@ -204,6 +208,13 @@ class DaystromCooperativeKVConnector(SimpleCPUOffloadConnector, SupportsHMA):
         if existing is not None:
             if existing.get("matched_tokens", 0) > tele.get("matched_tokens", 0):
                 tele["matched_tokens"] = existing["matched_tokens"]
+            for key in (
+                "gpu_apc_matched_tokens",
+                "cpu_offload_matched_tokens",
+                "cache_route",
+            ):
+                if key in existing:
+                    tele[key] = existing[key]
         self._decision_telemetry[request.request_id] = tele
         return decision
 
@@ -481,6 +492,15 @@ class DaystromCooperativeKVConnector(SimpleCPUOffloadConnector, SupportsHMA):
         decision = self._evaluate(request)
         if not decision.authorized or decision.operation != "restore":
             return 0, False
+        # vLLM 0.20 computes local GPU prefix-cache matches before invoking a
+        # connector and passes that native count as num_computed_tokens. Keep
+        # the managed CPU tier second and report both sources independently.
+        # GPU APC remains opportunistic and is not an authorization boundary.
+        telemetry = self._decision_telemetry[request.request_id]
+        gpu_tokens = max(0, int(num_computed_tokens))
+        telemetry["gpu_apc_matched_tokens"] = gpu_tokens
+        telemetry["cpu_offload_matched_tokens"] = 0
+        telemetry["cache_route"] = "gpu_apc" if gpu_tokens else "miss"
         # Delegate to the parent scheduler manager for the native matched
         # token count.  Do NOT treat the count of block hashes as a token
         # count — the parent's count is based on actual CPU cache hits.
@@ -491,10 +511,11 @@ class DaystromCooperativeKVConnector(SimpleCPUOffloadConnector, SupportsHMA):
                 )
             )
             if parent_matched is not None and parent_matched > 0:
-                # Update decision telemetry with the actual native count.
-                self._decision_telemetry[request.request_id][
-                    "matched_tokens"
-                ] = parent_matched
+                telemetry["matched_tokens"] = parent_matched
+                telemetry["cpu_offload_matched_tokens"] = parent_matched
+                telemetry["cache_route"] = (
+                    "gpu_apc_and_cpu" if gpu_tokens else "cpu_fallback"
+                )
                 return parent_matched, parent_async
         return 0, False
 
@@ -767,6 +788,14 @@ class DaystromCooperativeKVConnector(SimpleCPUOffloadConnector, SupportsHMA):
             "checkpoint_digest": values.get("checkpoint_digest", ""),
             "reason_code": values.get("reason_code", "unknown"),
             "matched_tokens": values.get("matched_tokens", 0),
+            "gpu_apc_matched_tokens": values.get("gpu_apc_matched_tokens", 0),
+            "cpu_offload_matched_tokens": values.get(
+                "cpu_offload_matched_tokens", 0
+            ),
+            "cache_route": values.get(
+                "cache_route",
+                "miss" if values.get("operation") == "restore" else "not_applicable",
+            ),
             "saved_tokens": values.get("saved_tokens", 0),
             "purged_blocks": values.get("purged_blocks", 0),
             "purged_bytes": values.get("purged_bytes", 0),

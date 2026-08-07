@@ -75,6 +75,11 @@ def _response(operation: str = "save", digest: str | None = None) -> dict[str, A
                     "purge_complete" if operation == "purge" else f"{operation}_authorized"
                 ),
                 "matched_tokens": 96 if operation == "restore" else 0,
+                "gpu_apc_matched_tokens": 32 if operation == "restore" else 0,
+                "cpu_offload_matched_tokens": 96 if operation == "restore" else 0,
+                "cache_route": (
+                    "gpu_apc_and_cpu" if operation == "restore" else "not_applicable"
+                ),
                 "saved_tokens": 128 if operation == "save" else 0,
                 "purged_blocks": 2 if operation == "purge" else 0,
                 "purged_bytes": 4096 if operation == "purge" else 0,
@@ -136,6 +141,9 @@ def test_restore_uses_native_matched_token_count(tmp_path: Path) -> None:
 
     assert trace.operation == "restore"
     assert trace.matched_tokens == 96
+    assert trace.gpu_apc_matched_tokens == 32
+    assert trace.cpu_offload_matched_tokens == 96
+    assert trace.cache_route == "gpu_apc_and_cpu"
     assert trace.reason_code == "restore_authorized"
 
 
@@ -194,6 +202,8 @@ def test_capabilities_fail_closed_for_unimplemented_lifecycle(tmp_path: Path) ->
     assert caps.supports_kv_checkpoint_delete is False
     assert caps.supports_slot_affinity is False
     assert caps.metadata["physical_purge"] is False
+    assert caps.metadata["cache_hierarchy"] == ["gpu_apc", "cpu_offload"]
+    assert caps.metadata["gpu_apc_controller_scoped"] is False
 
 
 @pytest.mark.parametrize(
@@ -214,6 +224,12 @@ def test_capabilities_fail_closed_for_unimplemented_lifecycle(tmp_path: Path) ->
         (
             lambda payload: payload.pop("kv_transfer_params"),
             "lacks cooperative KV evidence",
+        ),
+        (
+            lambda payload: payload["kv_transfer_params"]["daystrom"].update(
+                {"cache_route": ["gpu_apc"]}
+            ),
+            "invalid runtime cache route",
         ),
     ],
 )
