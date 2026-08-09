@@ -93,6 +93,31 @@ def test_load_recovers_previous_complete_generation(tmp_path):
     assert [item["meta"]["source"] for item in results] == ["stable"]
 
 
+def test_persist_prunes_generations_older_than_manifest_rollback(tmp_path):
+    index_path = tmp_path / "bounded.faiss"
+    meta_path = tmp_path / "bounded.json"
+    store = PersistentRAGStore(enable=True, index_path=index_path, meta_path=meta_path, dim=3)
+
+    for position in range(4):
+        store.add(f"document {position}", _vec([1.0, float(position), 0.0]))
+        store.persist()
+
+    manifest = json.loads(store.manifest_path.read_text(encoding="utf-8"))
+    retained = {
+        manifest[slot][field]
+        for slot in ("current", "previous")
+        for field in ("index", "metadata")
+    }
+    generations = {
+        path.name
+        for pattern in ("bounded.faiss.*", "bounded.json.*")
+        for path in tmp_path.glob(pattern)
+        if path.name != store.manifest_path.name
+    }
+
+    assert generations == retained
+
+
 def test_runtime_snapshot_restore_is_atomic_and_complete(tmp_path):
     index_path = tmp_path / "snapshot.faiss"
     meta_path = tmp_path / "snapshot.json"

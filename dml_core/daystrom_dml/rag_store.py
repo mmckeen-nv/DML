@@ -174,6 +174,35 @@ class PersistentRAGStore:
                 self.manifest_path,
                 json.dumps({"version": 1, "current": current, "previous": previous}, indent=2),
             )
+            self._prune_unreferenced_generations(current=current, previous=previous)
+
+    def _prune_unreferenced_generations(
+        self,
+        *,
+        current: Dict[str, Any],
+        previous: Optional[Dict[str, Any]],
+    ) -> None:
+        """Retain only the manifest's current and rollback generations."""
+
+        retained = {
+            str(record[field])
+            for record in (current, previous)
+            if record
+            for field in ("index", "metadata")
+            if record.get(field)
+        }
+        for base_path in (self.index_path, self.meta_path):
+            prefix = f"{base_path.name}."
+            for candidate in base_path.parent.glob(f"{base_path.name}.*"):
+                suffix = candidate.name.removeprefix(prefix)
+                if candidate.name in retained or len(suffix) != 32:
+                    continue
+                if any(char not in "0123456789abcdef" for char in suffix):
+                    continue
+                try:
+                    candidate.unlink()
+                except OSError:
+                    LOGGER.warning("Failed to prune stale RAG generation %s", candidate, exc_info=True)
 
     def _clear_loaded_state(self) -> None:
         self._index = None
