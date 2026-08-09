@@ -147,8 +147,8 @@ It must pass a dedicated payload/secret-hygiene test equivalent to the assertion
 1. Purge only after the session/checkpoint is terminal or an operator explicitly requests cleanup.
 2. Refuse purge when save transfers are pending, lazy mode is active, inventory is missing/empty, target rows are missing or busy, or worker acknowledgement is incomplete.
 3. Accept completion only on `purge_complete`.
-4. Before any autonomous rollout, extend scheduler completion to revalidate that every retained shared hash still has another unexpired, non-purged checkpoint owner. The current connector partitions ownership when purge is scheduled but does not close this owner-expiry race at worker acknowledgement.
-5. If shared ownership disappears before completion, keep cleanup nonterminal and report a distinct failure instead of claiming `PURGED`; do not zero or free rows without a newly proven ownership partition.
+4. Scheduler completion revalidates every exact retained logical hash against another unexpired, non-purged checkpoint owner before committing worker acknowledgement.
+5. If shared ownership disappears before completion, the connector keeps cleanup nonterminal, retains protected rows, suppresses automatic resend, and reports `purge_shared_ownership_changed` instead of claiming `PURGED`. Recovery requires explicit operator remediation or process-epoch invalidation; it never broadens into an all-cache reset.
 6. Require positive `purged_blocks` and `purged_bytes` when the checkpoint has exclusive resident rows.
 7. Permit zero exclusive rows only when evidence reports retained shared rows and the completion-time ownership check confirms another live checkpoint.
 8. After completion, require subsequent restore denial for audit probes; never expose the denied request's prompt in evidence.

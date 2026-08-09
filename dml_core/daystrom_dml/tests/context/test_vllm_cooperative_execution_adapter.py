@@ -89,6 +89,25 @@ def _response(operation: str = "save", digest: str | None = None) -> dict[str, A
     }
 
 
+def _status_response(
+    reason_code: str,
+    *,
+    ready: bool = False,
+    stored: int = 0,
+    expected: int = 0,
+) -> dict[str, Any]:
+    payload = _response("status")
+    payload["kv_transfer_params"]["daystrom"].update(
+        {
+            "reason_code": reason_code,
+            "checkpoint_ready": ready,
+            "stored_blocks": stored,
+            "expected_blocks": expected,
+        }
+    )
+    return payload
+
+
 def test_request_is_signed_and_native_evidence_is_validated(tmp_path: Path) -> None:
     opener = Opener(_response())
     adapter = VLLMCooperativeExecutionAdapter(
@@ -147,6 +166,184 @@ def test_restore_uses_native_matched_token_count(tmp_path: Path) -> None:
     assert trace.reason_code == "restore_authorized"
 
 
+def test_checkpoint_status_returns_typed_payload_free_readiness(tmp_path: Path) -> None:
+    opener = Opener(
+        _status_response("checkpoint_ready", ready=True, stored=4, expected=4)
+    )
+    adapter = VLLMCooperativeExecutionAdapter(
+        "http://127.0.0.1:8000",
+        model_id="model",
+        runtime_id="vllm-test",
+        runtime_version="0.20.0",
+        secret_path=_secret(tmp_path),
+        opener=opener,
+    )
+
+    status = adapter.checkpoint_status(
+        checkpoint_digest=_digest(),
+        expires_at=4_000_000_000.0,
+        nonce="status-nonce",
+    )
+
+    assert status.operation == "status"
+    assert status.reason_code == "checkpoint_ready"
+    assert status.checkpoint_ready is True
+    assert status.stored_blocks == 4
+    assert status.expected_blocks == 4
+    envelope = opener.calls[0]["body"]["kv_transfer_params"]["daystrom"]
+    assert envelope["operation"] == "status"
+    telemetry = json.dumps(status.to_telemetry())
+    assert "status-nonce" not in telemetry
+    assert "authorization" not in telemetry
+
+
+@pytest.mark.parametrize(
+    ("reason_code", "stored", "expected"),
+    [
+        ("checkpoint_pending", 0, 4),
+        ("checkpoint_partial", 2, 4),
+        ("checkpoint_evicted", 0, 4),
+        ("checkpoint_below_granularity", 0, 0),
+        ("record_not_found", 0, 0),
+        ("record_expired", 0, 0),
+        ("purge_pending", 0, 0),
+        ("purge_complete", 0, 0),
+        ("purge_shared_ownership_changed", 0, 0),
+    ],
+)
+def test_checkpoint_status_accepts_fail_closed_nonready_states(
+    tmp_path: Path, reason_code: str, stored: int, expected: int
+) -> None:
+    adapter = VLLMCooperativeExecutionAdapter(
+        "http://127.0.0.1:8000",
+        model_id="model",
+        runtime_id="vllm-test",
+        runtime_version="0.20.0",
+        secret_path=_secret(tmp_path),
+        opener=Opener(
+            _status_response(reason_code, stored=stored, expected=expected)
+        ),
+    )
+
+    status = adapter.checkpoint_status(
+        checkpoint_digest=_digest(),
+        expires_at=4_000_000_000.0,
+        nonce=f"status-{reason_code}",
+    )
+
+    assert status.reason_code == reason_code
+    assert status.checkpoint_ready is False
+
+
+@pytest.mark.parametrize(
+    "mutator",
+    [
+        lambda daystrom: daystrom.update({"checkpoint_ready": "yes"}),
+        lambda daystrom: daystrom.update({"stored_blocks": -1}),
+        lambda daystrom: daystrom.update({"expected_blocks": True}),
+        lambda daystrom: daystrom.update(
+            {
+                "reason_code": "checkpoint_ready",
+                "checkpoint_ready": True,
+                "stored_blocks": 3,
+                "expected_blocks": 4,
+            }
+        ),
+        lambda daystrom: daystrom.update(
+            {
+                "reason_code": "checkpoint_partial",
+                "checkpoint_ready": True,
+                "stored_blocks": 3,
+                "expected_blocks": 4,
+            }
+        ),
+    ],
+)
+def test_checkpoint_status_rejects_inconsistent_readiness(
+    tmp_path: Path, mutator: Any
+) -> None:
+    payload = _status_response("checkpoint_ready", ready=True, stored=4, expected=4)
+    mutator(payload["kv_transfer_params"]["daystrom"])
+    adapter = VLLMCooperativeExecutionAdapter(
+        "http://127.0.0.1:8000",
+        model_id="model",
+        runtime_id="vllm-test",
+        runtime_version="0.20.0",
+        secret_path=_secret(tmp_path),
+        opener=Opener(payload),
+    )
+
+    with pytest.raises(RuntimeExecutionError, match="readiness"):
+        adapter.checkpoint_status(
+            checkpoint_digest=_digest(),
+            expires_at=4_000_000_000.0,
+            nonce="status-invalid",
+        )
+
+
+def test_wait_for_checkpoint_ready_uses_fresh_signed_status_requests(
+    tmp_path: Path,
+) -> None:
+    opener = SequenceOpener(
+        [
+            _status_response("checkpoint_pending", stored=0, expected=4),
+            _status_response(
+                "checkpoint_ready", ready=True, stored=4, expected=4
+            ),
+        ]
+    )
+    adapter = VLLMCooperativeExecutionAdapter(
+        "http://127.0.0.1:8000",
+        model_id="model",
+        runtime_id="vllm-test",
+        runtime_version="0.20.0",
+        secret_path=_secret(tmp_path),
+        opener=opener,
+    )
+
+    status = adapter.wait_for_checkpoint_ready(
+        checkpoint_digest=_digest(),
+        expires_at=4_000_000_000.0,
+        nonce="ready-base",
+        max_attempts=2,
+        poll_interval_seconds=0,
+    )
+
+    assert status.checkpoint_ready is True
+    nonces = [
+        call["body"]["kv_transfer_params"]["daystrom"]["nonce"]
+        for call in opener.calls
+    ]
+    assert len(set(nonces)) == 2
+    assert all(
+        call["body"]["kv_transfer_params"]["daystrom"]["operation"]
+        == "status"
+        for call in opener.calls
+    )
+
+
+def test_wait_for_checkpoint_ready_aborts_on_nonpending_state(tmp_path: Path) -> None:
+    adapter = VLLMCooperativeExecutionAdapter(
+        "http://127.0.0.1:8000",
+        model_id="model",
+        runtime_id="vllm-test",
+        runtime_version="0.20.0",
+        secret_path=_secret(tmp_path),
+        opener=Opener(
+            _status_response("checkpoint_partial", stored=2, expected=4)
+        ),
+    )
+
+    with pytest.raises(RuntimeExecutionError, match="checkpoint_partial"):
+        adapter.wait_for_checkpoint_ready(
+            checkpoint_digest=_digest(),
+            expires_at=4_000_000_000.0,
+            nonce="ready-partial",
+            max_attempts=2,
+            poll_interval_seconds=0,
+        )
+
+
 def test_purge_requires_completed_physical_counters(tmp_path: Path) -> None:
     pending = _response("purge")
     pending["kv_transfer_params"]["daystrom"].update(
@@ -157,7 +354,11 @@ def test_purge_requires_completed_physical_counters(tmp_path: Path) -> None:
             "shared_blocks": 1,
         }
     )
-    opener = SequenceOpener([pending, _response("purge")])
+    complete = _status_response("purge_complete")
+    complete["kv_transfer_params"]["daystrom"].update(
+        {"purged_blocks": 2, "purged_bytes": 4096, "shared_blocks": 1}
+    )
+    opener = SequenceOpener([pending, complete])
     adapter = VLLMCooperativeExecutionAdapter(
         "http://127.0.0.1:8000",
         model_id="model",
@@ -181,7 +382,7 @@ def test_purge_requires_completed_physical_counters(tmp_path: Path) -> None:
     first_envelope = opener.calls[0]["body"]["kv_transfer_params"]["daystrom"]
     second_envelope = opener.calls[1]["body"]["kv_transfer_params"]["daystrom"]
     assert first_envelope["operation"] == "purge"
-    assert second_envelope["operation"] == "purge"
+    assert second_envelope["operation"] == "status"
     assert first_envelope["nonce"] != second_envelope["nonce"]
 
 

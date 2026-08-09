@@ -166,6 +166,7 @@ class DaystromCooperativeKVConnector(SimpleCPUOffloadConnector, SupportsHMA):
         self._decision_telemetry: dict[str, dict[str, Any]] = {}
         self._save_request_to_checkpoint: dict[str, str] = {}
         self._checkpoint_stored_hashes: dict[str, set[bytes]] = {}
+        self._checkpoint_store_completed: set[str] = set()
         self._purge_event_counter = 0
         self._purge_event_to_checkpoint: dict[int, str] = {}
         self._purge_event_to_request: dict[int, str] = {}
@@ -173,6 +174,7 @@ class DaystromCooperativeKVConnector(SimpleCPUOffloadConnector, SupportsHMA):
         self._purge_event_pending_counts: dict[int, tuple[int, int, int]] = {}
         self._purge_unsent_events: list[int] = []
         self._purge_schedule_errors: dict[str, str] = {}
+        self._purge_completion_errors: dict[str, str] = {}
         self._expected_worker_count = int(vllm_config.parallel_config.world_size)
         self._bound_purge_event = -1
         self._bound_purge_blocks: list[int] = []
@@ -258,11 +260,94 @@ class DaystromCooperativeKVConnector(SimpleCPUOffloadConnector, SupportsHMA):
                     block = hash_index.get_one_block(exact_hash)
                     if block is not None and block.block_hash is not None:
                         inventory.add(bytes(block.block_hash))
+            expected = len(record.block_hashes) * len(groups)
+            if expected > 0 and len(inventory) == expected:
+                self._checkpoint_store_completed.add(checkpoint)
         except Exception:
             logger.exception(
                 "Failed to capture resident CPU KV inventory for checkpoint %s",
                 checkpoint,
             )
+
+    def _checkpoint_inventory_counts(self, checkpoint: str) -> tuple[int, int]:
+        """Return currently resident and expected CPU rows for a checkpoint.
+
+        Inventory entries are revalidated against the live CPU block hash map so
+        status cannot report stale readiness after ordinary capacity eviction.
+        """
+
+        manager = self.scheduler_manager
+        record = self._policy.record_for(checkpoint)
+        if manager is None or record is None:
+            return 0, 0
+        try:
+            groups = manager.cpu_kv_cache_config.kv_cache_groups
+            expected = len(record.block_hashes) * len(groups)
+            inventory = self._checkpoint_stored_hashes.get(checkpoint, set())
+            hash_index = manager.cpu_block_pool.cached_block_hash_to_block
+            resident = {
+                exact_hash
+                for exact_hash in inventory
+                if hash_index.get_one_block(exact_hash) is not None
+            }
+            if checkpoint in self._checkpoint_stored_hashes:
+                self._checkpoint_stored_hashes[checkpoint] = resident
+            return len(resident), expected
+        except Exception:
+            logger.exception(
+                "Failed to inspect CPU KV readiness for checkpoint %s", checkpoint
+            )
+            return 0, 0
+
+    def _checkpoint_status_telemetry(
+        self, decision: DaystromKVDecision
+    ) -> dict[str, Any]:
+        """Add physical readiness to a valid signed status decision."""
+
+        telemetry = decision.telemetry()
+        telemetry.update(
+            {
+                "checkpoint_ready": False,
+                "stored_blocks": 0,
+                "expected_blocks": 0,
+            }
+        )
+        completion_error = self._purge_completion_errors.get(
+            decision.checkpoint_digest
+        )
+        if completion_error is not None:
+            telemetry["reason_code"] = completion_error
+            return telemetry
+        if decision.reason_code in {
+            "record_not_found",
+            "record_expired",
+            "purge_pending",
+            "purge_complete",
+        }:
+            return telemetry
+        stored, expected = self._checkpoint_inventory_counts(
+            decision.checkpoint_digest
+        )
+        completed = decision.checkpoint_digest in self._checkpoint_store_completed
+        if expected == 0:
+            reason = "checkpoint_below_granularity"
+        elif not completed:
+            reason = "checkpoint_pending"
+        elif stored == expected:
+            reason = "checkpoint_ready"
+        elif stored == 0:
+            reason = "checkpoint_evicted"
+        else:
+            reason = "checkpoint_partial"
+        telemetry.update(
+            {
+                "reason_code": reason,
+                "checkpoint_ready": reason == "checkpoint_ready",
+                "stored_blocks": stored,
+                "expected_blocks": expected,
+            }
+        )
+        return telemetry
 
     def _schedule_purge(self, request: "Request", decision: DaystromKVDecision) -> None:
         """Protect, logically evict, and queue one selective CPU KV purge."""
@@ -337,6 +422,7 @@ class DaystromCooperativeKVConnector(SimpleCPUOffloadConnector, SupportsHMA):
                 purge_event=event,
                 blocks_scheduled=len(blocks),
                 shared_blocks=len(shared_exact_hashes),
+                shared_hashes=shared_hashes,
             )
             self._purge_event_to_checkpoint[event] = decision.checkpoint_digest
             self._purge_event_to_request[event] = request.request_id
@@ -348,6 +434,9 @@ class DaystromCooperativeKVConnector(SimpleCPUOffloadConnector, SupportsHMA):
                 self._decision_telemetry[request.request_id] = completed.telemetry()
                 self._checkpoint_stored_hashes.pop(
                     decision.checkpoint_digest, None
+                )
+                self._checkpoint_store_completed.discard(
+                    decision.checkpoint_digest
                 )
                 self._purge_event_to_checkpoint.pop(event, None)
                 self._purge_event_to_request.pop(event, None)
@@ -408,6 +497,10 @@ class DaystromCooperativeKVConnector(SimpleCPUOffloadConnector, SupportsHMA):
                         for exact_hash in exact_hashes
                         if bytes(get_block_hash(exact_hash)) in record_hashes
                     )
+                    self._checkpoint_inventory_counts(checkpoint)
+                    # Worker completion is distinct from full residency: a
+                    # completed save may still be partial after capacity loss.
+                    self._checkpoint_store_completed.add(checkpoint)
                     completed_reqs.add(request_id)
             return completed_reqs
         except Exception:
@@ -547,6 +640,9 @@ class DaystromCooperativeKVConnector(SimpleCPUOffloadConnector, SupportsHMA):
             )
             if previous_checkpoint != decision.checkpoint_digest:
                 self._checkpoint_stored_hashes[decision.checkpoint_digest] = set()
+                self._checkpoint_store_completed.discard(
+                    decision.checkpoint_digest
+                )
             self._save_request_to_checkpoint[request.request_id] = (
                 decision.checkpoint_digest
             )
@@ -563,6 +659,7 @@ class DaystromCooperativeKVConnector(SimpleCPUOffloadConnector, SupportsHMA):
         elif (
             decision.operation == "purge"
             and decision.reason_code == "purge_pending"
+            and decision.checkpoint_digest not in self._purge_completion_errors
         ):
             # A prior worker attempt may have failed without acknowledgement.
             # A separately signed status request safely retries the idempotent
@@ -640,6 +737,35 @@ class DaystromCooperativeKVConnector(SimpleCPUOffloadConnector, SupportsHMA):
                     expected_rows,
                 )
                 continue
+            checkpoint = self._purge_event_to_checkpoint.get(event)
+            if checkpoint is None:
+                logger.error("Purge %d checkpoint identity is missing", event)
+                continue
+            if not self._policy.purge_shared_owners_valid(checkpoint):
+                reason = "purge_shared_ownership_changed"
+                logger.error(
+                    "Purge %d cannot commit because shared ownership changed",
+                    event,
+                )
+                self._purge_completion_errors[checkpoint] = reason
+                request_id = self._purge_event_to_request.get(event)
+                if request_id is not None:
+                    telemetry = self._decision_telemetry.get(request_id, {})
+                    telemetry.update(
+                        {
+                            "authorized": False,
+                            "operation": "purge",
+                            "checkpoint_digest": checkpoint,
+                            "reason_code": reason,
+                            "purged_blocks": 0,
+                            "purged_bytes": 0,
+                        }
+                    )
+                    self._decision_telemetry[request_id] = telemetry
+                # Keep the purge nonterminal and its rows protected. A runtime
+                # restart or future explicit remediation must resolve the now-
+                # orphaned shared rows; never claim or retry physical cleanup.
+                continue
             completed = self._policy.complete_purge(
                 event,
                 blocks_zeroed=len(blocks),
@@ -663,7 +789,22 @@ class DaystromCooperativeKVConnector(SimpleCPUOffloadConnector, SupportsHMA):
             )
             if completed_checkpoint is not None:
                 self._checkpoint_stored_hashes.pop(completed_checkpoint, None)
+                self._checkpoint_store_completed.discard(completed_checkpoint)
             self._purge_event_to_blocks.pop(event, None)
+
+    def _status_response(
+        self, request_id: str, decision: DaystromKVDecision
+    ) -> tuple[bool, dict[str, Any] | None]:
+        """Return signed payload-free lifecycle state without transfer side effects."""
+
+        if decision.reason_code in {"record_not_found", "record_expired"}:
+            self._checkpoint_stored_hashes.pop(decision.checkpoint_digest, None)
+            self._checkpoint_store_completed.discard(decision.checkpoint_digest)
+        telemetry = self._checkpoint_status_telemetry(decision)
+        self._decision_telemetry.pop(request_id, None)
+        return False, self._merge_daystrom_meta(
+            None, self._build_daystrom_response_meta(telemetry)
+        )
 
     def request_finished(
         self,
@@ -673,11 +814,17 @@ class DaystromCooperativeKVConnector(SimpleCPUOffloadConnector, SupportsHMA):
         decision = self._evaluate(
             request, tokens=getattr(request, "num_computed_tokens", 0)
         )
+        if decision.operation == "status":
+            return self._status_response(request.request_id, decision)
         if decision.operation == "purge":
             telemetry = self._decision_telemetry.get(
                 request.request_id, decision.telemetry()
             )
             error = self._purge_schedule_errors.pop(request.request_id, None)
+            if error is None:
+                error = self._purge_completion_errors.get(
+                    decision.checkpoint_digest
+                )
             if error is not None:
                 telemetry = dict(telemetry)
                 telemetry.update({"authorized": False, "reason_code": error})
@@ -726,11 +873,17 @@ class DaystromCooperativeKVConnector(SimpleCPUOffloadConnector, SupportsHMA):
         decision = self._evaluate(
             request, tokens=getattr(request, "num_computed_tokens", 0)
         )
+        if decision.operation == "status":
+            return self._status_response(request.request_id, decision)
         if decision.operation == "purge":
             telemetry = self._decision_telemetry.get(
                 request.request_id, decision.telemetry()
             )
             error = self._purge_schedule_errors.pop(request.request_id, None)
+            if error is None:
+                error = self._purge_completion_errors.get(
+                    decision.checkpoint_digest
+                )
             if error is not None:
                 telemetry = dict(telemetry)
                 telemetry.update({"authorized": False, "reason_code": error})
@@ -782,7 +935,7 @@ class DaystromCooperativeKVConnector(SimpleCPUOffloadConnector, SupportsHMA):
         """
 
         values = telemetry.telemetry() if isinstance(telemetry, DaystromKVDecision) else telemetry
-        return {
+        result = {
             "schema_version": values.get("schema_version", ""),
             "operation": values.get("operation", "unknown"),
             "checkpoint_digest": values.get("checkpoint_digest", ""),
@@ -801,6 +954,10 @@ class DaystromCooperativeKVConnector(SimpleCPUOffloadConnector, SupportsHMA):
             "purged_bytes": values.get("purged_bytes", 0),
             "shared_blocks": values.get("shared_blocks", 0),
         }
+        for key in ("checkpoint_ready", "stored_blocks", "expected_blocks"):
+            if key in values:
+                result[key] = values[key]
+        return result
 
     @staticmethod
     def _merge_daystrom_meta(
@@ -826,6 +983,7 @@ class DaystromCooperativeKVConnector(SimpleCPUOffloadConnector, SupportsHMA):
         # subsequent restores fail closed.  We do NOT claim physical purge.
         self._policy.reset_cache()
         pending_checkpoints = set(self._purge_event_to_checkpoint.values())
+        self._checkpoint_store_completed.intersection_update(pending_checkpoints)
         self._checkpoint_stored_hashes = {
             checkpoint: hashes
             for checkpoint, hashes in self._checkpoint_stored_hashes.items()

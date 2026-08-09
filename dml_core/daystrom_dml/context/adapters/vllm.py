@@ -36,6 +36,9 @@ class VLLMCooperativeKVTrace:
     purged_blocks: int
     purged_bytes: int
     shared_blocks: int
+    checkpoint_ready: bool
+    stored_blocks: int
+    expected_blocks: int
 
     def to_telemetry(self) -> Dict[str, Any]:
         import hashlib
@@ -56,6 +59,9 @@ class VLLMCooperativeKVTrace:
             "purged_blocks": self.purged_blocks,
             "purged_bytes": self.purged_bytes,
             "shared_blocks": self.shared_blocks,
+            "checkpoint_ready": self.checkpoint_ready,
+            "stored_blocks": self.stored_blocks,
+            "expected_blocks": self.expected_blocks,
             "output_digest": "sha256:" + hashlib.sha256(self.output_text.encode()).hexdigest(),
         }
 
@@ -122,6 +128,76 @@ class VLLMCooperativeExecutionAdapter:
             },
         )
 
+    def checkpoint_status(
+        self,
+        *,
+        checkpoint_digest: str,
+        expires_at: float,
+        nonce: str,
+    ) -> VLLMCooperativeKVTrace:
+        """Return one signed, payload-free logical and physical readiness query."""
+
+        return self.complete_with_checkpoint(
+            "Daystrom cooperative KV checkpoint status request.",
+            operation="status",
+            checkpoint_digest=checkpoint_digest,
+            expires_at=expires_at,
+            nonce=nonce,
+            max_tokens=1,
+            temperature=0.0,
+            seed=0,
+        )
+
+    def wait_for_checkpoint_ready(
+        self,
+        *,
+        checkpoint_digest: str,
+        expires_at: float,
+        nonce: str,
+        max_attempts: int = 3,
+        poll_interval_seconds: float = 0.05,
+    ) -> VLLMCooperativeKVTrace:
+        """Poll signed read-only status until ready or a fail-closed state."""
+
+        if (
+            isinstance(max_attempts, bool)
+            or not isinstance(max_attempts, int)
+            or not 1 <= max_attempts <= 10
+        ):
+            raise RuntimeExecutionError("max_attempts must be between 1 and 10")
+        if (
+            isinstance(poll_interval_seconds, bool)
+            or not isinstance(poll_interval_seconds, (int, float))
+            or not 0 <= poll_interval_seconds <= 5
+        ):
+            raise RuntimeExecutionError(
+                "poll_interval_seconds must be between 0 and 5"
+            )
+        import hashlib
+
+        last_reason = "checkpoint_pending"
+        for attempt in range(max_attempts):
+            status_nonce = hashlib.sha256(
+                f"{nonce}|checkpoint-status|{attempt}".encode()
+            ).hexdigest()
+            status = self.checkpoint_status(
+                checkpoint_digest=checkpoint_digest,
+                expires_at=expires_at,
+                nonce=status_nonce,
+            )
+            last_reason = status.reason_code
+            if status.checkpoint_ready:
+                return status
+            if status.reason_code != "checkpoint_pending":
+                raise RuntimeExecutionError(
+                    f"checkpoint readiness failed: {status.reason_code}"
+                )
+            if attempt + 1 < max_attempts and poll_interval_seconds:
+                time.sleep(float(poll_interval_seconds))
+        raise RuntimeExecutionError(
+            f"checkpoint readiness timed out: {last_reason}"
+        )
+
     def purge_checkpoint(
         self,
         *,
@@ -163,15 +239,10 @@ class VLLMCooperativeExecutionAdapter:
             status_nonce = hashlib.sha256(
                 f"{nonce}|purge-status|{attempt}".encode()
             ).hexdigest()
-            last = self.complete_with_checkpoint(
-                "Daystrom selective KV purge status request.",
-                operation="purge",
+            last = self.checkpoint_status(
                 checkpoint_digest=checkpoint_digest,
                 expires_at=expires_at,
                 nonce=status_nonce,
-                max_tokens=1,
-                temperature=0.0,
-                seed=0,
             )
             if last.reason_code == "purge_complete":
                 return last
@@ -227,6 +298,9 @@ class VLLMCooperativeExecutionAdapter:
         if not isinstance(daystrom, dict):
             raise RuntimeExecutionError("vLLM response lacks cooperative KV evidence")
         self._validate_connector_evidence(daystrom, operation, checkpoint_digest)
+        ready, stored_blocks, expected_blocks = _status_readiness(
+            daystrom, operation
+        )
         details = usage.get("prompt_tokens_details")
         cached = details.get("cached_tokens", 0) if isinstance(details, dict) else 0
         return VLLMCooperativeKVTrace(
@@ -248,6 +322,9 @@ class VLLMCooperativeExecutionAdapter:
             purged_blocks=_counter(daystrom, "purged_blocks"),
             purged_bytes=_counter(daystrom, "purged_bytes"),
             shared_blocks=_counter(daystrom, "shared_blocks"),
+            checkpoint_ready=ready,
+            stored_blocks=stored_blocks,
+            expected_blocks=expected_blocks,
         )
 
     @staticmethod
@@ -261,11 +338,23 @@ class VLLMCooperativeExecutionAdapter:
         if evidence.get("checkpoint_digest") != checkpoint_digest:
             raise RuntimeExecutionError("cooperative KV checkpoint mismatch")
         reason = evidence.get("reason_code")
-        expected_reasons = (
-            {"purge_pending", "purge_complete"}
-            if operation == "purge"
-            else {f"{operation}_authorized"}
-        )
+        if operation == "purge":
+            expected_reasons = {"purge_pending", "purge_complete"}
+        elif operation == "status":
+            expected_reasons = {
+                "checkpoint_pending",
+                "checkpoint_ready",
+                "checkpoint_partial",
+                "checkpoint_evicted",
+                "checkpoint_below_granularity",
+                "record_not_found",
+                "record_expired",
+                "purge_pending",
+                "purge_complete",
+                "purge_shared_ownership_changed",
+            }
+        else:
+            expected_reasons = {f"{operation}_authorized"}
         if not isinstance(reason, str) or reason not in expected_reasons:
             raise RuntimeExecutionError("cooperative KV request was not authorized")
         _counter(evidence, "matched_tokens")
@@ -310,6 +399,43 @@ class VLLMCooperativeExecutionAdapter:
         if not isinstance(parsed, dict):
             raise RuntimeExecutionError("runtime response must be an object")
         return parsed
+
+
+def _status_readiness(
+    evidence: Dict[str, Any], operation: str
+) -> tuple[bool, int, int]:
+    if operation != "status":
+        return False, 0, 0
+    ready = evidence.get("checkpoint_ready")
+    if not isinstance(ready, bool):
+        raise RuntimeExecutionError("invalid checkpoint readiness boolean")
+    try:
+        stored = _counter(evidence, "stored_blocks")
+        expected = _counter(evidence, "expected_blocks")
+    except RuntimeExecutionError as exc:
+        raise RuntimeExecutionError("invalid checkpoint readiness counters") from exc
+    reason = evidence.get("reason_code")
+    valid_shape = False
+    if reason == "checkpoint_ready":
+        valid_shape = ready and expected > 0 and stored == expected
+    elif reason == "checkpoint_pending":
+        valid_shape = not ready and expected > 0 and stored <= expected
+    elif reason == "checkpoint_partial":
+        valid_shape = not ready and expected > 0 and 0 < stored < expected
+    elif reason == "checkpoint_evicted":
+        valid_shape = not ready and expected > 0 and stored == 0
+    elif reason in {
+        "checkpoint_below_granularity",
+        "record_not_found",
+        "record_expired",
+        "purge_pending",
+        "purge_complete",
+        "purge_shared_ownership_changed",
+    }:
+        valid_shape = not ready and stored == 0 and expected == 0
+    if not valid_shape:
+        raise RuntimeExecutionError("inconsistent checkpoint readiness evidence")
+    return ready, stored, expected
 
 
 def _counter(payload: Dict[str, Any], key: str) -> int:

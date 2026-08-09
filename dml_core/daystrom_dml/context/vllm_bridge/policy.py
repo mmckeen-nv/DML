@@ -10,7 +10,7 @@ Contract
 A request's ``kv_transfer_params`` carries a nested ``daystrom`` mapping with:
 
 * ``schema_version`` == ``"daystrom-vllm-kv-v1"``
-* ``operation`` in ``{"save", "restore"}``
+* ``operation`` in ``{"save", "restore", "purge", "status"}``
 * ``checkpoint_digest`` == ``"sha256:" + 64 hex chars``
 * ``expires_at`` finite epoch seconds (int/float)
 * ``nonce`` bounded opaque string (1..MAX_NONCE_LEN, printable ASCII)
@@ -67,7 +67,7 @@ from typing import Any, Mapping, Sequence
 # --------------------------------------------------------------------------- #
 
 DAYSTROM_KV_SCHEMA_VERSION = "daystrom-vllm-kv-v1"
-_VALID_OPERATIONS = frozenset({"save", "restore", "purge"})
+_VALID_OPERATIONS = frozenset({"save", "restore", "purge", "status"})
 _DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 _HEX64_RE = re.compile(r"^[0-9a-f]{64}$")
 # Printable ASCII, no control chars, no whitespace-only.
@@ -183,6 +183,7 @@ class DaystromKVPurgeState:
     purge_event: int
     blocks_scheduled: int
     shared_blocks: int
+    shared_hashes: tuple[bytes, ...] = ()
     completed: bool = False
     blocks_zeroed: int = 0
     bytes_zeroed: int = 0
@@ -510,6 +511,8 @@ class DaystromKVPolicy:
             return self._evaluate_save(request, now, tokens)
         if request.operation == "restore":
             return self._evaluate_restore(request, now, tokens)
+        if request.operation == "status":
+            return self._evaluate_status(request, now)
         return self._evaluate_purge(request, now)
 
     def _evaluate_save(
@@ -617,6 +620,54 @@ class DaystromKVPolicy:
             matched_tokens=0,
         )
 
+    def _evaluate_status(
+        self, request: DaystromKVRequest, now: float
+    ) -> DaystromKVDecision:
+        """Authorize a payload-free lifecycle query for one checkpoint.
+
+        HMAC verification and TTL validation have already succeeded. Physical
+        row readiness is runtime-owned and is added by the connector; the pure
+        policy reports only logical record/purge state.
+        """
+
+        purge = self._purges.get(request.checkpoint_digest)
+        if purge is not None:
+            return DaystromKVDecision(
+                authorized=True,
+                operation="status",
+                checkpoint_digest=request.checkpoint_digest,
+                reason_code="purge_complete" if purge.completed else "purge_pending",
+                schema_version=request.schema_version,
+                purged_blocks=purge.blocks_zeroed,
+                purged_bytes=purge.bytes_zeroed,
+                shared_blocks=purge.shared_blocks,
+            )
+        record = self._records.get(request.checkpoint_digest)
+        if record is None:
+            return DaystromKVDecision(
+                authorized=False,
+                operation="status",
+                checkpoint_digest=request.checkpoint_digest,
+                reason_code="record_not_found",
+                schema_version=request.schema_version,
+            )
+        if record.is_expired(now):
+            del self._records[request.checkpoint_digest]
+            return DaystromKVDecision(
+                authorized=False,
+                operation="status",
+                checkpoint_digest=request.checkpoint_digest,
+                reason_code="record_expired",
+                schema_version=request.schema_version,
+            )
+        return DaystromKVDecision(
+            authorized=True,
+            operation="status",
+            checkpoint_digest=request.checkpoint_digest,
+            reason_code="status_authorized",
+            schema_version=request.schema_version,
+        )
+
     def _evaluate_purge(
         self, request: DaystromKVRequest, now: float
     ) -> DaystromKVDecision:
@@ -683,6 +734,7 @@ class DaystromKVPolicy:
         purge_event: int,
         blocks_scheduled: int,
         shared_blocks: int,
+        shared_hashes: Sequence[bytes] = (),
     ) -> DaystromKVPurgeState:
         """Logically invalidate a checkpoint before worker-side zeroization."""
 
@@ -692,15 +744,46 @@ class DaystromKVPolicy:
             raise DaystromKVAuthorizationError("purge_event_invalid")
         if blocks_scheduled < 0 or shared_blocks < 0:
             raise DaystromKVAuthorizationError("purge_counter_invalid")
+        try:
+            exact_shared_hashes = tuple(bytes(value) for value in shared_hashes)
+        except (TypeError, ValueError) as exc:
+            raise DaystromKVAuthorizationError("purge_shared_hash_invalid") from exc
+        if (shared_blocks == 0) != (len(exact_shared_hashes) == 0):
+            raise DaystromKVAuthorizationError("purge_shared_hash_count_mismatch")
+        if shared_blocks < len(exact_shared_hashes):
+            raise DaystromKVAuthorizationError("purge_shared_hash_count_mismatch")
+        record_hashes = set(self._records[checkpoint_digest].block_hashes)
+        if any(value not in record_hashes for value in exact_shared_hashes):
+            raise DaystromKVAuthorizationError("purge_shared_hash_invalid")
         state = DaystromKVPurgeState(
             checkpoint_digest=checkpoint_digest,
             purge_event=purge_event,
             blocks_scheduled=blocks_scheduled,
             shared_blocks=shared_blocks,
+            shared_hashes=exact_shared_hashes,
         )
         self._purges[checkpoint_digest] = state
         self._purge_events[purge_event] = checkpoint_digest
         return state
+
+    def purge_shared_owners_valid(self, checkpoint_digest: str) -> bool:
+        """Return whether every retained hash still has another live owner."""
+
+        state = self._purges.get(checkpoint_digest)
+        if state is None or state.completed:
+            return False
+        if not state.shared_hashes:
+            return state.shared_blocks == 0
+        now = float(self._time_fn())
+        other_hashes = {
+            block_hash
+            for digest, record in self._records.items()
+            if digest != checkpoint_digest
+            and digest not in self._purges
+            and not record.is_expired(now)
+            for block_hash in record.block_hashes
+        }
+        return all(value in other_hashes for value in state.shared_hashes)
 
     def complete_purge(
         self, purge_event: int, *, blocks_zeroed: int, bytes_zeroed: int

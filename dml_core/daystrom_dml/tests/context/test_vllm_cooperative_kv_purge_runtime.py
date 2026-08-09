@@ -243,8 +243,19 @@ def test_completed_store_inventory_tracks_only_confirmed_cpu_rows(
     exact_hash = block_hashes[1] + (0).to_bytes(4, "big")
     cpu_blocks = [types.SimpleNamespace(block_hash=None) for _ in range(3)]
     cpu_blocks[2] = types.SimpleNamespace(block_hash=exact_hash)
+
+    class HashIndex:
+        def get_one_block(self, key):
+            return cpu_blocks[2] if key == exact_hash else None
+
     manager = connector.scheduler_manager
-    manager.cpu_block_pool = types.SimpleNamespace(blocks=cpu_blocks)
+    manager.cpu_block_pool = types.SimpleNamespace(
+        blocks=cpu_blocks,
+        cached_block_hash_to_block=HashIndex(),
+    )
+    manager.cpu_kv_cache_config = types.SimpleNamespace(
+        kv_cache_groups=[object()]
+    )
     manager._store_event_pending_counts = {}
     manager._expected_worker_count = 1
     manager._store_event_to_blocks = {
@@ -264,6 +275,22 @@ def test_completed_store_inventory_tracks_only_confirmed_cpu_rows(
     )
 
     assert connector._checkpoint_stored_hashes[checkpoint] == {exact_hash}  # type: ignore[attr-defined]
+    assert checkpoint in connector._checkpoint_store_completed  # type: ignore[attr-defined]
+    status = connector._checkpoint_status_telemetry(  # type: ignore[attr-defined]
+        connector.policy.evaluate(
+            build_kv_transfer_params(
+                operation="status",
+                checkpoint_digest=checkpoint,
+                expires_at=fixed_time + 500,
+                nonce="inventory-status",
+                secret_path=secret_file,
+            ),
+            [],
+        )
+    )
+    assert status["reason_code"] == "checkpoint_partial"
+    assert status["stored_blocks"] == 1
+    assert status["expected_blocks"] == 3
 
 
 def test_save_reuses_confirmed_resident_rows_in_checkpoint_inventory(
@@ -354,6 +381,88 @@ def test_nonempty_checkpoint_with_empty_inventory_cannot_report_purge_complete(
 
     assert response is not None
     assert response["daystrom"]["reason_code"] == "purge_inventory_empty"
+
+
+def test_scheduler_refuses_purge_commit_when_shared_owner_expires(
+    purge_env, secret_file, fixed_time
+) -> None:
+    connector_mod, _, VllmConfig, KVConnectorRole, extra = purge_env
+    connector = connector_mod.DaystromCooperativeKVConnector(
+        VllmConfig(extra_config=extra), KVConnectorRole.SCHEDULER
+    )
+    now = [fixed_time]
+    connector.policy._time_fn = lambda: now[0]  # type: ignore[attr-defined]
+    first = _HELPERS._digest("shared-owner-first")
+    second = _HELPERS._digest("shared-owner-second")
+    shared = _HELPERS._block_hashes(1)[0]
+    first_only = _HELPERS._block_hashes(2)[1]
+    second_only = _HELPERS._block_hashes(3)[2]
+    for checkpoint, hashes, nonce in (
+        (first, [shared, first_only], "save-shared-first"),
+        (second, [shared, second_only], "save-shared-second"),
+    ):
+        params = build_kv_transfer_params(
+            operation="save",
+            checkpoint_digest=checkpoint,
+            expires_at=fixed_time + 500,
+            nonce=nonce,
+            secret_path=secret_file,
+        )
+        assert connector.policy.evaluate(params, hashes).authorized
+
+    connector.policy.begin_purge(
+        first,
+        purge_event=23,
+        blocks_scheduled=1,
+        shared_blocks=1,
+        shared_hashes=(shared,),
+    )
+
+    target_block = types.SimpleNamespace(block_id=7, ref_cnt=1)
+    freed: list[int] = []
+    manager = connector.scheduler_manager
+    manager.cpu_block_pool = types.SimpleNamespace(
+        free_blocks=lambda blocks: freed.extend(block.block_id for block in blocks)
+    )
+    manager.update_connector_output = lambda output: None
+    connector._purge_event_to_checkpoint[23] = first  # type: ignore[attr-defined]
+    connector._purge_event_to_request[23] = "owner-race-purge"  # type: ignore[attr-defined]
+    connector._purge_event_to_blocks[23] = [target_block]  # type: ignore[attr-defined]
+    connector._expected_worker_count = 1  # type: ignore[attr-defined]
+
+    now[0] = fixed_time + 600
+    output = types.SimpleNamespace(
+        kv_connector_worker_meta=connector_mod.DaystromPurgeWorkerMetadata(
+            completed_store_events={},
+            completed_purge_events={23: (1, 1, 2048)},
+        )
+    )
+    connector.update_connector_output(output)
+
+    assert freed == []
+    assert target_block.ref_cnt == 1
+    assert connector._purge_event_to_checkpoint[23] == first  # type: ignore[attr-defined]
+    assert connector._purge_completion_errors[first] == (  # type: ignore[attr-defined]
+        "purge_shared_ownership_changed"
+    )
+    status_params = build_kv_transfer_params(
+        operation="status",
+        checkpoint_digest=first,
+        expires_at=fixed_time + 1000,
+        nonce="shared-owner-status",
+        secret_path=secret_file,
+    )
+    _, response = connector.request_finished(
+        _HELPERS._FakeRequest(
+            "shared-owner-status", kv_transfer_params=status_params, block_hashes=[]
+        ),
+        [],
+    )
+    assert response is not None
+    assert response["daystrom"]["reason_code"] == (
+        "purge_shared_ownership_changed"
+    )
+    assert response["daystrom"]["checkpoint_ready"] is False
 
 
 def test_scheduler_protects_evicts_commits_and_denies_restore(

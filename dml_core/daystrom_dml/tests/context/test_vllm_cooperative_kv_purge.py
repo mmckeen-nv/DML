@@ -62,6 +62,7 @@ def test_purge_logically_invalidates_before_physical_completion(tmp_path: Path) 
         purge_event=7,
         blocks_scheduled=2,
         shared_blocks=1,
+        shared_hashes=(blocks[0],),
     )
     restore = policy.evaluate(
         _params(secret, operation="restore", checkpoint=checkpoint, nonce="restore"),
@@ -131,3 +132,32 @@ def test_shared_prefixes_are_not_selected_for_zeroization(tmp_path: Path) -> Non
     unique, retained = policy.partition_purge_hashes(first)
     assert unique == tuple(first_only)
     assert retained == tuple(shared)
+
+
+def test_purge_completion_revalidates_exact_live_shared_owners(tmp_path: Path) -> None:
+    secret = _secret(tmp_path)
+    first = _digest("owner-first")
+    second = _digest("owner-second")
+    shared = _hashes("owner-shared", 1)
+    now = [1_000_000.0]
+    policy = DaystromKVPolicy(secret, time_fn=lambda: now[0])
+    policy.evaluate(
+        _params(secret, operation="save", checkpoint=first, nonce="save-first"),
+        shared + _hashes("owner-first-only", 1),
+    )
+    policy.evaluate(
+        _params(secret, operation="save", checkpoint=second, nonce="save-second"),
+        shared + _hashes("owner-second-only", 1),
+    )
+    _, retained = policy.partition_purge_hashes(first)
+    policy.begin_purge(
+        first,
+        purge_event=17,
+        blocks_scheduled=1,
+        shared_blocks=2,
+        shared_hashes=retained,
+    )
+
+    assert policy.purge_shared_owners_valid(first)
+    now[0] = 1_000_600.0
+    assert not policy.purge_shared_owners_valid(first)

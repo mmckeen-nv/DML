@@ -471,6 +471,57 @@ class TestSavePath:
 
 
 # --------------------------------------------------------------------------- #
+# Policy: signed checkpoint status
+# --------------------------------------------------------------------------- #
+
+
+class TestStatusPath:
+    def test_status_authorized_for_live_record(
+        self, policy_fixed_time, secret_file, fixed_time
+    ):
+        digest = _digest("status-live")
+        block_hashes = _block_hashes(2)
+        save = build_kv_transfer_params(
+            operation="save",
+            checkpoint_digest=digest,
+            expires_at=fixed_time + 500,
+            nonce="status-save",
+            secret_path=secret_file,
+        )
+        assert policy_fixed_time.evaluate(save, block_hashes, tokens=64).authorized
+        status = build_kv_transfer_params(
+            operation="status",
+            checkpoint_digest=digest,
+            expires_at=fixed_time + 500,
+            nonce="status-query",
+            secret_path=secret_file,
+        )
+
+        decision = policy_fixed_time.evaluate(status, [])
+
+        assert decision.authorized
+        assert decision.operation == "status"
+        assert decision.reason_code == "status_authorized"
+
+    def test_status_reports_unknown_record_only_to_validly_signed_controller(
+        self, policy_fixed_time, secret_file, fixed_time
+    ):
+        status = build_kv_transfer_params(
+            operation="status",
+            checkpoint_digest=_digest("status-missing"),
+            expires_at=fixed_time + 500,
+            nonce="status-missing",
+            secret_path=secret_file,
+        )
+
+        decision = policy_fixed_time.evaluate(status, [])
+
+        assert not decision.authorized
+        assert decision.operation == "status"
+        assert decision.reason_code == "record_not_found"
+
+
+# --------------------------------------------------------------------------- #
 # Policy: restore path (record exists, unexpired, block-hash prefix match)
 # --------------------------------------------------------------------------- #
 
@@ -1219,6 +1270,148 @@ class TestConnectorGating:
         req = _FakeRequest("r3", kv_transfer_params=None, num_computed_tokens=10)
         result = connector.request_finished(req, [1, 2])
         assert result == (False, None)
+
+    @pytest.mark.parametrize(
+        ("completed", "stored", "expected", "reason", "ready"),
+        [
+            (False, 0, 2, "checkpoint_pending", False),
+            (True, 2, 2, "checkpoint_ready", True),
+            (True, 1, 2, "checkpoint_partial", False),
+            (True, 0, 2, "checkpoint_evicted", False),
+            (True, 0, 0, "checkpoint_below_granularity", False),
+        ],
+    )
+    def test_signed_status_reports_physical_checkpoint_readiness(
+        self,
+        connector_env,
+        secret_file,
+        fixed_time,
+        completed,
+        stored,
+        expected,
+        reason,
+        ready,
+    ):
+        connector, _ = connector_env
+        connector.policy._time_fn = lambda: fixed_time  # type: ignore[attr-defined]
+        digest = _digest(f"status-{reason}")
+        save = build_kv_transfer_params(
+            operation="save",
+            checkpoint_digest=digest,
+            expires_at=fixed_time + 500,
+            nonce=f"save-{reason}",
+            secret_path=secret_file,
+        )
+        assert connector.policy.evaluate(save, _block_hashes(2), tokens=64).authorized
+        if completed:
+            connector._checkpoint_store_completed.add(digest)
+        connector._checkpoint_inventory_counts = lambda checkpoint: (stored, expected)
+        status = build_kv_transfer_params(
+            operation="status",
+            checkpoint_digest=digest,
+            expires_at=fixed_time + 500,
+            nonce=f"query-{reason}",
+            secret_path=secret_file,
+        )
+        request = _FakeRequest(f"request-{reason}", kv_transfer_params=status)
+
+        retain, response = connector.request_finished(request, [])
+
+        assert retain is False
+        assert response is not None
+        telemetry = response["daystrom"]
+        assert telemetry["operation"] == "status"
+        assert telemetry["reason_code"] == reason
+        assert telemetry["checkpoint_ready"] is ready
+        assert telemetry["stored_blocks"] == stored
+        assert telemetry["expected_blocks"] == expected
+        assert request.request_id not in connector._decision_telemetry
+        blob = json.dumps(response)
+        assert "authorization" not in blob
+        assert f"query-{reason}" not in blob
+
+    def test_signed_status_reports_missing_without_leaking_to_invalid_hmac(
+        self, connector_env, secret_file, fixed_time
+    ):
+        connector, _ = connector_env
+        connector.policy._time_fn = lambda: fixed_time  # type: ignore[attr-defined]
+        digest = _digest("status-not-found")
+        status = build_kv_transfer_params(
+            operation="status",
+            checkpoint_digest=digest,
+            expires_at=fixed_time + 500,
+            nonce="status-not-found",
+            secret_path=secret_file,
+        )
+        request = _FakeRequest("status-not-found", kv_transfer_params=status)
+        _, response = connector.request_finished(request, [])
+        assert response is not None
+        assert response["daystrom"]["reason_code"] == "record_not_found"
+        assert response["daystrom"]["checkpoint_ready"] is False
+
+        invalid = json.loads(json.dumps(status))
+        invalid["daystrom"]["authorization"] = "0" * 64
+        invalid_request = _FakeRequest("status-invalid", kv_transfer_params=invalid)
+        assert connector.request_finished(invalid_request, []) == (False, None)
+
+    def test_signed_status_cleans_stale_inventory_for_missing_record(
+        self, connector_env, secret_file, fixed_time
+    ):
+        connector, _ = connector_env
+        connector.policy._time_fn = lambda: fixed_time  # type: ignore[attr-defined]
+        digest = _digest("status-stale-inventory")
+        connector._checkpoint_stored_hashes[digest] = {b"stale"}
+        connector._checkpoint_store_completed.add(digest)
+        status = build_kv_transfer_params(
+            operation="status",
+            checkpoint_digest=digest,
+            expires_at=fixed_time + 500,
+            nonce="status-stale-inventory",
+            secret_path=secret_file,
+        )
+
+        _, response = connector.request_finished(
+            _FakeRequest("status-stale-inventory", kv_transfer_params=status), []
+        )
+
+        assert response is not None
+        assert response["daystrom"]["reason_code"] == "record_not_found"
+        assert digest not in connector._checkpoint_stored_hashes
+        assert digest not in connector._checkpoint_store_completed
+
+    def test_signed_status_all_groups_uses_same_payload_free_contract(
+        self, connector_env, secret_file, fixed_time
+    ):
+        connector, _ = connector_env
+        connector.policy._time_fn = lambda: fixed_time  # type: ignore[attr-defined]
+        digest = _digest("status-all-groups")
+        save = build_kv_transfer_params(
+            operation="save",
+            checkpoint_digest=digest,
+            expires_at=fixed_time + 500,
+            nonce="save-all-groups-status",
+            secret_path=secret_file,
+        )
+        assert connector.policy.evaluate(save, _block_hashes(1), tokens=32).authorized
+        connector._checkpoint_store_completed.add(digest)
+        connector._checkpoint_inventory_counts = lambda checkpoint: (1, 1)
+        status = build_kv_transfer_params(
+            operation="status",
+            checkpoint_digest=digest,
+            expires_at=fixed_time + 500,
+            nonce="query-all-groups-status",
+            secret_path=secret_file,
+        )
+
+        retain, response = connector.request_finished_all_groups(
+            _FakeRequest("status-all-groups", kv_transfer_params=status),
+            ([1], [2]),
+        )
+
+        assert retain is False
+        assert response is not None
+        assert response["daystrom"]["reason_code"] == "checkpoint_ready"
+        assert response["daystrom"]["checkpoint_ready"] is True
 
     def test_request_finished_all_groups_unapproved_returns_false_none(self, connector_env):
         connector, _ = connector_env

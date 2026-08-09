@@ -6,7 +6,7 @@ GPU APC is opportunistic and hash-driven; it is not controller-scoped storage. D
 
 ## What is implemented
 
-- Request-level save, restore, and selective purge authorization through OpenAI `kv_transfer_params`.
+- Request-level save, restore, selective purge, and payload-free status authorization through OpenAI `kv_transfer_params`.
 - HMAC-SHA256 envelopes with bounded TTL and cardinality.
 - Controller checkpoint identity bound inside the runtime to the exact ordered vLLM block hashes observed during save.
 - Restore allowed only when the saved block-hash sequence is an exact prefix of the new request.
@@ -14,9 +14,10 @@ GPU APC is opportunistic and hash-driven; it is not controller-scoped storage. D
 - Native matched-token counts come from vLLM's scheduler contracts, not wall-clock inference. Response evidence separates `gpu_apc_matched_tokens` from managed `cpu_offload_matched_tokens` and labels the route as `gpu_apc`, `cpu_fallback`, `gpu_apc_and_cpu`, or `miss`.
 - GPU prefix caching is mandatory: connector startup fails rather than silently degrading to CPU-only or cold behavior.
 - Selective purge partitions unique from still-shared prefix blocks, protects target CPU rows from allocator reuse, removes their lookup keys, flushes in-flight DMA on every worker, zeroes the pinned CPU tensors in place, aggregates all-worker acknowledgements, and only then frees the rows and removes the checkpoint record.
-- Shared rows remain available to their other authorized checkpoint owners and are reported separately.
+- Shared rows remain available to their other authorized checkpoint owners and are reported separately. Their exact logical hashes are revalidated against live owners again at worker acknowledgement; changed ownership blocks purge commit with `purge_shared_ownership_changed` and keeps protected state nonterminal.
 - Payload-free connector evidence is returned in response `kv_transfer_params.daystrom`.
-- A dependency-light client, `VLLMCooperativeExecutionAdapter`, validates save/restore evidence and requires `purge_complete` plus physical counters for request-bound purge.
+- A freshly signed `status` request reports logical lifecycle plus live CPU-row readiness as `checkpoint_pending`, `checkpoint_ready`, `checkpoint_partial`, `checkpoint_evicted`, or `checkpoint_below_granularity`. Ready requires confirmed store completion and `stored_blocks == expected_blocks > 0`; invalid signatures receive no status evidence.
+- A dependency-light client, `VLLMCooperativeExecutionAdapter`, validates save/restore evidence, exposes typed signed status and bounded pending→ready polling, and requires `purge_complete` plus physical counters for request-bound purge.
 
 ## Deliberate fail-closed boundary
 
@@ -80,7 +81,7 @@ The OpenAI completion request includes:
 }
 ```
 
-The response evidence contains only schema, operation, checkpoint digest, reason code, native token counters, cache route, and selective-purge counters (`purged_blocks`, `purged_bytes`, `shared_blocks`). `matched_tokens` remains the backward-compatible managed CPU restore count; `gpu_apc_matched_tokens` reports the local GPU prefix count supplied by vLLM, and `cpu_offload_matched_tokens` reports the external fallback count. It excludes prompts, outputs, token IDs, nonces, signatures, block hashes, and the control key. A purge client accepts only `reason_code: "purge_complete"`; `purge_pending`, busy/missing-block failures, and worker-count mismatches are failures.
+The response evidence contains only schema, operation, checkpoint digest, reason code, native token counters, cache route, selective-purge counters (`purged_blocks`, `purged_bytes`, `shared_blocks`), and—only for `status`—`checkpoint_ready`, `stored_blocks`, and `expected_blocks`. `matched_tokens` remains the backward-compatible managed CPU restore count; `gpu_apc_matched_tokens` reports the local GPU prefix count supplied by vLLM, and `cpu_offload_matched_tokens` reports the external fallback count. It excludes prompts, outputs, token IDs, nonces, signatures, block hashes, and the control key. A purge client accepts only `reason_code: "purge_complete"`; `purge_pending`, busy/missing-block failures, and worker-count mismatches are failures.
 
 A `gpu_apc` route proves a native local-cache hit, not controller-authorized checkpoint restoration. Only positive `cpu_offload_matched_tokens` is evidence that the managed Daystrom fallback restored KV.
 
@@ -96,7 +97,10 @@ Local unit tests stub the exact vLLM 0.20 connector methods and verify:
 - shared prefixes are retained rather than corrupting another checkpoint;
 - target rows are held out of the allocator, zeroed in place only after DMA flush, acknowledged across workers, and freed only after commit;
 - missing, busy, or incomplete purge paths fail closed;
+- signed status distinguishes pending, ready, partial, evicted, below-granularity, missing, and purged checkpoints without returning evidence to an invalid HMAC;
 - generic reset/delete capabilities remain unsupported.
+
+The load-aware shared-host canary procedure is documented in [Load-aware live validation for signed checkpoint status](vllm-status-live-validation.md).
 
 ## Next-step recovery design
 
