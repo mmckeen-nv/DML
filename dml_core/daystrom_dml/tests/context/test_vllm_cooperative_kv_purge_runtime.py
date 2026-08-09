@@ -244,9 +244,13 @@ def test_completed_store_inventory_tracks_only_confirmed_cpu_rows(
     cpu_blocks = [types.SimpleNamespace(block_hash=None) for _ in range(3)]
     cpu_blocks[2] = types.SimpleNamespace(block_hash=exact_hash)
 
+    published = {"value": False}
+
     class HashIndex:
         def get_one_block(self, key):
-            return cpu_blocks[2] if key == exact_hash else None
+            if published["value"] and key == exact_hash:
+                return cpu_blocks[2]
+            return None
 
     manager = connector.scheduler_manager
     manager.cpu_block_pool = types.SimpleNamespace(
@@ -263,7 +267,11 @@ def test_completed_store_inventory_tracks_only_confirmed_cpu_rows(
     }
     manager._store_event_to_reqs = {5: ["save-request"]}
     manager._reqs_to_store = {}
-    manager.update_connector_output = lambda output: None
+
+    def publish_completed_store(output):
+        published["value"] = True
+
+    manager.update_connector_output = publish_completed_store
 
     connector.update_connector_output(
         types.SimpleNamespace(

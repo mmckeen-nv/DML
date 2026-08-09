@@ -497,7 +497,6 @@ class DaystromCooperativeKVConnector(SimpleCPUOffloadConnector, SupportsHMA):
                         for exact_hash in exact_hashes
                         if bytes(get_block_hash(exact_hash)) in record_hashes
                     )
-                    self._checkpoint_inventory_counts(checkpoint)
                     # Worker completion is distinct from full residency: a
                     # completed save may still be partial after capacity loss.
                     self._checkpoint_store_completed.add(checkpoint)
@@ -707,6 +706,14 @@ class DaystromCooperativeKVConnector(SimpleCPUOffloadConnector, SupportsHMA):
                 self.scheduler_manager, "_reqs_to_store", {}
             )
             for request_id in completed_save_reqs:
+                checkpoint = self._save_request_to_checkpoint.get(request_id)
+                if checkpoint is not None:
+                    # The parent publishes completed rows into the live hash
+                    # index during update_connector_output(). Revalidate only
+                    # after that publication; checking before the parent call
+                    # incorrectly prunes newly completed inventory to empty.
+                    self._capture_resident_checkpoint_inventory(checkpoint)
+                    self._checkpoint_inventory_counts(checkpoint)
                 if request_id not in active_stores:
                     self._save_request_to_checkpoint.pop(request_id, None)
         worker_meta = getattr(connector_output, "kv_connector_worker_meta", None)
