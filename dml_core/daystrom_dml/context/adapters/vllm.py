@@ -350,9 +350,14 @@ class VLLMCooperativeExecutionAdapter:
             raise RuntimeExecutionError(
                 "native transition produced no verified parent-prefix reuse"
             )
-        if execution.saved_tokens < bound_plan.current_tokens:
+        # ``saved_tokens`` is scheduler progress reported when the request
+        # finishes; it is not a physical child-checkpoint coverage counter.
+        # Bind the actual prompt length to the compiled transition here, then
+        # require complete physical block coverage from the separately signed
+        # child-readiness response below.
+        if execution.prompt_tokens != bound_plan.current_tokens:
             raise RuntimeExecutionError(
-                "native transition child checkpoint did not cover the planned context"
+                "native transition prompt length did not match the planned context"
             )
         import hashlib
 

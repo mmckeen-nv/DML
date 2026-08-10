@@ -111,7 +111,10 @@ Local unit tests stub the exact vLLM 0.20 connector methods and verify:
 - signed status distinguishes pending, ready, partial, evicted, below-granularity, missing, and purged checkpoints without returning evidence to an invalid HMAC;
 - generic reset/delete capabilities remain unsupported.
 
-The load-aware shared-host canary procedure is documented in [Load-aware live validation for signed checkpoint status](vllm-status-live-validation.md).
+The load-aware single-checkpoint procedure is documented in [Load-aware live
+validation for signed checkpoint status](vllm-status-live-validation.md). The
+compound parent→child proof is documented separately in [Live validation for
+chained native vLLM transitions](vllm-transition-live-validation.md).
 
 ## Next-step recovery design
 

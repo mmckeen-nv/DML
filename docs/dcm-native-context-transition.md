@@ -71,6 +71,8 @@ integrity-checked plan and performs a version-pinned chained generation that:
 
 - restores the exact parent checkpoint;
 - verifies positive native CPU/offload or GPU-prefix reuse counters;
+- requires the runtime-reported prompt length to equal the plan's current-token
+  boundary;
 - prefills the planned suffix;
 - binds the completed child packet to its new runtime checkpoint digest; and
 - publishes that child checkpoint only after a separately signed readiness
@@ -84,6 +86,10 @@ Tampered child identities, reused parent/child identities, prefix mismatch,
 existing-child conflicts, runtime/plan drift, and readiness failure all fail
 closed. Result telemetry remains payload-free.
 
+`saved_tokens` is request-finish scheduler telemetry, not physical coverage
+proof. Complete child coverage comes only from the separately signed readiness
+result.
+
 This offline-tested actuator does not by itself claim shared-host live proof.
-Positive managed CPU reuse counters and child readiness still require a bounded,
-explicitly approved vLLM 0.20 canary.
+The bounded procedure and executable harness are documented in [Live validation
+for chained native vLLM transitions](vllm-transition-live-validation.md).

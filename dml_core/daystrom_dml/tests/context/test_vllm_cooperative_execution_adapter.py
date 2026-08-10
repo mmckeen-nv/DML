@@ -528,9 +528,12 @@ def test_execute_native_transition_uses_one_dual_digest_request(tmp_path: Path) 
             "gpu_apc_matched_tokens": 32,
             "cpu_offload_matched_tokens": 96,
             "cache_route": "gpu_apc_and_cpu",
-            "saved_tokens": 160,
+            # Request-finish scheduler progress is not physical checkpoint
+            # coverage; signed readiness below proves complete block storage.
+            "saved_tokens": 128,
         }
     )
+    payload["usage"]["prompt_tokens"] = 160
     status = _status_response(
         "checkpoint_ready", ready=True, stored=10, expected=10
     )
@@ -600,7 +603,7 @@ def test_execute_native_transition_uses_one_dual_digest_request(tmp_path: Path) 
     assert trace.execution.operation == "transition"
     assert trace.execution.child_checkpoint_digest == child
     assert trace.execution.matched_tokens == 96
-    assert trace.execution.saved_tokens == 160
+    assert trace.execution.saved_tokens == 128
     assert trace.readiness.checkpoint_ready is True
     assert trace.readiness.checkpoint_digest == child
     telemetry = json.dumps(trace.to_telemetry())
@@ -626,4 +629,22 @@ def test_execute_native_transition_uses_one_dual_digest_request(tmp_path: Path) 
             plan=plan,
             expires_at=4_000_000_000.0,
             nonce="native-transition-cold",
+        )
+
+    drift_payload = json.loads(json.dumps(payload))
+    drift_payload["usage"]["prompt_tokens"] = 159
+    drift_adapter = VLLMCooperativeExecutionAdapter(
+        "http://127.0.0.1:8000",
+        model_id="model",
+        runtime_id="vllm-test",
+        runtime_version="0.20.0",
+        secret_path=_secret(tmp_path),
+        opener=Opener(drift_payload),
+    )
+    with pytest.raises(RuntimeExecutionError, match="prompt length"):
+        drift_adapter.execute_native_transition(
+            "prefix and suffix",
+            plan=plan,
+            expires_at=4_000_000_000.0,
+            nonce="native-transition-prompt-drift",
         )
