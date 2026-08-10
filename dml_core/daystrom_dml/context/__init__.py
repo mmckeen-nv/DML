@@ -24,6 +24,15 @@ from daystrom_dml.context.execution import (
     RuntimeExecutionError,
 )
 from daystrom_dml.context.manifest import CONTEXT_MANIFEST_V1, CONTEXT_PACKET_V1, ContextManifest, ContextPacket
+from daystrom_dml.context.native_transition import (
+    NATIVE_CONTEXT_CHECKPOINT_BINDING_V1,
+    NATIVE_CONTEXT_TRANSITION_V1,
+    NativeContextCheckpointBinding,
+    NativeContextPage,
+    NativeContextRuntimeStep,
+    NativeContextTransitionCompiler,
+    NativeContextTransitionPlan,
+)
 from daystrom_dml.context.recovery import (
     AutonomousFaultRetryRunner,
     CheckpointRecoveryPlan,
@@ -59,6 +68,13 @@ __all__ = [
     "FaultRetryPolicy",
     "FaultRetryResult",
     "FileExecutionCheckpointRegistry",
+    "NATIVE_CONTEXT_TRANSITION_V1",
+    "NATIVE_CONTEXT_CHECKPOINT_BINDING_V1",
+    "NativeContextCheckpointBinding",
+    "NativeContextPage",
+    "NativeContextRuntimeStep",
+    "NativeContextTransitionCompiler",
+    "NativeContextTransitionPlan",
     "OBSERVE_ONLY_MODE",
     "PAGE_CATALOG_V1",
     "PageCatalogQuery",

@@ -57,10 +57,15 @@ budgets are also enforced. Deployments can lower these limits with the
 
 The payload-free `dcm_native_context_profile.py` command produces deterministic
 retain/compress/freeze/thaw/hot-swap plans for model-native context generations.
-It distinguishes a model's native limit from the runtime's currently served
-limit and reports stable-prefix/recompute boundaries without claiming runtime
-state restoration. See
-[`docs/dcm-native-context-profiler.md`](../docs/dcm-native-context-profiler.md).
+`dcm_native_context_transition.py` then binds exact parent/current
+`ContextPacket` lineage to runtime checkpoint restoration, suffix-prefill, and
+child-checkpoint work without leaking segment payloads. Together they
+distinguish a model's native limit from the runtime's currently served limit
+and expose stable-prefix/recompute boundaries without claiming unsupported
+runtime state restoration. See
+[`docs/dcm-native-context-profiler.md`](../docs/dcm-native-context-profiler.md)
+and
+[`docs/dcm-native-context-transition.md`](../docs/dcm-native-context-transition.md).
 
 ## Runtime-native context probe
 

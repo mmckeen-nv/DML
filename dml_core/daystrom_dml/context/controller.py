@@ -10,6 +10,11 @@ from daystrom_dml.context.adapters.api_messages import APIMessageAdapter
 from daystrom_dml.context.adapters.base import RuntimeContextAdapter
 from daystrom_dml.context.catalog import PageCatalogQuery, SemanticPageCatalog
 from daystrom_dml.context.manifest import ContextManifest, ContextPacket
+from daystrom_dml.context.native_transition import (
+    NativeContextCheckpointBinding,
+    NativeContextTransitionCompiler,
+    NativeContextTransitionPlan,
+)
 from daystrom_dml.context.schema import ContextSegment
 from daystrom_dml.context.working_set import WorkingSetManager
 
@@ -38,6 +43,9 @@ class ContextController:
             self.runtime_adapter,
             max_candidates=working_set_max_candidates,
             clock=self.clock,
+        )
+        self.native_transition_compiler = NativeContextTransitionCompiler(
+            clock=self.clock
         )
 
     def observe(
@@ -210,6 +218,29 @@ class ContextController:
             endpoint_url=endpoint_url,
             parent_manifest=parent_manifest,
             page_out=page_out,
+        )
+
+    def compile_native_transition(
+        self,
+        *,
+        parent_packet: ContextPacket,
+        current_packet: ContextPacket,
+        parent_checkpoint: Optional[NativeContextCheckpointBinding],
+        model_native_limit: int,
+        served_limit: int,
+    ) -> NativeContextTransitionPlan:
+        """Bind working-set lineage to exact checkpoint and prefill work."""
+
+        if self.mode != ACTIVE_ADMISSION_MODE:
+            raise ContractError(
+                f"native transition compilation requires mode {ACTIVE_ADMISSION_MODE!r}"
+            )
+        return self.native_transition_compiler.compile(
+            parent_packet=parent_packet,
+            current_packet=current_packet,
+            parent_checkpoint=parent_checkpoint,
+            model_native_limit=model_native_limit,
+            served_limit=served_limit,
         )
 
     @staticmethod

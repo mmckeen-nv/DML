@@ -1,0 +1,109 @@
+{
+  "current_checkpoint_digest": "sha256:38e19df5bf70a6e5e44c956b30a6bb0d618d7f51821169b0f2e98cc8a2f10d63",
+  "current_manifest_digest": "82308a647a2870f03359ec023a2e6278cdf7a448951b21ec6bd38ae280267a71",
+  "current_packet_digest": "ac3a6ce55f05e289958a0b8667ae0cff7b0737b507328cc3e3a601876845831b",
+  "current_tokens": 58864,
+  "feasible": true,
+  "model_id": "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4",
+  "model_native_limit": 262144,
+  "page_in": [
+    {
+      "action": "page_in_exact",
+      "span_digest": "538811029d0fe19a1cfdf0358e7c1f708206bc0ce55bc66f868da013c68d4d07",
+      "span_id": "stale-reference",
+      "token_count": 6000,
+      "token_start": 36864
+    },
+    {
+      "action": "page_in_exact",
+      "span_digest": "2ad61f76f0ff329f9060b1d6098af87e7f30c66ee07a9468a2b5e310d624a7a3",
+      "span_id": "requested-frozen-evidence",
+      "token_count": 16000,
+      "token_start": 42864
+    }
+  ],
+  "page_out": [
+    {
+      "action": "page_out_exact",
+      "span_digest": "68f438155cca4c0234ae70466556d095b6c9903130d9b0910a6d7de20fb7ad8b",
+      "span_id": "stale-reference",
+      "token_count": 60000,
+      "token_start": 36864
+    },
+    {
+      "action": "page_out_exact",
+      "span_digest": "0ee1b9ce9d4980f9daa197b69f3465650b5cb7d2c48630f67432208642a00ad8",
+      "span_id": "cold-exact-history",
+      "token_count": 80000,
+      "token_start": 96864
+    }
+  ],
+  "parent_manifest_digest": "15afee4261d7ebfed10217083ae37b2d7a59fa98034cef2b69f835c8a5c1c4d3",
+  "parent_packet_digest": "5ca3609abab1c94815b2df26fa2612538a359b8a50a010612697b274897bf233",
+  "pass": true,
+  "plan_digest": "ecb6e91bdfbc6a819b8703d91336d10fe8f2509a77d087f6c18d70bef82606ba",
+  "reason_codes": [
+    "parent_checkpoint_bound_to_stable_prefix",
+    "runtime_serves_less_than_model_native_limit",
+    "exact_pages_leave_active_window",
+    "exact_pages_enter_active_window"
+  ],
+  "runtime_id": "vllm-live-proof-served-65536",
+  "schema_version": "daystrom-native-context-transition-v1",
+  "served_limit": 65536,
+  "served_limit_shortfall": 196608,
+  "served_overflow_tokens": 0,
+  "stable_prefix_span_ids": [
+    "immutable-system",
+    "active-working-set"
+  ],
+  "stable_prefix_tokens": 36864,
+  "steps": [
+    {
+      "binding_digest": "sha256:6d14504a5c2949849362406208c2d74ebb39c353d472accbbcaf4bbd72df0155",
+      "checkpoint_digest": "sha256:dcddaf67106615227a8c1b92dbb17f690cea7393cc1fcd8f9217a7706475cd7b",
+      "checkpoint_id": "nemotron-parent-generation",
+      "operation": "restore_parent_prefix",
+      "reason_code": "verified_parent_checkpoint_reuses_stable_prefix",
+      "span_ids": [
+        "immutable-system",
+        "active-working-set"
+      ],
+      "token_count": 36864,
+      "token_start": 0
+    },
+    {
+      "binding_digest": null,
+      "checkpoint_digest": null,
+      "checkpoint_id": null,
+      "operation": "prefill_suffix",
+      "reason_code": "prefill_begins_at_first_digest_or_position_divergence",
+      "span_ids": [
+        "stale-reference",
+        "requested-frozen-evidence"
+      ],
+      "token_count": 22000,
+      "token_start": 36864
+    },
+    {
+      "binding_digest": null,
+      "checkpoint_digest": "sha256:38e19df5bf70a6e5e44c956b30a6bb0d618d7f51821169b0f2e98cc8a2f10d63",
+      "checkpoint_id": null,
+      "operation": "checkpoint_current_generation",
+      "reason_code": "bind_completed_generation_for_future_prefix_restore",
+      "span_ids": [
+        "immutable-system",
+        "active-working-set",
+        "stale-reference",
+        "requested-frozen-evidence"
+      ],
+      "token_count": 58864,
+      "token_start": 0
+    }
+  ],
+  "suffix_span_ids": [
+    "stale-reference",
+    "requested-frozen-evidence"
+  ],
+  "suffix_tokens": 22000
+}
