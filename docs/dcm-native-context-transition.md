@@ -130,6 +130,9 @@ the final output matched cold recomputation; and cleanup physically zeroized 24
 unique rows / 415,236,096 bytes. The payload-free evidence is
 [`docs/artifacts/vllm-native-transition-chain-poc-2026-08-10.json`](artifacts/vllm-native-transition-chain-poc-2026-08-10.json).
 
+For paired enabled-versus-disabled latency scaling and the live 65,536-token
+exhaustion boundary, see [`docs/vllm-context-exhaustion-ab.md`](vllm-context-exhaustion-ab.md).
+
 This is a real multi-generation checkpoint-chain PoC. It is still a
 cross-request execution-state primitive, not yet proof of full 262K active
 single-sequence paging or scheduler-level page-fault/resume management.
