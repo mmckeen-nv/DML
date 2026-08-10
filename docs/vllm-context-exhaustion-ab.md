@@ -48,6 +48,12 @@ The current deployment therefore accepts a request whose prompt plus requested o
 
 Digest-only evidence: `docs/artifacts/vllm-cold-context-boundary-pilot-2026-08-10.json`.
 
+Rendered evidence chart:
+
+- PNG: `docs/artifacts/vllm-context-exhaustion-chart-2026-08-10.png`
+- editable SVG: `docs/artifacts/vllm-context-exhaustion-chart-2026-08-10.svg`
+- deterministic renderer: `docs/artifacts/render_vllm_context_exhaustion_chart.py`
+
 ## Existing paired managed evidence
 
 The preceding native transition-chain proof contains one directly paired final-shape comparison at 18,500 prompt tokens:
