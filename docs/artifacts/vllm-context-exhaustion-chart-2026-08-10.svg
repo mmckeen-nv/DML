@@ -3,7 +3,7 @@
 <text x="70.0" y="78.0" fill="#F4F8FB" font-size="48" font-weight="720" text-anchor="start" font-family="Inter, Helvetica Neue, Arial, sans-serif">DCM reduces repeated prefill—until the served window ends</text>
 <text x="70.0" y="120.0" fill="#91A4B2" font-size="22" font-weight="400" text-anchor="start" font-family="Inter, Helvetica Neue, Arial, sans-serif">Verified Nemotron 3 Super evidence · vLLM 0.20 · concurrency 1</text>
 <text x="70.0" y="187.0" fill="#8BE36A" font-size="38" font-weight="720" text-anchor="start" font-family="Inter, Helvetica Neue, Arial, sans-serif">62.7%</text>
-<text x="70.0" y="217.0" fill="#91A4B2" font-size="17" font-weight="500" text-anchor="start" font-family="Inter, Helvetica Neue, Arial, sans-serif">faster at 18.5K</text>
+<text x="70.0" y="217.0" fill="#91A4B2" font-size="17" font-weight="500" text-anchor="start" font-family="Inter, Helvetica Neue, Arial, sans-serif">CPU fallback vs cold at 18.5K</text>
 <text x="430.0" y="187.0" fill="#43D9C5" font-size="38" font-weight="720" text-anchor="start" font-family="Inter, Helvetica Neue, Arial, sans-serif">12,672</text>
 <text x="430.0" y="217.0" fill="#91A4B2" font-size="17" font-weight="500" text-anchor="start" font-family="Inter, Helvetica Neue, Arial, sans-serif">tokens reprocessing avoided</text>
 <text x="850.0" y="187.0" fill="#6EAEFF" font-size="38" font-weight="720" text-anchor="start" font-family="Inter, Helvetica Neue, Arial, sans-serif">733 ms</text>
@@ -12,7 +12,7 @@
 <text x="1250.0" y="217.0" fill="#91A4B2" font-size="17" font-weight="500" text-anchor="start" font-family="Inter, Helvetica Neue, Arial, sans-serif">served logical limit</text>
 <rect x="70" y="255" width="1045" height="625" rx="18" fill="#0D1923" stroke="#263946" stroke-width="1"/>
 <text x="104.0" y="303.0" fill="#F4F8FB" font-size="27" font-weight="680" text-anchor="start" font-family="Inter, Helvetica Neue, Arial, sans-serif">Cold full-history recomputation</text>
-<text x="104.0" y="335.0" fill="#91A4B2" font-size="17" font-weight="400" text-anchor="start" font-family="Inter, Helvetica Neue, Arial, sans-serif">Native TTFT · local GPU APC reset · zero cache-hit tokens</text>
+<text x="104.0" y="335.0" fill="#91A4B2" font-size="17" font-weight="400" text-anchor="start" font-family="Inter, Helvetica Neue, Arial, sans-serif">Cold-control isolation · APC remained enabled at server</text>
 <line x1="152.0" y1="800.0" x2="1065.0" y2="800.0" stroke="#263946" stroke-width="1"/>
 <text x="134.0" y="806.0" fill="#91A4B2" font-size="15" font-weight="400" text-anchor="end" font-family="Inter, Helvetica Neue, Arial, sans-serif">0s</text>
 <line x1="152.0" y1="700.0" x2="1065.0" y2="700.0" stroke="#263946" stroke-width="1"/>
@@ -51,7 +51,7 @@
 <text x="1020.9" y="771.0" fill="#FF6B6B" font-size="15" font-weight="650" text-anchor="end" font-family="Inter, Helvetica Neue, Arial, sans-serif">65,538 combined → HTTP 400</text>
 <text x="608.5" y="855.0" fill="#91A4B2" font-size="16" font-weight="400" text-anchor="middle" font-family="Inter, Helvetica Neue, Arial, sans-serif">Actual prompt tokens</text>
 <rect x="1145" y="255" width="585" height="350" rx="18" fill="#101F2B" stroke="#263946" stroke-width="1"/>
-<text x="1177.0" y="303.0" fill="#F4F8FB" font-size="27" font-weight="680" text-anchor="start" font-family="Inter, Helvetica Neue, Arial, sans-serif">18.5K paired A/B</text>
+<text x="1177.0" y="303.0" fill="#F4F8FB" font-size="27" font-weight="680" text-anchor="start" font-family="Inter, Helvetica Neue, Arial, sans-serif">18.5K CPU-fallback canary</text>
 <text x="1177.0" y="334.0" fill="#91A4B2" font-size="17" font-weight="400" text-anchor="start" font-family="Inter, Helvetica Neue, Arial, sans-serif">Same prompt · deterministic output equal</text>
 <text x="1183.0" y="378.0" fill="#F4F8FB" font-size="18" font-weight="680" text-anchor="start" font-family="Inter, Helvetica Neue, Arial, sans-serif">With DCM</text>
 <text x="1328.0" y="378.0" fill="#91A4B2" font-size="14" font-weight="400" text-anchor="start" font-family="Inter, Helvetica Neue, Arial, sans-serif">managed CPU restore</text>
@@ -74,8 +74,8 @@
 <text x="1177.0" y="814.0" fill="#43D9C5" font-size="17" font-weight="650" text-anchor="start" font-family="Inter, Helvetica Neue, Arial, sans-serif">68.5% of prompt reprocessing avoided—not 68.5% faster</text>
 <text x="1177.0" y="845.0" fill="#8BE36A" font-size="16" font-weight="650" text-anchor="start" font-family="Inter, Helvetica Neue, Arial, sans-serif">Output digest equal: yes</text>
 <line x1="70.0" y1="920.0" x2="1730.0" y2="920.0" stroke="#263946" stroke-width="1"/>
-<text x="70.0" y="960.0" fill="#FFCB66" font-size="17" font-weight="750" text-anchor="start" font-family="Inter, Helvetica Neue, Arial, sans-serif">Operating conclusion</text>
-<text x="250.0" y="960.0" fill="#F4F8FB" font-size="18" font-weight="560" text-anchor="start" font-family="Inter, Helvetica Neue, Arial, sans-serif">DCM makes accepted repeated context cheaper; it does not extend the current 65,536-token served window.</text>
-<text x="70.0" y="1000.0" fill="#91A4B2" font-size="15" font-weight="400" text-anchor="start" font-family="Inter, Helvetica Neue, Arial, sans-serif">Shared-host observations · synthetic prompts · enabled 32K–65K scaling curve not yet measured · setup/offload cost tracked separately</text>
+<text x="70.0" y="960.0" fill="#FFCB66" font-size="17" font-weight="750" text-anchor="start" font-family="Inter, Helvetica Neue, Arial, sans-serif">Normal route</text>
+<text x="205.0" y="960.0" fill="#F4F8FB" font-size="18" font-weight="620" text-anchor="start" font-family="Inter, Helvetica Neue, Arial, sans-serif">GPU APC first → managed CPU fallback → cold recomputation only on a true miss</text>
+<text x="70.0" y="1000.0" fill="#91A4B2" font-size="15" font-weight="400" text-anchor="start" font-family="Inter, Helvetica Neue, Arial, sans-serif">Shared-host observations · route-isolation resets were test-only · production APC stays enabled · DCM does not extend the 65,536 served limit</text>
 <text x="1730.0" y="1000.0" fill="#91A4B2" font-size="15" font-weight="400" text-anchor="end" font-family="Inter, Helvetica Neue, Arial, sans-serif">2026-08-10</text>
 </svg>

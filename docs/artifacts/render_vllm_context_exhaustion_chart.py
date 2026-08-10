@@ -72,7 +72,7 @@ def main() -> None:
 
     # KPI strip.
     kpis = [
-        (70, "62.7%", "faster at 18.5K", GREEN),
+        (70, "62.7%", "CPU fallback vs cold at 18.5K", GREEN),
         (430, "12,672", "tokens reprocessing avoided", CYAN),
         (850, "733 ms", "saved on the paired request", BLUE),
         (1250, "65,536", "served logical limit", AMBER),
@@ -88,7 +88,7 @@ def main() -> None:
     svg.append(rect(px, py, pw, ph, PANEL, stroke=GRID))
     svg.extend([
         text(px + 34, py + 48, "Cold full-history recomputation", 27, weight=680),
-        text(px + 34, py + 80, "Native TTFT · local GPU APC reset · zero cache-hit tokens", 17, fill=MUTED),
+        text(px + 34, py + 80, "Cold-control isolation · APC remained enabled at server", 17, fill=MUTED),
     ])
     chart_x0, chart_y0 = px + 82, py + 125
     chart_w, chart_h = pw - 132, ph - 205
@@ -141,7 +141,7 @@ def main() -> None:
     rx, ry, rw, rh = 1145, 255, 585, 350
     svg.append(rect(rx, ry, rw, rh, PANEL_2, stroke=GRID))
     svg.extend([
-        text(rx + 32, ry + 48, "18.5K paired A/B", 27, weight=680),
+        text(rx + 32, ry + 48, "18.5K CPU-fallback canary", 27, weight=680),
         text(rx + 32, ry + 79, "Same prompt · deterministic output equal", 17, fill=MUTED),
     ])
     bar_x0, bar_y0, bar_w, max_ms = rx + 38, ry + 135, rw - 76, 1250.0
@@ -184,9 +184,9 @@ def main() -> None:
     # Footer / limitations.
     svg.extend([
         line(70, 920, 1730, 920, stroke=GRID),
-        text(70, 960, "Operating conclusion", 17, fill=AMBER, weight=750),
-        text(250, 960, "DCM makes accepted repeated context cheaper; it does not extend the current 65,536-token served window.", 18, weight=560),
-        text(70, 1000, "Shared-host observations · synthetic prompts · enabled 32K–65K scaling curve not yet measured · setup/offload cost tracked separately", 15, fill=MUTED),
+        text(70, 960, "Normal route", 17, fill=AMBER, weight=750),
+        text(205, 960, "GPU APC first → managed CPU fallback → cold recomputation only on a true miss", 18, weight=620),
+        text(70, 1000, "Shared-host observations · route-isolation resets were test-only · production APC stays enabled · DCM does not extend the 65,536 served limit", 15, fill=MUTED),
         text(1730, 1000, "2026-08-10", 15, fill=MUTED, anchor="end"),
     ])
 

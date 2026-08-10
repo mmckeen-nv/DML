@@ -7,7 +7,26 @@ This campaign answers two different questions and keeps their evidence separate.
 
 A checkpoint can reduce repeated prefill work. It does **not** extend the runtime's served logical context limit. Context compaction, exact page selection, and future scheduler-level active paging are separate mechanisms.
 
-## Paired A/B contract
+## Production operating contract
+
+Production vLLM runs normally with Automatic Prefix Caching enabled. The serving
+order is GPU-first:
+
+1. resident local GPU APC;
+2. controller-authorized managed CPU checkpoint fallback for any remaining exact prefix;
+3. cold recomputation only when neither tier can satisfy the prefix.
+
+"DCM disabled" in an A/B means that the request has no Daystrom restore
+authorization; it does **not** mean APC is disabled. Local GPU APC resets are
+allowed only in an isolated route-proof canary where they are needed to prove
+that native reuse came from the CPU connector. They are not the production
+operating policy and are not appropriate for a normal-operation workload test.
+
+A production-representative campaign leaves APC enabled and untouched, records
+the naturally selected `gpu_apc`, `cpu_fallback`, mixed, or `miss` route for
+every request, and reports route distribution alongside latency and fidelity.
+
+## Paired route-isolation A/B contract
 
 `dml_core/scripts/dcm_context_exhaustion_ab.py` runs a growing sequence of tokenizer-calibrated plans. For every rung it randomizes the order of two identical-prompt lanes:
 
