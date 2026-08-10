@@ -1,0 +1,58 @@
+{
+  "config": {
+    "model_id": "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4",
+    "runtime_id": "vllm-live-proof-served-65536",
+    "model_native_limit": 262144,
+    "served_limit": 65536,
+    "target_hot_tokens": 60000,
+    "stale_after_turns": 4,
+    "freeze_after_turns": 10,
+    "runtime_state_bytes_per_token": 1024
+  },
+  "requested_span_ids": [
+    "requested-frozen-evidence"
+  ],
+  "spans": [
+    {
+      "span_id": "immutable-system",
+      "content_digest": "4531c01d5309b6b481fda8d264be6094eee44465a09cd5112f8f0627561451cf",
+      "start_token": 0,
+      "token_count": 4096,
+      "authority": "immutable",
+      "priority": "critical",
+      "exact_required": true
+    },
+    {
+      "span_id": "active-working-set",
+      "content_digest": "6050050e6b10da03ed6d9d38bd16d87d141ace7333eb07e37890c90489138999",
+      "start_token": 4096,
+      "token_count": 32768,
+      "priority": "working",
+      "age_turns": 1
+    },
+    {
+      "span_id": "stale-reference",
+      "content_digest": "249658d51758bcbc9c31322071328eda99e18b4d73a605177c7cdc25a5da0fb6",
+      "start_token": 36864,
+      "token_count": 60000,
+      "age_turns": 6,
+      "summary_digest": "bbdf6a589e93a942588c136c6fe4b38e232b1b27c4a47137430f012e0de37eb8",
+      "summary_tokens": 6000
+    },
+    {
+      "span_id": "cold-exact-history",
+      "content_digest": "9b11a3a1735dffb8b706a662fc4b34832251f2e51687a5345ffeb4f50989a280",
+      "start_token": 96864,
+      "token_count": 80000,
+      "age_turns": 14
+    },
+    {
+      "span_id": "requested-frozen-evidence",
+      "content_digest": "6f4b39588c7dbcd5d91138cbdc443468c83ce3033edad4807793f15c2ea7ed1b",
+      "start_token": 176864,
+      "token_count": 16000,
+      "resident": false,
+      "age_turns": 20
+    }
+  ]
+}

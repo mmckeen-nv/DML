@@ -1,0 +1,79 @@
+{
+  "actions": [
+    {
+      "action": "retain",
+      "reason_code": "protected_or_requested_span_retained",
+      "span_digest": "4531c01d5309b6b481fda8d264be6094eee44465a09cd5112f8f0627561451cf",
+      "span_id": "immutable-system",
+      "tokens_after": 4096,
+      "tokens_before": 4096
+    },
+    {
+      "action": "retain",
+      "reason_code": "span_remains_hot",
+      "span_digest": "6050050e6b10da03ed6d9d38bd16d87d141ace7333eb07e37890c90489138999",
+      "span_id": "active-working-set",
+      "tokens_after": 32768,
+      "tokens_before": 32768
+    },
+    {
+      "action": "compress",
+      "reason_code": "stale_span_replaced_by_summary",
+      "span_digest": "249658d51758bcbc9c31322071328eda99e18b4d73a605177c7cdc25a5da0fb6",
+      "span_id": "stale-reference",
+      "tokens_after": 6000,
+      "tokens_before": 60000
+    },
+    {
+      "action": "freeze",
+      "reason_code": "cold_exact_span_frozen",
+      "span_digest": "9b11a3a1735dffb8b706a662fc4b34832251f2e51687a5345ffeb4f50989a280",
+      "span_id": "cold-exact-history",
+      "tokens_after": 0,
+      "tokens_before": 80000
+    },
+    {
+      "action": "thaw",
+      "reason_code": "requested_exact_span_thawed",
+      "span_digest": "6f4b39588c7dbcd5d91138cbdc443468c83ce3033edad4807793f15c2ea7ed1b",
+      "span_id": "requested-frozen-evidence",
+      "tokens_after": 16000,
+      "tokens_before": 0
+    }
+  ],
+  "compressed_tokens_saved": 54000,
+  "feasible": true,
+  "frozen_exact_tokens": 80000,
+  "hot_overflow_tokens": 0,
+  "hot_swap_in": [
+    "requested-frozen-evidence"
+  ],
+  "hot_swap_out": [],
+  "logical_tokens": 192864,
+  "model_id": "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4",
+  "model_native_limit": 262144,
+  "native_window_utilization": 0.22454833984375,
+  "pass": true,
+  "profile_digest": "ebccc91d1eb0777637c457fe34d0036dce2773bbc11b13ce9c71778405e9c11c",
+  "reason_codes": [
+    "runtime_serves_less_than_model_native_limit",
+    "summary_reduces_native_residency",
+    "exact_context_preserved_outside_native_window",
+    "exact_context_thawed_into_native_window"
+  ],
+  "recompute_from_token": 36864,
+  "recompute_tokens": 22000,
+  "resident_tokens_after": 58864,
+  "resident_tokens_before": 176864,
+  "runtime_id": "vllm-live-proof-served-65536",
+  "schema_version": "daystrom-native-context-profile-v1",
+  "served_limit": 65536,
+  "served_limit_shortfall": 196608,
+  "served_overflow_tokens": 0,
+  "served_window_utilization": 0.898193359375,
+  "stable_prefix_tokens": 36864,
+  "target_hot_tokens": 60000,
+  "thawed_exact_tokens": 16000,
+  "tier_bytes_in": 16384000,
+  "tier_bytes_out": 81920000
+}
