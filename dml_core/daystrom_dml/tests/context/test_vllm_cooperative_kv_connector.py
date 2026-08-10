@@ -20,12 +20,14 @@ import pytest
 
 from daystrom_dml.context.vllm_bridge.policy import (
     DAYSTROM_KV_SCHEMA_VERSION,
+    DAYSTROM_KV_TRANSITION_SCHEMA_VERSION,
     DaystromKVAuthorizationError,
     DaystromKVDecision,
     DaystromKVPolicy,
     DaystromKVRequest,
     build_daystrom_params,
     build_kv_transfer_params,
+    build_kv_transition_params,
     canonical_message_for,
     compute_authorization,
     compute_block_hash_digest,
@@ -1102,6 +1104,101 @@ def connector_env(monkeypatch, tmp_path, secret_file):
 
 
 class TestConnectorGating:
+    def test_compound_transition_restores_and_registers_child_in_one_request(
+        self, connector_env, secret_file, fixed_time
+    ):
+        connector, _ = connector_env
+        connector.policy._time_fn = lambda: fixed_time  # type: ignore[attr-defined]
+        parent_hashes = _block_hashes(2)
+        child_hashes = parent_hashes + _block_hashes(2, seed=7)
+        parent = _digest("transition-parent")
+        child = _digest("transition-child")
+        save = build_kv_transfer_params(
+            operation="save", checkpoint_digest=parent,
+            expires_at=fixed_time + 500, nonce="transition-parent-save",
+            secret_path=secret_file,
+        )
+        assert connector.policy.evaluate(save, parent_hashes, tokens=64).authorized
+        params = build_kv_transition_params(
+            parent_checkpoint_digest=parent,
+            child_checkpoint_digest=child,
+            expires_at=fixed_time + 500,
+            nonce="transition-child-request",
+            secret_path=secret_file,
+        )
+        request = _FakeRequest(
+            "transition-request", kv_transfer_params=params,
+            block_hashes=child_hashes, num_computed_tokens=128,
+        )
+
+        assert connector.get_num_new_matched_tokens(request, 32) == (5, True)
+        connector.update_state_after_alloc(request, blocks=[], num_external_tokens=5)
+        retain, response = connector.request_finished(request, [1, 2, 3, 4])
+
+        assert retain is False
+        assert response is not None
+        evidence = response["daystrom"]
+        assert evidence["schema_version"] == DAYSTROM_KV_TRANSITION_SCHEMA_VERSION
+        assert evidence["operation"] == "transition"
+        assert evidence["checkpoint_digest"] == parent
+        assert evidence["child_checkpoint_digest"] == child
+        assert evidence["reason_code"] == "transition_authorized"
+        assert evidence["matched_tokens"] == 5
+        assert evidence["saved_tokens"] == 128
+        assert connector.policy.record_for(child).block_hashes == tuple(child_hashes)
+        assert request.request_id not in connector._save_request_to_checkpoint
+        calls = connector.scheduler_manager.calls
+        assert len([call for call in calls if call[0] == "update_state_after_alloc"]) == 1
+        assert any(call[0] == "request_finished" for call in calls)
+
+    def test_transition_child_identity_is_hmac_bound_and_conflicts_fail_closed(
+        self, connector_env, secret_file, fixed_time
+    ):
+        connector, _ = connector_env
+        connector.policy._time_fn = lambda: fixed_time  # type: ignore[attr-defined]
+        parent_hashes = _block_hashes(2)
+        child_hashes = parent_hashes + _block_hashes(1, seed=8)
+        parent = _digest("secure-transition-parent")
+        child = _digest("secure-transition-child")
+        other_child = _digest("tampered-transition-child")
+        save = build_kv_transfer_params(
+            operation="save", checkpoint_digest=parent,
+            expires_at=fixed_time + 500, nonce="secure-parent-save",
+            secret_path=secret_file,
+        )
+        assert connector.policy.evaluate(save, parent_hashes, tokens=64).authorized
+        params = build_kv_transition_params(
+            parent_checkpoint_digest=parent,
+            child_checkpoint_digest=child,
+            expires_at=fixed_time + 500,
+            nonce="secure-transition",
+            secret_path=secret_file,
+        )
+        tampered = json.loads(json.dumps(params))
+        tampered["daystrom"]["child_checkpoint_digest"] = other_child
+
+        denied = connector.policy.evaluate(tampered, child_hashes, tokens=96)
+        assert denied.authorized is False
+        assert denied.reason_code == "authorization_hmac_mismatch"
+        assert connector.policy.record_for(child) is None
+        assert connector.policy.record_for(other_child) is None
+
+        existing_child = build_kv_transfer_params(
+            operation="save", checkpoint_digest=child,
+            expires_at=fixed_time + 500, nonce="preexisting-child",
+            secret_path=secret_file,
+        )
+        conflicting_hashes = _block_hashes(1, seed=99)
+        assert connector.policy.evaluate(
+            existing_child, conflicting_hashes, tokens=32
+        ).authorized
+        conflict = connector.policy.evaluate(params, child_hashes, tokens=96)
+        assert conflict.authorized is False
+        assert conflict.reason_code == "child_checkpoint_conflict"
+        assert connector.policy.record_for(child).block_hashes == tuple(
+            conflicting_hashes
+        )
+
     def test_get_num_new_matched_tokens_unapproved_returns_zero(self, connector_env, secret_file, fixed_time):
         connector, _ = connector_env
         connector.policy._time_fn = lambda: fixed_time  # type: ignore[attr-defined]

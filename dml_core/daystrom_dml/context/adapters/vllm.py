@@ -5,15 +5,20 @@ import json
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Optional, cast
+from typing import TYPE_CHECKING, Any, Dict, Optional, cast
 from urllib import error, request
 
 from daystrom_dml.context.execution import RuntimeExecutionCapabilities, RuntimeExecutionError
 from daystrom_dml.context.probe import endpoint_origin_identity_digest
 from daystrom_dml.context.vllm_bridge.policy import (
     DAYSTROM_KV_SCHEMA_VERSION,
+    DAYSTROM_KV_TRANSITION_SCHEMA_VERSION,
     build_kv_transfer_params,
+    build_kv_transition_params,
 )
+
+if TYPE_CHECKING:
+    from daystrom_dml.context.native_transition import NativeContextTransitionPlan
 
 
 @dataclass(frozen=True)
@@ -42,6 +47,7 @@ class VLLMCooperativeKVTrace:
     temperature: float = 0.0
     seed: int = 0
     max_tokens: int = 1
+    child_checkpoint_digest: str = ""
 
     def to_telemetry(self) -> Dict[str, Any]:
         import hashlib
@@ -52,6 +58,11 @@ class VLLMCooperativeKVTrace:
             "completion_tokens": self.completion_tokens,
             "cached_tokens": self.cached_tokens,
             "checkpoint_digest": self.checkpoint_digest,
+            **(
+                {"child_checkpoint_digest": self.child_checkpoint_digest}
+                if self.child_checkpoint_digest
+                else {}
+            ),
             "operation": self.operation,
             "reason_code": self.reason_code,
             "matched_tokens": self.matched_tokens,
@@ -72,6 +83,20 @@ class VLLMCooperativeKVTrace:
                 "seed": self.seed,
                 "max_tokens": self.max_tokens,
             },
+        }
+
+
+@dataclass(frozen=True)
+class VLLMNativeTransitionResult:
+    """Compound generation evidence plus verified child checkpoint readiness."""
+
+    execution: VLLMCooperativeKVTrace
+    readiness: VLLMCooperativeKVTrace
+
+    def to_telemetry(self) -> Dict[str, Any]:
+        return {
+            "execution": self.execution.to_telemetry(),
+            "readiness": self.readiness.to_telemetry(),
         }
 
 
@@ -257,6 +282,95 @@ class VLLMCooperativeExecutionAdapter:
                 return last
         raise RuntimeExecutionError("selective KV purge did not complete")
 
+    def execute_native_transition(
+        self,
+        prompt: str,
+        *,
+        plan: NativeContextTransitionPlan,
+        expires_at: float,
+        nonce: str,
+        max_tokens: int = 1,
+        temperature: float = 0.0,
+        seed: int = 0,
+        readiness_attempts: int = 3,
+        readiness_poll_interval_seconds: float = 0.05,
+    ) -> VLLMNativeTransitionResult:
+        """Run one compound generation and require child readiness evidence."""
+
+        from daystrom_dml.context.native_transition import NativeContextTransitionPlan
+
+        if not isinstance(plan, NativeContextTransitionPlan):
+            raise RuntimeExecutionError("plan must be a NativeContextTransitionPlan")
+        try:
+            bound_plan = NativeContextTransitionPlan.from_dict(plan.to_dict())
+        except Exception as exc:
+            raise RuntimeExecutionError("native transition plan integrity check failed") from exc
+        if not bound_plan.feasible:
+            raise RuntimeExecutionError("native transition plan is not feasible")
+        if bound_plan.model_id != self.model_id or bound_plan.runtime_id != self.runtime_id:
+            raise RuntimeExecutionError("native transition runtime identity mismatch")
+        if [step.operation for step in bound_plan.steps] != [
+            "restore_parent_prefix",
+            "prefill_suffix",
+            "checkpoint_current_generation",
+        ]:
+            raise RuntimeExecutionError("native transition requires restore, suffix, and checkpoint steps")
+        restore_step, suffix_step, checkpoint_step = bound_plan.steps
+        parent_digest = restore_step.checkpoint_digest
+        child_digest = checkpoint_step.checkpoint_digest
+        if not parent_digest or not child_digest:
+            raise RuntimeExecutionError("native transition checkpoint identities are required")
+        if child_digest != bound_plan.current_checkpoint_digest:
+            raise RuntimeExecutionError("native transition child checkpoint drifted")
+        if parent_digest == child_digest:
+            raise RuntimeExecutionError("native transition checkpoint identities must differ")
+        if (
+            restore_step.token_count != bound_plan.stable_prefix_tokens
+            or suffix_step.token_start != bound_plan.stable_prefix_tokens
+            or suffix_step.token_count != bound_plan.suffix_tokens
+            or checkpoint_step.token_count != bound_plan.current_tokens
+        ):
+            raise RuntimeExecutionError("native transition token boundaries drifted")
+        execution = self.complete_with_checkpoint(
+            prompt,
+            operation="transition",
+            checkpoint_digest=parent_digest,
+            child_checkpoint_digest=child_digest,
+            expires_at=expires_at,
+            nonce=nonce,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            seed=seed,
+            _native_transition_plan_validated=True,
+        )
+        if (
+            execution.gpu_apc_matched_tokens <= 0
+            and execution.cpu_offload_matched_tokens <= 0
+        ):
+            raise RuntimeExecutionError(
+                "native transition produced no verified parent-prefix reuse"
+            )
+        if execution.saved_tokens < bound_plan.current_tokens:
+            raise RuntimeExecutionError(
+                "native transition child checkpoint did not cover the planned context"
+            )
+        import hashlib
+
+        readiness_nonce = hashlib.sha256(
+            f"{nonce}|child-readiness|{child_digest}".encode()
+        ).hexdigest()
+        readiness = self.wait_for_checkpoint_ready(
+            checkpoint_digest=child_digest,
+            expires_at=expires_at,
+            nonce=readiness_nonce,
+            max_attempts=readiness_attempts,
+            poll_interval_seconds=readiness_poll_interval_seconds,
+        )
+        return VLLMNativeTransitionResult(
+            execution=execution,
+            readiness=readiness,
+        )
+
     def complete_with_checkpoint(
         self,
         prompt: str,
@@ -268,7 +382,13 @@ class VLLMCooperativeExecutionAdapter:
         max_tokens: int = 1,
         temperature: float = 0.0,
         seed: int = 0,
+        child_checkpoint_digest: str = "",
+        _native_transition_plan_validated: bool = False,
     ) -> VLLMCooperativeKVTrace:
+        if operation == "transition" and not _native_transition_plan_validated:
+            raise RuntimeExecutionError(
+                "transition requests require a validated native transition plan"
+            )
         if not isinstance(prompt, str) or not prompt:
             raise RuntimeExecutionError("prompt must be a non-empty string")
         if isinstance(max_tokens, bool) or not isinstance(max_tokens, int) or max_tokens <= 0:
@@ -282,13 +402,26 @@ class VLLMCooperativeExecutionAdapter:
         if isinstance(seed, bool) or not isinstance(seed, int):
             raise RuntimeExecutionError("seed must be an integer")
         try:
-            transfer = build_kv_transfer_params(
-                operation=operation,
-                checkpoint_digest=checkpoint_digest,
-                expires_at=expires_at,
-                nonce=nonce,
-                secret_path=self.secret_path,
-            )
+            if operation == "transition":
+                transfer = build_kv_transition_params(
+                    parent_checkpoint_digest=checkpoint_digest,
+                    child_checkpoint_digest=child_checkpoint_digest,
+                    expires_at=expires_at,
+                    nonce=nonce,
+                    secret_path=self.secret_path,
+                )
+            else:
+                if child_checkpoint_digest:
+                    raise ValueError(
+                        "child checkpoint digest is only valid for transition"
+                    )
+                transfer = build_kv_transfer_params(
+                    operation=operation,
+                    checkpoint_digest=checkpoint_digest,
+                    expires_at=expires_at,
+                    nonce=nonce,
+                    secret_path=self.secret_path,
+                )
         except (ValueError, OSError) as exc:
             raise RuntimeExecutionError("invalid cooperative KV authorization envelope") from exc
         started = time.perf_counter()
@@ -314,7 +447,9 @@ class VLLMCooperativeExecutionAdapter:
         daystrom = connector.get("daystrom") if isinstance(connector, dict) else None
         if not isinstance(daystrom, dict):
             raise RuntimeExecutionError("vLLM response lacks cooperative KV evidence")
-        self._validate_connector_evidence(daystrom, operation, checkpoint_digest)
+        self._validate_connector_evidence(
+            daystrom, operation, checkpoint_digest, child_checkpoint_digest
+        )
         ready, stored_blocks, expected_blocks = _status_readiness(
             daystrom, operation
         )
@@ -345,20 +480,35 @@ class VLLMCooperativeExecutionAdapter:
             temperature=float(temperature),
             seed=seed,
             max_tokens=max_tokens,
+            child_checkpoint_digest=child_checkpoint_digest,
         )
 
     @staticmethod
     def _validate_connector_evidence(
-        evidence: Dict[str, Any], operation: str, checkpoint_digest: str
+        evidence: Dict[str, Any],
+        operation: str,
+        checkpoint_digest: str,
+        child_checkpoint_digest: str = "",
     ) -> None:
-        if evidence.get("schema_version") != DAYSTROM_KV_SCHEMA_VERSION:
+        expected_schema = (
+            DAYSTROM_KV_TRANSITION_SCHEMA_VERSION
+            if operation == "transition"
+            else DAYSTROM_KV_SCHEMA_VERSION
+        )
+        if evidence.get("schema_version") != expected_schema:
             raise RuntimeExecutionError("cooperative KV schema mismatch")
         if evidence.get("operation") != operation:
             raise RuntimeExecutionError("cooperative KV operation mismatch")
         if evidence.get("checkpoint_digest") != checkpoint_digest:
             raise RuntimeExecutionError("cooperative KV checkpoint mismatch")
+        if operation == "transition" and evidence.get(
+            "child_checkpoint_digest"
+        ) != child_checkpoint_digest:
+            raise RuntimeExecutionError("cooperative KV child checkpoint mismatch")
         reason = evidence.get("reason_code")
-        if operation == "purge":
+        if operation == "transition":
+            expected_reasons = {"transition_authorized"}
+        elif operation == "purge":
             expected_reasons = {"purge_pending", "purge_complete"}
         elif operation == "status":
             expected_reasons = {

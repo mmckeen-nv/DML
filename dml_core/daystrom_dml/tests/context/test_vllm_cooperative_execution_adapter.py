@@ -8,6 +8,10 @@ import pytest
 
 from daystrom_dml.context.adapters.vllm import VLLMCooperativeExecutionAdapter
 from daystrom_dml.context.execution import RuntimeExecutionError
+from daystrom_dml.context.native_transition import (
+    NativeContextRuntimeStep,
+    NativeContextTransitionPlan,
+)
 
 
 class Response:
@@ -508,4 +512,118 @@ def test_exact_runtime_version_and_secret_file_are_required(tmp_path: Path) -> N
             runtime_id="vllm-test",
             runtime_version="0.20.0",
             secret_path=tmp_path / "missing.key",
+        )
+
+
+def test_execute_native_transition_uses_one_dual_digest_request(tmp_path: Path) -> None:
+    parent = "sha256:" + "1" * 64
+    child = "sha256:" + "2" * 64
+    payload = _response("transition", parent)
+    payload["kv_transfer_params"]["daystrom"].update(
+        {
+            "schema_version": "daystrom-vllm-kv-transition-v1",
+            "child_checkpoint_digest": child,
+            "reason_code": "transition_authorized",
+            "matched_tokens": 96,
+            "gpu_apc_matched_tokens": 32,
+            "cpu_offload_matched_tokens": 96,
+            "cache_route": "gpu_apc_and_cpu",
+            "saved_tokens": 160,
+        }
+    )
+    status = _status_response(
+        "checkpoint_ready", ready=True, stored=10, expected=10
+    )
+    status["kv_transfer_params"]["daystrom"]["checkpoint_digest"] = child
+    opener = SequenceOpener([payload, status])
+    adapter = VLLMCooperativeExecutionAdapter(
+        "http://127.0.0.1:8000",
+        model_id="model",
+        runtime_id="vllm-test",
+        runtime_version="0.20.0",
+        secret_path=_secret(tmp_path),
+        opener=opener,
+    )
+    plan = NativeContextTransitionPlan(
+        model_id="model",
+        runtime_id="vllm-test",
+        parent_packet_digest="a" * 64,
+        current_packet_digest="b" * 64,
+        parent_manifest_digest="c" * 64,
+        current_manifest_digest="d" * 64,
+        model_native_limit=1024,
+        served_limit=512,
+        current_tokens=160,
+        stable_prefix_span_ids=["prefix"],
+        stable_prefix_tokens=96,
+        suffix_span_ids=["suffix"],
+        suffix_tokens=64,
+        page_out=[],
+        page_in=[],
+        steps=[
+            NativeContextRuntimeStep(
+                operation="restore_parent_prefix", span_ids=["prefix"],
+                token_start=0, token_count=96, reason_code="restore",
+                checkpoint_id="parent-id", checkpoint_digest=parent,
+                binding_digest="sha256:" + "e" * 64,
+            ),
+            NativeContextRuntimeStep(
+                operation="prefill_suffix", span_ids=["suffix"],
+                token_start=96, token_count=64, reason_code="prefill",
+            ),
+            NativeContextRuntimeStep(
+                operation="checkpoint_current_generation",
+                span_ids=["prefix", "suffix"], token_start=0,
+                token_count=160, reason_code="save",
+                checkpoint_digest=child,
+            ),
+        ],
+        current_checkpoint_digest=child,
+        served_overflow_tokens=0,
+        served_limit_shortfall=512,
+        feasible=True,
+    )
+
+    trace = adapter.execute_native_transition(
+        "prefix and suffix",
+        plan=plan,
+        expires_at=4_000_000_000.0,
+        nonce="native-transition",
+        max_tokens=4,
+        seed=9,
+    )
+
+    assert len(opener.calls) == 2
+    envelope = opener.calls[0]["body"]["kv_transfer_params"]["daystrom"]
+    assert envelope["checkpoint_digest"] == parent
+    assert envelope["child_checkpoint_digest"] == child
+    assert trace.execution.operation == "transition"
+    assert trace.execution.child_checkpoint_digest == child
+    assert trace.execution.matched_tokens == 96
+    assert trace.execution.saved_tokens == 160
+    assert trace.readiness.checkpoint_ready is True
+    assert trace.readiness.checkpoint_digest == child
+    telemetry = json.dumps(trace.to_telemetry())
+    assert "prefix and suffix" not in telemetry
+    assert "native-transition" not in telemetry
+
+    cold_payload = json.loads(json.dumps(payload))
+    cold_evidence = cold_payload["kv_transfer_params"]["daystrom"]
+    cold_evidence["matched_tokens"] = 0
+    cold_evidence["gpu_apc_matched_tokens"] = 0
+    cold_evidence["cpu_offload_matched_tokens"] = 0
+    cold_adapter = VLLMCooperativeExecutionAdapter(
+        "http://127.0.0.1:8000",
+        model_id="model",
+        runtime_id="vllm-test",
+        runtime_version="0.20.0",
+        secret_path=_secret(tmp_path),
+        opener=Opener(cold_payload),
+    )
+    with pytest.raises(RuntimeExecutionError, match="no verified parent-prefix reuse"):
+        cold_adapter.execute_native_transition(
+            "prefix and suffix",
+            plan=plan,
+            expires_at=4_000_000_000.0,
+            nonce="native-transition-cold",
         )

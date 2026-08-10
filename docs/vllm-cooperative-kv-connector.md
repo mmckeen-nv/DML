@@ -6,7 +6,8 @@ GPU APC is opportunistic and hash-driven; it is not controller-scoped storage. D
 
 ## What is implemented
 
-- Request-level save, restore, selective purge, and payload-free status authorization through OpenAI `kv_transfer_params`.
+- Request-level save, restore, compound restore-and-child-save, selective purge,
+  and payload-free status authorization through OpenAI `kv_transfer_params`.
 - HMAC-SHA256 envelopes with bounded TTL and cardinality.
 - Controller checkpoint identity bound inside the runtime to the exact ordered vLLM block hashes observed during save.
 - Restore allowed only when the saved block-hash sequence is an exact prefix of the new request.
@@ -18,6 +19,9 @@ GPU APC is opportunistic and hash-driven; it is not controller-scoped storage. D
 - Payload-free connector evidence is returned in response `kv_transfer_params.daystrom`.
 - A freshly signed `status` request reports logical lifecycle plus live CPU-row readiness as `checkpoint_pending`, `checkpoint_ready`, `checkpoint_partial`, `checkpoint_evicted`, or `checkpoint_below_granularity`. Ready requires confirmed store completion and `stored_blocks == expected_blocks > 0`; invalid signatures receive no status evidence.
 - A dependency-light client, `VLLMCooperativeExecutionAdapter`, validates save/restore evidence, exposes typed signed status and bounded pending→ready polling, and requires `purge_complete` plus physical counters for request-bound purge.
+- `execute_native_transition()` validates an exact `NativeContextTransitionPlan`,
+  issues one dual-digest generation request, and returns success only after a
+  signed child status proves physical checkpoint readiness.
 
 ## Deliberate fail-closed boundary
 
@@ -82,6 +86,13 @@ The OpenAI completion request includes:
 ```
 
 The response evidence contains only schema, operation, checkpoint digest, reason code, native token counters, cache route, selective-purge counters (`purged_blocks`, `purged_bytes`, `shared_blocks`), and—only for `status`—`checkpoint_ready`, `stored_blocks`, and `expected_blocks`. `matched_tokens` remains the backward-compatible managed CPU restore count; `gpu_apc_matched_tokens` reports the local GPU prefix count supplied by vLLM, and `cpu_offload_matched_tokens` reports the external fallback count. It excludes prompts, outputs, token IDs, nonces, signatures, block hashes, and the control key. A purge client accepts only `reason_code: "purge_complete"`; `purge_pending`, busy/missing-block failures, and worker-count mismatches are failures.
+
+Compound transitions use `daystrom-vllm-kv-transition-v1`, operation
+`transition`, the parent `checkpoint_digest`, and a distinct
+`child_checkpoint_digest`. Both digests are included in the canonical HMAC.
+The runtime verifies the parent as an exact block-hash prefix, reserves the child
+identity without overwriting conflicting state, then uses the parent manager's
+single allocation hook for both CPU restore and eager child-store registration.
 
 A `gpu_apc` route proves a native local-cache hit, not controller-authorized checkpoint restoration. Only positive `cpu_offload_matched_tokens` is evidence that the managed Daystrom fallback restored KV.
 

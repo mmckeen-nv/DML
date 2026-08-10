@@ -582,7 +582,7 @@ class DaystromCooperativeKVConnector(SimpleCPUOffloadConnector, SupportsHMA):
         num_computed_tokens: int,
     ) -> tuple[int | None, bool]:
         decision = self._evaluate(request)
-        if not decision.authorized or decision.operation != "restore":
+        if not decision.authorized or decision.operation not in {"restore", "transition"}:
             return 0, False
         # vLLM 0.20 computes local GPU prefix-cache matches before invoking a
         # connector and passes that native count as num_computed_tokens. Keep
@@ -620,12 +620,29 @@ class DaystromCooperativeKVConnector(SimpleCPUOffloadConnector, SupportsHMA):
         decision = self._evaluate(request)
         if not decision.authorized:
             return
-        if decision.operation == "restore":
-            # Delegate to parent for the load path when there are external
-            # tokens to restore from CPU cache.
-            if self.scheduler_manager is not None and num_external_tokens > 0:
+        if decision.operation in {"restore", "transition"}:
+            # The parent manager's single call can both load an external prefix
+            # and register this request for eager stores. A plain restore avoids
+            # store registration when there is no external work; transition must
+            # always delegate so its completed child can be published.
+            if decision.operation == "transition":
+                child = decision.child_checkpoint_digest
+                previous_checkpoint = self._save_request_to_checkpoint.get(
+                    request.request_id
+                )
+                if previous_checkpoint != child:
+                    self._checkpoint_stored_hashes[child] = set()
+                    self._checkpoint_store_completed.discard(child)
+                self._save_request_to_checkpoint[request.request_id] = child
+            if self.scheduler_manager is not None and (
+                num_external_tokens > 0 or decision.operation == "transition"
+            ):
                 self.scheduler_manager.update_state_after_alloc(
                     request, blocks, num_external_tokens
+                )
+            if decision.operation == "transition":
+                self._capture_resident_checkpoint_inventory(
+                    decision.child_checkpoint_digest
                 )
         elif decision.operation == "save":
             # Delegate to parent for save registration too.  In eager mode the
@@ -851,7 +868,7 @@ class DaystromCooperativeKVConnector(SimpleCPUOffloadConnector, SupportsHMA):
                     None, self._build_daystrom_response_meta(decision)
                 )
             return False, None
-        if decision.operation not in {"save", "restore"}:
+        if decision.operation not in {"save", "restore", "transition"}:
             return False, None
         # Both paths must delegate: save finalizes store tracking, while restore
         # releases CPU/GPU touch refs and load-event state in the parent manager.
@@ -861,7 +878,7 @@ class DaystromCooperativeKVConnector(SimpleCPUOffloadConnector, SupportsHMA):
                 request, block_ids
             )
             if (
-                decision.operation == "save"
+                decision.operation in {"save", "transition"}
                 and request.request_id
                 not in getattr(self.scheduler_manager, "_reqs_to_store", {})
             ):
@@ -910,7 +927,7 @@ class DaystromCooperativeKVConnector(SimpleCPUOffloadConnector, SupportsHMA):
                     None, self._build_daystrom_response_meta(decision)
                 )
             return False, None
-        if decision.operation not in {"save", "restore"}:
+        if decision.operation not in {"save", "restore", "transition"}:
             return False, None
         parent_retain, parent_meta = False, None
         if self.scheduler_manager is not None:
@@ -918,7 +935,7 @@ class DaystromCooperativeKVConnector(SimpleCPUOffloadConnector, SupportsHMA):
                 self.scheduler_manager.request_finished_all_groups(request, block_ids)
             )
             if (
-                decision.operation == "save"
+                decision.operation in {"save", "transition"}
                 and request.request_id
                 not in getattr(self.scheduler_manager, "_reqs_to_store", {})
             ):
@@ -954,13 +971,16 @@ class DaystromCooperativeKVConnector(SimpleCPUOffloadConnector, SupportsHMA):
             ),
             "cache_route": values.get(
                 "cache_route",
-                "miss" if values.get("operation") == "restore" else "not_applicable",
+                "miss" if values.get("operation") in {"restore", "transition"} else "not_applicable",
             ),
             "saved_tokens": values.get("saved_tokens", 0),
             "purged_blocks": values.get("purged_blocks", 0),
             "purged_bytes": values.get("purged_bytes", 0),
             "shared_blocks": values.get("shared_blocks", 0),
         }
+        child_checkpoint = values.get("child_checkpoint_digest")
+        if child_checkpoint:
+            result["child_checkpoint_digest"] = child_checkpoint
         for key in ("checkpoint_ready", "stored_blocks", "expected_blocks"):
             if key in values:
                 result[key] = values[key]

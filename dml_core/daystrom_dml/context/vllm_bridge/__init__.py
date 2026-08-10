@@ -14,25 +14,30 @@ opportunistic and is not a controller authorization boundary.
   importing this package does not import the connector module.  Tests that
   exercise the connector stub the minimal vLLM modules explicitly.
 
-The contract is version-pinned to vLLM 0.20.0 and the
-``daystrom-vllm-kv-v1`` schema.
+The contract is version-pinned to vLLM 0.20.0. Legacy single-operation requests
+use ``daystrom-vllm-kv-v1``; compound restore-and-save requests use the distinct
+``daystrom-vllm-kv-transition-v1`` schema.
 """
 from __future__ import annotations
 
 from daystrom_dml.context.vllm_bridge.policy import (
     DAYSTROM_KV_SCHEMA_VERSION,
+    DAYSTROM_KV_TRANSITION_SCHEMA_VERSION,
     DaystromKVAuthorizationError,
     DaystromKVPolicy,
     DaystromKVRecord,
     DaystromKVRequest,
     DaystromKVDecision,
+    build_kv_transition_params,
 )
 
 __all__ = [
     "DAYSTROM_KV_SCHEMA_VERSION",
+    "DAYSTROM_KV_TRANSITION_SCHEMA_VERSION",
     "DaystromKVAuthorizationError",
     "DaystromKVDecision",
     "DaystromKVPolicy",
     "DaystromKVRecord",
     "DaystromKVRequest",
+    "build_kv_transition_params",
 ]

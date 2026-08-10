@@ -64,23 +64,26 @@ It moves a 176,864-token logical generation to a 58,864-token resident
 generation while restoring a 36,864-token prefix and prefilling only the
 22,000-token changed suffix.
 
-## Current runtime boundary
+## vLLM compound actuator
 
-The plan is executable work, but adapter actuation remains capability-gated.
-The vLLM cooperative connector has separately proven parent-prefix CPU restore,
-readiness, deterministic equivalence, and selective purge. Its current request
-protocol performs one operation (`save`, `restore`, `status`, or `purge`) per
-request; it cannot yet atomically restore the parent and publish the completed
-child checkpoint in the same generation.
-
-The next runtime slice is therefore a version-pinned chained-generation
-operation that:
+`VLLMCooperativeExecutionAdapter.execute_native_transition()` consumes the
+integrity-checked plan and performs a version-pinned chained generation that:
 
 - restores the exact parent checkpoint;
 - verifies positive native CPU/offload or GPU-prefix reuse counters;
 - prefills the planned suffix;
 - binds the completed child packet to its new runtime checkpoint digest; and
-- publishes that child checkpoint only after readiness evidence succeeds.
+- publishes that child checkpoint only after a separately signed readiness
+  request proves `stored_blocks == expected_blocks > 0`.
 
-Until that adapter exists, `checkpoint_current_generation` is a required plan
-step—not a claim that the checkpoint was created automatically.
+The generation itself is one dual-digest `transition` request. The HMAC covers
+both the parent restore digest and distinct child checkpoint digest. The vLLM
+0.20 eager offload manager receives one `update_state_after_alloc` call, which
+loads the external prefix and registers the same request for child stores.
+Tampered child identities, reused parent/child identities, prefix mismatch,
+existing-child conflicts, runtime/plan drift, and readiness failure all fail
+closed. Result telemetry remains payload-free.
+
+This offline-tested actuator does not by itself claim shared-host live proof.
+Positive managed CPU reuse counters and child readiness still require a bounded,
+explicitly approved vLLM 0.20 canary.

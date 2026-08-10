@@ -67,6 +67,7 @@ from typing import Any, Mapping, Sequence
 # --------------------------------------------------------------------------- #
 
 DAYSTROM_KV_SCHEMA_VERSION = "daystrom-vllm-kv-v1"
+DAYSTROM_KV_TRANSITION_SCHEMA_VERSION = "daystrom-vllm-kv-transition-v1"
 _VALID_OPERATIONS = frozenset({"save", "restore", "purge", "status"})
 _DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 _HEX64_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -92,6 +93,7 @@ _REQUIRED_FIELDS = frozenset(
         "authorization",
     }
 )
+_TRANSITION_REQUIRED_FIELDS = _REQUIRED_FIELDS | {"child_checkpoint_digest"}
 
 
 # --------------------------------------------------------------------------- #
@@ -127,20 +129,17 @@ class DaystromKVRequest:
     nonce: str
     authorization: str
     block_hashes: tuple[bytes, ...]
+    child_checkpoint_digest: str = ""
 
     @property
     def canonical_message(self) -> bytes:
         """Exact ordered canonical message covered by the HMAC."""
 
-        return "\n".join(
-            [
-                self.schema_version,
-                self.operation,
-                self.checkpoint_digest,
-                f"{self.expires_at:.6f}",
-                self.nonce,
-            ]
-        ).encode("ascii")
+        fields = [self.schema_version, self.operation, self.checkpoint_digest]
+        if self.operation == "transition":
+            fields.append(self.child_checkpoint_digest)
+        fields.extend([f"{self.expires_at:.6f}", self.nonce])
+        return "\n".join(fields).encode("ascii")
 
     def telemetry(self) -> dict[str, Any]:
         """Payload-free telemetry for this request (no secrets/hashes)."""
@@ -203,6 +202,7 @@ class DaystromKVDecision:
     purged_blocks: int = 0
     purged_bytes: int = 0
     shared_blocks: int = 0
+    child_checkpoint_digest: str = ""
 
     def telemetry(self) -> dict[str, Any]:
         return {
@@ -216,6 +216,11 @@ class DaystromKVDecision:
             "purged_blocks": self.purged_blocks,
             "purged_bytes": self.purged_bytes,
             "shared_blocks": self.shared_blocks,
+            **(
+                {"child_checkpoint_digest": self.child_checkpoint_digest}
+                if self.child_checkpoint_digest
+                else {}
+            ),
         }
 
 
@@ -291,17 +296,28 @@ def _parse_daystrom_mapping(
 def _validate_fields(daystrom: Mapping[str, Any]) -> dict[str, Any]:
     """Validate field presence, types, lengths, and reject unknown fields."""
 
-    unknown = set(daystrom) - _REQUIRED_FIELDS
+    operation_value = daystrom.get("operation")
+    expected_fields = (
+        _TRANSITION_REQUIRED_FIELDS
+        if operation_value == "transition"
+        else _REQUIRED_FIELDS
+    )
+    unknown = set(daystrom) - expected_fields
     if unknown:
         raise DaystromKVAuthorizationError("unknown_field")
-    missing = _REQUIRED_FIELDS - set(daystrom)
+    missing = expected_fields - set(daystrom)
     if missing:
         raise DaystromKVAuthorizationError("missing_field")
 
     schema_version = daystrom["schema_version"]
     if not isinstance(schema_version, str):
         raise DaystromKVAuthorizationError("schema_version_not_str")
-    if schema_version != DAYSTROM_KV_SCHEMA_VERSION:
+    expected_schema = (
+        DAYSTROM_KV_TRANSITION_SCHEMA_VERSION
+        if operation_value == "transition"
+        else DAYSTROM_KV_SCHEMA_VERSION
+    )
+    if schema_version != expected_schema:
         raise DaystromKVAuthorizationError("schema_version_mismatch")
     if len(schema_version) > MAX_SCHEMA_VERSION_LEN:
         raise DaystromKVAuthorizationError("schema_version_too_long")
@@ -311,7 +327,7 @@ def _validate_fields(daystrom: Mapping[str, Any]) -> dict[str, Any]:
         raise DaystromKVAuthorizationError("operation_not_str")
     if len(operation) > MAX_OPERATION_LEN:
         raise DaystromKVAuthorizationError("operation_too_long")
-    if operation not in _VALID_OPERATIONS:
+    if operation not in _VALID_OPERATIONS | {"transition"}:
         raise DaystromKVAuthorizationError("operation_invalid")
 
     checkpoint_digest = daystrom["checkpoint_digest"]
@@ -321,6 +337,18 @@ def _validate_fields(daystrom: Mapping[str, Any]) -> dict[str, Any]:
         raise DaystromKVAuthorizationError("checkpoint_digest_too_long")
     if not _DIGEST_RE.match(checkpoint_digest):
         raise DaystromKVAuthorizationError("checkpoint_digest_malformed")
+
+    child_checkpoint_digest = ""
+    if operation == "transition":
+        child_checkpoint_digest = daystrom["child_checkpoint_digest"]
+        if not isinstance(child_checkpoint_digest, str):
+            raise DaystromKVAuthorizationError("child_checkpoint_digest_not_str")
+        if len(child_checkpoint_digest) > MAX_CHECKPOINT_DIGEST_LEN:
+            raise DaystromKVAuthorizationError("child_checkpoint_digest_too_long")
+        if not _DIGEST_RE.match(child_checkpoint_digest):
+            raise DaystromKVAuthorizationError("child_checkpoint_digest_malformed")
+        if child_checkpoint_digest == checkpoint_digest:
+            raise DaystromKVAuthorizationError("transition_checkpoint_identity_reused")
 
     expires_at = daystrom["expires_at"]
     if isinstance(expires_at, bool) or not isinstance(expires_at, (int, float)):
@@ -351,6 +379,7 @@ def _validate_fields(daystrom: Mapping[str, Any]) -> dict[str, Any]:
         "schema_version": schema_version,
         "operation": operation,
         "checkpoint_digest": checkpoint_digest,
+        "child_checkpoint_digest": child_checkpoint_digest,
         "expires_at": expires_at,
         "nonce": nonce,
         "authorization": authorization,
@@ -390,6 +419,7 @@ def _parse_request(
         nonce=fields["nonce"],
         authorization=fields["authorization"],
         block_hashes=bh,
+        child_checkpoint_digest=fields["child_checkpoint_digest"],
     )
 
 
@@ -511,6 +541,8 @@ class DaystromKVPolicy:
             return self._evaluate_save(request, now, tokens)
         if request.operation == "restore":
             return self._evaluate_restore(request, now, tokens)
+        if request.operation == "transition":
+            return self._evaluate_transition(request, now, tokens)
         if request.operation == "status":
             return self._evaluate_status(request, now)
         return self._evaluate_purge(request, now)
@@ -618,6 +650,71 @@ class DaystromKVPolicy:
             reason_code="restore_authorized",
             schema_version=request.schema_version,
             matched_tokens=0,
+        )
+
+    def _evaluate_transition(
+        self, request: DaystromKVRequest, now: float, tokens: int
+    ) -> DaystromKVDecision:
+        """Authorize one source restore and distinct child save as one request."""
+
+        restored = self._evaluate_restore(request, now, tokens)
+        child = request.child_checkpoint_digest
+        if not restored.authorized:
+            return DaystromKVDecision(
+                authorized=False,
+                operation="transition",
+                checkpoint_digest=request.checkpoint_digest,
+                child_checkpoint_digest=child,
+                reason_code=restored.reason_code,
+                schema_version=request.schema_version,
+            )
+        self._evict_expired(now)
+        purge = self._purges.get(child)
+        if purge is not None:
+            return DaystromKVDecision(
+                authorized=False,
+                operation="transition",
+                checkpoint_digest=request.checkpoint_digest,
+                child_checkpoint_digest=child,
+                reason_code=(
+                    "child_purge_complete" if purge.completed else "child_purge_pending"
+                ),
+                schema_version=request.schema_version,
+            )
+        existing = self._records.get(child)
+        if existing is not None and existing.block_hashes != request.block_hashes:
+            return DaystromKVDecision(
+                authorized=False,
+                operation="transition",
+                checkpoint_digest=request.checkpoint_digest,
+                child_checkpoint_digest=child,
+                reason_code="child_checkpoint_conflict",
+                schema_version=request.schema_version,
+            )
+        if existing is None and len(self._records) >= self._max_records:
+            return DaystromKVDecision(
+                authorized=False,
+                operation="transition",
+                checkpoint_digest=request.checkpoint_digest,
+                child_checkpoint_digest=child,
+                reason_code="cardinality_exceeded",
+                schema_version=request.schema_version,
+            )
+        self._records[child] = DaystromKVRecord(
+            checkpoint_digest=child,
+            block_hashes=request.block_hashes,
+            expires_at=request.expires_at,
+            tokens_saved=tokens,
+            created_at=existing.created_at if existing is not None else now,
+        )
+        return DaystromKVDecision(
+            authorized=True,
+            operation="transition",
+            checkpoint_digest=request.checkpoint_digest,
+            child_checkpoint_digest=child,
+            reason_code="transition_authorized",
+            schema_version=request.schema_version,
+            saved_tokens=tokens,
         )
 
     def _evaluate_status(
@@ -960,6 +1057,59 @@ def build_kv_transfer_params(
             nonce=nonce,
             secret_path=secret_path,
         )
+    }
+
+
+def build_kv_transition_params(
+    *,
+    parent_checkpoint_digest: str,
+    child_checkpoint_digest: str,
+    expires_at: float,
+    nonce: str,
+    secret_path: Path,
+) -> dict[str, Any]:
+    """Build a dual-digest envelope for one restore-and-save request."""
+
+    secret = _load_secret(Path(secret_path))
+    for label, digest in (
+        ("parent_checkpoint_digest", parent_checkpoint_digest),
+        ("child_checkpoint_digest", child_checkpoint_digest),
+    ):
+        if not _DIGEST_RE.match(digest):
+            raise ValueError(f"{label} must be sha256:+64 hex")
+    if parent_checkpoint_digest == child_checkpoint_digest:
+        raise ValueError("parent and child checkpoint digests must differ")
+    if not _NONCE_RE.match(nonce) or not (1 <= len(nonce) <= MAX_NONCE_LEN):
+        raise ValueError("nonce invalid")
+    import math
+
+    if (
+        not isinstance(expires_at, (int, float))
+        or isinstance(expires_at, bool)
+        or not math.isfinite(float(expires_at))
+    ):
+        raise ValueError("expires_at must be finite")
+    parsed_expiry = float(expires_at)
+    transition = DaystromKVRequest(
+        schema_version=DAYSTROM_KV_TRANSITION_SCHEMA_VERSION,
+        operation="transition",
+        checkpoint_digest=parent_checkpoint_digest,
+        child_checkpoint_digest=child_checkpoint_digest,
+        expires_at=parsed_expiry,
+        nonce=nonce,
+        authorization="0" * 64,
+        block_hashes=(),
+    )
+    return {
+        "daystrom": {
+            "schema_version": transition.schema_version,
+            "operation": transition.operation,
+            "checkpoint_digest": parent_checkpoint_digest,
+            "child_checkpoint_digest": child_checkpoint_digest,
+            "expires_at": parsed_expiry,
+            "nonce": nonce,
+            "authorization": compute_authorization(secret, transition),
+        }
     }
 
 
