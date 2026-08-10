@@ -1,0 +1,96 @@
+{
+  "schema_version": "daystrom-vllm-status-canary-v1",
+  "source_ref": "84a03ce",
+  "runtime_version": "0.20.0",
+  "model_id": "nvidia/nemotron-3-super",
+  "endpoint_origin_digest": "sha256:bcc698cf1740fd2f5831336441994ce997e969c047de2e20db333a309fb3c268",
+  "checkpoint_digest": "sha256:f65cfd1ce1a5f4aec9f56f4a66c72c643f8de793e8c10ec3648e5e3b7f085903",
+  "preflight": {
+    "queues_idle": true,
+    "gpu_reserve_gate_passed": true,
+    "openshell_containers": 17
+  },
+  "events": [
+    {
+      "operation": "status",
+      "reason_code": "record_not_found",
+      "checkpoint_ready": false,
+      "stored_blocks": 0,
+      "expected_blocks": 0,
+      "latency_ms": 32998.41275801009
+    },
+    {
+      "operation": "invalid_signature_status",
+      "lifecycle_evidence_disclosed": false
+    },
+    {
+      "operation": "save",
+      "reason_code": "save_authorized",
+      "saved_tokens": 5384,
+      "output_digest": "sha256:bd00631f2e7f50dc506c228a8256eda0ab7f0c91debcae8ea210816f061e4397",
+      "output_digest_method": "sha256_utf8_text",
+      "sampling": {
+        "temperature": 0.0,
+        "seed": 17,
+        "max_tokens": 8
+      },
+      "latency_ms": 2632.9234199947678
+    },
+    {
+      "operation": "status",
+      "reason_code": "checkpoint_ready",
+      "checkpoint_ready": true,
+      "stored_blocks": 6,
+      "expected_blocks": 6,
+      "latency_ms": 153.61290199507494
+    },
+    {
+      "operation": "restore",
+      "reason_code": "restore_authorized",
+      "cache_route": "cpu_fallback",
+      "matched_tokens": 4224,
+      "gpu_apc_matched_tokens": 0,
+      "cpu_offload_matched_tokens": 4224,
+      "output_digest": "sha256:bd00631f2e7f50dc506c228a8256eda0ab7f0c91debcae8ea210816f061e4397",
+      "output_digest_method": "sha256_utf8_text",
+      "sampling": {
+        "temperature": 0.0,
+        "seed": 17,
+        "max_tokens": 8
+      },
+      "latency_ms": 18011.97171199601
+    },
+    {
+      "operation": "purge",
+      "reason_code": "purge_complete",
+      "purged_blocks": 6,
+      "purged_bytes": 103809024,
+      "shared_blocks": 0,
+      "latency_ms": 147.01822800270747
+    },
+    {
+      "operation": "post_purge_status",
+      "reason_code": "purge_complete",
+      "checkpoint_ready": false,
+      "stored_blocks": 0,
+      "expected_blocks": 0,
+      "latency_ms": 147.51647200318985
+    },
+    {
+      "operation": "restore_after_purge",
+      "denied": true
+    }
+  ],
+  "output_equivalent": true,
+  "postflight": {
+    "queues_idle": true,
+    "canary_removed": true,
+    "key_removed": true,
+    "source_removed": true,
+    "listener_removed": true,
+    "ollama_state_unchanged": true,
+    "openshell_containers": 17,
+    "gpu_memory_free_mib": 202998
+  },
+  "result": "pass"
+}
