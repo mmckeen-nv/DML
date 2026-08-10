@@ -755,9 +755,9 @@ class DaystromCooperativeKVConnector(SimpleCPUOffloadConnector, SupportsHMA):
                     event,
                 )
                 self._purge_completion_errors[checkpoint] = reason
-                request_id = self._purge_event_to_request.get(event)
-                if request_id is not None:
-                    telemetry = self._decision_telemetry.get(request_id, {})
+                orphaned_request_id = self._purge_event_to_request.get(event)
+                if orphaned_request_id is not None:
+                    telemetry = self._decision_telemetry.get(orphaned_request_id, {})
                     telemetry.update(
                         {
                             "authorized": False,
@@ -768,7 +768,7 @@ class DaystromCooperativeKVConnector(SimpleCPUOffloadConnector, SupportsHMA):
                             "purged_bytes": 0,
                         }
                     )
-                    self._decision_telemetry[request_id] = telemetry
+                    self._decision_telemetry[orphaned_request_id] = telemetry
                 # Keep the purge nonterminal and its rows protected. A runtime
                 # restart or future explicit remediation must resolve the now-
                 # orphaned shared rows; never claim or retry physical cleanup.
