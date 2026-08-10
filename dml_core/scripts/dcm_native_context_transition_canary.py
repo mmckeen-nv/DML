@@ -116,7 +116,13 @@ def run_canary(
             checkpoint_digest=parent_digest,
             expires_at=expires_at,
             nonce=_nonce("parent-save"),
-            max_tokens=1,
+            # vLLM 0.20 eager CPU offload scans only blocks confirmed before
+            # the current scheduler step and has an upstream "flush on finish"
+            # TODO.  A one-token save can therefore strand the last complete
+            # prompt block when chunked prefill ends in the finishing step.
+            # Keep bounded decode runway so a later step schedules that block;
+            # readiness still fails closed if physical publication is partial.
+            max_tokens=8,
             temperature=0.0,
             seed=17,
         )

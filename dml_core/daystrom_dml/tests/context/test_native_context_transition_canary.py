@@ -131,11 +131,13 @@ class FakeAdapter:
         self.transition_route = transition_route
         self.fail_purge = fail_purge
         self.purged: list[str] = []
+        self.completions: list[dict[str, Any]] = []
 
     def capabilities(self) -> Any:
         return SimpleNamespace(metadata={"endpoint_origin_digest": "sha256:" + "f" * 64})
 
     def complete_with_checkpoint(self, prompt: str, **kwargs: Any) -> VLLMCooperativeKVTrace:
+        self.completions.append(dict(kwargs))
         operation = kwargs["operation"]
         digest = kwargs["checkpoint_digest"]
         tokens = 96 if digest == self.parent else 160
@@ -197,6 +199,10 @@ def test_live_canary_requires_cpu_only_transition_and_cleans_all_checkpoints() -
 
     assert report["result"] == "pass"
     assert report["output_equivalent"] is True
+    # vLLM 0.20 eager CPU offload only considers previously confirmed blocks.
+    # Keep a post-prefill decode step so the last full prompt block is scheduled
+    # before the parent save request finishes (upstream TODO: flush on finish).
+    assert adapter.completions[0]["max_tokens"] >= 2
     assert len(resets) == 2
     assert len(adapter.purged) == 3
     assert all(event.get("output_text") is None for event in report["events"])
