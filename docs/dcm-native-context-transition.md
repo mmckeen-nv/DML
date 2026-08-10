@@ -93,3 +93,43 @@ result.
 This offline-tested actuator does not by itself claim shared-host live proof.
 The bounded procedure and executable harness are documented in [Live validation
 for chained native vLLM transitions](vllm-transition-live-validation.md).
+
+## Growing multi-hop proof of concept
+
+`dcm_native_context_chain_poc.py` proves that a physically ready child can become
+the authorized parent of the next generation instead of stopping after one
+save/restore cycle. It accepts two or more passing plans and one prompt per
+logical generation:
+
+```bash
+python3 dml_core/scripts/dcm_native_context_chain_poc.py \
+  --plan hop-1.json --plan hop-2.json \
+  --prompt-file generation-0.txt \
+  --prompt-file generation-1.txt \
+  --prompt-file generation-2.txt \
+  --endpoint-url http://127.0.0.1:8000 \
+  --model-id nvidia/nemotron-3-super \
+  --runtime-id nemotron-warroom-vllm \
+  --runtime-version 0.20.0 \
+  --secret-path /run/secrets/daystrom-kv-control.key \
+  --source-ref <reviewed-source> \
+  --artifact chain-proof.json
+```
+
+The harness validates checkpoint and token lineage before mutation, starts from
+a cold local GPU prefix cache, requires every hop to use isolated
+`cpu_fallback`, requires native CPU reuse to grow across hops, publishes every
+child only at complete signed readiness, compares the final chained output with
+a zero-reuse cold recomputation, and physically purges every identity in reverse
+creation order.
+
+The first live Nemotron proof grew through **9,300 → 14,000 → 18,500 logical
+tokens**. Native managed CPU reuse grew from **8,448 to 12,672 tokens** while GPU
+APC remained zero; child readiness grew from **18/18 to 24/24 physical rows**;
+the final output matched cold recomputation; and cleanup physically zeroized 24
+unique rows / 415,236,096 bytes. The payload-free evidence is
+[`docs/artifacts/vllm-native-transition-chain-poc-2026-08-10.json`](artifacts/vllm-native-transition-chain-poc-2026-08-10.json).
+
+This is a real multi-generation checkpoint-chain PoC. It is still a
+cross-request execution-state primitive, not yet proof of full 262K active
+single-sequence paging or scheduler-level page-fault/resume management.
