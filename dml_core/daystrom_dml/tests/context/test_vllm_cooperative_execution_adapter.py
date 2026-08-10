@@ -138,6 +138,40 @@ def test_request_is_signed_and_native_evidence_is_validated(tmp_path: Path) -> N
     assert "OK" not in telemetry
     assert "nonce-1" not in telemetry
     assert "authorization" not in telemetry
+    assert trace.to_telemetry()["sampling"] == {
+        "temperature": 0.0,
+        "seed": 0,
+        "max_tokens": 1,
+    }
+    assert trace.to_telemetry()["output_digest_method"] == "sha256_utf8_text"
+
+
+def test_trace_records_nondefault_deterministic_sampling_contract(tmp_path: Path) -> None:
+    adapter = VLLMCooperativeExecutionAdapter(
+        "http://127.0.0.1:8000",
+        model_id="model",
+        runtime_id="vllm-test",
+        runtime_version="0.20.0",
+        secret_path=_secret(tmp_path),
+        opener=Opener(_response()),
+    )
+
+    trace = adapter.complete_with_checkpoint(
+        "PRIVATE PROMPT",
+        operation="save",
+        checkpoint_digest=_digest(),
+        expires_at=4_000_000_000.0,
+        nonce="nonce-sampling",
+        max_tokens=24,
+        temperature=0.0,
+        seed=42,
+    )
+
+    assert trace.to_telemetry()["sampling"] == {
+        "temperature": 0.0,
+        "seed": 42,
+        "max_tokens": 24,
+    }
 
 
 def test_restore_uses_native_matched_token_count(tmp_path: Path) -> None:

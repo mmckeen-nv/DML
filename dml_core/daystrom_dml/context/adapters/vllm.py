@@ -39,6 +39,9 @@ class VLLMCooperativeKVTrace:
     checkpoint_ready: bool
     stored_blocks: int
     expected_blocks: int
+    temperature: float = 0.0
+    seed: int = 0
+    max_tokens: int = 1
 
     def to_telemetry(self) -> Dict[str, Any]:
         import hashlib
@@ -63,6 +66,12 @@ class VLLMCooperativeKVTrace:
             "stored_blocks": self.stored_blocks,
             "expected_blocks": self.expected_blocks,
             "output_digest": "sha256:" + hashlib.sha256(self.output_text.encode()).hexdigest(),
+            "output_digest_method": "sha256_utf8_text",
+            "sampling": {
+                "temperature": self.temperature,
+                "seed": self.seed,
+                "max_tokens": self.max_tokens,
+            },
         }
 
 
@@ -264,6 +273,14 @@ class VLLMCooperativeExecutionAdapter:
             raise RuntimeExecutionError("prompt must be a non-empty string")
         if isinstance(max_tokens, bool) or not isinstance(max_tokens, int) or max_tokens <= 0:
             raise RuntimeExecutionError("max_tokens must be a positive integer")
+        if (
+            isinstance(temperature, bool)
+            or not isinstance(temperature, (int, float))
+            or temperature < 0
+        ):
+            raise RuntimeExecutionError("temperature must be a non-negative number")
+        if isinstance(seed, bool) or not isinstance(seed, int):
+            raise RuntimeExecutionError("seed must be an integer")
         try:
             transfer = build_kv_transfer_params(
                 operation=operation,
@@ -325,6 +342,9 @@ class VLLMCooperativeExecutionAdapter:
             checkpoint_ready=ready,
             stored_blocks=stored_blocks,
             expected_blocks=expected_blocks,
+            temperature=float(temperature),
+            seed=seed,
+            max_tokens=max_tokens,
         )
 
     @staticmethod
