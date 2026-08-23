@@ -196,7 +196,13 @@ def create_server(
     )
 
     @server.tool(name="ingest", description="Explicitly ingest a document file or directory")
-    async def ingest(path: str) -> dict[str, Any]:
+    async def ingest(
+        path: str,
+        tenant_id: str = "openclaw",
+        client_id: str | None = None,
+        session_id: str | None = None,
+        instance_id: str | None = None,
+    ) -> dict[str, Any]:
         def _run() -> dict[str, Any]:
             target = Path(path).expanduser()
             if not target.exists():
@@ -211,7 +217,16 @@ def create_server(
                         text = file_path.read_text(encoding="utf-8")
                     except UnicodeDecodeError:
                         continue
-                    adapter.ingest(text, meta={"doc_path": str(file_path)})
+                    adapter.ingest(
+                        text,
+                        meta={
+                            "doc_path": str(file_path),
+                            "tenant_id": tenant_id,
+                            "client_id": client_id,
+                            "session_id": session_id,
+                            "instance_id": instance_id,
+                        },
+                    )
                     count += 1
             return {"files": count, "target": str(target)}
 
@@ -255,18 +270,34 @@ def create_server(
         return await asyncio.to_thread(_run)
 
     @server.tool(name="fetch", description="Fetch one DML memory by id")
-    async def fetch(memory_id: str) -> dict[str, Any]:
+    async def fetch(
+        memory_id: str,
+        tenant_id: str = "openclaw",
+        client_id: str | None = None,
+        session_id: str | None = None,
+        instance_id: str | None = None,
+    ) -> dict[str, Any]:
         def _run() -> dict[str, Any]:
             with holder.operation() as adapter:
                 for item in adapter.store.items():
-                    if str(item.id) == str(memory_id):
-                        return {
-                            "id": str(item.id),
-                            "text": item.text,
-                            "summary": item.cached_summary(max_len=400),
-                            "metadata": item.meta or {},
-                            "timestamp": float(item.timestamp),
-                        }
+                    if str(item.id) != str(memory_id):
+                        continue
+                    meta = item.meta or {}
+                    if not _scope_matches(
+                        meta,
+                        tenant_id=tenant_id,
+                        client_id=client_id,
+                        session_id=session_id,
+                        instance_id=instance_id,
+                    ):
+                        raise ValueError(f"Memory not found: {memory_id}")
+                    return {
+                        "id": str(item.id),
+                        "text": item.text,
+                        "summary": item.cached_summary(max_len=400),
+                        "metadata": item.meta or {},
+                        "timestamp": float(item.timestamp),
+                    }
             raise ValueError(f"Memory not found: {memory_id}")
 
         return await asyncio.to_thread(_run)
@@ -284,6 +315,25 @@ def create_server(
     record_operation("mcp_tool_registration", latency_ms=registration_ms)
     setattr(server, "_dml_adapter_holder", holder)
     return server
+
+
+def _scope_matches(
+    meta: dict[str, Any],
+    *,
+    tenant_id: str,
+    client_id: str | None,
+    session_id: str | None,
+    instance_id: str | None,
+) -> bool:
+    if meta.get("tenant_id") != tenant_id:
+        return False
+    if meta.get("client_id") != client_id:
+        return False
+    if meta.get("session_id") != session_id:
+        return False
+    if meta.get("instance_id") != instance_id:
+        return False
+    return True
 
 
 def _iter_ingest_targets(root: Path) -> Iterable[Path]:

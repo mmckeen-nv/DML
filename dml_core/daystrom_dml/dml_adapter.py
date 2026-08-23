@@ -425,14 +425,33 @@ class DMLAdapter:
         """Stop background work and optionally persist an owned, current snapshot."""
 
         self._stop_persistence_loop()
+        persistence_error: Optional[Exception] = None
         if persist:
-            with self._mutation_transaction("close"):
-                self._persist_all()
-        if self.checkpoint_manager:
-            self.checkpoint_manager.close()
+            try:
+                with self._mutation_transaction("close"):
+                    self._persist_all()
+            except Exception as exc:
+                persistence_error = exc
+        try:
+            if self.checkpoint_manager:
+                self.checkpoint_manager.close()
+        except Exception as exc:
+            if persistence_error is None:
+                persistence_error = exc
+            else:
+                LOGGER.warning("checkpoint close failed after persistence error: %s", exc)
         if self.metrics_enabled:
-            update_memory_gauge(len(self.store.items()))
-        self.store.close()
+            with contextlib.suppress(Exception):
+                update_memory_gauge(len(self.store.items()))
+        try:
+            self.store.close()
+        except Exception as exc:
+            if persistence_error is None:
+                persistence_error = exc
+            else:
+                LOGGER.warning("store close failed after persistence error: %s", exc)
+        if persistence_error is not None:
+            raise persistence_error
 
     # ------------------------------------------------------------------
     # Memory operations
@@ -1295,6 +1314,54 @@ class DMLAdapter:
         """Expose one nestable durable transaction to trusted batch front ends."""
 
         return self._mutation_transaction(operation)
+
+    @contextlib.contextmanager
+    def atomic_batch(self, operation: str):
+        """Run a trusted batch of mutations as one rollback-capable transaction.
+
+        Mirrors ``_serialized_mutation``: captures a pre-batch snapshot, tracks
+        components committed by the inner ``_persist_all`` on successful exit,
+        and restores runtime state while compensating already-committed durable
+        components if the batch body or the final persist raises. Callers ingest
+        with ``persist=False`` inside this context and must not call
+        ``_persist_all`` themselves; persistence runs on successful exit.
+        """
+
+        with self._mutation_transaction(operation):
+            snapshot = self._capture_mutation_snapshot()
+            previous_commits = getattr(
+                self._mutation_local, "committed_components", None
+            )
+            committed_components: set[str] = set()
+            self._mutation_local.committed_components = committed_components
+            succeeded = False
+            try:
+                yield
+                self._persist_all()
+                succeeded = True
+            except Exception as original_error:
+                self._mutation_local.committed_components = None
+                try:
+                    self._rollback_mutation(snapshot, committed_components)
+                except Exception as rollback_error:
+                    root_rollback_error = (
+                        rollback_error.__cause__
+                        if isinstance(rollback_error, PersistenceCommitError)
+                        and isinstance(rollback_error.__cause__, Exception)
+                        else rollback_error
+                    )
+                    with self._persist_lock:
+                        self._record_durability_failure_locked(
+                            "rollback", root_rollback_error
+                        )
+                    raise PersistenceRollbackError(
+                        original_error, root_rollback_error
+                    ) from original_error
+                raise
+            finally:
+                if succeeded and previous_commits is not None:
+                    previous_commits.update(committed_components)
+                self._mutation_local.committed_components = previous_commits
 
     @contextlib.contextmanager
     def _mutation_transaction(self, operation: str):

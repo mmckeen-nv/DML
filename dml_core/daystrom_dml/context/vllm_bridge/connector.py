@@ -175,6 +175,7 @@ class DaystromCooperativeKVConnector(SimpleCPUOffloadConnector, SupportsHMA):
         self._purge_unsent_events: list[int] = []
         self._purge_schedule_errors: dict[str, str] = {}
         self._purge_completion_errors: dict[str, str] = {}
+        self._purge_completion_evidence: dict[str, dict[str, int]] = {}
         self._expected_worker_count = int(vllm_config.parallel_config.world_size)
         self._bound_purge_event = -1
         self._bound_purge_blocks: list[int] = []
@@ -317,6 +318,11 @@ class DaystromCooperativeKVConnector(SimpleCPUOffloadConnector, SupportsHMA):
         )
         if completion_error is not None:
             telemetry["reason_code"] = completion_error
+            evidence = self._purge_completion_evidence.get(
+                decision.checkpoint_digest
+            )
+            if evidence is not None:
+                telemetry.update(evidence)
             return telemetry
         if decision.reason_code in {
             "record_not_found",
@@ -754,12 +760,45 @@ class DaystromCooperativeKVConnector(SimpleCPUOffloadConnector, SupportsHMA):
             self._purge_event_pending_counts.pop(event, None)
             expected_rows = len(blocks) * self._expected_worker_count
             if rows_zeroed != expected_rows:
+                reason = "purge_worker_row_mismatch"
                 logger.error(
                     "Purge %d worker row evidence mismatch: got=%d expected=%d",
                     event,
                     rows_zeroed,
                     expected_rows,
                 )
+                checkpoint = self._purge_event_to_checkpoint.get(event)
+                if checkpoint is not None:
+                    self._purge_completion_errors[checkpoint] = reason
+                    self._purge_completion_evidence[checkpoint] = {
+                        "purge_expected_rows": expected_rows,
+                        "purge_actual_rows": rows_zeroed,
+                    }
+                    mismatched_request_id = (
+                        self._purge_event_to_request.get(event)
+                    )
+                    if mismatched_request_id is not None:
+                        telemetry = self._decision_telemetry.get(
+                            mismatched_request_id, {}
+                        )
+                        telemetry.update(
+                            {
+                                "authorized": False,
+                                "operation": "purge",
+                                "checkpoint_digest": checkpoint,
+                                "reason_code": reason,
+                                "purged_blocks": 0,
+                                "purged_bytes": 0,
+                                "purge_expected_rows": expected_rows,
+                                "purge_actual_rows": rows_zeroed,
+                            }
+                        )
+                        self._decision_telemetry[mismatched_request_id] = (
+                            telemetry
+                        )
+                # Keep the purge nonterminal and its rows protected. A worker
+                # row-count mismatch is a terminal completion fault: never claim
+                # or retry physical cleanup until explicit remediation.
                 continue
             checkpoint = self._purge_event_to_checkpoint.get(event)
             if checkpoint is None:
@@ -852,6 +891,11 @@ class DaystromCooperativeKVConnector(SimpleCPUOffloadConnector, SupportsHMA):
             if error is not None:
                 telemetry = dict(telemetry)
                 telemetry.update({"authorized": False, "reason_code": error})
+                evidence = self._purge_completion_evidence.get(
+                    decision.checkpoint_digest
+                )
+                if evidence is not None:
+                    telemetry.update(evidence)
             return False, self._merge_daystrom_meta(
                 None, self._build_daystrom_response_meta(telemetry)
             )
@@ -911,6 +955,11 @@ class DaystromCooperativeKVConnector(SimpleCPUOffloadConnector, SupportsHMA):
             if error is not None:
                 telemetry = dict(telemetry)
                 telemetry.update({"authorized": False, "reason_code": error})
+                evidence = self._purge_completion_evidence.get(
+                    decision.checkpoint_digest
+                )
+                if evidence is not None:
+                    telemetry.update(evidence)
             return False, self._merge_daystrom_meta(
                 None, self._build_daystrom_response_meta(telemetry)
             )
@@ -981,7 +1030,13 @@ class DaystromCooperativeKVConnector(SimpleCPUOffloadConnector, SupportsHMA):
         child_checkpoint = values.get("child_checkpoint_digest")
         if child_checkpoint:
             result["child_checkpoint_digest"] = child_checkpoint
-        for key in ("checkpoint_ready", "stored_blocks", "expected_blocks"):
+        for key in (
+            "checkpoint_ready",
+            "stored_blocks",
+            "expected_blocks",
+            "purge_expected_rows",
+            "purge_actual_rows",
+        ):
             if key in values:
                 result[key] = values[key]
         return result

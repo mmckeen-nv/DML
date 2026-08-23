@@ -9,6 +9,7 @@ from typing import Any, Dict, Iterable, List, Optional
 import numpy as np
 
 from . import utils
+from .atomic_io import atomic_write_text
 from .multi_rag import RAGBackendProtocol
 from .vector_backend import get_vector_backend
 
@@ -50,9 +51,7 @@ class PersistentVectorIndex:
             "embeddings": [vector.tolist() for vector in self._vectors],
             "payloads": self._payloads,
         }
-        tmp_path = self.path.with_suffix(".tmp")
-        tmp_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
-        tmp_path.replace(self.path)
+        atomic_write_text(self.path, json.dumps(data, indent=2))
 
     # ------------------------------------------------------------------
     # public API

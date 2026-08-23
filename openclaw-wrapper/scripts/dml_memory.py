@@ -109,6 +109,11 @@ for p in (DML_CORE, SCRIPT_DIR):
         sys.path.insert(0, str(p))
 
 from daystrom_dml.agent_schema import MemoryKind  # type: ignore
+from daystrom_dml.atomic_io import (  # type: ignore  # noqa: E402
+    atomic_write_bytes,
+    atomic_write_text,
+    atomic_write_via,
+)
 from daystrom_dml.dml_adapter import DMLAdapter  # type: ignore
 from tuning_utils import (  # type: ignore
     continuity_focus_score,
@@ -454,9 +459,57 @@ def _sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _copy_if_exists(src: Path, dest: Path) -> dict | None:
+def _assert_no_symlink_parents(src: Path, root: Path) -> None:
+    """Reject if any directory from *src* up to *root* is a symlink."""
+    current = src.parent
+    while current != root and current != current.parent:
+        if current.is_symlink():
+            raise ValueError(f"refusing symlinked parent in sidecar path: {current}")
+        try:
+            if current.resolve(strict=False) == root:
+                break
+        except OSError:
+            pass
+        current = current.parent
+
+
+def _assert_sidecar_safe(src: Path, storage_dir: str) -> None:
+    """Reject symlinks (direct or in parent chain) and enforce resolved containment under the store root."""
+    if src.is_symlink():
+        raise ValueError(f"refusing symlinked sidecar: {src}")
+    store_root = Path(storage_dir).resolve(strict=False)
+    try:
+        resolved = src.resolve(strict=False)
+    except OSError as exc:
+        raise ValueError(f"unresolvable sidecar path: {src}: {exc}") from exc
+    try:
+        resolved.relative_to(store_root)
+    except ValueError as exc:
+        raise ValueError(f"sidecar outside store root: {resolved}") from exc
+    _assert_no_symlink_parents(src, store_root)
+
+
+def _assert_restore_source_safe(src: Path, backup_root: Path) -> None:
+    """Reject symlinks and enforce resolved containment under the backup root."""
+    if src.is_symlink():
+        raise ValueError(f"refusing symlinked restore source: {src}")
+    backup_root_resolved = backup_root.resolve(strict=False)
+    try:
+        resolved = src.resolve(strict=False)
+    except OSError as exc:
+        raise ValueError(f"unresolvable restore source: {src}: {exc}") from exc
+    try:
+        resolved.relative_to(backup_root_resolved)
+    except ValueError as exc:
+        raise ValueError(f"restore source outside backup root: {resolved}") from exc
+    _assert_no_symlink_parents(src, backup_root_resolved)
+
+
+def _copy_if_exists(src: Path, dest: Path, *, storage_dir: str | None = None) -> dict | None:
     if not src.exists():
         return None
+    if storage_dir is not None:
+        _assert_sidecar_safe(src, storage_dir)
     dest.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(src, dest)
     return {
@@ -465,6 +518,26 @@ def _copy_if_exists(src: Path, dest: Path) -> dict | None:
         "bytes": dest.stat().st_size,
         "sha256": _sha256_file(dest),
     }
+
+
+def _atomic_copy_file(source: Path, target: Path) -> Path:
+    """Durably copy *source* to *target* via a unique sibling temp with fsync.
+
+    Uses ``atomic_write_via`` so the copy inherits unique sibling temps, file
+    fsync, parent-directory fsync, and bounded Windows replace retries.  Source
+    mode and timestamps are applied to the temporary file inside the writer,
+    before the helper fsync+replace, so the installed file already carries
+    source metadata and a pre-replace metadata failure leaves the prior
+    destination intact (matching the earlier copy2-before-replace behavior).
+    """
+
+    def _writer(tmp: Path) -> None:
+        shutil.copyfile(source, tmp)
+        st = source.stat()
+        os.chmod(tmp, st.st_mode)
+        os.utime(tmp, (st.st_atime, st.st_mtime))
+
+    return atomic_write_via(target, _writer)
 
 
 def _portable_sidecar_files(storage_dir: str) -> list[tuple[Path, str]]:
@@ -502,7 +575,7 @@ def _create_backup(storage_dir: str, *, backup_dir: str | None = None, label: st
 
     files = []
     for src, name in _portable_sidecar_files(storage_dir):
-        copied = _copy_if_exists(src, target / name)
+        copied = _copy_if_exists(src, target / name, storage_dir=storage_dir)
         if copied:
             files.append(copied)
 
@@ -515,7 +588,7 @@ def _create_backup(storage_dir: str, *, backup_dir: str | None = None, label: st
         "files": files,
     }
     manifest_path = target / "backup_manifest.json"
-    manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True), encoding="utf-8")
+    atomic_write_text(manifest_path, json.dumps(manifest, indent=2, sort_keys=True))
     manifest["manifest_path"] = str(manifest_path)
     manifest["pruned_backups"] = _prune_backups(root, keep=keep)
     return manifest
@@ -539,6 +612,7 @@ def _create_export_bundle(storage_dir: str, *, output_dir: str | None, label: st
         for src, name in _portable_sidecar_files(storage_dir):
             if not src.exists():
                 continue
+            _assert_sidecar_safe(src, storage_dir)
             file_report = {
                 "name": name,
                 "bytes": src.stat().st_size,
@@ -629,10 +703,7 @@ def _bundle_file_bytes(bundle_path: Path, name: str) -> bytes | None:
 
 
 def _write_atomic_bytes(path: Path, data: bytes) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".import-tmp") if path.suffix else path.with_name(path.name + ".import-tmp")
-    tmp.write_bytes(data)
-    tmp.replace(path)
+    atomic_write_bytes(path, data)
 
 
 def _read_state_health(storage_dir: str) -> dict:
@@ -805,10 +876,7 @@ def _load_session_registry(storage_dir: str) -> dict:
 
 def _save_session_registry(storage_dir: str, payload: dict) -> None:
     path = _session_registry_path(storage_dir)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
-    tmp.replace(path)
+    atomic_write_text(path, json.dumps(payload, indent=2, sort_keys=True))
 
 
 def _append_audit_event(storage_dir: str, *, operation: str, status: str, actor: str, details: dict | None = None) -> dict:
@@ -1185,18 +1253,190 @@ def _finish_adapter_mutation(adapter: DMLAdapter, transaction: ContextManager[ob
         transaction.__exit__(None, None, None)
 
 
+class _BatchOutcome:
+    """Explicit result of finishing an ingest batch.
+
+    ``category`` identifies the failure source so callers never have to infer it
+    from the exception type:
+
+    * ``None`` -- the batch committed and closed cleanly.
+    * ``ingest_failed`` -- the batch body raised before any durability commit.
+    * ``persistence_commit_failed`` -- the atomic batch exit persist failed but
+      rollback restored the pre-batch state.
+    * ``persistence_rollback_failed`` -- the atomic batch exit persist failed and
+      rollback also failed (contract ``PersistenceRollbackError``).
+    * ``close_failed`` -- persistence committed successfully but the post-commit
+      adapter close failed; this must never be reported as a persistence failure.
+
+    ``primary_error`` is the exception that determines the reported
+    ``error_type``. ``close_error`` records a secondary close failure that
+    occurred alongside a primary durability/body failure so it can be surfaced
+    without changing the committed-state truth reflected by ``category``.
+    ``body_error`` records the batch body exception when a rollback failure
+    displaces it as the primary durability truth; only its type is surfaced
+    (secret-safe secondary evidence) so the body error never displaces the
+    rollback failure as the reported committed-state truth.
+    """
+
+    __slots__ = ("category", "primary_error", "close_error", "body_error")
+
+    def __init__(
+        self,
+        category: str | None = None,
+        primary_error: Exception | None = None,
+        close_error: Exception | None = None,
+        body_error: Exception | None = None,
+    ) -> None:
+        self.category = category
+        self.primary_error = primary_error
+        self.close_error = close_error
+        self.body_error = body_error
+
+    @property
+    def failed(self) -> bool:
+        return self.category is not None
+
+
+def _is_rollback_error(exc: Exception | None) -> bool:
+    """Identify a contract ``PersistenceRollbackError`` structurally.
+
+    The real ``PersistenceRollbackError`` carries ``original_error`` and
+    ``rollback_error``; ``PersistenceCommitError`` does not. Using the structural
+    signature keeps detection robust in test/stub environments that replace the
+    adapter module without re-exporting the exception classes.
+    """
+
+    return exc is not None and hasattr(exc, "original_error") and hasattr(exc, "rollback_error")
+
+
+class _AdapterBatch:
+    """Wrapper-level batch transaction.
+
+    Adapters that expose ``atomic_batch`` persist and roll back as a single
+    durable transaction on exit, mirroring ``_serialized_mutation``. Legacy or
+    fake adapters without that API fall back to a plain mutation transaction
+    with explicit persistence, preserving the prior contract for stubs/tests.
+    """
+
+    def __init__(
+        self,
+        adapter: DMLAdapter,
+        storage_dir: str,
+        *,
+        operation: str,
+        timeout_ms: int,
+    ) -> None:
+        self._adapter = adapter
+        atomic = getattr(adapter, "atomic_batch", None)
+        if callable(atomic):
+            self._ctx = atomic(operation)
+            self._legacy = False
+        else:
+            self._ctx = _adapter_mutation(
+                adapter,
+                storage_dir,
+                operation=operation,
+                timeout_ms=timeout_ms,
+            )
+            self._legacy = True
+        self._persist_error: Exception | None = None
+
+    def __enter__(self) -> object:
+        return self._ctx.__enter__()
+
+    def persist(self) -> None:
+        """Persist the batch; no-op for ``atomic_batch`` adapters (they persist on exit)."""
+
+        if self._legacy:
+            try:
+                self._adapter._persist_all()
+            except Exception as exc:
+                self._persist_error = exc
+                raise
+
+    def finish(self, batch_error: Exception | None) -> _BatchOutcome:
+        """Close the adapter and exit the transaction, returning a structured outcome.
+
+        The outcome's ``category`` is derived from which stage actually failed
+        rather than from the exception type alone:
+
+        * a body exception (``batch_error``) is categorized as ``ingest_failed``;
+        * for legacy adapters, an exception from the explicit ``persist()`` call
+          is categorized as ``persistence_commit_failed``;
+        * for ``atomic_batch`` adapters, an exception from the context exit
+          (persist/rollback) is categorized as ``persistence_commit_failed`` or
+          ``persistence_rollback_failed`` (when the contract rollback error is
+          detected);
+        * a close failure after a successful persist is categorized as
+          ``close_failed`` and never as a persistence failure.
+
+        When a primary durability/body failure and a close failure both occur,
+        the primary ``category`` is preserved and the close failure is recorded
+        in ``close_error`` so committed-state truth is not changed.
+
+        When the batch body raises and the ``atomic_batch`` exit also raises a
+        contract ``PersistenceRollbackError``, the rollback failure is the
+        primary durability truth (durable state may be inconsistent) and is
+        categorized as ``persistence_rollback_failed``; the body exception is
+        retained as secret-safe secondary evidence in ``body_error`` (type only)
+        so it never displaces the rollback failure as the reported
+        committed-state truth.
+        """
+
+        exc_type = type(batch_error) if batch_error else None
+        exc_tb = batch_error.__traceback__ if batch_error else None
+        close_error: Exception | None = None
+        if self._legacy:
+            try:
+                _close_adapter(self._adapter, persist=False)
+            except Exception as exc:
+                close_error = exc
+            finally:
+                self._ctx.__exit__(exc_type, batch_error, exc_tb)
+            if self._persist_error is not None:
+                return _BatchOutcome("persistence_commit_failed", self._persist_error, close_error)
+            if batch_error is not None:
+                return _BatchOutcome("ingest_failed", batch_error, close_error)
+            if close_error is not None:
+                return _BatchOutcome("close_failed", close_error)
+            return _BatchOutcome()
+        exit_error: Exception | None = None
+        try:
+            self._ctx.__exit__(exc_type, batch_error, exc_tb)
+        except Exception as exc:
+            exit_error = exc
+        try:
+            _close_adapter(self._adapter, persist=False)
+        except Exception as exc:
+            close_error = exc
+        if exit_error is not None and _is_rollback_error(exit_error):
+            return _BatchOutcome(
+                "persistence_rollback_failed",
+                exit_error,
+                close_error,
+                body_error=batch_error,
+            )
+        if batch_error is not None:
+            return _BatchOutcome("ingest_failed", batch_error, close_error)
+        if exit_error is not None:
+            return _BatchOutcome("persistence_commit_failed", exit_error, close_error)
+        if close_error is not None:
+            return _BatchOutcome("close_failed", close_error)
+        return _BatchOutcome()
+
+
 def cmd_ingest(args: argparse.Namespace) -> int:
     started = time.perf_counter()
     meta = _parse_meta(args.meta)
     adapter = _adapter(args.storage_dir, args.config_path, args.require_gpu)
+    batch = _AdapterBatch(
+        adapter,
+        args.storage_dir,
+        operation="wrapper-ingest",
+        timeout_ms=args.lock_timeout_ms,
+    )
     try:
-        lock_ctx: ContextManager[object] = _adapter_mutation(
-            adapter,
-            args.storage_dir,
-            operation="wrapper-ingest",
-            timeout_ms=args.lock_timeout_ms,
-        )
-        lock = lock_ctx.__enter__()
+        lock = batch.__enter__()
     except TimeoutError as exc:
         _close_adapter(adapter, persist=False)
         blocked = _lock_failure_report("ingest", exc, started)
@@ -1209,6 +1449,14 @@ def cmd_ingest(args: argparse.Namespace) -> int:
         )
         print(json.dumps(blocked, indent=2, default=str))
         return 2
+    kept = 0
+    skipped_duplicate = 0
+    cheap_summaries = 0
+    skipped_summaries = 0
+    llm_summaries_allowed = 0
+    conflicts: list[dict] = []
+    payload_meta: dict = {}
+    batch_error: Exception | None = None
     try:
         seen = _load_dedup_index(args.storage_dir)
         payload_meta = {
@@ -1225,11 +1473,6 @@ def cmd_ingest(args: argparse.Namespace) -> int:
             existing_records = None
         payload_meta, conflicts = _apply_conflict_metadata(args.storage_dir, payload_meta, existing_records=existing_records)
         chunks = smart_chunks(args.text, chunk_chars=max(180, args.chunk_chars), overlap=max(0, args.chunk_overlap)) if args.chunk else [args.text]
-        kept = 0
-        skipped_duplicate = 0
-        cheap_summaries = 0
-        skipped_summaries = 0
-        llm_summaries_allowed = 0
         for chunk in chunks:
             if args.filter_noise and not should_keep_chunk(chunk):
                 continue
@@ -1261,9 +1504,53 @@ def cmd_ingest(args: argparse.Namespace) -> int:
             _append_dedup_digest(args.storage_dir, digest)
             seen.add(digest)
             kept += 1
-        adapter._persist_all()
-    finally:
-        _finish_adapter_mutation(adapter, lock_ctx)
+        batch.persist()
+    except Exception as exc:
+        batch_error = exc
+    outcome = batch.finish(batch_error)
+    if outcome.failed:
+        primary = outcome.primary_error
+        error_type = type(primary).__name__ if primary is not None else None
+        report: dict = {
+            "status": "fail",
+            "action": "ingest",
+            "error": outcome.category,
+            "error_type": error_type,
+            "kind": args.kind,
+            "chunks_ingested": kept,
+            "chunks_skipped_duplicate": skipped_duplicate,
+            "text_sha256": _text_digest(args.text),
+            "latency_ms": round((time.perf_counter() - started) * 1000.0, 2),
+        }
+        if outcome.close_error is not None and outcome.category != "close_failed":
+            report["close_error_type"] = type(outcome.close_error).__name__
+        if outcome.body_error is not None and outcome.category != "ingest_failed":
+            report["body_error_type"] = type(outcome.body_error).__name__
+        audit_details: dict = {
+            "scope": _audit_scope_from_args(args),
+            "error_type": error_type,
+            "error": outcome.category,
+            "text_sha256": _text_digest(args.text),
+            "chunks_ingested": kept,
+            "chunks_skipped_duplicate": skipped_duplicate,
+        }
+        if outcome.body_error is not None and outcome.category != "ingest_failed":
+            audit_details["body_error_type"] = type(outcome.body_error).__name__
+        if outcome.close_error is not None and outcome.category != "close_failed":
+            audit_details["close_error_type"] = type(outcome.close_error).__name__
+        try:
+            audit = _append_audit_event(
+                args.storage_dir,
+                operation="ingest",
+                status="fail",
+                actor=_audit_actor(args),
+                details=audit_details,
+            )
+            report["audit"] = {"path": audit["path"], "event_ts": audit["event"]["ts"]}
+        except Exception:
+            pass
+        print(json.dumps(report, indent=2, default=str))
+        return 1
     audit = _append_audit_event(
         args.storage_dir,
         operation="ingest",
@@ -2212,6 +2499,7 @@ def cmd_restore(args: argparse.Namespace) -> int:
                 source_state = backup_path / source_state
             if not source_state.exists():
                 raise FileNotFoundError(f"backup state missing: {source_state}")
+            _assert_restore_source_safe(source_state, backup_path)
             actual = _sha256_file(source_state)
             expected = str(state_entry.get("sha256") or "")
             if expected and actual != expected:
@@ -2227,10 +2515,7 @@ def cmd_restore(args: argparse.Namespace) -> int:
                 )
 
             target = _state_file_path(args.storage_dir)
-            target.parent.mkdir(parents=True, exist_ok=True)
-            tmp = target.with_suffix(target.suffix + ".restore-tmp")
-            shutil.copy2(source_state, tmp)
-            tmp.replace(target)
+            _atomic_copy_file(source_state, target)
 
             for optional_name in [".ingest_dedup_sha256.txt", "embedding_compatibility_report.json", "dpm_preference_graph.json"]:
                 entry = _manifest_file(manifest, optional_name)
@@ -2241,10 +2526,9 @@ def cmd_restore(args: argparse.Namespace) -> int:
                     source = backup_path / source
                 if not source.exists():
                     continue
+                _assert_restore_source_safe(source, backup_path)
                 dest = Path(args.storage_dir) / optional_name
-                tmp_optional = dest.with_suffix(dest.suffix + ".restore-tmp") if dest.suffix else dest.with_name(dest.name + ".restore-tmp")
-                shutil.copy2(source, tmp_optional)
-                tmp_optional.replace(dest)
+                _atomic_copy_file(source, dest)
 
             verify = _read_state_health(args.storage_dir)
         status = "ok" if not verify.get("errors") else "degraded"

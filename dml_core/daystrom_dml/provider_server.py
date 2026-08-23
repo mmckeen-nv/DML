@@ -108,6 +108,25 @@ def _build_adapter(config_path: str | None, storage_dir: str | None) -> DMLAdapt
     )
 
 
+def _scope_matches(
+    meta: dict[str, Any],
+    *,
+    tenant_id: str,
+    client_id: str | None,
+    session_id: str | None,
+    instance_id: str | None,
+) -> bool:
+    if meta.get("tenant_id") != tenant_id:
+        return False
+    if meta.get("client_id") != client_id:
+        return False
+    if meta.get("session_id") != session_id:
+        return False
+    if meta.get("instance_id") != instance_id:
+        return False
+    return True
+
+
 def _item_id(item: dict[str, Any]) -> str:
     return str(item.get("id") or "")
 
@@ -622,17 +641,33 @@ def create_app(
         return {"status": "ok", "query": q, "results": results}
 
     @app.get("/api/fetch/{memory_id}")
-    def fetch(memory_id: str) -> dict[str, Any]:
+    def fetch(
+        memory_id: str,
+        tenant_id: str = "openclaw",
+        client_id: str | None = None,
+        session_id: str | None = None,
+        instance_id: str | None = None,
+    ) -> dict[str, Any]:
         for item in app.state.adapter.store.items():
-            if str(item.id) == memory_id:
-                return {
-                    "status": "ok",
-                    "id": str(item.id),
-                    "text": item.text,
-                    "summary": item.cached_summary(max_len=400),
-                    "metadata": item.meta or {},
-                    "timestamp": float(item.timestamp),
-                }
+            if str(item.id) != memory_id:
+                continue
+            meta = item.meta or {}
+            if not _scope_matches(
+                meta,
+                tenant_id=tenant_id,
+                client_id=client_id,
+                session_id=session_id,
+                instance_id=instance_id,
+            ):
+                raise HTTPException(status_code=404, detail="memory not found")
+            return {
+                "status": "ok",
+                "id": str(item.id),
+                "text": item.text,
+                "summary": item.cached_summary(max_len=400),
+                "metadata": item.meta or {},
+                "timestamp": float(item.timestamp),
+            }
         raise HTTPException(status_code=404, detail="memory not found")
 
     return app

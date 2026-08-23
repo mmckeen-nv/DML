@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, Optional
 
 from . import utils
+from .atomic_io import atomic_write_text
 
 
 ACTIVE_MODES = {"active-read", "active-write"}
@@ -312,10 +313,7 @@ class PersonalityMatrix:
     def _save_evolution_graph(self, graph: Dict[str, Any]) -> None:
         graph["hard_laws"] = self._hard_laws()
         path = self._evolution_path()
-        path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_suffix(path.suffix + ".tmp")
-        tmp.write_text(json.dumps(graph, indent=2, sort_keys=True), encoding="utf-8")
-        tmp.replace(path)
+        atomic_write_text(path, json.dumps(graph, indent=2, sort_keys=True), encoding="utf-8")
         self.evolution_graph_path = path
 
     def _infer_environment(self, prompt: str, response: str, meta: Dict[str, Any]) -> Dict[str, str]:
@@ -947,10 +945,7 @@ class PersonalityMatrix:
 
     def _save_graph(self, graph: Dict[str, Any]) -> None:
         path = self._graph_path()
-        path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_suffix(path.suffix + ".tmp")
-        tmp.write_text(json.dumps(graph, indent=2, sort_keys=True), encoding="utf-8")
-        tmp.replace(path)
+        atomic_write_text(path, json.dumps(graph, indent=2, sort_keys=True), encoding="utf-8")
         self.preference_graph_path = path
 
     def _audit(self, raw: Any, sources: list[Dict[str, Any]]) -> Dict[str, Any]:

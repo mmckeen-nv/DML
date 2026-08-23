@@ -4,6 +4,7 @@ import json
 import os
 import sys
 import tempfile
+import tarfile
 import time
 import types
 import unittest
@@ -26,12 +27,51 @@ class _StubMemoryKind:
     ARTIFACT_REF = _StubMemoryKindValue("artifact_ref")
 
 
+def _stub_atomic_write_bytes(path, payload):
+    import tempfile as _tf
+
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    fd, raw_tmp = _tf.mkstemp(prefix=f".{target.name}.", suffix=".tmp", dir=target.parent)
+    tmp = Path(raw_tmp)
+    try:
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(payload)
+        os.replace(tmp, target)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
+    return target
+
+
+def _stub_atomic_write_text(path, text, *, encoding="utf-8"):
+    return _stub_atomic_write_bytes(path, text.encode(encoding))
+
+
+def _stub_atomic_write_via(path, writer):
+    import tempfile as _tf
+
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    fd, raw_tmp = _tf.mkstemp(prefix=f".{target.name}.", suffix=".tmp", dir=target.parent)
+    os.close(fd)
+    tmp = Path(raw_tmp)
+    try:
+        writer(tmp)
+        os.replace(tmp, target)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
+    return target
+
+
 def _load_module():
     module_path = Path(__file__).resolve().parents[1] / "scripts" / "dml_memory.py"
 
     daystrom_pkg = types.ModuleType("daystrom_dml")
     daystrom_schema = types.ModuleType("daystrom_dml.agent_schema")
     daystrom_adapter = types.ModuleType("daystrom_dml.dml_adapter")
+    daystrom_atomic_io = types.ModuleType("daystrom_dml.atomic_io")
 
     daystrom_schema.MemoryKind = _StubMemoryKind
 
@@ -39,15 +79,20 @@ def _load_module():
         pass
 
     daystrom_adapter.DMLAdapter = _Adapter
+    daystrom_atomic_io.atomic_write_bytes = _stub_atomic_write_bytes
+    daystrom_atomic_io.atomic_write_text = _stub_atomic_write_text
+    daystrom_atomic_io.atomic_write_via = _stub_atomic_write_via
 
     prev = {
         "daystrom_dml": sys.modules.get("daystrom_dml"),
         "daystrom_dml.agent_schema": sys.modules.get("daystrom_dml.agent_schema"),
         "daystrom_dml.dml_adapter": sys.modules.get("daystrom_dml.dml_adapter"),
+        "daystrom_dml.atomic_io": sys.modules.get("daystrom_dml.atomic_io"),
     }
     sys.modules["daystrom_dml"] = daystrom_pkg
     sys.modules["daystrom_dml.agent_schema"] = daystrom_schema
     sys.modules["daystrom_dml.dml_adapter"] = daystrom_adapter
+    sys.modules["daystrom_dml.atomic_io"] = daystrom_atomic_io
 
     try:
         spec = importlib.util.spec_from_file_location("dml_memory", module_path)
@@ -889,6 +934,117 @@ class TestHealthCommand(unittest.TestCase):
                 self.assertEqual(mod.cmd_verify(verify_args), 0)
             self.assertEqual(json.loads(buf.getvalue())["status"], "ok")
 
+    def test_backup_rejects_symlinked_sidecar_without_copying_external_bytes(self):
+        if not hasattr(os, "symlink"):
+            self.skipTest("symlink support unavailable")
+        with tempfile.TemporaryDirectory(prefix="dml-wrapper-backup-symlink-") as tmp:
+            storage = Path(tmp) / "store"
+            backup_dir = Path(tmp) / "backups"
+            external = Path(tmp) / "external-secret.txt"
+            storage.mkdir()
+            self._write_state(str(storage), text="safe memory")
+            external.write_text("external secret", encoding="utf-8")
+            os.symlink(external, storage / ".ingest_dedup_sha256.txt")
+
+            args = Namespace(
+                storage_dir=str(storage),
+                backup_dir=str(backup_dir),
+                label="unit",
+                keep=20,
+                lock_timeout_ms=0,
+                audit_actor="unit-test",
+            )
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                rc = mod.cmd_backup(args)
+
+            self.assertEqual(rc, 1)
+            payload = json.loads(buf.getvalue())
+            self.assertEqual(payload["status"], "fail")
+            self.assertIn("refusing symlinked sidecar", payload["error"])
+            copied_external = list(backup_dir.rglob(".ingest_dedup_sha256.txt")) if backup_dir.exists() else []
+            self.assertEqual(copied_external, [])
+
+    def test_sidecar_and_restore_helpers_reject_symlinked_parent_paths(self):
+        if not hasattr(os, "symlink"):
+            self.skipTest("symlink support unavailable")
+        with tempfile.TemporaryDirectory(prefix="dml-wrapper-symlink-parent-") as tmp:
+            storage = Path(tmp) / "store"
+            backup = Path(tmp) / "backup"
+            external_sidecar_root = Path(tmp) / "external-sidecar"
+            external_backup_root = Path(tmp) / "external-backup"
+            storage.mkdir()
+            backup.mkdir()
+            external_sidecar_root.mkdir()
+            external_backup_root.mkdir()
+
+            sidecar_parent = storage / "linked-sidecar-parent"
+            restore_parent = backup / "linked-restore-parent"
+            os.symlink(external_sidecar_root, sidecar_parent)
+            os.symlink(external_backup_root, restore_parent)
+
+            sidecar = sidecar_parent / "dpm_preference_graph.json"
+            restore_source = restore_parent / "dml_state.jsonl"
+            sidecar.write_text("{}", encoding="utf-8")
+            restore_source.write_text("{}", encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "symlinked parent|outside store root"):
+                mod._assert_sidecar_safe(sidecar, str(storage))
+            with self.assertRaisesRegex(ValueError, "symlinked parent|outside backup root"):
+                mod._assert_restore_source_safe(restore_source, backup)
+
+    def test_restore_rejects_manifest_path_escape_without_reading_external_file(self):
+        with tempfile.TemporaryDirectory(prefix="dml-wrapper-restore-escape-") as tmp:
+            storage = Path(tmp) / "store"
+            backup = Path(tmp) / "backup"
+            external_dir = Path(tmp) / "external"
+            external_dir.mkdir()
+            external = external_dir / "dml_state.jsonl"
+            storage.mkdir()
+            backup.mkdir()
+            self._write_state(str(storage), text="pre-restore")
+            external.write_text("external bytes", encoding="utf-8")
+
+            manifest = {
+                "files": [
+                    {
+                        "path": str(external),
+                        "sha256": "ignored",
+                    }
+                ]
+            }
+            (backup / "backup_manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+            original_sha256 = mod._sha256_file
+            hashed_paths: list[Path] = []
+
+            def _spy_sha256(path: Path) -> str:
+                hashed_paths.append(Path(path))
+                return original_sha256(path)
+
+            mod._sha256_file = _spy_sha256
+            try:
+                args = Namespace(
+                    storage_dir=str(storage),
+                    backup=str(backup),
+                    backup_dir=str(Path(tmp) / "backups"),
+                    keep=20,
+                    lock_timeout_ms=0,
+                    audit_actor="unit-test",
+                    no_pre_restore_backup=False,
+                )
+                buf = io.StringIO()
+                with redirect_stdout(buf):
+                    rc = mod.cmd_restore(args)
+            finally:
+                mod._sha256_file = original_sha256
+
+            self.assertEqual(rc, 1)
+            payload = json.loads(buf.getvalue())
+            self.assertEqual(payload["status"], "fail")
+            self.assertIn("outside backup root", payload["error"])
+            self.assertNotIn(external, hashed_paths)
+
     def test_export_verify_and_import_round_trip(self):
         with tempfile.TemporaryDirectory(prefix="dml-wrapper-export-test-") as tmp:
             source = Path(tmp) / "source"
@@ -948,6 +1104,37 @@ class TestHealthCommand(unittest.TestCase):
             with redirect_stdout(buf):
                 self.assertEqual(mod.cmd_verify(verify_args), 0)
             self.assertEqual(json.loads(buf.getvalue())["status"], "ok")
+
+    def test_export_rejects_symlinked_sidecar_without_bundle_creation(self):
+        if not hasattr(os, "symlink"):
+            self.skipTest("symlink support unavailable")
+        with tempfile.TemporaryDirectory(prefix="dml-wrapper-export-symlink-") as tmp:
+            storage = Path(tmp) / "source"
+            exports = Path(tmp) / "exports"
+            external = Path(tmp) / "external-audit.log"
+            storage.mkdir()
+            self._write_state(str(storage), text="portable memory", tenant_id="openclaw")
+            external.write_text("external audit", encoding="utf-8")
+            os.symlink(external, storage / "dml_audit.jsonl")
+
+            args = Namespace(
+                storage_dir=str(storage),
+                output_dir=str(exports),
+                label="unit",
+                audit_actor="unit-test",
+            )
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                rc = mod.cmd_export(args)
+
+            self.assertEqual(rc, 1)
+            payload = json.loads(buf.getvalue())
+            self.assertEqual(payload["status"], "fail")
+            self.assertIn("refusing symlinked sidecar", payload["error"])
+            bundles = list(exports.glob("*.dml-export.tar.gz")) if exports.exists() else []
+            for bundle in bundles:
+                with tarfile.open(bundle, "r:gz") as handle:
+                    self.assertNotIn("dml_audit.jsonl", [member.name for member in handle.getmembers()])
 
     def test_backup_reports_blocked_when_store_write_lock_is_held(self):
         with tempfile.TemporaryDirectory(prefix="dml-wrapper-lock-test-") as tmp:
@@ -1424,6 +1611,59 @@ class TestIngestBatching(unittest.TestCase):
         finally:
             mod._adapter = original_adapter
 
+    def test_cmd_ingest_persistence_failure_yields_secret_safe_json_and_failed_audit(self):
+        original_adapter = mod._adapter
+        adapter = _DummyAdapter()
+        secret_marker = "SECRET-disk-full-token"
+        def fail_persist():
+            raise OSError(f"disk full {secret_marker}")
+        adapter._persist_all = fail_persist
+        try:
+            mod._adapter = lambda *_args, **_kwargs: adapter
+            storage_dir = tempfile.mkdtemp(prefix="dml-wrapper-persist-fail-")
+            args = Namespace(
+                storage_dir=storage_dir,
+                config_path=None,
+                require_gpu=False,
+                lock_timeout_ms=0,
+                audit_actor="unit-test",
+                tenant_id="tenant-fail",
+                client_id=None,
+                session_id=None,
+                instance_id=None,
+                text="Durable memory that must not report success on persistence failure.",
+                kind="note",
+                meta=None,
+                chunk=False,
+                chunk_chars=620,
+                chunk_overlap=90,
+                filter_noise=False,
+                summary_policy="skip",
+                summary_max_chars=220,
+            )
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                rc = mod.cmd_ingest(args)
+
+            self.assertEqual(rc, 1)
+            output = buf.getvalue()
+            payload = json.loads(output)
+            self.assertEqual(payload["status"], "fail")
+            self.assertEqual(payload["error"], "persistence_commit_failed")
+            self.assertEqual(payload["error_type"], "OSError")
+            self.assertNotIn(secret_marker, output)
+            self.assertIn("text_sha256", payload)
+
+            audit_path = Path(storage_dir) / "dml_audit.jsonl"
+            self.assertTrue(audit_path.exists())
+            events = [json.loads(line) for line in audit_path.read_text().splitlines() if line.strip()]
+            fail_events = [e for e in events if e.get("operation") == "ingest" and e.get("status") == "fail"]
+            self.assertEqual(len(fail_events), 1)
+            self.assertEqual(fail_events[0]["details"]["error_type"], "OSError")
+            self.assertNotIn(secret_marker, json.dumps(fail_events[0]))
+        finally:
+            mod._adapter = original_adapter
+
     def test_cmd_ingest_auto_summary_uses_deterministic_continuity_summary(self):
         original_adapter = mod._adapter
         adapter = _DummyAdapter()
@@ -1482,6 +1722,645 @@ class TestIngestBatching(unittest.TestCase):
             self.assertIn("next: run smoke tests", meta["summary"])
         finally:
             mod._adapter = original_adapter
+
+
+class _FakeCommitError(RuntimeError):
+    """Simulates the contract ``PersistenceCommitError`` (no rollback attrs)."""
+
+
+class _FakeRollbackError(RuntimeError):
+    """Simulates the contract ``PersistenceRollbackError`` (has rollback attrs)."""
+
+    def __init__(self, original_error: Exception, rollback_error: Exception) -> None:
+        super().__init__("rollback also failed")
+        self.original_error = original_error
+        self.rollback_error = rollback_error
+
+
+class _FakeAtomicBatchCtx:
+    """Minimal stand-in for ``DMLAdapter.atomic_batch`` exit semantics."""
+
+    def __init__(self, adapter: "_ModernAdapter") -> None:
+        self._adapter = adapter
+
+    def __enter__(self) -> object:
+        return {"source": "atomic_batch"}
+
+    def __exit__(self, exc_type, exc, tb) -> bool:
+        if exc is None:
+            try:
+                self._adapter._do_persist()
+            except Exception as persist_exc:
+                if self._adapter._rollback_error is not None:
+                    raise _FakeRollbackError(persist_exc, self._adapter._rollback_error) from persist_exc
+                raise
+        elif self._adapter._rollback_error is not None:
+            raise _FakeRollbackError(exc, self._adapter._rollback_error) from exc
+        return False
+
+
+class _ModernAdapter:
+    """Adapter exposing ``atomic_batch`` so the modern finish path is exercised."""
+
+    def __init__(
+        self,
+        storage_dir: str,
+        *,
+        ingest_raises: Exception | None = None,
+        persist_raises: Exception | None = None,
+        rollback_error: Exception | None = None,
+        close_raises: Exception | None = None,
+    ) -> None:
+        self._storage_dir = storage_dir
+        self.ingest_raises = ingest_raises
+        self.persist_raises = persist_raises
+        self._rollback_error = rollback_error
+        self.close_raises = close_raises
+        self.persist_calls = 0
+        self.close_calls = 0
+        self.ingests: list[tuple[str, dict | None, bool]] = []
+        self.store = types.SimpleNamespace(items=lambda: [])
+
+    def atomic_batch(self, operation: str) -> _FakeAtomicBatchCtx:
+        del operation
+        return _FakeAtomicBatchCtx(self)
+
+    def ingest(self, text: str, meta: dict | None = None, *, persist: bool = True) -> None:
+        if self.ingest_raises is not None:
+            raise self.ingest_raises
+        self.ingests.append((text, meta, persist))
+
+    def _do_persist(self) -> None:
+        self.persist_calls += 1
+        if self.persist_raises is not None:
+            raise self.persist_raises
+        Path(self._storage_dir, ".persisted_marker").write_text("committed", encoding="utf-8")
+
+    def close(self, *, persist: bool = True) -> None:
+        self.close_calls += 1
+        if self.close_raises is not None:
+            raise self.close_raises
+
+
+def _ingest_args(storage_dir: str, *, text: str = "durable memory sentence") -> Namespace:
+    return Namespace(
+        storage_dir=storage_dir,
+        config_path=None,
+        require_gpu=False,
+        lock_timeout_ms=0,
+        audit_actor="unit-test",
+        tenant_id="tenant-fail",
+        client_id=None,
+        session_id=None,
+        instance_id=None,
+        text=text,
+        kind="note",
+        meta=None,
+        chunk=False,
+        chunk_chars=620,
+        chunk_overlap=90,
+        filter_noise=False,
+        summary_policy="skip",
+        summary_max_chars=220,
+    )
+
+
+class TestIngestFailureCategorization(unittest.TestCase):
+    """Each failure source must map to its own secret-safe JSON category."""
+
+    def _run(self, adapter: _ModernAdapter, storage_dir: str) -> tuple[int, dict, str]:
+        original_adapter = mod._adapter
+        mod._adapter = lambda *_args, **_kwargs: adapter
+        try:
+            args = _ingest_args(storage_dir)
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                rc = mod.cmd_ingest(args)
+            return rc, json.loads(buf.getvalue()), buf.getvalue()
+        finally:
+            mod._adapter = original_adapter
+
+    def test_body_exception_is_ingest_failed_not_persistence(self):
+        secret_marker = "SECRET-body-failure-token"
+        with tempfile.TemporaryDirectory(prefix="dml-wrapper-body-fail-") as tmp:
+            adapter = _ModernAdapter(tmp, ingest_raises=RuntimeError(f"body boom {secret_marker}"))
+            rc, payload, output = self._run(adapter, tmp)
+
+            self.assertEqual(rc, 1)
+            self.assertEqual(payload["status"], "fail")
+            self.assertEqual(payload["error"], "ingest_failed")
+            self.assertEqual(payload["error_type"], "RuntimeError")
+            self.assertNotIn(secret_marker, output)
+            self.assertEqual(adapter.persist_calls, 0)
+            self.assertEqual(adapter.close_calls, 1)
+            audit_events = mod._tail_audit_events(tmp, limit=1)
+            self.assertEqual(audit_events[0]["status"], "fail")
+            self.assertEqual(audit_events[0]["details"]["error"], "ingest_failed")
+            self.assertNotIn(secret_marker, json.dumps(audit_events[0]))
+
+    def test_atomic_batch_persist_failure_is_persistence_commit_failed(self):
+        secret_marker = "SECRET-persist-failure-token"
+        with tempfile.TemporaryDirectory(prefix="dml-wrapper-exit-fail-") as tmp:
+            adapter = _ModernAdapter(tmp, persist_raises=_FakeCommitError(f"commit boom {secret_marker}"))
+            rc, payload, output = self._run(adapter, tmp)
+
+            self.assertEqual(rc, 1)
+            self.assertEqual(payload["status"], "fail")
+            self.assertEqual(payload["error"], "persistence_commit_failed")
+            self.assertEqual(payload["error_type"], "_FakeCommitError")
+            self.assertNotIn(secret_marker, output)
+            self.assertEqual(adapter.persist_calls, 1)
+            self.assertFalse((Path(tmp) / ".persisted_marker").exists())
+            audit_events = mod._tail_audit_events(tmp, limit=1)
+            self.assertEqual(audit_events[0]["details"]["error"], "persistence_commit_failed")
+
+    def test_atomic_batch_rollback_failure_is_rollback_category(self):
+        secret_marker = "SECRET-rollback-failure-token"
+        rollback_exc = OSError(f"rollback disk failure {secret_marker}")
+        with tempfile.TemporaryDirectory(prefix="dml-wrapper-rollback-fail-") as tmp:
+            adapter = _ModernAdapter(
+                tmp,
+                persist_raises=_FakeCommitError("original commit failure"),
+                rollback_error=rollback_exc,
+            )
+            rc, payload, output = self._run(adapter, tmp)
+
+            self.assertEqual(rc, 1)
+            self.assertEqual(payload["status"], "fail")
+            self.assertEqual(payload["error"], "persistence_rollback_failed")
+            self.assertEqual(payload["error_type"], "_FakeRollbackError")
+            self.assertNotIn(secret_marker, output)
+            self.assertEqual(adapter.persist_calls, 1)
+            self.assertFalse((Path(tmp) / ".persisted_marker").exists())
+
+    def test_close_failure_after_successful_persist_is_close_failed(self):
+        secret_marker = "SECRET-close-failure-token"
+        with tempfile.TemporaryDirectory(prefix="dml-wrapper-close-fail-") as tmp:
+            adapter = _ModernAdapter(tmp, close_raises=RuntimeError(f"close boom {secret_marker}"))
+            rc, payload, output = self._run(adapter, tmp)
+
+            self.assertEqual(rc, 1)
+            self.assertEqual(payload["status"], "fail")
+            self.assertEqual(payload["error"], "close_failed")
+            self.assertNotIn("persistence_commit_failed", output)
+            self.assertNotIn("persistence", payload["error"])
+            self.assertEqual(payload["error_type"], "RuntimeError")
+            self.assertNotIn(secret_marker, output)
+            # On-disk proof that persistence committed before the close failure.
+            self.assertEqual(adapter.persist_calls, 1)
+            self.assertTrue((Path(tmp) / ".persisted_marker").exists())
+            self.assertEqual(adapter.close_calls, 1)
+            audit_events = mod._tail_audit_events(tmp, limit=1)
+            self.assertEqual(audit_events[0]["details"]["error"], "close_failed")
+            self.assertNotIn(secret_marker, json.dumps(audit_events[0]))
+
+    def test_body_failure_records_close_failure_without_changing_category(self):
+        body_marker = "SECRET-body-marker"
+        close_marker = "SECRET-close-marker"
+        with tempfile.TemporaryDirectory(prefix="dml-wrapper-double-fail-") as tmp:
+            adapter = _ModernAdapter(
+                tmp,
+                ingest_raises=RuntimeError(f"body boom {body_marker}"),
+                close_raises=OSError(f"close boom {close_marker}"),
+            )
+            rc, payload, output = self._run(adapter, tmp)
+
+            self.assertEqual(rc, 1)
+            self.assertEqual(payload["status"], "fail")
+            # Primary category stays body failure; close failure is recorded.
+            self.assertEqual(payload["error"], "ingest_failed")
+            self.assertEqual(payload["error_type"], "RuntimeError")
+            self.assertEqual(payload["close_error_type"], "OSError")
+            self.assertNotIn(body_marker, output)
+            self.assertNotIn(close_marker, output)
+            self.assertEqual(adapter.persist_calls, 0)
+            self.assertEqual(adapter.close_calls, 1)
+            audit_events = mod._tail_audit_events(tmp, limit=1)
+            self.assertEqual(audit_events[0]["details"]["error"], "ingest_failed")
+            self.assertEqual(audit_events[0]["details"]["error_type"], "RuntimeError")
+            self.assertNotIn(close_marker, json.dumps(audit_events[0]))
+
+    def test_body_failure_plus_rollback_failure_is_rollback_category(self):
+        body_marker = "SECRET-body-rollback-body"
+        rollback_marker = "SECRET-body-rollback-rollback"
+        rollback_exc = OSError(f"rollback disk failure {rollback_marker}")
+        with tempfile.TemporaryDirectory(prefix="dml-wrapper-body-rollback-") as tmp:
+            adapter = _ModernAdapter(
+                tmp,
+                ingest_raises=RuntimeError(f"body boom {body_marker}"),
+                rollback_error=rollback_exc,
+            )
+            rc, payload, output = self._run(adapter, tmp)
+
+            self.assertEqual(rc, 1)
+            self.assertEqual(payload["status"], "fail")
+            # Rollback failure is the primary durability truth.
+            self.assertEqual(payload["error"], "persistence_rollback_failed")
+            self.assertEqual(payload["error_type"], "_FakeRollbackError")
+            # Body error type retained as secret-safe secondary evidence.
+            self.assertEqual(payload["body_error_type"], "RuntimeError")
+            # No secret text leaks into JSON or audit.
+            self.assertNotIn(body_marker, output)
+            self.assertNotIn(rollback_marker, output)
+            self.assertNotIn("Traceback", output)
+            self.assertEqual(adapter.persist_calls, 0)
+            self.assertEqual(adapter.close_calls, 1)
+            audit_events = mod._tail_audit_events(tmp, limit=1)
+            self.assertEqual(audit_events[0]["status"], "fail")
+            self.assertEqual(audit_events[0]["details"]["error"], "persistence_rollback_failed")
+            self.assertEqual(audit_events[0]["details"]["error_type"], "_FakeRollbackError")
+            self.assertEqual(audit_events[0]["details"]["body_error_type"], "RuntimeError")
+            self.assertNotIn(body_marker, json.dumps(audit_events[0]))
+            self.assertNotIn(rollback_marker, json.dumps(audit_events[0]))
+
+    def test_triple_failure_body_rollback_close_retains_all_types(self):
+        body_marker = "SECRET-triple-body"
+        rollback_marker = "SECRET-triple-rollback"
+        close_marker = "SECRET-triple-close"
+        rollback_exc = OSError(f"rollback disk failure {rollback_marker}")
+        with tempfile.TemporaryDirectory(prefix="dml-wrapper-triple-fail-") as tmp:
+            adapter = _ModernAdapter(
+                tmp,
+                ingest_raises=RuntimeError(f"body boom {body_marker}"),
+                rollback_error=rollback_exc,
+                close_raises=ValueError(f"close boom {close_marker}"),
+            )
+            rc, payload, output = self._run(adapter, tmp)
+
+            self.assertEqual(rc, 1)
+            self.assertEqual(payload["status"], "fail")
+            # Rollback stays primary durability truth; body and close are
+            # retained as secret-safe type evidence only.
+            self.assertEqual(payload["error"], "persistence_rollback_failed")
+            self.assertEqual(payload["error_type"], "_FakeRollbackError")
+            self.assertEqual(payload["body_error_type"], "RuntimeError")
+            self.assertEqual(payload["close_error_type"], "ValueError")
+            self.assertNotIn(body_marker, output)
+            self.assertNotIn(rollback_marker, output)
+            self.assertNotIn(close_marker, output)
+            self.assertNotIn("Traceback", output)
+            self.assertEqual(adapter.persist_calls, 0)
+            self.assertEqual(adapter.close_calls, 1)
+            audit_events = mod._tail_audit_events(tmp, limit=1)
+            self.assertEqual(audit_events[0]["details"]["error"], "persistence_rollback_failed")
+            self.assertEqual(audit_events[0]["details"]["error_type"], "_FakeRollbackError")
+            self.assertEqual(audit_events[0]["details"]["body_error_type"], "RuntimeError")
+            self.assertEqual(audit_events[0]["details"]["close_error_type"], "ValueError")
+            audit_json = json.dumps(audit_events[0])
+            self.assertNotIn(body_marker, audit_json)
+            self.assertNotIn(rollback_marker, audit_json)
+            self.assertNotIn(close_marker, audit_json)
+
+
+def _write_minimal_state(storage_dir: str, *, text: str = "checkpoint") -> Path:
+    state_path = Path(storage_dir) / "dml_state.jsonl"
+    record = {
+        "id": 0,
+        "text": text,
+        "embedding": [0.1, 0.2, 0.3],
+        "timestamp": 1.0,
+        "salience": 0.5,
+        "fidelity": 1.0,
+        "level": 0,
+        "summary_of": [0],
+        "meta": {"source": "rolling_thread_checkpoint", "namespace": "active_continuity"},
+    }
+    payload_line = json.dumps(record, separators=(",", ":"), sort_keys=True)
+    checksum = mod.hashlib.sha256(payload_line.encode("utf-8")).hexdigest()
+    header = {
+        "type": "daystrom_dml.memory",
+        "version": 1,
+        "created_at": "2026-05-21T00:00:00+00:00",
+        "count": 1,
+        "checksum": checksum,
+    }
+    state_path.write_text(
+        json.dumps(header, separators=(",", ":"), sort_keys=True) + "\n" + payload_line,
+        encoding="utf-8",
+    )
+    return state_path
+
+
+def test_backup_manifest_routes_through_atomic_write_text():
+    with tempfile.TemporaryDirectory(prefix="dml-atomic-text-") as tmp:
+        storage = Path(tmp) / "store"
+        backup_dir = Path(tmp) / "backups"
+        storage.mkdir()
+        _write_minimal_state(str(storage), text="manifest atomic test")
+
+        calls: list[tuple[Path, str]] = []
+        real = mod.atomic_write_text
+
+        def spy(path, text, **kwargs):
+            calls.append((Path(path), text))
+            return real(path, text, **kwargs)
+
+        mod.atomic_write_text = spy
+        try:
+            result = mod._create_backup(str(storage), backup_dir=str(backup_dir), label="atomic", keep=20)
+        finally:
+            mod.atomic_write_text = real
+
+        manifest_paths = [p for p, _ in calls]
+        assert any(p.name == "backup_manifest.json" for p in manifest_paths), (
+            f"backup manifest not written via atomic_write_text: {manifest_paths}"
+        )
+        manifest_path = Path(result["manifest_path"])
+        written = json.loads(manifest_path.read_text(encoding="utf-8"))
+        assert written["schema_version"] == "dml.backup-manifest.v1"
+
+
+def test_session_registry_routes_through_atomic_write_text():
+    with tempfile.TemporaryDirectory(prefix="dml-atomic-session-") as tmp:
+        storage = Path(tmp) / "store"
+        storage.mkdir()
+
+        calls: list[tuple[Path, str]] = []
+        real = mod.atomic_write_text
+
+        def spy(path, text, **kwargs):
+            calls.append((Path(path), text))
+            return real(path, text, **kwargs)
+
+        mod.atomic_write_text = spy
+        try:
+            mod._save_session_registry(str(storage), {"schema_version": "dml.sessions.v1", "sessions": {}})
+        finally:
+            mod.atomic_write_text = real
+
+        reg_path = mod._session_registry_path(str(storage))
+        assert any(p == reg_path for p, _ in calls), (
+            f"session registry not written via atomic_write_text: {[(p, t[:40]) for p, t in calls]}"
+        )
+        assert reg_path.exists()
+        assert json.loads(reg_path.read_text(encoding="utf-8"))["schema_version"] == "dml.sessions.v1"
+
+
+def test_import_materialization_routes_through_atomic_write_bytes():
+    with tempfile.TemporaryDirectory(prefix="dml-atomic-bytes-") as tmp:
+        dest = Path(tmp) / "materialized.bin"
+        payload = b"\x00\x01\x02import-bytes"
+
+        calls: list[tuple[Path, bytes]] = []
+        real = mod.atomic_write_bytes
+
+        def spy(path, data):
+            calls.append((Path(path), data))
+            return real(path, data)
+
+        mod.atomic_write_bytes = spy
+        try:
+            mod._write_atomic_bytes(dest, payload)
+        finally:
+            mod.atomic_write_bytes = real
+
+        assert len(calls) == 1, f"expected one atomic_write_bytes call, got {calls}"
+        assert calls[0] == (dest, payload)
+        assert dest.read_bytes() == payload
+
+
+def test_restore_copy_routes_through_atomic_write_via():
+    with tempfile.TemporaryDirectory(prefix="dml-atomic-copy-") as tmp:
+        source = Path(tmp) / "source.bin"
+        target = Path(tmp) / "target.bin"
+        source.write_bytes(b"\x00\x01\x02copy-via")
+
+        calls: list[Path] = []
+        real = mod.atomic_write_via
+
+        def spy(path, writer):
+            calls.append(Path(path))
+            return real(path, writer)
+
+        mod.atomic_write_via = spy
+        try:
+            mod._atomic_copy_file(source, target)
+        finally:
+            mod.atomic_write_via = real
+
+        assert len(calls) == 1, f"expected one atomic_write_via call, got {calls}"
+        assert calls[0] == target
+        assert target.read_bytes() == source.read_bytes()
+
+
+def test_atomic_write_text_failure_leaves_prior_file_intact():
+    with tempfile.TemporaryDirectory(prefix="dml-atomic-text-fail-") as tmp:
+        storage = Path(tmp) / "store"
+        backup_dir = Path(tmp) / "backups"
+        storage.mkdir()
+        _write_minimal_state(str(storage), text="pre-failure state")
+
+        result = mod._create_backup(str(storage), backup_dir=str(backup_dir), label="first", keep=20)
+        manifest_path = Path(result["manifest_path"])
+        original_content = manifest_path.read_text(encoding="utf-8")
+
+        def boom(path, text, **kwargs):
+            raise RuntimeError("injected atomic_write_text failure")
+
+        real = mod.atomic_write_text
+        mod.atomic_write_text = boom
+        try:
+            try:
+                mod._create_backup(str(storage), backup_dir=str(backup_dir), label="second", keep=20)
+                assert False, "expected RuntimeError from injected atomic_write_text"
+            except RuntimeError as exc:
+                assert "injected" in str(exc)
+        finally:
+            mod.atomic_write_text = real
+
+        assert manifest_path.read_text(encoding="utf-8") == original_content, (
+            "prior manifest file modified after atomic_write_text failure"
+        )
+
+
+def test_atomic_write_bytes_failure_leaves_prior_file_intact():
+    with tempfile.TemporaryDirectory(prefix="dml-atomic-bytes-fail-") as tmp:
+        dest = Path(tmp) / "data.bin"
+        dest.write_bytes(b"original-bytes")
+
+        def boom(path, data):
+            raise RuntimeError("injected atomic_write_bytes failure")
+
+        real = mod.atomic_write_bytes
+        mod.atomic_write_bytes = boom
+        try:
+            try:
+                mod._write_atomic_bytes(dest, b"new-bytes")
+                assert False, "expected RuntimeError from injected atomic_write_bytes"
+            except RuntimeError as exc:
+                assert "injected" in str(exc)
+        finally:
+            mod.atomic_write_bytes = real
+
+        assert dest.read_bytes() == b"original-bytes", (
+            "prior file modified after atomic_write_bytes failure"
+        )
+
+
+def test_atomic_write_via_failure_leaves_prior_file_intact():
+    with tempfile.TemporaryDirectory(prefix="dml-atomic-copy-fail-") as tmp:
+        source = Path(tmp) / "source.bin"
+        target = Path(tmp) / "target.bin"
+        source.write_bytes(b"source-bytes")
+        target.write_bytes(b"prior-target-bytes")
+
+        def boom(path, writer):
+            raise RuntimeError("injected atomic_write_via failure")
+
+        real = mod.atomic_write_via
+        mod.atomic_write_via = boom
+        try:
+            try:
+                mod._atomic_copy_file(source, target)
+                assert False, "expected RuntimeError from injected atomic_write_via"
+            except RuntimeError as exc:
+                assert "injected" in str(exc)
+        finally:
+            mod.atomic_write_via = real
+
+        assert target.read_bytes() == b"prior-target-bytes", (
+            "prior file modified after atomic_write_via failure"
+        )
+        assert not any(
+            p.suffix == ".tmp" for p in Path(tmp).iterdir() if p != source
+        ), "temp file leaked after atomic_write_via failure"
+
+
+def test_atomic_copy_pre_replace_chmod_failure_leaves_prior_destination_intact():
+    if os.name == "nt":
+        unittest.skip("POSIX-only metadata semantics")
+    with tempfile.TemporaryDirectory(prefix="dml-atomic-copy-chmod-fail-") as tmp:
+        source = Path(tmp) / "source.bin"
+        target = Path(tmp) / "target.bin"
+        source.write_bytes(b"new-bytes")
+        os.chmod(source, 0o640)
+        target.write_bytes(b"prior-target-bytes")
+        os.chmod(target, 0o600)
+        prior_mode = os.stat(target).st_mode & 0o777
+
+        real_chmod = mod.os.chmod
+
+        def boom_chmod(path, mode):
+            raise OSError("injected pre-replace chmod failure")
+
+        mod.os.chmod = boom_chmod
+        try:
+            try:
+                mod._atomic_copy_file(source, target)
+                assert False, "expected OSError from injected chmod failure"
+            except OSError as exc:
+                assert "injected" in str(exc)
+        finally:
+            mod.os.chmod = real_chmod
+
+        assert target.read_bytes() == b"prior-target-bytes", (
+            "prior destination modified after pre-replace chmod failure"
+        )
+        assert (os.stat(target).st_mode & 0o777) == prior_mode, (
+            "prior destination mode changed after pre-replace chmod failure"
+        )
+        assert not any(p.suffix == ".tmp" for p in Path(tmp).iterdir() if p != source), (
+            "temp file leaked after pre-replace chmod failure"
+        )
+
+
+def test_atomic_copy_pre_replace_utime_failure_leaves_prior_destination_intact():
+    if os.name == "nt":
+        unittest.skip("POSIX-only metadata semantics")
+    with tempfile.TemporaryDirectory(prefix="dml-atomic-copy-utime-fail-") as tmp:
+        source = Path(tmp) / "source.bin"
+        target = Path(tmp) / "target.bin"
+        source.write_bytes(b"new-bytes")
+        os.chmod(source, 0o640)
+        target.write_bytes(b"prior-target-bytes")
+        os.chmod(target, 0o600)
+        prior_mode = os.stat(target).st_mode & 0o777
+
+        real_utime = mod.os.utime
+
+        def boom_utime(path, times):
+            raise OSError("injected pre-replace utime failure")
+
+        mod.os.utime = boom_utime
+        try:
+            try:
+                mod._atomic_copy_file(source, target)
+                assert False, "expected OSError from injected utime failure"
+            except OSError as exc:
+                assert "injected" in str(exc)
+        finally:
+            mod.os.utime = real_utime
+
+        assert target.read_bytes() == b"prior-target-bytes", (
+            "prior destination modified after pre-replace utime failure"
+        )
+        assert (os.stat(target).st_mode & 0o777) == prior_mode, (
+            "prior destination mode changed after pre-replace utime failure"
+        )
+        assert not any(p.suffix == ".tmp" for p in Path(tmp).iterdir() if p != source), (
+            "temp file leaked after pre-replace utime failure"
+        )
+
+
+def test_atomic_copy_successful_installs_expected_mode_and_content():
+    if os.name == "nt":
+        unittest.skip("POSIX-only mode semantics")
+    with tempfile.TemporaryDirectory(prefix="dml-atomic-copy-success-") as tmp:
+        source = Path(tmp) / "source.bin"
+        target = Path(tmp) / "target.bin"
+        source.write_bytes(b"copied-content")
+        os.chmod(source, 0o640)
+        fixed_atime = 1_000_000.0
+        fixed_mtime = 2_000_000.0
+        os.utime(source, (fixed_atime, fixed_mtime))
+
+        result = mod._atomic_copy_file(source, target)
+
+        assert result == target
+        assert target.read_bytes() == b"copied-content"
+        assert (os.stat(target).st_mode & 0o777) == 0o640, (
+            f"expected mode 0o640, got {oct(os.stat(target).st_mode & 0o777)}"
+        )
+        assert os.stat(target).st_mtime == fixed_mtime, (
+            f"expected mtime {fixed_mtime}, got {os.stat(target).st_mtime}"
+        )
+
+
+def test_atomic_copy_applies_metadata_to_temp_before_replace():
+    if os.name == "nt":
+        unittest.skip("POSIX-only mode semantics")
+    with tempfile.TemporaryDirectory(prefix="dml-atomic-copy-ordering-") as tmp:
+        source = Path(tmp) / "source.bin"
+        target = Path(tmp) / "target.bin"
+        source.write_bytes(b"ordering-content")
+        os.chmod(source, 0o600)
+        fixed_mtime = 5_000_000.0
+        os.utime(source, (fixed_mtime, fixed_mtime))
+
+        recorded = {}
+        real_via = mod.atomic_write_via
+
+        def spy_via(path, writer):
+            def spy_writer(tmp_path):
+                writer(tmp_path)
+                st = os.stat(tmp_path)
+                recorded["tmp_mode"] = st.st_mode & 0o777
+                recorded["tmp_mtime"] = st.st_mtime
+            return real_via(path, spy_writer)
+
+        mod.atomic_write_via = spy_via
+        try:
+            mod._atomic_copy_file(source, target)
+        finally:
+            mod.atomic_write_via = real_via
+
+        assert recorded.get("tmp_mode") == 0o600, (
+            f"temp mode before replace was {oct(recorded.get('tmp_mode', 0))}, expected 0o600"
+        )
+        assert recorded.get("tmp_mtime") == fixed_mtime, (
+            f"temp mtime before replace was {recorded.get('tmp_mtime')}, expected {fixed_mtime}"
+        )
+        assert target.read_bytes() == b"ordering-content"
 
 
 if __name__ == "__main__":
