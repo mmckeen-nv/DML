@@ -2304,7 +2304,7 @@ def test_atomic_copy_pre_replace_utime_failure_leaves_prior_destination_intact()
 
 def test_atomic_copy_successful_installs_expected_mode_and_content():
     if os.name == "nt":
-        unittest.skip("POSIX-only mode semantics")
+        raise unittest.SkipTest("POSIX-only mode semantics")
     with tempfile.TemporaryDirectory(prefix="dml-atomic-copy-success-") as tmp:
         source = Path(tmp) / "source.bin"
         target = Path(tmp) / "target.bin"
@@ -2328,7 +2328,7 @@ def test_atomic_copy_successful_installs_expected_mode_and_content():
 
 def test_atomic_copy_applies_metadata_to_temp_before_replace():
     if os.name == "nt":
-        unittest.skip("POSIX-only mode semantics")
+        raise unittest.SkipTest("POSIX-only mode semantics")
     with tempfile.TemporaryDirectory(prefix="dml-atomic-copy-ordering-") as tmp:
         source = Path(tmp) / "source.bin"
         target = Path(tmp) / "target.bin"
