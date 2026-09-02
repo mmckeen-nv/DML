@@ -1,0 +1,47 @@
+{
+  "schema_version": "daystrom-dcm-workload-summary-v1",
+  "recorded_date": "2026-09-02",
+  "source_script": "dml_core/scripts/dcm_workload_benchmark.py",
+  "command": "PYTHONPATH=dml_core python dml_core/scripts/dcm_workload_benchmark.py --offline --suite extended --output-json /tmp/dcm-workload.json",
+  "configuration": {
+    "mode": "offline",
+    "suite": "extended",
+    "case_count": 7,
+    "context_budget_tokens": 180,
+    "ordinary_rag": "lexical overlap top-1 without exact handles",
+    "dcm": "authorized exact handles when available; otherwise bounded deterministic lexical catalog"
+  },
+  "aggregate": {
+    "full_context": {
+      "answer_fidelity": 0.857143,
+      "mean_admitted_tokens": 404.0,
+      "budget_overflow_rate": 1.0
+    },
+    "ordinary_rag": {
+      "answer_fidelity": 0.571429,
+      "mean_retrieval_recall": 0.642857,
+      "explicit_miss_rate": 0.428571,
+      "mean_admitted_tokens": 119.857,
+      "budget_overflow_rate": 0.0
+    },
+    "dcm": {
+      "answer_fidelity": 0.857143,
+      "mean_retrieval_recall": 0.928571,
+      "explicit_miss_rate": 0.142857,
+      "mean_admitted_tokens": 145.429,
+      "budget_overflow_rate": 0.0
+    }
+  },
+  "derived": {
+    "dcm_context_token_reduction_vs_full_context_pct": 64.0,
+    "dcm_fidelity_point_gain_vs_ordinary_rag": 28.57,
+    "dcm_recall_point_gain_vs_ordinary_rag": 28.57,
+    "dcm_explicit_miss_rate_reduction_vs_ordinary_rag_pct": 66.67
+  },
+  "caveats": [
+    "This is a bounded synthetic regression slice, not a broad model-quality benchmark.",
+    "The offline evidence model and lexical catalog do not measure production generation latency.",
+    "The full-context strategy is intentionally allowed to exceed the configured 180-token budget so overflow pressure remains visible."
+  ],
+  "result": "pass"
+}

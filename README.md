@@ -28,23 +28,178 @@ DML is the memory layer agents should have had from the start.
 
 ---
 
-## The Daystrom stack
+## The Daystrom memory architecture
+
+DML now spans two related kinds of memory:
+
+1. **Semantic and continuity memory** answers *what should the agent remember?*
+2. **Active context and execution memory** answers *what exact context or model-native state should be resident for this generation?*
+
+They share scope, identity, authority, policy, lifecycle, and evidence, but they are not interchangeable. A semantically relevant memory is not proof that its old KV state can be reused. Native reuse stops at the first token, position, model, runtime, topology, layout, or authority mismatch.
+
+### Where it sits in the stack
+
+```text
+Hermes / OpenClaw / MCP / custom agent harness
+                     │
+                     ▼
+        DCN — cognition and policy control
+      decide what to retrieve, suppress, verify,
+          prepare, learn, or write back
+                     │
+          ┌──────────┼──────────┐
+          ▼          ▼          ▼
+ DML semantic     DPM bounded     DCM active-context
+ memory lattice   personality     and execution-memory
+ and continuity   overlay         control plane
+          └──────────┼──────────┘
+                     ▼
+       DIP — bounded inference preparation
+                     │
+                     ▼
+       vLLM / SGLang / TensorRT-LLM / llama.cpp
+                     │
+                     ▼
+     engine-native KV transfer / KVBM / NIXL
+       / LMCache / Mooncake data planes
+                     │
+                     ▼
+ GPU HBM ↔ pinned host RAM ↔ RDMA memory ↔ NVMe
+                  ↔ remote file/object storage
+
+ Companion specialization: DEC applies the same policy direction to
+ MoE expert-weight prediction and residency, not conversation KV state.
+```
+
+Daystrom owns the differentiated control plane: identity, authority, policy, prediction, admission, placement decisions, leases, lifecycle, checkpoint lineage, audit, and evidence. Engines and transfer frameworks should own commodity block allocation and byte movement. Daystrom should not become a second NIXL, KVBM, LMCache, or Mooncake.
+
+### The layers and their responsibilities
+
+| Layer | Role | What it owns |
+| --- | --- | --- |
+| **DML — Daystrom Memory Lattice** | Durable semantic memory | Ingest, embedding, deduplication, salience/fidelity, abstraction, retrieval, conflict handling, persistence, backup/export/import, and compact continuity. |
+| **DML1 hot context** | Small current semantic working set | Fast, compact STM-derived commitments, entities, decisions, and active state. |
+| **DML2 exact pages** | Exact context-page cache | Digest-bound page handles and payloads used when exact evidence is required. |
+| **Durable tier** | Long-horizon source of truth | Persistent memories and page-catalog lookup reached only when policy explicitly allows it. |
+| **DCM — Daystrom Context Manager** | Active context and model-native execution memory | Scoped segments, authority ordering, token admission, manifests, working-set generations, memory faults, native profiles, checkpoint identity, restore/continuation/purge, and KV-fabric policy. |
+| **DPM — Daystrom Personality Matrix** | Preference and relationship overlay | Bounded style, preference, project, and relationship context subordinate to current instructions and safety. |
+| **DCN — Daystrom Cognition Network** | Cognitive policy layer | Intent observation, retrieval plans, cognitive packets, feedback, evaluation, governed policy promotion, and bounded turn-extension decisions. |
+| **DIP — Daystrom Inference Preparation** | Model-call boundary | Produces compact frontier prompts; the harness still owns inference calls and provider secrets. |
+| **DEC — Daystrom Expert Cache** | Companion expert-weight specialization | Profiles and predicts MoE expert demand, keeps static-hot experts resident, manages a bounded dynamic HBM pool, and measures exact misses. DEC is a companion repository, not a replacement for DCM. |
+
+> **Naming note:** durable lattice entries also carry numeric abstraction levels (`level=0` for fresh/high-fidelity entries, increasing as memories decay or are summarized). Those L0–LK abstraction levels are different from the DML1 hot-context and DML2 exact-page runtime tiers.
+
+### How a memory moves through the system
+
+```text
+meaningful event or document
+  → hygiene and secret filtering
+  → scoped ingest (tenant/client/session/instance/thread)
+  → embedding + literal metadata + provenance
+  → deduplication/conflict checks
+  → optional agentic scratch → verified → durable promotion
+  → fidelity decay and optional lineage-preserving abstraction
+  → semantic/literal/hybrid retrieval
+  → DCN policy and DPM overlay
+  → bounded DIP/DCM context packet
+  → model/tool turn
+  → compact writeback or handoff
+```
+
+DML does not store every chat turn. It stores durable decisions, observations, plans, failures, preferences, constraints, and handoffs. Raw transcripts, tool dumps, prompt wrappers, and credentials are rejected or stripped because they make retrieval worse and create security risk.
+
+At retrieval time, scope is checked first. The router can choose semantic, literal, or hybrid retrieval; exact handles can bypass fuzzy ranking when the caller already knows the required page. Returned material remains reference or untrusted evidence—it never silently becomes a system instruction.
+
+### How active context and native KV reuse work
+
+```text
+scoped memories / exact pages / current instruction
+  → authority-aware candidate set
+  → token-budget admission
+  → immutable ContextManifest + ContextPacket
+  → deterministic working-set generation
+  → compare with parent generation
+  → stable exact prefix + changed suffix
+  → restore compatible parent checkpoint
+  → prefill only the changed suffix
+  → publish child checkpoint after signed readiness
+  → selectively purge and physically account for unshared rows
+```
+
+DCM distinguishes three separate identities: the logical packet/manifest, the durable execution-checkpoint record, and the runtime checkpoint used by a serving connector. They are cryptographically bound rather than substituted for one another.
+
+The current vLLM 0.20 integration is GPU-first: local GPU Automatic Prefix Caching is checked normally, then an explicitly authorized Daystrom checkpoint may restore the remaining exact prefix from managed pinned CPU memory. Unapproved requests do not query or populate the managed cache. Save, status, restore, compound parent→child transition, and selective purge use short-lived HMAC-authenticated envelopes and payload-free evidence.
+
+The KV-fabric contract extends that control model across GPU HBM, pinned host memory, RDMA-addressable memory, local SSD/NVMe, and remote file/object storage. Routes are deterministic and bounded; transfer tickets are plan-bound, authority-bound, expiring, HMAC-authenticated, and single-use. This layer currently plans and authorizes movement—it does **not** claim that RDMA, GDS, NIXL, KVBM, LMCache, Mooncake, or cloud movement is already wired.
+
+### What has been built
+
+| Area | Current state |
+| --- | --- |
+| Durable lattice | Implemented: persisted memory items, embeddings, literal/semantic/hybrid retrieval, salience/fidelity decay, abstraction lineage, deduplication, conflicts, curation, audit, backup, verification, export/import. |
+| Agent continuity | Implemented: resume, compact handoff, scoped retrieval/writeback, active continuity, hygiene filters, provider and JSON wrapper contracts. |
+| Harness integrations | Implemented: Python adapter, CLI/wrapper, HTTP provider/UI, Ollama-compatible server, MCP server, Hermes provider plugin, OpenClaw-style skill. |
+| DPM/DCN/DIP | Implemented bounded DPM overlays and evolution graph; deterministic DCN observation/planning/feedback/promotion gates; DIP frontier-prompt preparation. |
+| DCM logical context | Implemented: authority-aware segments, runtime capability discovery, admission budgets, manifests, exact pages, working-set transitions, DML1→DML2→durable memory faults, leases, and payload-free plans. |
+| DCM native state | Implemented and live-proven for the version-pinned vLLM cooperative path: signed checkpoint save/readiness/restore/continuation and selective physical purge. llama.cpp lifecycle probing also exists behind capability checks. |
+| KV fabric | Implemented as a validated engine-neutral control-plane contract for heterogeneous tiers, compatibility negotiation, bounded routing, and authenticated transfer authorization. Physical KVBM/NIXL/LMCache/Mooncake adapters remain future work. |
+| Deployment | Implemented cooperative-vLLM `init → doctor → pull → preflight → deploy → verify → status/rollback/logs`, with atomic config/key handling, health waits, canary completion, lock recovery, bounded backups, and transactional rollback. |
+| DEC expert residency | Hardware-backed companion work retained separately. It specializes in MoE expert-weight prediction and placement and belongs beside DCM under the broader Daystrom policy plane. |
+
+### Measured evidence—not marketing estimates
+
+The repository keeps deterministic and live-runtime evidence separate.
+
+**Current deterministic DCM workload smoke.** On the checked-in seven-case `extended` suite with a 180-token context budget, rerun locally with `--offline`:
+
+| Strategy | Answer fidelity | Retrieval recall | Explicit miss rate | Mean admitted tokens | Budget overflow rate |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Full context | 85.7% | n/a | 0.0% | 404.0 | 100.0% |
+| Ordinary lexical RAG, top-1 | 57.1% | 64.3% | 42.9% | 119.9 | 0.0% |
+| DCM bounded working set | **85.7%** | **92.9%** | **14.3%** | **145.4** | **0.0%** |
+
+In this bounded synthetic regression slice, DCM matched full-context answer fidelity while sending **64.0% fewer context tokens** and eliminating the full-context budget overflow. Against ordinary lexical RAG it gained **28.6 fidelity points**, gained **28.6 recall points**, and reduced the explicit-miss rate by **66.7%**. DCM used somewhat more context than top-1 RAG because it admitted enough exact/multi-item evidence to recover cases that top-1 missed.
+
+These are seven deterministic synthetic cases using an evidence model and lexical stand-in, not a broad claim about model intelligence or production latency. The aggregate evidence is checked in at [`docs/artifacts/dcm-workload-offline-extended-2026-09-02.json`](docs/artifacts/dcm-workload-offline-extended-2026-09-02.json). Reproduce it with:
+
+```bash
+PYTHONPATH=dml_core python dml_core/scripts/dcm_workload_benchmark.py \
+  --offline --suite extended --output-json /tmp/dcm-workload.json
+```
+
+**Fresh 120-turn compaction/frontier-preparation smoke.** A local synthetic long-run generated 6,849 estimated direct-input tokens. DML recovered all four required continuity anchors into 402 context tokens and produced a 653-token frontier-verification prompt: **90.5% fewer estimated input tokens** than sending the direct history, with **100% anchor recall** and **1.19 ms** DML retrieval time. The local draft recovered two of four anchors, which is why the architecture sends the compact DML evidence alongside a draft rather than trusting draft compression alone.
+
+This smoke used 120 synthetic turns, a local store with FAISS enabled, deterministic DML summarization, and a local `gemma3:4b` draft. Token counts are estimator outputs, not provider billing; no frontier model was called, so modeled output-token or cost projections are deliberately not presented as measured savings. The payload-free summary is checked in at [`docs/artifacts/dml-frontier-compression-smoke-2026-09-02.json`](docs/artifacts/dml-frontier-compression-smoke-2026-09-02.json). Reproduce the preparation path with:
+
+```bash
+python scripts/frontier_compression_smoke.py \
+  --turns 120 --output-dir /tmp/dml-frontier-compression-smoke
+```
+
+**Live native-KV evidence.** On the version-pinned Nemotron/vLLM 0.20 path:
+
+- A growing **9,300 → 14,000 → 18,500-token** chain restored **8,448**, then **12,672**, native CPU KV tokens while GPU APC was deliberately zeroed for route isolation.
+- At 18,500 prompt tokens, the managed transition completed in **436.0 ms** versus **1,169.1 ms** for cold full recomputation: **62.7% faster**, a **2.68×** cold/managed latency ratio, with equal deterministic output digests.
+- Child readiness reached **24/24 physical rows**, followed by complete selective cleanup of **24 rows / 415,236,096 bytes**.
+- The live endpoint accepted prompt plus output at exactly **65,536 tokens** and rejected **65,538**. KV checkpointing reduces repeated prefill work; it does not extend that logical serving limit.
+
+See [`docs/vllm-context-exhaustion-ab.md`](docs/vllm-context-exhaustion-ab.md), [`docs/dcm-native-context-transition.md`](docs/dcm-native-context-transition.md), and the digest-only artifacts in [`docs/artifacts/`](docs/artifacts/).
+
+### Compaction and context-pressure mitigation
+
+DML/DCM mitigate compaction in three different ways:
+
+1. **Before pressure:** retrieval and token-budget admission construct a bounded working set instead of replaying the transcript. The current deterministic smoke reduced mean full-context admission from 404.0 to 145.4 tokens while retaining the same measured answer fidelity.
+2. **At a generation boundary:** DCM computes the exact stable prefix and changed suffix. Compatible native state can be restored and only the changed suffix prefetched; any positional or digest divergence invalidates reuse from that point.
+3. **Across actual harness compaction:** the harness writes a compact handoff before compaction and resumes scoped continuity afterward. Durable memory therefore survives transcript compression without pretending that a summarized prompt preserves old KV identity.
+
+DML does not disable a host framework's compactor and it does not make an over-limit request legal. It reduces how often raw transcript growth forces compaction, preserves the durable facts compaction would otherwise lose, and provides exact boundaries for safe native reuse after the next bounded context is assembled.
 
 ### DPM evolution layer
 
-The Daystrom Personality Matrix now includes a bounded evolution layer. It records interaction signals into a `dpm_evolution_graph.json` with fast-state and slow-self trait values, then renders context-adaptive personality guidance for creative, build/debug, reef-support, and general collaboration work. The layer is deliberately not "free will against the user": immutable hard laws keep current-turn instructions, safety, privacy, and secret hygiene above personality tendencies. See [`docs/daystrom-dpm-evolution-layer.md`](docs/daystrom-dpm-evolution-layer.md).
+The Daystrom Personality Matrix includes a bounded evolution layer. It records interaction signals into `dpm_evolution_graph.json` with fast-state and slow-self trait values, then renders context-adaptive guidance for creative, build/debug, reef-support, and general collaboration work. It is deliberately not "free will against the user": immutable hard laws keep current-turn instructions, safety, privacy, and secret hygiene above personality tendencies. See [`docs/daystrom-dpm-evolution-layer.md`](docs/daystrom-dpm-evolution-layer.md).
 
-
-DML is the memory layer, but the repository also contains the surrounding Daystrom control surfaces:
-
-| Layer | Role | What it does |
-| --- | --- | --- |
-| **DML — Daystrom Memory Lattice** | Memory substrate | Ingests, embeds, stores, retrieves, summarizes, resumes, verifies, backs up, exports, and curates durable memory. |
-| **DPM — Daystrom Personality Matrix** | Preference/personality overlay | Maintains bounded relationship/project/personality context without turning memories into prompt bloat. |
-| **DCN — Daystrom Cognition Network** | Cognitive control layer | Observes intent, emits cognitive packets, gates retrieval policy, captures feedback, evaluates readiness, and manages safe policy promotion. |
-| **DIP — Daystrom Inference Preparation** | Inference boundary | Prepares compact frontier prompts from scoped memory; the calling harness owns the actual model call and secret handling. |
-
-The boundaries are intentional. Memory, personality, cognition, and inference preparation are separate enough to test and govern, but integrated enough for agents to feel continuous.
+The boundaries are intentional. Memory, personality, cognition, inference preparation, context management, and physical movement are separate enough to test and govern, but integrated enough for agents to feel continuous.
 
 ---
 
@@ -65,7 +220,9 @@ The short rule: DML should be wired into the agent loop as the default memory an
 ## What is in this repository
 
 ```text
-dml_core/daystrom_dml/        Core lattice, adapter, server, provider, DPM, DCN, DIP, tests
+dml_core/daystrom_dml/        Core durable lattice, adapters, provider, DPM, DCN, DIP
+dml_core/daystrom_dml/context/ DCM contracts, pages, working sets, checkpoints, runtime adapters, KV fabric
+deploy/vllm-cooperative/      Version-pinned cooperative-vLLM deployment and rollback workflow
 openclaw-wrapper/             Stable JSON wrapper contract for agent harnesses
 integrations/hermes/          Hermes/Citizen Snips memory-provider plugin
 skills/                       OpenClaw-style skill and helper scripts
@@ -73,10 +230,13 @@ scripts/                      Utility, benchmark, import, and audit scripts
 dml_mcp/                      MCP server entrypoint
 examples/                     Demos, playgrounds, visualizers, chatbot, benchmark harnesses
 docs/contracts/               Contract schemas and snapshots
+docs/artifacts/               Digest-only live-runtime evidence and deterministic renderers
 docs/daystrom-operator-bible.md        Human-operator runbook for deployment, proof, hygiene, backup, promotion, and release
 docs/daystrom-agentic-harness-bible.md Harness bible for Hermes/OpenClaw/Turnstone-style integration
 docs/dpm-readonly-packet/     DPM lifecycle/spec packet
 docs/dcn-operator-guide.md    DCN operator modes, gates, feedback, and eval smoke guidance
+docs/vllm-cooperative-kv-connector.md  Native KV connector behavior and trust boundary
+docs/dcm-native-context-transition.md  Logical-generation to native-checkpoint bridge
 ```
 
 Important entrypoints:
@@ -88,6 +248,7 @@ Important entrypoints:
 - `dml` — Ollama-style client CLI for provider operations.
 - `dml-mcp-server` — MCP integration surface.
 - `dcm-workload-benchmark` — digest-only comparison of full context, ordinary RAG, truncation, summarization, and DCM working-set hydration.
+- `deploy/vllm-cooperative/deploy.sh` — safe cooperative-vLLM init, doctor, pull, preflight, deploy, verification, status, logs, and rollback workflow.
 - `integrations/hermes/plugins/daystrom_dml` — Hermes memory provider with DML/DPM/DCN integration.
 - [`AGENT_README_TO_OMNOM.md`](AGENT_README_TO_OMNOM.md) — agent-facing integration playbook and endpoint wizard.
 
