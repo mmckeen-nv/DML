@@ -1,0 +1,30 @@
+{
+  "schema_version": "daystrom-frontier-compression-summary-v1",
+  "recorded_date": "2026-09-02",
+  "source_script": "scripts/frontier_compression_smoke.py",
+  "command": "python scripts/frontier_compression_smoke.py --turns 120 --output-dir /tmp/dml-frontier-compression-smoke",
+  "configuration": {
+    "history_turns": 120,
+    "required_anchor_count": 4,
+    "persistent_rag_backend": "faiss",
+    "dml_summarization": "deterministic local completion backend",
+    "local_draft_model": "gemma3:4b",
+    "frontier_model_called": false
+  },
+  "metrics": {
+    "direct_input_tokens_estimated": 6849,
+    "dml_context_tokens_estimated": 402,
+    "frontier_verification_input_tokens_estimated": 653,
+    "input_token_reduction_pct": 90.5,
+    "dml_context_anchor_recall": 1.0,
+    "local_draft_anchor_recall": 0.5,
+    "dml_retrieval_latency_ms_observed": 1.19
+  },
+  "caveats": [
+    "Token counts use the repository estimator and are not provider billing tokens.",
+    "The history and required anchors are synthetic.",
+    "No frontier model was called; output-token and cost projections are excluded.",
+    "Single-run local retrieval latency is descriptive, not a latency distribution."
+  ],
+  "result": "pass"
+}
