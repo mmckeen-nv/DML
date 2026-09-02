@@ -8,7 +8,7 @@ services:
     gpus: all
     shm_size: 16gb
     ports:
-      - "${VLLM_BIND_ADDRESS:-0.0.0.0}:${VLLM_PORT:-8000}:8000"
+      - "${VLLM_BIND_ADDRESS:-127.0.0.1}:${VLLM_PORT:-8000}:8000"
     environment:
       PYTHONPATH: /opt/daystrom/dml_core
       VLLM_SERVER_DEV_MODE: "1"
@@ -40,15 +40,15 @@ services:
       - "8000"
       - --async-scheduling
       - --dtype
-      - auto
+      - ${VLLM_DTYPE:-auto}
       - --kv-cache-dtype
-      - fp8
+      - ${VLLM_KV_CACHE_DTYPE:-fp8}
       - --tensor-parallel-size
-      - "1"
+      - ${VLLM_TENSOR_PARALLEL_SIZE:-1}
       - --pipeline-parallel-size
-      - "1"
+      - ${VLLM_PIPELINE_PARALLEL_SIZE:-1}
       - --data-parallel-size
-      - "1"
+      - ${VLLM_DATA_PARALLEL_SIZE:-1}
       - --trust-remote-code
       - --gpu-memory-utilization
       - ${VLLM_GPU_MEMORY_UTILIZATION:-0.70}
@@ -62,11 +62,11 @@ services:
       - --moe-backend
       - ${VLLM_MOE_BACKEND:-marlin}
       - --mamba_ssm_cache_dtype
-      - float16
+      - ${VLLM_MAMBA_SSM_CACHE_DTYPE:-float16}
       - --quantization
       - ${VLLM_QUANTIZATION:-fp4}
       - --kv-transfer-config
-      - '{"kv_connector":"DaystromCooperativeKVConnector","kv_role":"kv_both","kv_connector_module_path":"daystrom_dml.context.vllm_bridge.connector","kv_connector_extra_config":{"cpu_bytes_to_use":8589934592,"daystrom_secret_path":"/run/secrets/daystrom-kv-control.key","daystrom_max_ttl_seconds":900,"daystrom_max_records":128}}'
+      - ${DAYSTROM_KV_TRANSFER_CONFIG:?set DAYSTROM_KV_TRANSFER_CONFIG}
 
 secrets:
   daystrom_kv_control:
