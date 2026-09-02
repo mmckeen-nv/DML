@@ -192,6 +192,42 @@ def test_nested_success_is_compensated_when_outer_mutation_fails(tmp_path):
     reloaded.close(persist=False)
 
 
+def test_close_runs_checkpoint_and_store_and_propagates_persistence_error(tmp_path, monkeypatch):
+    adapter = make_adapter(tmp_path)
+
+    checkpoint_calls: list[bool] = []
+    store_close_calls: list[bool] = []
+
+    if adapter.checkpoint_manager is not None:
+        original_checkpoint_close = adapter.checkpoint_manager.close
+
+        def spy_checkpoint_close():
+            checkpoint_calls.append(True)
+            return original_checkpoint_close()
+
+        adapter.checkpoint_manager.close = spy_checkpoint_close  # type: ignore[assignment]
+
+    def spy_store_close():
+        store_close_calls.append(True)
+        raise RuntimeError("simulated store close failure")
+
+    adapter.store.close = spy_store_close  # type: ignore[assignment]
+
+    persistence_error = OSError("simulated close persistence failure")
+
+    def fail_persist_all(*_args, **_kwargs):
+        raise persistence_error
+
+    monkeypatch.setattr(adapter, "_persist_all", fail_persist_all)
+
+    with pytest.raises(OSError, match="simulated close persistence failure"):
+        adapter.close(persist=True)
+
+    if adapter.checkpoint_manager is not None:
+        assert checkpoint_calls == [True]
+    assert store_close_calls == [True]
+
+
 def test_persistent_rag_commit_is_compensated_after_legacy_failure(tmp_path, monkeypatch):
     pytest.importorskip("faiss")
     adapter = make_adapter(tmp_path, persistent_rag=True)
@@ -216,3 +252,55 @@ def test_persistent_rag_commit_is_compensated_after_legacy_failure(tmp_path, mon
     assert reloaded.persistent_rag_store is not None
     assert reloaded.persistent_rag_store.search(np.ones(16), top_k=2) == []
     reloaded.close(persist=False)
+
+
+def test_atomic_batch_preserves_successful_commit(tmp_path):
+    adapter = make_adapter(tmp_path)
+    chunks = ["first durable batch memory", "second durable batch memory"]
+    with adapter.atomic_batch("wrapper-ingest"):
+        for chunk in chunks:
+            adapter.ingest(chunk, persist=False)
+    assert adapter.memory_count() >= 1
+    assert adapter.rag_store.catalog_summary()["count"] == len(chunks)
+
+    reloaded = make_adapter(tmp_path)
+    assert reloaded.memory_count() == adapter.memory_count()
+    assert reloaded.rag_store.catalog_summary()["count"] == len(chunks)
+    reloaded.close(persist=False)
+    adapter.close(persist=False)
+
+
+def test_atomic_batch_rolls_back_when_second_durable_component_fails(tmp_path, monkeypatch):
+    """Regression: a batch ingest that commits DML then fails RAG must not split state.
+
+    Mirrors the cmd_ingest pattern: enter ``atomic_batch``, ingest with
+    ``persist=False``, then let the context persist on exit. Injecting a RAG
+    (second durable component) failure after DML commits must roll back both the
+    in-memory state and the already-committed DML store so a reload shows
+    neither component contains the new batch.
+    """
+
+    adapter = make_adapter(tmp_path)
+    real_atomic_write = adapter_module.atomic_write_text
+
+    def fail_rag_on_commit(path, content, *args, **kwargs):
+        if Path(path) == adapter.rag_state_path:
+            raise PermissionError("simulated RAG volume failure during batch commit")
+        return real_atomic_write(path, content, *args, **kwargs)
+
+    monkeypatch.setattr(adapter_module, "atomic_write_text", fail_rag_on_commit)
+
+    chunks = ["batch memory one must not survive", "batch memory two must not survive"]
+    with pytest.raises(PersistenceCommitError, match="RAG state"):
+        with adapter.atomic_batch("wrapper-ingest"):
+            for chunk in chunks:
+                adapter.ingest(chunk, persist=False)
+
+    assert adapter.memory_count() == 0
+    assert adapter.rag_store.catalog_summary()["count"] == 0
+
+    reloaded = make_adapter(tmp_path)
+    assert reloaded.memory_count() == 0
+    assert reloaded.rag_store.catalog_summary()["count"] == 0
+    reloaded.close(persist=False)
+    adapter.close(persist=False)

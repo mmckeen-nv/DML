@@ -4,7 +4,10 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+import daystrom_dml.checkpoint as checkpoint_module
+import daystrom_dml.persistent_index as persistent_index_module
 from daystrom_dml import server
+from daystrom_dml.checkpoint import CheckpointManager
 from daystrom_dml.dml_adapter import DMLAdapter
 from daystrom_dml.persistent_index import PersistentVectorIndex
 from daystrom_dml.config import load_config
@@ -96,3 +99,89 @@ def test_benchmark_runner(tmp_path):
     adapter.close()
     assert metrics["iterations"] == 3.0
     assert metrics["avg_latency_ms"] >= 0
+
+
+# ---------------------------------------------------------------------------
+# Crash-durability: checkpoint and persistent-index writers must route through
+# the shared atomic_io helpers (unique sibling temps, fsync, dir-sync, bounded
+# Windows retries) rather than bare write_text + Path.replace.
+# ---------------------------------------------------------------------------
+
+
+def test_checkpoint_routes_through_atomic_write_text(tmp_path, monkeypatch):
+    calls: list[str] = []
+    real = checkpoint_module.atomic_write_text
+
+    def spy(path, *args, **kwargs):
+        calls.append(str(path))
+        return real(path, *args, **kwargs)
+
+    monkeypatch.setattr(checkpoint_module, "atomic_write_text", spy)
+
+    manager = CheckpointManager(tmp_path, provider=lambda: {"gen": 1})
+    path = manager.checkpoint()
+
+    assert calls, "checkpoint() did not call atomic_write_text"
+    assert calls[-1] == str(path)
+    assert json.loads(path.read_text(encoding="utf-8")) == {"gen": 1}
+    assert list(tmp_path.glob("*.tmp")) == []
+
+
+def test_checkpoint_failure_preserves_prior_state(tmp_path, monkeypatch):
+    manager = CheckpointManager(tmp_path, provider=lambda: {"gen": 1})
+    first_path = manager.checkpoint()
+    assert first_path.exists()
+
+    def boom(*_args, **_kwargs):
+        raise OSError("simulated disk full")
+
+    monkeypatch.setattr(checkpoint_module, "atomic_write_text", boom)
+
+    with pytest.raises(OSError, match="simulated disk full"):
+        manager.checkpoint()
+
+    assert first_path.exists()
+    assert json.loads(first_path.read_text(encoding="utf-8")) == {"gen": 1}
+    assert list(tmp_path.glob("*.tmp")) == []
+
+
+def test_persistent_index_flush_routes_through_atomic_write_text(tmp_path, monkeypatch):
+    calls: list[str] = []
+    real = persistent_index_module.atomic_write_text
+
+    def spy(path, *args, **kwargs):
+        calls.append(str(path))
+        return real(path, *args, **kwargs)
+
+    monkeypatch.setattr(persistent_index_module, "atomic_write_text", spy)
+
+    index_path = tmp_path / "index.json"
+    index = PersistentVectorIndex(index_path)
+    index.add(np.ones(4, dtype=np.float32), {"text": "alpha", "tokens": 1, "meta": {}})
+
+    assert calls, "_flush() did not call atomic_write_text"
+    assert calls[-1] == str(index_path)
+    assert list(tmp_path.glob("*.tmp")) == []
+
+
+def test_persistent_index_flush_failure_preserves_prior_state(tmp_path, monkeypatch):
+    index_path = tmp_path / "index.json"
+    index = PersistentVectorIndex(index_path)
+    index.add(np.ones(4, dtype=np.float32), {"text": "first", "tokens": 1, "meta": {}})
+    assert index_path.exists()
+
+    prior_content = index_path.read_text(encoding="utf-8")
+
+    def boom(*_args, **_kwargs):
+        raise OSError("simulated disk full")
+
+    monkeypatch.setattr(persistent_index_module, "atomic_write_text", boom)
+
+    with pytest.raises(OSError, match="simulated disk full"):
+        index.add(np.zeros(4, dtype=np.float32), {"text": "second", "tokens": 1, "meta": {}})
+
+    assert index_path.read_text(encoding="utf-8") == prior_content
+    assert list(tmp_path.glob("*.tmp")) == []
+    reloaded = PersistentVectorIndex(index_path)
+    assert len(reloaded._vectors) == 1
+    assert reloaded._payloads[0]["text"] == "first"

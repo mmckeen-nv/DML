@@ -8,6 +8,8 @@ from contextlib import suppress
 from pathlib import Path
 from typing import Callable, Dict, Optional
 
+from .atomic_io import atomic_write_text
+
 StateProvider = Callable[[], Dict[str, object]]
 
 
@@ -57,9 +59,7 @@ class CheckpointManager:
         payload = self.provider()
         timestamp = int(time.time())
         path = self.directory / f"checkpoint-{timestamp}.json"
-        tmp_path = path.with_suffix(".tmp")
-        tmp_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-        tmp_path.replace(path)
+        atomic_write_text(path, json.dumps(payload, indent=2))
         self._prune_history()
         return path
 

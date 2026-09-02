@@ -604,3 +604,433 @@ def test_scheduler_protects_evicts_commits_and_denies_restore(
     assert denied_response is not None
     assert denied_response["daystrom"]["reason_code"] == "purge_complete"
     assert denied_response["daystrom"]["matched_tokens"] == 0
+
+
+def _setup_row_mismatch_connector(
+    purge_env, secret_file, fixed_time, label, actual_rows
+):
+    """Shared setup for under-count and over-count mismatch tests.
+
+    Returns ``(connector, checkpoint, block_hashes, blocks, freed, event)``
+    where *blocks* are the two pinned CPU blocks and *freed* accumulates block
+    ids that the scheduler attempted to return to the free queue.
+    """
+
+    connector_mod, _, VllmConfig, KVConnectorRole, extra = purge_env
+    connector = connector_mod.DaystromCooperativeKVConnector(
+        VllmConfig(extra_config=extra), KVConnectorRole.SCHEDULER
+    )
+    connector.policy._time_fn = lambda: fixed_time  # type: ignore[attr-defined]
+    block_hashes = _HELPERS._block_hashes(2)
+    checkpoint = _HELPERS._digest(label)
+    save_params = build_kv_transfer_params(
+        operation="save",
+        checkpoint_digest=checkpoint,
+        expires_at=fixed_time + 500,
+        nonce=f"{label}-save",
+        secret_path=secret_file,
+    )
+    assert connector.policy.evaluate(save_params, block_hashes, tokens=32).authorized
+
+    connector.policy.begin_purge(
+        checkpoint,
+        purge_event=29,
+        blocks_scheduled=2,
+        shared_blocks=0,
+    )
+
+    target_block_a = types.SimpleNamespace(block_id=3, ref_cnt=1)
+    target_block_b = types.SimpleNamespace(block_id=5, ref_cnt=1)
+    blocks = [target_block_a, target_block_b]
+    freed: list[int] = []
+    manager = connector.scheduler_manager
+    manager.cpu_block_pool = types.SimpleNamespace(
+        free_blocks=lambda selected: freed.extend(
+            block.block_id for block in selected
+        )
+    )
+    manager.update_connector_output = lambda output: None
+    event = 29
+    connector._purge_event_to_checkpoint[event] = checkpoint  # type: ignore[attr-defined]
+    connector._purge_event_to_request[event] = f"{label}-purge"  # type: ignore[attr-defined]
+    connector._purge_event_to_blocks[event] = blocks  # type: ignore[attr-defined]
+    connector._expected_worker_count = 1  # type: ignore[attr-defined]
+
+    output = types.SimpleNamespace(
+        kv_connector_worker_meta=connector_mod.DaystromPurgeWorkerMetadata(
+            completed_store_events={},
+            completed_purge_events={event: (1, actual_rows, actual_rows * 2048)},
+        )
+    )
+    connector.update_connector_output(output)
+
+    return connector, connector_mod, checkpoint, block_hashes, blocks, freed, event
+
+
+def test_scheduler_row_undercount_is_terminal_and_does_not_requeue(
+    purge_env, secret_file, fixed_time
+) -> None:
+    """Under-count: worker reports fewer rows than scheduled. The purge must
+    record a terminal completion fault, keep rows protected, and never requeue
+    the zero command or allow restore."""
+
+    connector, _, checkpoint, block_hashes, blocks, freed, event = (
+        _setup_row_mismatch_connector(
+            purge_env, secret_file, fixed_time, "row-undercount", actual_rows=1
+        )
+    )
+
+    # Rows remain protected — never freed.
+    assert freed == []
+    assert blocks[0].ref_cnt == 1
+    assert blocks[1].ref_cnt == 1
+    # Event maps preserved so rows stay pinned and purge is nonterminal.
+    assert connector._purge_event_to_checkpoint[event] == checkpoint  # type: ignore[attr-defined]
+    assert connector._purge_event_to_blocks[event] == blocks  # type: ignore[attr-defined]
+    # Terminal completion fault recorded with safe evidence.
+    assert connector._purge_completion_errors[checkpoint] == (  # type: ignore[attr-defined]
+        "purge_worker_row_mismatch"
+    )
+    assert connector._purge_completion_evidence[checkpoint] == (  # type: ignore[attr-defined]
+        {"purge_expected_rows": 2, "purge_actual_rows": 1}
+    )
+
+    # A subsequent purge status request must NOT requeue the zero command.
+    purge_params = build_kv_transfer_params(
+        operation="purge",
+        checkpoint_digest=checkpoint,
+        expires_at=fixed_time + 500,
+        nonce="row-undercount-status",
+        secret_path=secret_file,
+    )
+    status_request = _HELPERS._FakeRequest(
+        "row-undercount-status", kv_transfer_params=purge_params, block_hashes=[]
+    )
+    connector.update_state_after_alloc(
+        status_request, blocks=[], num_external_tokens=0
+    )
+    assert connector._purge_unsent_events == []  # type: ignore[attr-defined]
+
+    _, response = connector.request_finished(status_request, [])
+    assert response is not None
+    daystrom = response["daystrom"]
+    assert daystrom["reason_code"] == "purge_worker_row_mismatch"
+    assert daystrom["purge_expected_rows"] == 2
+    assert daystrom["purge_actual_rows"] == 1
+
+    # Restore must be denied — fail-closed row pinning preserved.
+    restore_params = build_kv_transfer_params(
+        operation="restore",
+        checkpoint_digest=checkpoint,
+        expires_at=fixed_time + 500,
+        nonce="row-undercount-restore",
+        secret_path=secret_file,
+    )
+    restore_request = _HELPERS._FakeRequest(
+        "row-undercount-restore",
+        kv_transfer_params=restore_params,
+        block_hashes=block_hashes,
+    )
+    assert connector.get_num_new_matched_tokens(restore_request, 0) == (0, False)
+    _, denied = connector.request_finished(restore_request, [])
+    assert denied is not None
+    assert denied["daystrom"]["reason_code"] == "purge_pending"
+
+
+def test_overlapping_purges_sharing_hash_serialize_and_neither_orphaned(
+    purge_env, secret_file, fixed_time
+) -> None:
+    """Deterministic A={H,a1}, B={H,b1} overlapping-purge coverage proving:
+
+    * H is not zeroed while still retained/shared by an in-flight purge
+    * no row is zeroed twice
+    * neither purge becomes permanently nonterminal
+    * exclusive rows are freed exactly once
+    * status/retry behavior is deterministic
+    """
+
+    connector_mod, _, VllmConfig, KVConnectorRole, extra = purge_env
+    connector = connector_mod.DaystromCooperativeKVConnector(
+        VllmConfig(extra_config=extra), KVConnectorRole.SCHEDULER
+    )
+    connector.policy._time_fn = lambda: fixed_time  # type: ignore[attr-defined]
+
+    # Two checkpoints sharing hash H: A={H, a1}, B={H, b1}.
+    shared_hash = _HELPERS._block_hashes(1)[0]
+    a1_hash = _HELPERS._block_hashes(2)[1]
+    b1_hash = _HELPERS._block_hashes(3)[2]
+    first = _HELPERS._digest("overlap-A")
+    second = _HELPERS._digest("overlap-B")
+    for checkpoint, hashes, nonce in (
+        (first, [shared_hash, a1_hash], "save-overlap-A"),
+        (second, [shared_hash, b1_hash], "save-overlap-B"),
+    ):
+        params = build_kv_transfer_params(
+            operation="save",
+            checkpoint_digest=checkpoint,
+            expires_at=fixed_time + 500,
+            nonce=nonce,
+            secret_path=secret_file,
+        )
+        assert connector.policy.evaluate(params, hashes).authorized
+
+    # Exact hashes (block_hash + group_id bytes) and block objects.
+    h_exact = shared_hash + (0).to_bytes(4, "big")
+    a1_exact = a1_hash + (0).to_bytes(4, "big")
+    b1_exact = b1_hash + (0).to_bytes(4, "big")
+
+    class Block:
+        def __init__(self, block_id: int):
+            self.block_id = block_id
+            self.ref_cnt = 0
+
+    h_block = Block(5)
+    a1_block = Block(7)
+    b1_block = Block(9)
+
+    class HashMap:
+        def __init__(self):
+            self.values = {
+                h_exact: h_block,
+                a1_exact: a1_block,
+                b1_exact: b1_block,
+            }
+
+        def get_one_block(self, key):
+            return self.values.get(key)
+
+    class Pool:
+        def __init__(self):
+            self.cached_block_hash_to_block = HashMap()
+            self.evicted: set[int] = set()
+            self.freed: list[int] = []
+
+        def touch(self, selected):
+            for block in selected:
+                block.ref_cnt += 1
+
+        def evict_blocks(self, block_ids):
+            self.evicted.update(block_ids)
+            self.cached_block_hash_to_block.values = {
+                key: block
+                for key, block in self.cached_block_hash_to_block.values.items()
+                if block.block_id not in block_ids
+            }
+
+        def free_blocks(self, selected):
+            for block in selected:
+                block.ref_cnt -= 1
+                self.freed.append(block.block_id)
+
+    pool = Pool()
+    manager = connector.scheduler_manager
+    manager.cpu_block_pool = pool
+    manager.cpu_kv_cache_config = types.SimpleNamespace(kv_cache_groups=[object()])
+    manager.update_connector_output = lambda output: None
+
+    # Pre-set CPU row inventories (resident rows confirmed for each checkpoint).
+    connector._checkpoint_stored_hashes[first] = {h_exact, a1_exact}  # type: ignore[attr-defined]
+    connector._checkpoint_stored_hashes[second] = {h_exact, b1_exact}  # type: ignore[attr-defined]
+
+    # --- Step 1: A's purge is scheduled. H is shared (B live), only a1 targeted.
+    purge_a_params = build_kv_transfer_params(
+        operation="purge",
+        checkpoint_digest=first,
+        expires_at=fixed_time + 500,
+        nonce="purge-overlap-A",
+        secret_path=secret_file,
+    )
+    purge_a_request = _HELPERS._FakeRequest(
+        "purge-overlap-A", kv_transfer_params=purge_a_params, block_hashes=[]
+    )
+    connector.update_state_after_alloc(purge_a_request, blocks=[], num_external_tokens=0)
+
+    # A's purge evicted only a1's block; H is retained as shared.
+    assert pool.evicted == {7}
+    assert a1_block.ref_cnt == 1
+    assert h_block.ref_cnt == 0
+    command_a = connector.build_connector_meta(types.SimpleNamespace())
+    assert command_a.purge_event == 0
+    assert command_a.purge_cpu_blocks == [7]
+
+    _, pending_a = connector.request_finished(purge_a_request, [])
+    assert pending_a["daystrom"]["reason_code"] == "purge_pending"
+
+    # --- Step 2: B's purge is attempted while A is in-flight. Guard fires.
+    purge_b_params = build_kv_transfer_params(
+        operation="purge",
+        checkpoint_digest=second,
+        expires_at=fixed_time + 500,
+        nonce="purge-overlap-B",
+        secret_path=secret_file,
+    )
+    purge_b_request = _HELPERS._FakeRequest(
+        "purge-overlap-B", kv_transfer_params=purge_b_params, block_hashes=[]
+    )
+    connector.update_state_after_alloc(purge_b_request, blocks=[], num_external_tokens=0)
+
+    # B's purge was NOT scheduled: no eviction, no new event.
+    assert pool.evicted == {7}
+    assert connector._purge_unsent_events == []  # type: ignore[attr-defined]
+    _, conflict_response = connector.request_finished(purge_b_request, [])
+    assert conflict_response is not None
+    assert conflict_response["daystrom"]["reason_code"] == "purge_ownership_conflict"
+
+    # H was not zeroed: H's block is still in the hash map and untouched.
+    assert h_block.ref_cnt == 0
+    assert h_exact in pool.cached_block_hash_to_block.values
+
+    # --- Step 3: A's purge completes. a1 freed, H still resident.
+    output_a = types.SimpleNamespace(
+        kv_connector_worker_meta=connector_mod.DaystromPurgeWorkerMetadata(
+            completed_store_events={},
+            completed_purge_events={0: (1, 1, 2048)},
+        )
+    )
+    connector.update_connector_output(output_a)
+    assert pool.freed == [7]
+    assert a1_block.ref_cnt == 0
+    assert connector.policy.record_for(first) is None
+    # H is still in the hash map (was never evicted by A's purge).
+    assert h_exact in pool.cached_block_hash_to_block.values
+
+    # --- Step 4: B's purge is retried with a new request. No conflict (A done).
+    purge_b_retry_params = build_kv_transfer_params(
+        operation="purge",
+        checkpoint_digest=second,
+        expires_at=fixed_time + 500,
+        nonce="purge-overlap-B-retry",
+        secret_path=secret_file,
+    )
+    purge_b_retry_request = _HELPERS._FakeRequest(
+        "purge-overlap-B-retry",
+        kv_transfer_params=purge_b_retry_params,
+        block_hashes=[],
+    )
+    connector.update_state_after_alloc(
+        purge_b_retry_request, blocks=[], num_external_tokens=0
+    )
+
+    # B's purge now targets H and b1 (both unique after A completed).
+    assert pool.evicted == {7, 5, 9}
+    assert h_block.ref_cnt == 1
+    assert b1_block.ref_cnt == 1
+    command_b = connector.build_connector_meta(types.SimpleNamespace())
+    assert command_b.purge_event == 1
+    assert command_b.purge_cpu_blocks == [5, 9]
+
+    _, pending_b = connector.request_finished(purge_b_retry_request, [])
+    assert pending_b["daystrom"]["reason_code"] == "purge_pending"
+
+    # --- Step 5: B's purge completes. H and b1 freed exactly once.
+    output_b = types.SimpleNamespace(
+        kv_connector_worker_meta=connector_mod.DaystromPurgeWorkerMetadata(
+            completed_store_events={},
+            completed_purge_events={1: (1, 2, 4096)},
+        )
+    )
+    connector.update_connector_output(output_b)
+    assert pool.freed == [7, 5, 9]
+    assert h_block.ref_cnt == 0
+    assert b1_block.ref_cnt == 0
+    assert connector.policy.record_for(second) is None
+
+    # --- Verify: no row was zeroed twice (each freed exactly once).
+    assert pool.freed.count(5) == 1
+    assert pool.freed.count(7) == 1
+    assert pool.freed.count(9) == 1
+
+    # --- Verify: neither purge is nonterminal (both completed, records gone).
+    assert connector.policy.record_for(first) is None
+    assert connector.policy.record_for(second) is None
+
+    # --- Verify: restore denied for both purged checkpoints (fail-closed).
+    for checkpoint, nonce, hashes in (
+        (first, "restore-overlap-A", [shared_hash, a1_hash]),
+        (second, "restore-overlap-B", [shared_hash, b1_hash]),
+    ):
+        restore_params = build_kv_transfer_params(
+            operation="restore",
+            checkpoint_digest=checkpoint,
+            expires_at=fixed_time + 500,
+            nonce=nonce,
+            secret_path=secret_file,
+        )
+        restore_request = _HELPERS._FakeRequest(
+            f"restore-{nonce}",
+            kv_transfer_params=restore_params,
+            block_hashes=hashes,
+        )
+        assert connector.get_num_new_matched_tokens(restore_request, 0) == (0, False)
+        _, denied = connector.request_finished(restore_request, [])
+        assert denied is not None
+        assert denied["daystrom"]["reason_code"] == "purge_complete"
+
+def test_scheduler_row_overcount_is_terminal_and_does_not_requeue(
+    purge_env, secret_file, fixed_time
+) -> None:
+    """Over-count: worker reports more rows than scheduled. The purge must
+    record a terminal completion fault, keep rows protected, and never requeue
+    the zero command or allow restore."""
+
+    connector, _, checkpoint, block_hashes, blocks, freed, event = (
+        _setup_row_mismatch_connector(
+            purge_env, secret_file, fixed_time, "row-overcount", actual_rows=3
+        )
+    )
+
+    # Rows remain protected — never freed.
+    assert freed == []
+    assert blocks[0].ref_cnt == 1
+    assert blocks[1].ref_cnt == 1
+    # Event maps preserved so rows stay pinned and purge is nonterminal.
+    assert connector._purge_event_to_checkpoint[event] == checkpoint  # type: ignore[attr-defined]
+    assert connector._purge_event_to_blocks[event] == blocks  # type: ignore[attr-defined]
+    # Terminal completion fault recorded with safe evidence.
+    assert connector._purge_completion_errors[checkpoint] == (  # type: ignore[attr-defined]
+        "purge_worker_row_mismatch"
+    )
+    assert connector._purge_completion_evidence[checkpoint] == (  # type: ignore[attr-defined]
+        {"purge_expected_rows": 2, "purge_actual_rows": 3}
+    )
+
+    # A subsequent purge status request must NOT requeue the zero command.
+    purge_params = build_kv_transfer_params(
+        operation="purge",
+        checkpoint_digest=checkpoint,
+        expires_at=fixed_time + 500,
+        nonce="row-overcount-status",
+        secret_path=secret_file,
+    )
+    status_request = _HELPERS._FakeRequest(
+        "row-overcount-status", kv_transfer_params=purge_params, block_hashes=[]
+    )
+    connector.update_state_after_alloc(
+        status_request, blocks=[], num_external_tokens=0
+    )
+    assert connector._purge_unsent_events == []  # type: ignore[attr-defined]
+
+    _, response = connector.request_finished(status_request, [])
+    assert response is not None
+    daystrom = response["daystrom"]
+    assert daystrom["reason_code"] == "purge_worker_row_mismatch"
+    assert daystrom["purge_expected_rows"] == 2
+    assert daystrom["purge_actual_rows"] == 3
+
+    # Restore must be denied — fail-closed row pinning preserved.
+    restore_params = build_kv_transfer_params(
+        operation="restore",
+        checkpoint_digest=checkpoint,
+        expires_at=fixed_time + 500,
+        nonce="row-overcount-restore",
+        secret_path=secret_file,
+    )
+    restore_request = _HELPERS._FakeRequest(
+        "row-overcount-restore",
+        kv_transfer_params=restore_params,
+        block_hashes=block_hashes,
+    )
+    assert connector.get_num_new_matched_tokens(restore_request, 0) == (0, False)
+    _, denied = connector.request_finished(restore_request, [])
+    assert denied is not None
+    assert denied["daystrom"]["reason_code"] == "purge_pending"

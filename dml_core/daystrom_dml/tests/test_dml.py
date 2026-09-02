@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from scripts.embedding_compatibility_status import (
     format_markdown_report,
     format_progress_snapshot,
@@ -14,6 +16,7 @@ from scripts.embedding_compatibility_status import (
 
 import numpy as np
 
+import daystrom_dml.personality_matrix as personality_matrix_module
 from daystrom_dml.dml_adapter import (
     DMLAdapter,
     KNOWLEDGE_ENTRY_PREVIEW_CHARS,
@@ -1655,3 +1658,196 @@ def test_personality_evolution_records_interaction_and_renders_hard_laws(tmp_pat
     assert "Context adaptation:" in rendered
     assert "Explicit current-turn user instructions override personality tendencies" in rendered
     assert overlay["effective_constraints"]["hard_laws_immutable"] is True
+
+
+# ---------------------------------------------------------------------------
+# Crash-durability: the DPM preference-graph and evolution-graph writers must
+# route through the shared atomic_io helpers (unique sibling temps, fsync,
+# dir-sync, bounded Windows retries) rather than bare write_text + replace.
+# ---------------------------------------------------------------------------
+
+
+def _build_active_write_adapter(tmp_path: Path, *, graph_path: Path) -> DMLAdapter:
+    return DMLAdapter(
+        config_overrides={
+            "model_name": "dummy",
+            "embedding_model": None,
+            "storage_dir": str(tmp_path / "storage"),
+            "persistence": {"enable": False},
+            "metrics_enabled": False,
+            "dpm": {
+                "enable": True,
+                "mode": "active-write",
+                "preference_graph_path": str(graph_path),
+                "relationship_id": "relationship:test",
+            },
+        },
+        embedder=RandomEmbedder(dim=48),
+        summarizer=DummySummarizer(),
+        start_aging_loop=False,
+    )
+
+
+def test_personality_preference_graph_writer_routes_through_atomic_write_text(
+    tmp_path, monkeypatch
+) -> None:
+    graph_path = tmp_path / "dpm-graph.json"
+    adapter = _build_active_write_adapter(tmp_path, graph_path=graph_path)
+
+    calls: list[str] = []
+    real = personality_matrix_module.atomic_write_text
+
+    def spy(path, *args, **kwargs):
+        calls.append(str(path))
+        return real(path, *args, **kwargs)
+
+    monkeypatch.setattr(personality_matrix_module, "atomic_write_text", spy)
+
+    result = adapter.record_personality_preference(
+        "I prefer concise direct answers.", source_id="turn:test"
+    )
+
+    assert result["status"] == "recorded"
+    assert calls, "record_personality_preference() did not call atomic_write_text"
+    assert calls[-1] == str(graph_path)
+    assert graph_path.exists()
+    assert list(graph_path.parent.glob("*.tmp")) == []
+    assert list(graph_path.parent.glob(".*.tmp")) == []
+
+
+def test_personality_preference_graph_writer_failure_preserves_prior_state(
+    tmp_path, monkeypatch
+) -> None:
+    graph_path = tmp_path / "dpm-graph.json"
+    adapter = _build_active_write_adapter(tmp_path, graph_path=graph_path)
+
+    first = adapter.record_personality_preference(
+        "I prefer concise direct answers.", source_id="turn:one"
+    )
+    assert first["status"] == "recorded"
+    assert graph_path.exists()
+    prior_content = graph_path.read_text(encoding="utf-8")
+    prior_graph = json.loads(prior_content)
+
+    def boom(*_args, **_kwargs):
+        raise OSError("simulated disk full")
+
+    monkeypatch.setattr(personality_matrix_module, "atomic_write_text", boom)
+
+    with pytest.raises(OSError, match="simulated disk full"):
+        adapter.record_personality_preference(
+            "I prefer verbose answers.", source_id="turn:two"
+        )
+
+    assert graph_path.read_text(encoding="utf-8") == prior_content
+    assert list(graph_path.parent.glob("*.tmp")) == []
+    assert list(graph_path.parent.glob(".*.tmp")) == []
+    reloaded = json.loads(graph_path.read_text(encoding="utf-8"))
+    assert len(reloaded["nodes"]) == len(prior_graph["nodes"])
+    assert reloaded["nodes"][0]["provenance"][-1]["source_id"] == "turn:one"
+
+
+def test_personality_evolution_graph_writer_routes_through_atomic_write_text(
+    tmp_path, monkeypatch
+) -> None:
+    evolution_path = tmp_path / "storage" / "dpm_evolution_graph.json"
+    adapter = DMLAdapter(
+        config_overrides={
+            "model_name": "dummy",
+            "embedding_model": None,
+            "storage_dir": str(tmp_path / "storage"),
+            "persistence": {"enable": False},
+            "metrics_enabled": False,
+            "dpm": {
+                "enable": True,
+                "mode": "active-write",
+                "evolution_graph_path": str(evolution_path),
+                "relationship_id": "relationship:test",
+                "max_overlay_chars": 700,
+                "token_budget": 180,
+            },
+        },
+        embedder=RandomEmbedder(dim=48),
+        summarizer=DummySummarizer(),
+        start_aging_loop=False,
+    )
+
+    calls: list[str] = []
+    real = personality_matrix_module.atomic_write_text
+
+    def spy(path, *args, **kwargs):
+        calls.append(str(path))
+        return real(path, *args, **kwargs)
+
+    monkeypatch.setattr(personality_matrix_module, "atomic_write_text", spy)
+
+    result = adapter.record_personality_interaction(
+        "This is too mechanical; be warmer.",
+        "Understood.",
+        source_id="turn:evolution",
+        meta={"task_type": "creative_personality", "feedback_dimension": "mechanicality", "feedback_valence": -0.8},
+    )
+
+    assert result["status"] == "recorded"
+    assert calls, "record_personality_interaction() did not call atomic_write_text"
+    assert calls[-1] == str(evolution_path)
+    assert evolution_path.exists()
+    assert list(evolution_path.parent.glob("*.tmp")) == []
+    assert list(evolution_path.parent.glob(".*.tmp")) == []
+
+
+def test_personality_evolution_graph_writer_failure_preserves_prior_state(
+    tmp_path, monkeypatch
+) -> None:
+    evolution_path = tmp_path / "storage" / "dpm_evolution_graph.json"
+    adapter = DMLAdapter(
+        config_overrides={
+            "model_name": "dummy",
+            "embedding_model": None,
+            "storage_dir": str(tmp_path / "storage"),
+            "persistence": {"enable": False},
+            "metrics_enabled": False,
+            "dpm": {
+                "enable": True,
+                "mode": "active-write",
+                "evolution_graph_path": str(evolution_path),
+                "relationship_id": "relationship:test",
+                "max_overlay_chars": 700,
+                "token_budget": 180,
+            },
+        },
+        embedder=RandomEmbedder(dim=48),
+        summarizer=DummySummarizer(),
+        start_aging_loop=False,
+    )
+
+    first = adapter.record_personality_interaction(
+        "This is too mechanical; be warmer.",
+        "Understood.",
+        source_id="turn:one",
+        meta={"task_type": "creative_personality", "feedback_dimension": "mechanicality", "feedback_valence": -0.8},
+    )
+    assert first["status"] == "recorded"
+    assert evolution_path.exists()
+    prior_content = evolution_path.read_text(encoding="utf-8")
+    prior_graph = json.loads(prior_content)
+
+    def boom(*_args, **_kwargs):
+        raise OSError("simulated disk full")
+
+    monkeypatch.setattr(personality_matrix_module, "atomic_write_text", boom)
+
+    with pytest.raises(OSError, match="simulated disk full"):
+        adapter.record_personality_interaction(
+            "Be even warmer still.",
+            "Done.",
+            source_id="turn:two",
+            meta={"task_type": "creative_personality", "feedback_dimension": "warmth", "feedback_valence": 0.6},
+        )
+
+    assert evolution_path.read_text(encoding="utf-8") == prior_content
+    assert list(evolution_path.parent.glob("*.tmp")) == []
+    assert list(evolution_path.parent.glob(".*.tmp")) == []
+    reloaded = json.loads(evolution_path.read_text(encoding="utf-8"))
+    assert len(reloaded["state_traces"]) == len(prior_graph["state_traces"])
+    assert reloaded["state_traces"][-1]["source_id"] == "turn:one"

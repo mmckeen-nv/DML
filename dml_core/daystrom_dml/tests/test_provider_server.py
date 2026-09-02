@@ -20,16 +20,19 @@ class DummyItem:
 
 
 class DummyStore:
-    def __init__(self) -> None:
-        self._items = [DummyItem(1, "Provider memory text", {"tenant_id": "openclaw", "source": "unit"})]
+    def __init__(self, items=None) -> None:
+        if items is not None:
+            self._items = items
+        else:
+            self._items = [DummyItem(1, "Provider memory text", {"tenant_id": "openclaw", "source": "unit"})]
 
     def items(self):
         return list(self._items)
 
 
 class DummyAdapter:
-    def __init__(self) -> None:
-        self.store = DummyStore()
+    def __init__(self, store=None) -> None:
+        self.store = store or DummyStore()
         self.ingested = []
 
     def close(self) -> None:
@@ -149,3 +152,99 @@ def test_provider_server_root_supports_browser_ui_and_ollama_probe() -> None:
 
     assert client.get("/", headers={"accept": "application/json"}).text == "Ollama is running"
     assert "local memory provider" in client.get("/", headers={"accept": "text/html"}).text
+
+
+def test_provider_fetch_rejects_cross_tenant() -> None:
+    items = [
+        DummyItem(1, "tenant-a secret", {"tenant_id": "tenant-a", "session_id": "s1", "client_id": "c1"}),
+        DummyItem(2, "tenant-b secret", {"tenant_id": "tenant-b"}),
+    ]
+    store = DummyStore(items=items)
+    app = create_app(adapter_factory=lambda: DummyAdapter(store=store))
+    client = TestClient(app)
+
+    own = client.get("/api/fetch/1", params={"tenant_id": "tenant-a"})
+    assert own.status_code == 404
+
+    own_scoped = client.get("/api/fetch/1", params={"tenant_id": "tenant-a", "session_id": "s1", "client_id": "c1"})
+    assert own_scoped.status_code == 200
+    assert own_scoped.json()["text"] == "tenant-a secret"
+
+    mismatched_session = client.get("/api/fetch/1", params={"tenant_id": "tenant-a", "session_id": "s2"})
+    assert mismatched_session.status_code == 404
+
+    cross = client.get("/api/fetch/1", params={"tenant_id": "tenant-b"})
+    assert cross.status_code == 404
+
+    cross_default = client.get("/api/fetch/2", params={"tenant_id": "tenant-a"})
+    assert cross_default.status_code == 404
+
+
+def test_provider_scope_matches_helper() -> None:
+    from daystrom_dml.provider_server import _scope_matches
+
+    assert not _scope_matches(
+        {"tenant_id": "a", "client_id": "c1"}, tenant_id="a", client_id=None, session_id=None, instance_id=None,
+    )
+    assert _scope_matches(
+        {"tenant_id": "a", "client_id": "c1"}, tenant_id="a", client_id="c1", session_id=None, instance_id=None,
+    )
+    assert not _scope_matches(
+        {"tenant_id": "a"}, tenant_id="b", client_id=None, session_id=None, instance_id=None,
+    )
+    assert not _scope_matches(
+        {"tenant_id": "a", "session_id": "s1"},
+        tenant_id="a", client_id=None, session_id="s2", instance_id=None,
+    )
+    assert not _scope_matches(
+        {"tenant_id": "a", "session_id": "s1"},
+        tenant_id="a", client_id=None, session_id=None, instance_id=None,
+    )
+    assert _scope_matches(
+        {"tenant_id": "a", "session_id": "s1"},
+        tenant_id="a", client_id=None, session_id="s1", instance_id=None,
+    )
+
+
+def test_provider_fetch_enforces_stored_secondary_scope() -> None:
+    items = [
+        DummyItem(1, "client secret", {"tenant_id": "tenant-a", "client_id": "c1"}),
+        DummyItem(2, "session secret", {"tenant_id": "tenant-a", "session_id": "s1"}),
+        DummyItem(3, "instance secret", {"tenant_id": "tenant-a", "instance_id": "i1"}),
+        DummyItem(4, "shared tenant memory", {"tenant_id": "tenant-a"}),
+    ]
+    store = DummyStore(items=items)
+    app = create_app(adapter_factory=lambda: DummyAdapter(store=store))
+    client = TestClient(app)
+
+    # client_id: omitted and mismatch -> 404; exact supplied scope -> 200
+    assert client.get("/api/fetch/1", params={"tenant_id": "tenant-a"}).status_code == 404
+    assert client.get("/api/fetch/1", params={"tenant_id": "tenant-a", "client_id": "c-other"}).status_code == 404
+    ok = client.get("/api/fetch/1", params={"tenant_id": "tenant-a", "client_id": "c1"})
+    assert ok.status_code == 200
+    assert ok.json()["text"] == "client secret"
+
+    # session_id: omitted and mismatch -> 404; exact supplied scope -> 200
+    assert client.get("/api/fetch/2", params={"tenant_id": "tenant-a"}).status_code == 404
+    assert client.get("/api/fetch/2", params={"tenant_id": "tenant-a", "session_id": "s-other"}).status_code == 404
+    ok = client.get("/api/fetch/2", params={"tenant_id": "tenant-a", "session_id": "s1"})
+    assert ok.status_code == 200
+    assert ok.json()["text"] == "session secret"
+
+    # instance_id: omitted and mismatch -> 404; exact supplied scope -> 200
+    assert client.get("/api/fetch/3", params={"tenant_id": "tenant-a"}).status_code == 404
+    assert client.get("/api/fetch/3", params={"tenant_id": "tenant-a", "instance_id": "i-other"}).status_code == 404
+    ok = client.get("/api/fetch/3", params={"tenant_id": "tenant-a", "instance_id": "i1"})
+    assert ok.status_code == 200
+    assert ok.json()["text"] == "instance secret"
+
+    # tenant-wide shared memory (stored secondary scope absent) remains fetchable
+    shared = client.get("/api/fetch/4", params={"tenant_id": "tenant-a"})
+    assert shared.status_code == 200
+    assert shared.json()["text"] == "shared tenant memory"
+
+    # no existence disclosure: omitted-scope not-found matches cross-tenant not-found
+    scoped_not_found = client.get("/api/fetch/1", params={"tenant_id": "tenant-a"})
+    cross_tenant_not_found = client.get("/api/fetch/1", params={"tenant_id": "tenant-b"})
+    assert scoped_not_found.status_code == cross_tenant_not_found.status_code == 404
+    assert scoped_not_found.json() == cross_tenant_not_found.json()

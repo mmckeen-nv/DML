@@ -806,6 +806,30 @@ class DaystromKVPolicy:
             schema_version=request.schema_version,
         )
 
+    def _inflight_purge_shares_ownership(self, checkpoint_digest: str) -> bool:
+        """Return True if another in-flight (non-completed) purge's checkpoint
+        record shares any block hash with *checkpoint_digest*.
+
+        This is the narrow ownership conflict guard that serializes
+        overlapping purges of checkpoints sharing KV hashes.  Without it,
+        a second purge could treat a still-retained shared hash as unique,
+        zero it, and orphan the first purge's completion.
+        """
+
+        record = self._records.get(checkpoint_digest)
+        if record is None:
+            return False
+        record_hashes = set(record.block_hashes)
+        for other_digest, state in self._purges.items():
+            if state.completed or other_digest == checkpoint_digest:
+                continue
+            other_record = self._records.get(other_digest)
+            if other_record is not None and record_hashes & set(
+                other_record.block_hashes
+            ):
+                return True
+        return False
+
     def partition_purge_hashes(
         self, checkpoint_digest: str
     ) -> tuple[tuple[bytes, ...], tuple[bytes, ...]]:
@@ -814,6 +838,8 @@ class DaystromKVPolicy:
         record = self._records.get(checkpoint_digest)
         if record is None:
             raise DaystromKVAuthorizationError("record_not_found")
+        if self._inflight_purge_shares_ownership(checkpoint_digest):
+            raise DaystromKVAuthorizationError("purge_ownership_conflict")
         other_hashes = {
             block_hash
             for digest, other in self._records.items()
@@ -852,6 +878,8 @@ class DaystromKVPolicy:
         record_hashes = set(self._records[checkpoint_digest].block_hashes)
         if any(value not in record_hashes for value in exact_shared_hashes):
             raise DaystromKVAuthorizationError("purge_shared_hash_invalid")
+        if self._inflight_purge_shares_ownership(checkpoint_digest):
+            raise DaystromKVAuthorizationError("purge_ownership_conflict")
         state = DaystromKVPurgeState(
             checkpoint_digest=checkpoint_digest,
             purge_event=purge_event,
