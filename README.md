@@ -140,10 +140,10 @@ The KV-fabric contract extends that control model across GPU HBM, pinned host me
 | Agent continuity | Implemented: resume, compact handoff, scoped retrieval/writeback, active continuity, hygiene filters, provider and JSON wrapper contracts. |
 | Harness integrations | Implemented: Python adapter, CLI/wrapper, HTTP provider/UI, Ollama-compatible server, MCP server, Hermes provider plugin, OpenClaw-style skill. |
 | DPM/DCN/DIP | Implemented bounded DPM overlays and evolution graph; deterministic DCN observation/planning/feedback/promotion gates; DIP frontier-prompt preparation. |
-| DCM logical context | Implemented: authority-aware segments, runtime capability discovery, admission budgets, manifests, exact pages, working-set transitions, DML1→DML2→durable memory faults, leases, and payload-free plans. |
+| DCM logical context | Implemented: authority-aware segments, runtime capability discovery, admission budgets, manifests, exact pages, working-set transitions, DML1→DML2→durable memory faults, and payload-free plans. Lease policy belongs to the broader control-plane roadmap but is not presented as a finished subsystem. |
 | DCM native state | Implemented and live-proven for the version-pinned vLLM cooperative path: signed checkpoint save/readiness/restore/continuation and selective physical purge. llama.cpp lifecycle probing also exists behind capability checks. |
 | KV fabric | Implemented as a validated engine-neutral control-plane contract for heterogeneous tiers, compatibility negotiation, bounded routing, and authenticated transfer authorization. Physical KVBM/NIXL/LMCache/Mooncake adapters remain future work. |
-| Deployment | Implemented cooperative-vLLM `init → doctor → pull → preflight → deploy → verify → status/rollback/logs`, with atomic config/key handling, health waits, canary completion, lock recovery, bounded backups, and transactional rollback. |
+| Deployment | Implemented cooperative-vLLM `init → doctor → pull → preflight → deploy → verify → status/rollback/logs`, with atomic config/key handling, health waits, a one-token inference canary, lock recovery, bounded backups, and transactional rollback. The hardware KV lifecycle canary remains a separate operator runbook. |
 | DEC expert residency | Hardware-backed companion work retained separately. It specializes in MoE expert-weight prediction and placement and belongs beside DCM under the broader Daystrom policy plane. |
 
 ### Measured evidence—not marketing estimates
