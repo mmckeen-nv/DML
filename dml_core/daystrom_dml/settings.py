@@ -25,6 +25,8 @@ class PersistenceSettings(BaseModel):
     enable: bool = False
     path: Path = Path("dml_state.jsonl")
     interval_sec: int = Field(300, ge=0)
+    journal: bool = False
+    snapshot_interval: int = Field(128, ge=1)
 
     if field_validator is not None:  # pragma: no branch - executed on Pydantic v2
 
@@ -190,6 +192,9 @@ class DMLSettings(BaseModel):
         ),
     )
     gpu_acceleration: bool = Field(False, description="Enable GPU specific optimisations when available.")
+    ann_min_items: int = Field(0, ge=0, description="Enable per-scope HNSW at this size; zero keeps exact search.")
+    ann_candidate_multiplier: int = Field(8, ge=1)
+    scope_cache_bytes: int = Field(64 * 1024 * 1024, ge=0)
     nim_default_id: str = Field("gpt-oss-20b", description="Default NIM model identifier.")
     nim_health_timeout: int = Field(60, ge=1)
     nim_health_interval: float = Field(5.0, ge=0.1)

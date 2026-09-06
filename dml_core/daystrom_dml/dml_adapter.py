@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import contextlib
 import copy
+import heapq
+from concurrent.futures import Future
 import json
 import logging
 import os
@@ -19,7 +21,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 import numpy as np
 from .config import load_config
 from .checkpoint import CheckpointManager
-from .embeddings import Embedder, create_embedder
+from .embeddings import Embedder, create_embedder, embed_texts
 from .gpt_runner import GPTRunner
 from .memory_store import MemoryItem, MemoryStore
 from .metrics import (
@@ -38,6 +40,7 @@ from .router import decide_mode
 from .rag_store import PersistentRAGStore
 from .store_lock import store_write_lock
 from .atomic_io import atomic_write_text
+from .journal import JournalStateStore
 from .stm.controller import STMController
 from .stm.policy import LTMWritePolicy, MemoryWrite
 from .stm.schema import STMState
@@ -204,6 +207,7 @@ class DMLAdapter:
         )
         self._query_embedding_cache: OrderedDict[str, np.ndarray] = OrderedDict()
         self._query_embedding_cache_lock = RLock()
+        self._query_embedding_inflight: Dict[str, Future] = {}
         self._query_embedding_cache_size = max(
             0, int(self.config.get("query_embedding_cache_size", 64) or 0)
         )
@@ -243,6 +247,10 @@ class DMLAdapter:
         except (TypeError, ValueError):
             self._persistence_interval = 0
         self._persistence_enabled = bool(persistence_settings and getattr(persistence_settings, "enable", False))
+        self._journal = (
+            JournalStateStore(self.storage_dir / "dml_state.sqlite3", snapshot_interval=persistence_settings.snapshot_interval)
+            if persistence_settings and persistence_settings.journal else None
+        )
         self._persistence_stop_event = Event()
         self._persistence_thread: Optional[threading.Thread] = None
         self.dml_state_path = self.storage_dir / "dml_store.json"
@@ -376,6 +384,9 @@ class DMLAdapter:
             start_aging_loop=start_aging_loop,
             enable_quality_on_retrieval=self.enable_quality_on_retrieval,
             similarity_threshold=float(self.config.get("similarity_threshold", 0.0)),
+            ann_min_items=self.settings.ann_min_items,
+            ann_candidate_multiplier=self.settings.ann_candidate_multiplier,
+            scope_cache_bytes=self.settings.scope_cache_bytes,
         )
         self.enable_stm_controller = bool(self.config.get("enable_stm_controller", False))
         self.stm_controller: Optional[STMController] = None
@@ -1309,6 +1320,8 @@ class DMLAdapter:
     # Persistence helpers
     # ------------------------------------------------------------------
     def _active_state_path(self) -> Path:
+        if self._journal is not None:
+            return self._journal.path
         return self._persistence_path if self._persistence_enabled else self.dml_state_path
 
     def mutation_transaction(self, operation: str):
@@ -1393,7 +1406,7 @@ class DMLAdapter:
         if self.persistent_rag_store is not None:
             persistent_rag = self.persistent_rag_store.snapshot_state()
         return {
-            "dml": copy.deepcopy(self.store.export_state()),
+            "dml": self.store.snapshot_state(),
             "rag": self.rag_store.snapshot_state(),
             "persistent_rag": persistent_rag,
         }
@@ -1436,6 +1449,8 @@ class DMLAdapter:
             self._last_observed_rag_state = self._path_stamp(self.rag_state_path)
 
     def _state_stamp(self) -> Optional[tuple[int, int]]:
+        if self._journal is not None:
+            return self._journal.stamp()
         return self._path_stamp(self._active_state_path())
 
     @staticmethod
@@ -1454,7 +1469,9 @@ class DMLAdapter:
             changed = False
             current = self._state_stamp()
             if current is not None and current != self._last_observed_state:
-                if self._persistence_enabled:
+                if self._journal is not None:
+                    payload = self._journal.load()
+                elif self._persistence_enabled:
                     items = load_persisted_memories(self._persistence_path)
                     payload = {"items": [item.to_dict() for item in items]}
                 else:
@@ -1496,7 +1513,15 @@ class DMLAdapter:
 
     def _load_persisted_state(self) -> None:
         state_loaded = False
-        if self._persistence_enabled:
+        if self._journal is not None:
+            # Never silently replace existing JSON data with an empty journal.
+            if self._journal.stamp()[0] == 0 and (self.dml_state_path.exists() or self._persistence_path.exists()):
+                raise ValueError("Journal migration requires an explicit snapshot import")
+            payload = self._journal.load()
+            self._ensure_embedding_compatibility(payload)
+            self.store.import_state(payload)
+            state_loaded = True
+        elif self._persistence_enabled:
             try:
                 items = load_persisted_memories(self._persistence_path)
             except FileNotFoundError:
@@ -1585,6 +1610,17 @@ class DMLAdapter:
         }
 
     def _persist_dml_state(self) -> None:
+        if self._journal is not None:
+            with self._persist_lock:
+                try:
+                    self._journal.save(self.store.export_state())
+                    self._mark_committed_component("dml")
+                    self._last_observed_state = self._state_stamp()
+                except Exception as exc:
+                    self._record_durability_failure_locked("dml", exc)
+                    raise PersistenceCommitError("DML journal commit failed") from exc
+                self._clear_durability_failure_locked("dml")
+            return
         if self._persistence_enabled:
             with self._persist_lock:
                 items = self.store.items()
@@ -2043,31 +2079,49 @@ class DMLAdapter:
         kind: Optional[str] = None,
         meta: Optional[Dict[str, Any]] = None,
     ) -> MemoryItem:
-        enriched_meta: Dict[str, Any] = {
-            **(meta or {}),
-            "tenant_id": tenant_id,
-            "client_id": client_id,
-            "session_id": session_id,
-            "instance_id": instance_id,
-            "kind": kind or "memory",
-        }
-        enriched_meta = self._apply_procedural_hygiene(text, enriched_meta)
-        embedding = self.embedder.embed(text)
+        enriched_meta = {**(meta or {}), "tenant_id": tenant_id, "client_id": client_id,
+                         "session_id": session_id, "instance_id": instance_id, "kind": kind or "memory"}
+        item = self._ingest_memory_embedded(text, self.embedder.embed(text), enriched_meta)
+        self._persist_dml_state()
+        if self.mirror_agentic_memory_to_rag:
+            self._persist_rag_state()
+        return item
+
+    @_serialized_mutation
+    def ingest_memory_batch(self, records: List[Dict[str, Any]], *, batch_size: int = 64) -> List[MemoryItem]:
+        """Embed and commit a bounded batch under one rollback-capable transaction."""
+        if not records:
+            return []
+        if len(records) > 256:
+            raise ValueError("memory batches are limited to 256 records")
+        if any(not isinstance(record.get("text"), str) or not record["text"] or
+               not isinstance(record.get("tenant_id"), str) or not record["tenant_id"] for record in records):
+            raise ValueError("each memory requires text and tenant_id")
+        vectors = embed_texts(self.embedder, [record["text"] for record in records], batch_size=batch_size)
+        items = []
+        for record, vector in zip(records, vectors):
+            meta = {**(record.get("meta") or {}),
+                    **{key: record.get(key) for key in ("tenant_id", "client_id", "session_id", "instance_id")},
+                    "kind": record.get("kind") or "memory"}
+            items.append(self._ingest_memory_embedded(record["text"], vector, meta))
+        self._persist_dml_state()
+        if self.mirror_agentic_memory_to_rag:
+            self._persist_rag_state()
+        return items
+
+    def _ingest_memory_embedded(self, text: str, embedding: np.ndarray, meta: Dict[str, Any]) -> MemoryItem:
+        enriched_meta = self._apply_procedural_hygiene(text, meta)
         salience = self._estimate_salience(text)
         item, merged = self.store.ingest(text, embedding, salience=salience, meta=enriched_meta)
-        rag_text = item.text if merged else text
-        rag_meta: Dict[str, Any] = dict(enriched_meta)
-        rag_meta.setdefault("memory_id", item.id)
         if self.mirror_agentic_memory_to_rag:
-            self.rag_store.add_document(rag_text, meta=rag_meta)
+            rag_meta = {**enriched_meta, "memory_id": item.id}
+            self.rag_store.add_document(item.text if merged else text, meta=rag_meta,
+                                        embedding=None if merged else embedding)
             if self.metrics_enabled:
                 record_operation("rag_write")
         elif self.metrics_enabled:
             record_operation("rag_mirroring_skipped")
         self._maybe_update_survival_ledger(text, enriched_meta)
-        self._persist_dml_state()
-        if self.mirror_agentic_memory_to_rag:
-            self._persist_rag_state()
         if self.metrics_enabled:
             record_operation("lattice_write")
             update_memory_gauge(len(self.store.items()))
@@ -2553,13 +2607,28 @@ class DMLAdapter:
                 embedding = self._query_embedding_cache.pop(key)
                 self._query_embedding_cache[key] = embedding
                 return embedding
-        embedding = self.embedder.embed(prompt)
-        with self._query_embedding_cache_lock:
-            if self._query_embedding_cache_size > 0 and key:
-                self._query_embedding_cache[key] = embedding
-                while len(self._query_embedding_cache) > self._query_embedding_cache_size:
-                    self._query_embedding_cache.popitem(last=False)
-        return embedding
+            pending = self._query_embedding_inflight.get(key)
+            owner = pending is None
+            if owner:
+                pending = Future()
+                self._query_embedding_inflight[key] = pending
+        if not owner:
+            return pending.result()
+        try:
+            embedding = self.embedder.embed(prompt)
+            with self._query_embedding_cache_lock:
+                if self._query_embedding_cache_size > 0 and key:
+                    self._query_embedding_cache[key] = embedding
+                    while len(self._query_embedding_cache) > self._query_embedding_cache_size:
+                        self._query_embedding_cache.popitem(last=False)
+            pending.set_result(embedding)
+            return embedding
+        except BaseException as exc:
+            pending.set_exception(exc)
+            raise
+        finally:
+            with self._query_embedding_cache_lock:
+                self._query_embedding_inflight.pop(key, None)
 
     def _compact_context_items(
         self, items: List[MemoryItem]
@@ -2715,8 +2784,7 @@ class DMLAdapter:
             if allowed_kinds and item_kind not in allowed_kinds:
                 continue
             candidates.append(item)
-        candidates.sort(key=lambda item: item.timestamp, reverse=True)
-        return candidates[: max(1, top_k)]
+        return heapq.nlargest(max(1, top_k), candidates, key=lambda item: item.timestamp)
 
     def _format_ltm_entries(self, items: List[MemoryStore.MemoryItem]) -> str:
         if not items:

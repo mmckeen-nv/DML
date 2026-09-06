@@ -50,6 +50,11 @@ class RecallRequest(BaseModel):
     top_k: int = 6
 
 
+class RememberBatchRequest(BaseModel):
+    records: list[RememberRequest] = Field(min_length=1, max_length=256)
+    batch_size: int = Field(64, ge=1, le=256)
+
+
 class ResumeRequest(BaseModel):
     query: str = "active continuity checkpoint compaction handoff resume next action"
     tenant_id: str = "openclaw"
@@ -516,6 +521,18 @@ def create_app(
             instance_id=payload.instance_id,
             top_k=payload.top_k,
         )
+
+    @app.post("/api/remember/batch")
+    def remember_batch(payload: RememberBatchRequest) -> dict[str, Any]:
+        if sum(len(record.text.encode("utf-8")) for record in payload.records) > 1024 * 1024:
+            raise HTTPException(status_code=413, detail="Memory batch exceeds 1 MiB")
+        try:
+            items = app.state.adapter.ingest_memory_batch(
+                [record.model_dump() for record in payload.records], batch_size=payload.batch_size,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {"status": "ok", "count": len(items), "ids": [str(item.id) for item in items]}
 
     @app.post("/api/resume")
     def resume(payload: ResumeRequest) -> dict[str, Any]:

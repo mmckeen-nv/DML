@@ -1,0 +1,208 @@
+{
+  "platform": "Windows-11-10.0.26200-SP0",
+  "python": "3.12.14",
+  "numpy": "2.5.2",
+  "scope": "synthetic CPU microbenchmarks; no external model calls",
+  "recall": [
+    {
+      "records": 1000,
+      "tenants": 1,
+      "queries": 20,
+      "k": 8,
+      "reference": {
+        "p50_ms": 0.913,
+        "p95_ms": 1.418,
+        "p99_ms": 1.539
+      },
+      "cached_exact": {
+        "p50_ms": 0.614,
+        "p95_ms": 0.998,
+        "p99_ms": 1.016
+      },
+      "cold_scope_build_ms": 1.288,
+      "exact_recall_at_k": 1.0,
+      "p95_speedup": 1.42
+    },
+    {
+      "records": 1000,
+      "tenants": 64,
+      "queries": 20,
+      "k": 8,
+      "reference": {
+        "p50_ms": 0.236,
+        "p95_ms": 0.298,
+        "p99_ms": 0.324
+      },
+      "cached_exact": {
+        "p50_ms": 0.073,
+        "p95_ms": 0.123,
+        "p99_ms": 0.138
+      },
+      "cold_scope_build_ms": 0.679,
+      "exact_recall_at_k": 1.0,
+      "p95_speedup": 2.42
+    },
+    {
+      "records": 10000,
+      "tenants": 1,
+      "queries": 20,
+      "k": 8,
+      "reference": {
+        "p50_ms": 9.193,
+        "p95_ms": 10.139,
+        "p99_ms": 10.363
+      },
+      "cached_exact": {
+        "p50_ms": 6.383,
+        "p95_ms": 7.043,
+        "p99_ms": 7.072
+      },
+      "cold_scope_build_ms": 16.788,
+      "exact_recall_at_k": 1.0,
+      "p95_speedup": 1.44,
+      "ann": {
+        "p50_ms": 0.267,
+        "p95_ms": 0.343,
+        "p99_ms": 0.343,
+        "build_ms": 691.555,
+        "recall_at_8": 1.0,
+        "index_count": 1
+      }
+    },
+    {
+      "records": 10000,
+      "tenants": 64,
+      "queries": 20,
+      "k": 8,
+      "reference": {
+        "p50_ms": 0.99,
+        "p95_ms": 1.634,
+        "p99_ms": 1.819
+      },
+      "cached_exact": {
+        "p50_ms": 0.12,
+        "p95_ms": 0.172,
+        "p99_ms": 0.222
+      },
+      "cold_scope_build_ms": 5.601,
+      "exact_recall_at_k": 1.0,
+      "p95_speedup": 9.48
+    },
+    {
+      "records": 100000,
+      "tenants": 1,
+      "queries": 20,
+      "k": 8,
+      "reference": {
+        "p50_ms": 107.584,
+        "p95_ms": 111.184,
+        "p99_ms": 112.55
+      },
+      "cached_exact": {
+        "p50_ms": 71.116,
+        "p95_ms": 76.036,
+        "p99_ms": 76.147
+      },
+      "cold_scope_build_ms": 187.614,
+      "exact_recall_at_k": 1.0,
+      "p95_speedup": 1.46,
+      "ann": {
+        "p50_ms": 0.361,
+        "p95_ms": 0.48,
+        "p99_ms": 0.794,
+        "build_ms": 13401.28,
+        "recall_at_8": 1.0,
+        "index_count": 1
+      }
+    },
+    {
+      "records": 100000,
+      "tenants": 64,
+      "queries": 20,
+      "k": 8,
+      "reference": {
+        "p50_ms": 10.639,
+        "p95_ms": 12.21,
+        "p99_ms": 13.107
+      },
+      "cached_exact": {
+        "p50_ms": 1.115,
+        "p95_ms": 1.96,
+        "p99_ms": 1.983
+      },
+      "cold_scope_build_ms": 56.307,
+      "exact_recall_at_k": 1.0,
+      "p95_speedup": 6.23
+    }
+  ],
+  "insertion": [
+    {
+      "records": 1,
+      "individual": {
+        "elapsed_ms": 1.437,
+        "commits": 1,
+        "bytes_written": 310
+      },
+      "batch": {
+        "elapsed_ms": 1.717,
+        "commits": 1,
+        "bytes_written": 310
+      }
+    },
+    {
+      "records": 100,
+      "individual": {
+        "elapsed_ms": 166.57,
+        "commits": 100,
+        "bytes_written": 1351795
+      },
+      "batch": {
+        "elapsed_ms": 2.527,
+        "commits": 1,
+        "bytes_written": 26734
+      }
+    },
+    {
+      "records": 1000,
+      "individual": {
+        "elapsed_ms": 4886.196,
+        "commits": 1000,
+        "bytes_written": 134072995
+      },
+      "batch": {
+        "elapsed_ms": 11.168,
+        "commits": 1,
+        "bytes_written": 267934
+      }
+    }
+  ],
+  "journal": {
+    "records": 10000,
+    "full_json": {
+      "p50_ms": 86.317,
+      "p95_ms": 88.912,
+      "p99_ms": 89.259
+    },
+    "journal": {
+      "p50_ms": 46.305,
+      "p95_ms": 48.9,
+      "p99_ms": 49.774
+    },
+    "changed_rows_per_commit": [
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1
+    ],
+    "rollback_snapshot_ms": {
+      "json_expansion": 309.028,
+      "native_arrays": 105.878
+    }
+  }
+}

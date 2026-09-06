@@ -301,11 +301,11 @@ class MultiRAGStore:
     # ------------------------------------------------------------------
     # Document management
     # ------------------------------------------------------------------
-    def add_document(self, text: str, meta: Optional[Dict[str, Any]] = None) -> None:
+    def add_document(self, text: str, meta: Optional[Dict[str, Any]] = None, *, embedding: Optional[np.ndarray] = None) -> None:
         if not text:
             return
         payload = {"text": text, "meta": meta or {}}
-        embedding = np.asarray(self.embedder.embed(text), dtype=np.float32)
+        embedding = np.asarray(self.embedder.embed(text) if embedding is None else embedding, dtype=np.float32)
         tokens = utils.estimate_tokens(text)
         with self._lock:
             self._raw_documents.append(payload)

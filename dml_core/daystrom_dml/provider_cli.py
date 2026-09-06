@@ -40,6 +40,17 @@ def _meta_from_args(raw: str | None) -> dict[str, Any]:
     return payload
 
 
+def cmd_remember_batch(args: argparse.Namespace) -> int:
+    records = json.loads(Path(args.input).read_text(encoding="utf-8"))
+    if not isinstance(records, list):
+        raise SystemExit("--input must contain a JSON array of scoped memories")
+    with _client(args) as client:
+        response = client.post("/api/remember/batch", json={"records": records, "batch_size": args.batch_size})
+        response.raise_for_status()
+        _print_json(response.json())
+    return 0
+
+
 def _json_object(raw: str | None, *, label: str) -> dict[str, Any]:
     if not raw:
         return {}
@@ -611,6 +622,12 @@ def build_parser() -> argparse.ArgumentParser:
     remember.add_argument("--kind", default="note")
     remember.add_argument("--meta")
     remember.set_defaults(func=cmd_remember)
+
+    remember_batch = sub.add_parser("remember-batch", help="Embed and commit a JSON memory batch in one provider request")
+    _add_provider_args(remember_batch)
+    remember_batch.add_argument("--input", required=True)
+    remember_batch.add_argument("--batch-size", type=int, default=64)
+    remember_batch.set_defaults(func=cmd_remember_batch)
 
     recall = sub.add_parser("recall", help="Recall memory context")
     _add_provider_args(recall)

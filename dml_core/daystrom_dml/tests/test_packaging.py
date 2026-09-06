@@ -18,6 +18,10 @@ def test_cpu_wheel_contains_runtime_packages_and_defaults(tmp_path):
     with zipfile.ZipFile(wheel) as archive:
         for name in (
             "daystrom_dml/config.yaml",
+            "daystrom_dml/journal.py",
+            "daystrom_dml/provider_client.py",
+            "scripts/dml_journal.py",
+            "scripts/performance_benchmark.py",
             "daystrom_dml/context/vllm_bridge/__init__.py",
             "daystrom_dml/context/vllm_bridge/connector.py",
             "daystrom_dml/context/vllm_bridge/policy.py",

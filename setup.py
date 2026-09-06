@@ -136,6 +136,7 @@ setup(
             "dcm-model-probe=scripts.dcm_model_probe:main",
             "dcm-workload-benchmark=scripts.dcm_workload_benchmark:main",
             "dcm-kv-probe=scripts.dcm_kv_probe:main",
+            "dml-journal=scripts.dml_journal:main",
         ]
     },
     ext_modules=(
