@@ -4,7 +4,7 @@ from __future__ import annotations
 import hashlib
 import logging
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Protocol, Sequence
 
 import numpy as np
 import requests
@@ -19,6 +19,29 @@ class Embedder(Protocol):
 
     def embed(self, text: str) -> np.ndarray:
         ...
+
+
+def embed_texts(embedder: Embedder, texts: Sequence[str], *, batch_size: int = 64) -> list[np.ndarray]:
+    """Use native batches when available, with strict output validation."""
+    if batch_size < 1:
+        raise ValueError("batch_size must be positive")
+    output = []
+    dimension = None
+    for offset in range(0, len(texts), batch_size):
+        batch = list(texts[offset:offset + batch_size])
+        native = getattr(embedder, "embed_many", None)
+        vectors = list(native(batch)) if callable(native) else [embedder.embed(text) for text in batch]
+        if len(vectors) != len(batch):
+            raise ValueError("embedding batch count mismatch")
+        for vector in vectors:
+            array = np.asarray(vector, dtype=np.float32)
+            if array.ndim != 1 or not array.size or not np.all(np.isfinite(array)):
+                raise ValueError("embedding batch contains an invalid vector")
+            dimension = array.size if dimension is None else dimension
+            if array.size != dimension:
+                raise ValueError("embedding batch dimension mismatch")
+            output.append(array.copy())
+    return output
 
 
 @dataclass
@@ -66,6 +89,13 @@ class SentenceTransformerEmbedder:
             show_progress_bar=False,
         )
         return np.asarray(vector, dtype=np.float32)
+
+    def embed_many(self, texts: Sequence[str]) -> list[np.ndarray]:
+        if self._model is None:
+            return [RandomEmbedder(self._dim).embed(text) for text in texts]
+        nonempty = [text for text in texts if text]
+        vectors = iter(self._model.encode(nonempty, normalize_embeddings=True, show_progress_bar=False)) if nonempty else iter(())
+        return [np.asarray(next(vectors), dtype=np.float32) if text else np.zeros(self._dim, dtype=np.float32) for text in texts]
 
     @staticmethod
     def _autodetect_device() -> str | None:
@@ -129,6 +159,25 @@ class OllamaEmbedder:
     def __post_init__(self) -> None:
         LOGGER.info("Initialized Ollama embedder for model %s at %s", self.model_name, self.base_url)
 
+    def embed_many(self, texts: Sequence[str]) -> list[np.ndarray]:
+        nonempty = [text for text in texts if text]
+        if not nonempty:
+            return [np.zeros(self._dim, dtype=np.float32) for _ in texts]
+        response = requests.post(
+            f"{self.base_url}/api/embed",
+            json={"model": self.model_name, "input": nonempty, "truncate": False}, timeout=120,
+        )
+        response.raise_for_status()
+        vectors = response.json().get("embeddings", [])
+        if len(vectors) != len(nonempty):
+            raise ValueError("Ollama embedding batch count mismatch")
+        arrays = [np.asarray(vector, dtype=np.float32) for vector in vectors]
+        if any(array.ndim != 1 or not array.size or not np.all(np.isfinite(array)) for array in arrays):
+            raise ValueError("Ollama returned invalid embeddings")
+        self._dim = arrays[0].size
+        normalized = iter(array / max(float(np.linalg.norm(array)), 1e-12) for array in arrays)
+        return [next(normalized) if text else np.zeros(self._dim, dtype=np.float32) for text in texts]
+
     def embed(self, text: str) -> np.ndarray:
         if not text:
             return np.zeros(self._dim, dtype=np.float32)
@@ -165,6 +214,9 @@ class RandomEmbedder:
             return np.zeros(self.dim, dtype=np.float32)
         seed = int(hashlib.sha256(text.encode("utf-8")).hexdigest(), 16) % (2**32)
         return utils.seeded_random_vector(self.dim, seed)
+
+    def embed_many(self, texts: Sequence[str]) -> list[np.ndarray]:
+        return [self.embed(text) for text in texts]
 
 
 def create_embedder(

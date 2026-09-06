@@ -2,12 +2,14 @@
 from __future__ import annotations
 
 import heapq
+import copy
 import logging
 import math
 import random
 import threading
 import time
 from dataclasses import dataclass, field
+from collections import OrderedDict
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 import numpy as np
@@ -99,6 +101,9 @@ class MemoryStore:
         start_aging_loop: bool = True,
         enable_quality_on_retrieval: bool = False,
         similarity_threshold: float = 0.0,
+        ann_min_items: int = 0,
+        ann_candidate_multiplier: int = 8,
+        scope_cache_bytes: int = 64 * 1024 * 1024,
     ) -> None:
         self.summarizer = summarizer
         self.beta_a = beta_a
@@ -121,6 +126,12 @@ class MemoryStore:
         self._embedding_cache_dim = 0
         self._embedding_cache_items: List[MemoryItem] = []
         self._embedding_cache_matrix: Optional[np.ndarray] = None
+        self._scope_buckets = None
+        self._scope_matrices = OrderedDict()
+        self._scope_cache_bytes = max(0, scope_cache_bytes)
+        self._ann_indexes = {}
+        self._ann_min_items = max(0, ann_min_items)
+        self._ann_candidate_multiplier = max(1, ann_candidate_multiplier)
         self.quality_threshold = -0.1
         self.similarity_threshold = float(max(-1.0, min(1.0, similarity_threshold)))
         # Expensive quality/repair checks can be deferred to a maintenance pass.
@@ -214,27 +225,39 @@ class MemoryStore:
         """Retrieve memories scoped by tenant/client/session/instance/kind."""
 
         with self._lock:
+            query_vec = np.asarray(query_embedding, dtype=np.float32)
+            allowed_kinds = None if kinds is None else frozenset(kinds)
+            if strict_scope:
+                scope = (tenant_id, client_id, session_id, instance_id)
+                cache_key = (scope, query_vec.size, allowed_kinds)
+                source, matrix = self._scoped_embedding_snapshot(cache_key)
+                if matrix is not None and top_k is not None:
+                    source, matrix = self._ann_candidates(cache_key, source, matrix, query_vec, top_k)
+            else:
+                source, matrix = self._items, None
             candidates = [
                 item
-                for item in self._items
+                for item in source
                 if self._matches_filters(
                     item,
                     tenant_id=tenant_id,
                     client_id=client_id,
                     session_id=session_id,
                     instance_id=instance_id,
-                    kinds=kinds,
+                    kinds=allowed_kinds,
                     strict_scope=strict_scope,
                 )
             ]
             if not candidates:
                 return []
             now = time.time()
-            query_vec = np.asarray(query_embedding, dtype=np.float32)
             candidates = self._filter_dimension_compatible(candidates, query_vec.size)
             if not candidates:
                 return []
-            scores, similarities = self._score_candidates(candidates, query_vec, now)
+            if matrix is not None and len(candidates) != len(source):
+                # Revalidate mutable metadata before using cached scope membership.
+                matrix = None
+            scores, similarities = self._score_candidates(candidates, query_vec, now, key_matrix=matrix)
             return self._select_top_items(
                 candidates, query_vec, top_k, now, scores, similarities
             )
@@ -427,6 +450,15 @@ class MemoryStore:
                 "next_id": self._id,
             }
 
+    def snapshot_state(self) -> Dict[str, Any]:
+        """Copy rollback state with native arrays, without JSON float expansion."""
+        with self._lock:
+            return copy.deepcopy({
+                "items": [vars(item) for item in self._items],
+                "lineage": [vars(item) for item in self._lineage.values()],
+                "repair_queue": self._repair_queue, "next_id": self._id,
+            })
+
     def import_state(self, payload: Optional[Dict[str, Any]]) -> None:
         """Restore the lattice from ``payload`` if provided."""
 
@@ -519,18 +551,17 @@ class MemoryStore:
         return max(6, int(math.ceil(math.sqrt(max(1, item_count + 1)))))
 
     def _semantic_neighbors(self, item: MemoryItem, *, limit: int = 4) -> List[MemoryItem]:
-        candidates = self._filter_dimension_compatible(self._items, self._embedding_dim(item.embedding))
+        candidates, matrix = self._embedding_snapshot(self._embedding_dim(item.embedding))
         if not candidates:
             return []
         backend = self._vector_backend
-        matrix = np.stack([candidate.embedding for candidate in candidates]).astype(np.float32)
         similarities = backend.cosine_sim_matrix(np.asarray(item.embedding, dtype=np.float32), matrix)[0]
-        ordered = sorted(
+        ordered = heapq.nlargest(
+            max(0, limit),
             zip(candidates, similarities),
             key=lambda row: float(row[1]),
-            reverse=True,
         )
-        return [candidate for candidate, _ in ordered[: max(0, limit)]]
+        return [candidate for candidate, _ in ordered]
 
     def _assign_lattice_placement(self, item: MemoryItem) -> None:
         """Attach first-class lattice coordinates and neighbor edges to a memory."""
@@ -637,6 +668,67 @@ class MemoryStore:
         self._embedding_cache_dim = 0
         self._embedding_cache_items = []
         self._embedding_cache_matrix = None
+        self._scope_buckets = None
+        self._scope_matrices.clear()
+        self._ann_indexes.clear()
+
+    def _scoped_embedding_snapshot(self, cache_key):
+        scope, target_dim, kinds = cache_key
+        cached = self._scope_matrices.pop(cache_key, None)
+        if cached is not None:
+            self._scope_matrices[cache_key] = cached
+            return cached
+        if self._scope_buckets is None:
+            self._scope_buckets = {}
+            for item in self._items:
+                meta = item.meta or {}
+                key = tuple(meta.get(name) for name in MERGE_SCOPE_KEYS[:4])
+                try:
+                    self._scope_buckets.setdefault(key, []).append(item)
+                except TypeError:
+                    # Invalid, non-scalar scope metadata cannot match API scope IDs.
+                    continue
+        candidates = self._filter_dimension_compatible(
+            [item for item in self._scope_buckets.get(scope, [])
+             if kinds is None or (item.meta or {}).get("kind") in kinds], target_dim
+        )
+        matrix = np.stack([item.embedding for item in candidates]).astype(np.float32) if candidates else None
+        if matrix is not None and matrix.nbytes <= self._scope_cache_bytes:
+            self._scope_matrices[cache_key] = (candidates, matrix)
+            while (len(self._scope_matrices) > 64 or
+                   sum(value[1].nbytes for value in self._scope_matrices.values()) > self._scope_cache_bytes):
+                evicted, _ = self._scope_matrices.popitem(last=False)
+                self._ann_indexes.pop(evicted, None)
+        return candidates, matrix
+
+    def _ann_candidates(self, cache_key, candidates, matrix, query, top_k):
+        """Optional per-scope HNSW shortlist, followed by normal exact scoring."""
+        limit = min(len(candidates), max(64, int(top_k) * self._ann_candidate_multiplier))
+        if (not self._ann_min_items or len(candidates) < self._ann_min_items
+                or limit >= len(candidates) or cache_key not in self._scope_matrices
+                or not np.all(np.isfinite(query))):
+            return candidates, matrix
+        try:
+            import faiss
+        except ImportError:
+            return candidates, matrix
+        index = self._ann_indexes.get(cache_key)
+        if index is None:
+            if not np.all(np.isfinite(matrix)):
+                return candidates, matrix
+            normalized = matrix.copy()
+            faiss.normalize_L2(normalized)
+            index = faiss.IndexHNSWFlat(matrix.shape[1], 32, faiss.METRIC_INNER_PRODUCT)
+            index.hnsw.efConstruction = 128
+            index.hnsw.efSearch = max(128, limit)
+            index.add(normalized)
+            self._ann_indexes[cache_key] = index
+        index.hnsw.efSearch = max(128, limit)
+        normalized_query = query.reshape(1, -1).copy()
+        faiss.normalize_L2(normalized_query)
+        _, indices = index.search(normalized_query, limit)
+        rows = sorted({int(row) for row in indices[0] if row >= 0})
+        return [candidates[row] for row in rows], matrix[rows]
 
     def _embedding_snapshot(self, target_dim: int) -> tuple[List[MemoryItem], Optional[np.ndarray]]:
         if target_dim <= 0:
@@ -667,15 +759,21 @@ class MemoryStore:
         backend = self._vector_backend
         candidate = np.asarray(embedding, dtype=np.float32)
         incoming = meta or {}
+        scope = tuple(incoming.get(key) for key in MERGE_SCOPE_KEYS[:4])
+        try:
+            hash(scope)
+        except TypeError:
+            return None, 0.0
+        source, matrix = self._scoped_embedding_snapshot((scope, candidate.size, None))
         eligible = [
-            item for item in self._items
+            item for item in source
             if not _merge_disabled(item.meta or {})
             and all((item.meta or {}).get(key) == incoming.get(key) for key in MERGE_SCOPE_KEYS)
         ]
         compatible = self._filter_dimension_compatible(eligible, candidate.size)
         if not compatible:
             return None, 0.0
-        key_matrix = np.stack([item.embedding for item in compatible]).astype(np.float32)
+        key_matrix = matrix if len(compatible) == len(source) else np.stack([item.embedding for item in compatible]).astype(np.float32)
         similarities = backend.cosine_sim_matrix(candidate, key_matrix)[0]
         best_idx = int(np.argmax(similarities)) if similarities.size else -1
         if best_idx < 0:
@@ -815,7 +913,8 @@ class MemoryStore:
 
     def _reconstruct_item(self, entry: Dict[str, Any]) -> Optional[MemoryItem]:
         try:
-            embedding = np.asarray(entry.get("embedding") or [], dtype=np.float32)
+            raw_embedding = entry.get("embedding")
+            embedding = np.asarray([] if raw_embedding is None else raw_embedding, dtype=np.float32)
             item = MemoryItem(
                 id=int(entry.get("id", 0)),
                 text=str(entry.get("text") or ""),

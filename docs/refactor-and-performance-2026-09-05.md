@@ -2,6 +2,8 @@
 
 Date: 2026-09-05. Base: `8f42a04` on `mmckeen-nv/DML/main`.
 
+Update 2026-09-06: all eight performance suggestions below are implemented. See the [implementation guide and measured results](performance-implementation-2026-09-06.md). The work queue and validation counts in this document describe the earlier bug-fix stage.
+
 The earlier review commit `ba5f965` and its document were unavailable in the accessible repository. This work verified the supplied findings against the current checkout and reproduced the remaining defects with regression tests.
 
 ## Fixes
