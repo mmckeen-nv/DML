@@ -141,7 +141,12 @@ class TestPolicyConstruction:
 
     def test_rejects_symlink_secret(self, secret_file: Path, tmp_path: Path):
         link = tmp_path / "link.key"
-        os.symlink(secret_file, link)
+        try:
+            os.symlink(secret_file, link)
+        except OSError as exc:
+            if getattr(exc, "winerror", None) == 1314:
+                pytest.skip("Windows symlink privilege is unavailable")
+            raise
         with pytest.raises(DaystromKVAuthorizationError, match="secret_path_is_symlink"):
             DaystromKVPolicy(link)
 

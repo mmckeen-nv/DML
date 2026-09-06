@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
-from daystrom_dml.server import app, adapter
+from daystrom_dml import server
+from daystrom_dml.dml_adapter import DMLAdapter
 
 
 def _extract_metric_value(metrics_text: str, prefix: str) -> float:
@@ -15,8 +16,17 @@ def _extract_metric_value(metrics_text: str, prefix: str) -> float:
     raise AssertionError(f"Metric {prefix!r} not found in payload")
 
 
-def test_query_updates_prometheus_metrics() -> None:
-    client = TestClient(app)
+def test_query_updates_prometheus_metrics(tmp_path, monkeypatch) -> None:
+    adapter = DMLAdapter(
+        config_overrides={
+            "model_name": "dummy", "embedding_model": None,
+            "storage_dir": str(tmp_path), "persistence": {"enable": False},
+            "metrics_enabled": True,
+        },
+        start_aging_loop=False,
+    )
+    monkeypatch.setattr(server, "adapter", adapter)
+    client = TestClient(server.app)
 
     assert adapter.metrics_enabled, "Metrics must be enabled for the test"
 
@@ -42,3 +52,4 @@ def test_query_updates_prometheus_metrics() -> None:
 
     latency_count = _extract_metric_value(payload, "dml_retrieval_latency_ms_count")
     assert latency_count > 0
+    adapter.close()

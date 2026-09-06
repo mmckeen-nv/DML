@@ -2,6 +2,7 @@ import importlib.util
 import sys
 import tempfile
 import unittest
+import threading
 from pathlib import Path
 
 
@@ -38,6 +39,7 @@ class TestStressHarness(unittest.TestCase):
 
     def test_run_stress_passes_when_writes_and_isolation_pass(self):
         calls = []
+        write_lock = threading.Lock()
 
         def fake_runner(argv):
             calls.append(argv)
@@ -45,8 +47,11 @@ class TestStressHarness(unittest.TestCase):
             if "ingest" in argv:
                 marker = argv[argv.index("--text") + 1].split(":", 1)[0]
                 state_path.parent.mkdir(parents=True, exist_ok=True)
-                with state_path.open("a", encoding="utf-8") as handle:
-                    handle.write(marker + "\n")
+                # This fake store needs its own append lock on Windows; the
+                # real writer's process lock is exercised by store-lock tests.
+                with write_lock:
+                    with state_path.open("a", encoding="utf-8") as handle:
+                        handle.write(marker + "\n")
                 return mod.CommandResult(argv, 0, 5.0, {"status": "ok", "chunks_ingested": 1}, "{}", "")
             if "retrieve" in argv:
                 query = argv[argv.index("--query") + 1]

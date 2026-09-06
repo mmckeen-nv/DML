@@ -4,6 +4,11 @@ from starlette.websockets import WebSocketDisconnect
 import pytest
 
 from daystrom_dml.auth import BearerAuthMiddleware
+from daystrom_dml.auth import _matches
+
+
+def test_non_ascii_credential_does_not_crash_auth():
+    assert not _matches("invalid-\u00e9", "api-secret")
 
 
 def _app() -> FastAPI:

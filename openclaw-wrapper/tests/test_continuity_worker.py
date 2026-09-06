@@ -8,6 +8,7 @@ from pathlib import Path
 
 
 class TestContinuityQueueWorker(unittest.TestCase):
+    @unittest.skipIf(os.name == "nt", "POSIX Bash queue-worker integration")
     def test_process_queue_uses_portable_defaults_and_continuity_metadata(self):
         root = Path(__file__).resolve().parents[1]
         script = root / "scripts" / "process_dml_ingest_queue.sh"

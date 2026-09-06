@@ -944,7 +944,12 @@ class TestHealthCommand(unittest.TestCase):
             storage.mkdir()
             self._write_state(str(storage), text="safe memory")
             external.write_text("external secret", encoding="utf-8")
-            os.symlink(external, storage / ".ingest_dedup_sha256.txt")
+            try:
+                os.symlink(external, storage / ".ingest_dedup_sha256.txt")
+            except OSError as exc:
+                if getattr(exc, "winerror", None) == 1314:
+                    self.skipTest("Windows symlink privilege is unavailable")
+                raise
 
             args = Namespace(
                 storage_dir=str(storage),
@@ -980,7 +985,12 @@ class TestHealthCommand(unittest.TestCase):
 
             sidecar_parent = storage / "linked-sidecar-parent"
             restore_parent = backup / "linked-restore-parent"
-            os.symlink(external_sidecar_root, sidecar_parent)
+            try:
+                os.symlink(external_sidecar_root, sidecar_parent)
+            except OSError as exc:
+                if getattr(exc, "winerror", None) == 1314:
+                    self.skipTest("Windows symlink privilege is unavailable")
+                raise
             os.symlink(external_backup_root, restore_parent)
 
             sidecar = sidecar_parent / "dpm_preference_graph.json"
@@ -1115,7 +1125,12 @@ class TestHealthCommand(unittest.TestCase):
             storage.mkdir()
             self._write_state(str(storage), text="portable memory", tenant_id="openclaw")
             external.write_text("external audit", encoding="utf-8")
-            os.symlink(external, storage / "dml_audit.jsonl")
+            try:
+                os.symlink(external, storage / "dml_audit.jsonl")
+            except OSError as exc:
+                if getattr(exc, "winerror", None) == 1314:
+                    self.skipTest("Windows symlink privilege is unavailable")
+                raise
 
             args = Namespace(
                 storage_dir=str(storage),

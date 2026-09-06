@@ -19,6 +19,17 @@ from .summarizer import Summarizer
 
 LOGGER = logging.getLogger(__name__)
 LATTICE_PLACEMENT_POLICY = "semantic-topic-time-v1"
+MERGE_SCOPE_KEYS = (
+    "tenant_id", "client_id", "session_id", "instance_id", "thread_id",
+    "project_id", "relationship_id", "kind", "phase",
+)
+
+
+def _merge_disabled(meta: Dict) -> bool:
+    return (
+        str(meta.get("no_merge") or "").strip().lower() in {"1", "true", "yes", "on"}
+        or str(meta.get("merge_policy") or "").strip().lower() == "never"
+    )
 
 
 @dataclass
@@ -142,25 +153,14 @@ class MemoryStore:
     ) -> Tuple[MemoryItem, bool]:
         now = time.time()
         enriched_meta = dict(meta or {})
-        no_merge_value = enriched_meta.get("no_merge")
-        no_merge = (
-            no_merge_value is True
-            or str(no_merge_value).strip().lower() in {"1", "true", "yes", "on"}
-            or str(enriched_meta.get("merge_policy") or "").strip().lower() == "never"
-        )
-
-        with self._lock:
-            best_match, best_sim = (None, 0.0) if no_merge else self._best_match(embedding)
-
         with self._lock:
             merged = None
-            if not no_merge:
+            if not _merge_disabled(enriched_meta):
                 merged = self._try_merge(
                     text,
                     embedding,
                     salience,
-                    meta=meta,
-                    precomputed_match=(best_match, best_sim),
+                    meta=enriched_meta,
                 )
             if merged:
                 return merged, True
@@ -209,6 +209,7 @@ class MemoryStore:
         instance_id: Optional[str] = None,
         kinds: Optional[Iterable[str]] = None,
         top_k: Optional[int] = 6,
+        strict_scope: bool = False,
     ) -> List[MemoryItem]:
         """Retrieve memories scoped by tenant/client/session/instance/kind."""
 
@@ -223,6 +224,7 @@ class MemoryStore:
                     session_id=session_id,
                     instance_id=instance_id,
                     kinds=kinds,
+                    strict_scope=strict_scope,
                 )
             ]
             if not candidates:
@@ -657,14 +659,20 @@ class MemoryStore:
         self._embedding_cache_matrix = matrix
         return compatible, matrix
 
-    def _best_match(self, embedding: np.ndarray) -> Tuple[Optional[MemoryItem], float]:
-        """Return the most similar existing item and its similarity."""
+    def _best_match(self, embedding: np.ndarray, meta: Optional[Dict] = None) -> Tuple[Optional[MemoryItem], float]:
+        """Find the nearest merge-eligible item within the exact write scope."""
 
         if not self._items:
             return None, 0.0
         backend = self._vector_backend
         candidate = np.asarray(embedding, dtype=np.float32)
-        compatible = self._filter_dimension_compatible(self._items, candidate.size)
+        incoming = meta or {}
+        eligible = [
+            item for item in self._items
+            if not _merge_disabled(item.meta or {})
+            and all((item.meta or {}).get(key) == incoming.get(key) for key in MERGE_SCOPE_KEYS)
+        ]
+        compatible = self._filter_dimension_compatible(eligible, candidate.size)
         if not compatible:
             return None, 0.0
         key_matrix = np.stack([item.embedding for item in compatible]).astype(np.float32)
@@ -680,26 +688,10 @@ class MemoryStore:
         embedding: np.ndarray,
         salience: float,
         meta: Optional[Dict],
-        *,
-        precomputed_match: Tuple[Optional[MemoryItem], float] | None = None,
     ) -> Optional[MemoryItem]:
         if not self._items:
             return None
-        backend = self._vector_backend
-        if precomputed_match is not None:
-            best, best_sim = precomputed_match
-        else:
-            best_sim = 0.0
-            best = None
-            candidate = np.asarray(embedding, dtype=np.float32)
-            compatible = self._filter_dimension_compatible(self._items, candidate.size)
-            if compatible:
-                key_matrix = np.stack([item.embedding for item in compatible]).astype(np.float32)
-                similarities = backend.cosine_sim_matrix(candidate, key_matrix)[0]
-                best_idx = int(np.argmax(similarities)) if similarities.size else -1
-                if best_idx >= 0:
-                    best = compatible[best_idx]
-                    best_sim = float(similarities[best_idx])
+        best, best_sim = self._best_match(embedding, meta)
         if best and best_sim >= self.theta_merge:
             combined_text = f"{best.text}\n{text}".strip()
             summary = self.summarizer.summarize(combined_text, max_len=256)
@@ -721,7 +713,7 @@ class MemoryStore:
                 salience=float(salience),
                 fidelity=1.0,
                 level=0,
-                meta=meta or {},
+                meta=dict(meta or {}),
             )
             self._cache_summary(child, text)
             child.summary_of = [child.id]
@@ -944,6 +936,7 @@ class MemoryStore:
         session_id: Optional[str],
         instance_id: Optional[str],
         kinds: Optional[Iterable[str]],
+        strict_scope: bool = False,
     ) -> bool:
         meta = item.meta or {}
         if meta.get("tenant_id") != tenant_id:
@@ -952,11 +945,11 @@ class MemoryStore:
             allowed = set(kinds)
             if meta.get("kind") not in allowed:
                 return False
-        if client_id is not None and meta.get("client_id") != client_id:
+        if (strict_scope or client_id is not None) and meta.get("client_id") != client_id:
             return False
-        if session_id is not None and meta.get("session_id") != session_id:
+        if (strict_scope or session_id is not None) and meta.get("session_id") != session_id:
             return False
-        if instance_id is not None and meta.get("instance_id") != instance_id:
+        if (strict_scope or instance_id is not None) and meta.get("instance_id") != instance_id:
             return False
         return True
 

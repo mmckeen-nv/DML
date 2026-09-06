@@ -6,6 +6,7 @@ import argparse
 import json
 import os
 import signal
+import shutil
 import subprocess
 import sys
 import time
@@ -52,8 +53,16 @@ def run_once(args: argparse.Namespace) -> dict:
             "DML_STORE": str(args.storage_dir),
         }
     )
+    command = [str(args.worker_script)]
+    if args.worker_script.suffix.lower() == ".py":
+        command.insert(0, sys.executable)
+    elif os.name == "nt" and args.worker_script.suffix.lower() == ".sh":
+        bash = shutil.which("bash")
+        if bash is None:
+            raise RuntimeError("Shell workers require Bash; use a Python worker on Windows without Bash")
+        command.insert(0, bash)
     proc = subprocess.run(
-        [str(args.worker_script)],
+        command,
         text=True,
         capture_output=True,
         check=False,

@@ -203,6 +203,7 @@ class DMLAdapter:
             allow_random_fallback=not strict_embedding_required,
         )
         self._query_embedding_cache: OrderedDict[str, np.ndarray] = OrderedDict()
+        self._query_embedding_cache_lock = RLock()
         self._query_embedding_cache_size = max(
             0, int(self.config.get("query_embedding_cache_size", 64) or 0)
         )
@@ -1409,7 +1410,8 @@ class DMLAdapter:
         persistent_snapshot = snapshot.get("persistent_rag")
         if self.persistent_rag_store is not None and persistent_snapshot is not None:
             self.persistent_rag_store.restore_state(persistent_snapshot)
-        self._query_embedding_cache.clear()
+        with self._query_embedding_cache_lock:
+            self._query_embedding_cache.clear()
 
         # The outer store lock remains held here, so no cooperating writer can
         # commit between the failed write and these compensating replacements.
@@ -1458,7 +1460,8 @@ class DMLAdapter:
                 else:
                     payload = json.loads(self.dml_state_path.read_text(encoding="utf-8"))
                 self.store.import_state(payload)
-                self._query_embedding_cache.clear()
+                with self._query_embedding_cache_lock:
+                    self._query_embedding_cache.clear()
                 self._last_observed_state = current
                 changed = True
 
@@ -2041,14 +2044,13 @@ class DMLAdapter:
         meta: Optional[Dict[str, Any]] = None,
     ) -> MemoryItem:
         enriched_meta: Dict[str, Any] = {
+            **(meta or {}),
             "tenant_id": tenant_id,
             "client_id": client_id,
             "session_id": session_id,
             "instance_id": instance_id,
             "kind": kind or "memory",
         }
-        if meta:
-            enriched_meta.update(meta)
         enriched_meta = self._apply_procedural_hygiene(text, enriched_meta)
         embedding = self.embedder.embed(text)
         salience = self._estimate_salience(text)
@@ -2220,6 +2222,7 @@ class DMLAdapter:
                 instance_id=instance_id,
                 kinds=final_kinds,
                 top_k=final_top_k,
+                strict_scope=True,
             )
             items = self._filter_retrievable_items(items, include_quarantined=include_quarantined)
             if not items:
@@ -2231,29 +2234,6 @@ class DMLAdapter:
                     kinds=final_kinds,
                     phase=phase_enum,
                     top_k=final_top_k,
-                    include_quarantined=include_quarantined,
-                )
-            if not items:
-                items = self.store.retrieve_filtered(
-                    query_embedding,
-                    tenant_id=None,
-                    client_id=None,
-                    session_id=None,
-                    instance_id=None,
-                    kinds=final_kinds,
-                    top_k=final_top_k,
-                )
-                items = self._filter_retrievable_items(items, include_quarantined=include_quarantined)
-            if not items:
-                items = self._recent_context_items(
-                    tenant_id=None,
-                    client_id=None,
-                    session_id=None,
-                    instance_id=None,
-                    kinds=final_kinds,
-                    phase=phase_enum,
-                    top_k=final_top_k,
-                    require_unscoped=True,
                     include_quarantined=include_quarantined,
                 )
         else:
@@ -2566,16 +2546,19 @@ class DMLAdapter:
             return None
 
     def _embed_query(self, prompt: str) -> np.ndarray:
-        key = re.sub(r"\s+", " ", str(prompt or "").strip()).lower()
-        if self._query_embedding_cache_size > 0 and key in self._query_embedding_cache:
-            embedding = self._query_embedding_cache.pop(key)
-            self._query_embedding_cache[key] = embedding
-            return embedding
+        # Embedders may distinguish case and whitespace. Cache the exact input.
+        key = str(prompt or "")
+        with self._query_embedding_cache_lock:
+            if self._query_embedding_cache_size > 0 and key in self._query_embedding_cache:
+                embedding = self._query_embedding_cache.pop(key)
+                self._query_embedding_cache[key] = embedding
+                return embedding
         embedding = self.embedder.embed(prompt)
-        if self._query_embedding_cache_size > 0 and key:
-            self._query_embedding_cache[key] = embedding
-            while len(self._query_embedding_cache) > self._query_embedding_cache_size:
-                self._query_embedding_cache.popitem(last=False)
+        with self._query_embedding_cache_lock:
+            if self._query_embedding_cache_size > 0 and key:
+                self._query_embedding_cache[key] = embedding
+                while len(self._query_embedding_cache) > self._query_embedding_cache_size:
+                    self._query_embedding_cache.popitem(last=False)
         return embedding
 
     def _compact_context_items(
@@ -2706,6 +2689,7 @@ class DMLAdapter:
         if not allowed_kinds and phase in {MemoryPhase.EXECUTE, MemoryPhase.DEBUG}:
             allowed_kinds = {"action", "observation", "error"}
         candidates: List[MemoryItem] = []
+        scoped = any(value is not None for value in (tenant_id, client_id, session_id, instance_id))
         for item in self.store.items():
             if not include_quarantined and self._is_quarantined_or_suppressed(item):
                 continue
@@ -2715,13 +2699,13 @@ class DMLAdapter:
                 for scope_key in ("tenant_id", "client_id", "session_id", "instance_id")
             ):
                 continue
-            if tenant_id is not None and meta.get("tenant_id") != tenant_id:
+            if scoped and meta.get("tenant_id") != tenant_id:
                 continue
-            if client_id is not None and meta.get("client_id") != client_id:
+            if scoped and meta.get("client_id") != client_id:
                 continue
-            if session_id is not None and meta.get("session_id") != session_id:
+            if scoped and meta.get("session_id") != session_id:
                 continue
-            if instance_id is not None and meta.get("instance_id") != instance_id:
+            if scoped and meta.get("instance_id") != instance_id:
                 continue
             if phase is not None:
                 item_phase = meta.get("phase")

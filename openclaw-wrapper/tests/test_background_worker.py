@@ -27,8 +27,8 @@ class TestBackgroundWorker(unittest.TestCase):
             root = Path(tmp)
             queue = root / "queue.jsonl"
             queue.write_text('{"status":"queued"}\n{"status":"done"}\n', encoding="utf-8")
-            worker = root / "worker.sh"
-            worker.write_text("#!/usr/bin/env bash\necho worker-ok\n", encoding="utf-8")
+            worker = root / "worker.py"
+            worker.write_text("print('worker-ok')\n", encoding="utf-8")
             worker.chmod(worker.stat().st_mode | stat.S_IXUSR)
             args = Namespace(
                 queue_path=queue,

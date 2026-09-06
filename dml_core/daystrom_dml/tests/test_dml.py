@@ -464,9 +464,9 @@ def test_retrieve_context_respects_single_user_session_scope(tmp_path) -> None:
         tenant_id="openclaw",
         top_k=5,
     )
-    assert {item["meta"]["session_id"] for item in tenant_report["items"]} == {"session-a", "session-b"}
-    assert "OPENCLAW-SESSION-A" in tenant_report["raw_context"]
-    assert "OPENCLAW-SESSION-B" in tenant_report["raw_context"]
+    assert not tenant_report["items"]
+    assert "OPENCLAW-SESSION-A" not in tenant_report["raw_context"]
+    assert "OPENCLAW-SESSION-B" not in tenant_report["raw_context"]
 
 
 def test_survival_ledger_carries_long_horizon_anchors(tmp_path) -> None:
@@ -1377,7 +1377,7 @@ def test_ingest_memory_persists_scoped_items(tmp_path) -> None:
     assert "Scoped durable memory" in report["raw_context"]
 
 
-def test_retrieve_context_falls_back_to_legacy_unscoped_memories(tmp_path) -> None:
+def test_retrieve_context_does_not_expose_legacy_unscoped_memories_to_tenants(tmp_path) -> None:
     adapter = DMLAdapter(
         config_overrides={
             "model_name": "dummy",
@@ -1395,9 +1395,9 @@ def test_retrieve_context_falls_back_to_legacy_unscoped_memories(tmp_path) -> No
 
     report = adapter.retrieve_context("legacy memory", tenant_id="openclaw", top_k=5)
 
-    assert report["items"]
-    assert report["items"][0]["meta"].get("tenant_id") is None
-    assert "Legacy unscoped memory" in report["raw_context"]
+    assert not report["items"]
+    assert "Legacy unscoped memory" not in report["raw_context"]
+    assert adapter.retrieve_context("legacy memory", top_k=5)["items"]
 
 
 def test_embedding_compatibility_migration_writes_report(tmp_path) -> None:
