@@ -23,7 +23,9 @@ def _print_json(payload: Any) -> None:
 
 
 def _client(args: argparse.Namespace) -> httpx.Client:
-    return httpx.Client(base_url=args.base_url.rstrip("/"), timeout=args.timeout_s)
+    token = os.environ.get("DML_API_TOKEN") or os.environ.get("DML_ADMIN_TOKEN")
+    headers = {"Authorization": f"Bearer {token}"} if token else {}
+    return httpx.Client(base_url=args.base_url.rstrip("/"), timeout=args.timeout_s, headers=headers)
 
 
 def _meta_from_args(raw: str | None) -> dict[str, Any]:

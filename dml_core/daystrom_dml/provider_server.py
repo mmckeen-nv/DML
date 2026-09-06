@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field
 
 from .api_contracts import DaystromScope
 from .api_contracts import ContractError
+from .auth import BearerAuthMiddleware
 from .cognition.audit import sanitize_audit_payload
 from .cognition.controller import CognitionController
 from .cognition.evaluation import DCNEvalHarness, smoke_eval_cases
@@ -215,6 +216,7 @@ def create_app(
             adapter.close()
 
     app = FastAPI(title="Daystrom DML Provider", lifespan=lifespan)
+    app.add_middleware(BearerAuthMiddleware)
     app.state.adapter = adapter
     app.state.dcn_learning = ProceduralLearningPolicy()
     app.state.dcn_controller = CognitionController(
@@ -494,12 +496,12 @@ def create_app(
     @app.post("/api/remember")
     def remember(payload: RememberRequest) -> dict[str, Any]:
         meta = {
+            **payload.meta,
             "tenant_id": payload.tenant_id,
             "client_id": payload.client_id,
             "session_id": payload.session_id,
             "instance_id": payload.instance_id,
             "kind": payload.kind,
-            **payload.meta,
         }
         app.state.adapter.ingest(payload.text, meta=meta)
         return {"status": "ok", "action": "remember", "tenant_id": payload.tenant_id, "session_id": payload.session_id}

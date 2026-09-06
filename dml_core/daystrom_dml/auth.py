@@ -9,7 +9,7 @@ from starlette.responses import JSONResponse
 
 
 PUBLIC_PATHS = frozenset({"/", "/health", "/metrics", "/docs", "/redoc", "/openapi.json"})
-PUBLIC_PREFIXES = ("/static/",)
+PUBLIC_PREFIXES = ("/static/", "/assets/")
 ADMIN_PATHS = frozenset({"/visualizer/launch"})
 ADMIN_PREFIXES = ("/nim/",)
 
@@ -33,7 +33,9 @@ def _bearer_token(headers: Iterable[tuple[bytes, bytes]]) -> str | None:
 def _matches(candidate: str | None, expected: str | None) -> bool:
     """Compare non-empty credentials without leaking comparison timing."""
 
-    return bool(candidate and expected) and hmac.compare_digest(candidate, expected)
+    return bool(candidate and expected) and hmac.compare_digest(
+        candidate.encode("utf-8"), expected.encode("utf-8")
+    )
 
 
 class BearerAuthMiddleware:

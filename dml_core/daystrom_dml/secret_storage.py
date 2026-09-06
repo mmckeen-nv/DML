@@ -4,7 +4,25 @@ from __future__ import annotations
 import os
 import stat
 import tempfile
+import csv
+import subprocess
 from pathlib import Path
+
+
+def _restrict_windows_secret(path: Path) -> None:
+    """Remove inherited access before placing any credential in a new file."""
+    system32 = Path(os.environ["SystemRoot"]) / "System32"
+    identity = subprocess.run(
+        [str(system32 / "whoami.exe"), "/user", "/fo", "csv", "/nh"],
+        check=True, capture_output=True, text=True,
+    )
+    sid = next(csv.reader(identity.stdout.strip().splitlines()))[-1]
+    if not sid.startswith("S-1-"):
+        raise OSError("Unable to resolve current Windows security identifier")
+    subprocess.run(
+        [str(system32 / "icacls.exe"), str(path), "/inheritance:r", "/grant:r", f"*{sid}:(F)"],
+        check=True, capture_output=True, text=True,
+    )
 
 
 def persist_secret(secret: str, path: Path, *, repository_root: Path) -> None:
@@ -36,14 +54,18 @@ def persist_secret(secret: str, path: Path, *, repository_root: Path) -> None:
     fd, temporary_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=parent)
     temporary_path = Path(temporary_name)
     try:
-        os.fchmod(fd, 0o600)
+        if os.name == "nt":
+            _restrict_windows_secret(temporary_path)
+        else:
+            os.fchmod(fd, 0o600)
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
             fd = -1
             handle.write(secret.strip() + "\n")
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(temporary_path, path)
-        path.chmod(0o600)
+        if os.name != "nt":
+            path.chmod(0o600)
     finally:
         if fd >= 0:
             os.close(fd)

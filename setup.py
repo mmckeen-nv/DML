@@ -119,11 +119,11 @@ setup(
         "multiplex_rag": ["chromadb>=0.4", "faiss-cpu>=1.7"],
         "mcp": ["mcp>=0.1.0"],
         "playground": ["streamlit>=1.39", "plotly>=5.22"],
-        "dev": ["pytest>=7.4", "ruff>=0.1.9", "mypy>=1.6.0"],
+        "dev": ["build>=1.0", "pytest>=7.4", "ruff>=0.1.9", "mypy>=1.6.0", "httpx2>=2.3.0"],
         "cuda": ["pybind11>=2.10"],
     },
     package_data={
-        "daystrom_dml": ["web/*", "web/**/*", "provider_web/*", "contracts/schemas/*.json"],
+        "daystrom_dml": ["config.yaml", "web/*", "web/**/*", "provider_web/*", "contracts/schemas/*.json"],
     },
     entry_points={
         "console_scripts": [
@@ -134,8 +134,16 @@ setup(
             "dml-provider=daystrom_dml.provider_server:main",
             "dml-mcp-server=dml_mcp.dml_mcp_server:main",
             "dcm-model-probe=scripts.dcm_model_probe:main",
+            "dcm-workload-benchmark=scripts.dcm_workload_benchmark:main",
+            "dcm-kv-probe=scripts.dcm_kv_probe:main",
         ]
     },
-    ext_modules=[cuda_extension],
+    ext_modules=(
+        [cuda_extension]
+        if os.environ.get("DML_BUILD_CUDA", "auto").lower() != "0"
+        and shutil.which("nvcc") is not None
+        and pybind11 is not None
+        else []
+    ),
     cmdclass={"build_ext": CUDABuildExt},
 )

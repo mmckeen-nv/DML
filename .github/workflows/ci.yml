@@ -41,9 +41,7 @@ jobs:
         run: mypy $DML_CI_MYPY_TARGETS
       - name: DML core and Hermes hardening tests
         run: |
-          pytest dml_core/daystrom_dml/tests/test_dml.py -k personality
-          pytest dml_core/daystrom_dml/tests/context
-          pytest dml_core/tests/test_mcp_server.py dml_core/tests/test_store_lock.py dml_core/daystrom_dml/tests/test_agentic_hot_path.py integrations/hermes/tests/test_daystrom_iteration_extension.py
+          pytest dml_core/daystrom_dml/tests dml_core/tests integrations/hermes/tests openclaw-wrapper/tests
           python integrations/hermes/plugins/daystrom_dml/smoke_hygiene.py
 
   cross-platform-portability:

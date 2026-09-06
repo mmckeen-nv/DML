@@ -19,6 +19,7 @@ packages = [
     "daystrom_dml.stm",
     "daystrom_dml.context",
     "daystrom_dml.context.adapters",
+    "daystrom_dml.context.vllm_bridge",
     "daystrom_dml.cognition",
     "daystrom_dml.inference",
     "daystrom_dml.contracts",
@@ -30,6 +31,7 @@ packages = [
 
 [tool.setuptools.package-data]
 "daystrom_dml" = [
+    "config.yaml",
     "web/*",
     "web/**/*",
     "provider_web/*",
@@ -81,6 +83,7 @@ playground = [
 ]
 cuda = ["pybind11>=2.10"]
 dev = [
+    "build>=1.0",
     "pytest>=7.4",
     "ruff>=0.1.9",
     "mypy>=1.6.0",

@@ -33,7 +33,10 @@ function resultItem(result) {
 }
 
 async function request(path, options = {}) {
-  const response = await fetch(path, options);
+  const headers = new Headers(options.headers);
+  const token = $("#api-token").value;
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  const response = await fetch(path, {...options, headers});
   if (!response.ok) {
     throw new Error(`${response.status} ${response.statusText}`);
   }
