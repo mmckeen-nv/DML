@@ -294,10 +294,11 @@ class MemoryStore:
                     session_id=session_id,
                     instance_id=instance_id,
                     kinds=None,
+                    strict_scope=True,
                 ):
                     continue
                 if any(
-                    expected is not None and meta.get(name) != expected
+                    meta.get(name) != expected
                     for name, expected in (
                         ("thread_id", thread_id),
                         ("project_id", project_id),
@@ -371,10 +372,11 @@ class MemoryStore:
                     session_id=session_id,
                     instance_id=instance_id,
                     kinds=None,
+                    strict_scope=True,
                 ):
                     continue
                 if any(
-                    expected is not None and meta.get(name) != expected
+                    meta.get(name) != expected
                     for name, expected in (
                         ("thread_id", thread_id),
                         ("project_id", project_id),

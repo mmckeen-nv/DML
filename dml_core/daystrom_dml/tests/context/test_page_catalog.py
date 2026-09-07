@@ -285,6 +285,52 @@ def test_working_set_rejects_catalog_scope_mismatch_before_lookup():
     assert store.semantic_calls == []
 
 
+def test_memory_store_catalog_lookups_do_not_broaden_omitted_subscope_fields():
+    scope = DaystromScope(tenant_id="tenant-a")
+    private_scope = DaystromScope(
+        tenant_id="tenant-a",
+        client_id="private-client",
+        session_id="private-session",
+        instance_id="private-instance",
+        thread_id="private-thread",
+        project_id="private-project",
+        relationship_id="private-relationship",
+    )
+    store = MemoryStore(
+        DummySummarizer(),
+        beta_a=0.08,
+        beta_r=0.2,
+        eta=0.15,
+        gamma=0.02,
+        kappa=0.5,
+        tau_s=0.3,
+        theta_merge=2.0,
+        K=4,
+        capacity=20,
+        start_aging_loop=False,
+        similarity_threshold=0.0,
+    )
+    private, _ = store.ingest(
+        "private scoped page",
+        np.asarray([1.0, 0.0], dtype=np.float32),
+        meta=_meta(private_scope, context_page_id="private", no_merge=True),
+    )
+
+    semantic = store.retrieve_filtered_for_catalog(
+        np.asarray([1.0, 0.0], dtype=np.float32),
+        tenant_id=scope.tenant_id,
+        top_k=1,
+    )
+    exact = store.find_filtered_by_handles(
+        handles=[f"dml:{private.id}"],
+        tenant_id=scope.tenant_id,
+        limit=1,
+    )
+
+    assert semantic == []
+    assert exact == []
+
+
 def test_memory_store_catalog_lookups_are_strict_bounded_and_read_only():
     scope = _scope()
     store = MemoryStore(
