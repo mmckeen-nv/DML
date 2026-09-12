@@ -4,14 +4,12 @@ from __future__ import annotations
 import contextlib
 import copy
 import heapq
-from concurrent.futures import Future
 import json
 import logging
 import os
 import re
 import threading
 import time
-from collections import OrderedDict
 from functools import wraps
 from datetime import datetime, timezone
 from pathlib import Path
@@ -31,6 +29,7 @@ from .metrics import (
     update_memory_gauge,
 )
 from .multi_rag import MultiRAGStore, RAGBackendDescriptor
+from .persistence import validate_snapshot
 from .persistence import load_state as load_persisted_memories
 from .persistence import save_state as save_persisted_memories
 from .personality_matrix import PersonalityMatrix, overlay_token_count
@@ -41,6 +40,11 @@ from .rag_store import PersistentRAGStore
 from .store_lock import store_write_lock
 from .atomic_io import atomic_write_text
 from .journal import JournalStateStore
+from .services.retrieval import QueryEmbeddingCache
+from .services.persistence import LatticePersistence
+from .services.context import compact_context
+from .services.lifecycle import suppression_reason
+from .services.telemetry import retrieval_decision
 from .stm.controller import STMController
 from .stm.policy import LTMWritePolicy, MemoryWrite
 from .stm.schema import STMState
@@ -205,12 +209,12 @@ class DMLAdapter:
             device=self.config.get("embedding_device"),
             allow_random_fallback=not strict_embedding_required,
         )
-        self._query_embedding_cache: OrderedDict[str, np.ndarray] = OrderedDict()
-        self._query_embedding_cache_lock = RLock()
-        self._query_embedding_inflight: Dict[str, Future] = {}
-        self._query_embedding_cache_size = max(
-            0, int(self.config.get("query_embedding_cache_size", 64) or 0)
-        )
+        self.query_cache = QueryEmbeddingCache(int(self.config.get("query_embedding_cache_size", 64) or 0))
+        # Compatibility aliases for existing embedders/integration tests.
+        self._query_embedding_cache = self.query_cache.values
+        self._query_embedding_cache_lock = self.query_cache.lock
+        self._query_embedding_inflight = self.query_cache.pending
+        self._query_embedding_cache_size = self.query_cache.capacity
         if summarizer is not None:
             self.summarizer = summarizer
         elif self.runner.is_dummy:
@@ -256,6 +260,13 @@ class DMLAdapter:
         self.dml_state_path = self.storage_dir / "dml_store.json"
         self.rag_state_path = self.storage_dir / "rag_store.json"
         self.checkpoint_dir = self.storage_dir / "checkpoints"
+        self.lattice_persistence = LatticePersistence(
+            json_path=self.dml_state_path, jsonl_path=self._persistence_path,
+            use_jsonl=self._persistence_enabled, journal=self._journal,
+            read_jsonl=lambda path: load_persisted_memories(path),
+            write_jsonl=lambda items, path: save_persisted_memories(items, path),
+            write_text=lambda path, text: atomic_write_text(path, text),
+        )
         self._persist_lock = RLock()
         self._durability_failures: Dict[str, str] = {}
         self._refresh_lock = RLock()
@@ -381,7 +392,8 @@ class DMLAdapter:
             theta_merge=float(self.config["theta_merge"]),
             K=int(self.config["K"]),
             capacity=int(self.config["capacity"]),
-            start_aging_loop=start_aging_loop,
+            start_aging_loop=False,
+            aging_callback=self._run_aging,
             enable_quality_on_retrieval=self.enable_quality_on_retrieval,
             similarity_threshold=float(self.config.get("similarity_threshold", 0.0)),
             ann_min_items=self.settings.ann_min_items,
@@ -416,14 +428,25 @@ class DMLAdapter:
                 self._gather_checkpoint_state,
                 interval_seconds=int(self.settings.checkpoint_interval_seconds),
                 retention=int(self.settings.checkpoint_retention),
+                start=False,
             )
-        self._load_persisted_state()
+        try:
+            self._load_persisted_state()
+        except BaseException:
+            if self.checkpoint_manager:
+                self.checkpoint_manager.close()
+            self.store.close()
+            raise
         self._last_observed_state = self._state_stamp()
         self._last_observed_rag_state = self._path_stamp(self.rag_state_path)
         if self.persistent_rag_store is not None:
             self._last_observed_persistent_rag = self._path_stamp(
                 self.persistent_rag_store.manifest_path
             )
+        if start_aging_loop:
+            self.store.start_aging()
+        if self.checkpoint_manager:
+            self.checkpoint_manager.start()
         if self._persistence_enabled and self._persistence_interval > 0:
             self._start_persistence_loop()
         if self.metrics_enabled:
@@ -1320,9 +1343,7 @@ class DMLAdapter:
     # Persistence helpers
     # ------------------------------------------------------------------
     def _active_state_path(self) -> Path:
-        if self._journal is not None:
-            return self._journal.path
-        return self._persistence_path if self._persistence_enabled else self.dml_state_path
+        return self.lattice_persistence.path
 
     def mutation_transaction(self, operation: str):
         """Expose one nestable durable transaction to trusted batch front ends."""
@@ -1393,6 +1414,7 @@ class DMLAdapter:
         lock_root = self._active_state_path().expanduser().resolve().parent
         with store_write_lock(lock_root, operation=operation, timeout_ms=30000):
             self._mutation_local.depth = 1
+            self._mutation_local.operation = operation
             try:
                 self.refresh_if_changed()
                 yield
@@ -1424,7 +1446,7 @@ class DMLAdapter:
         if self.persistent_rag_store is not None and persistent_snapshot is not None:
             self.persistent_rag_store.restore_state(persistent_snapshot)
         with self._query_embedding_cache_lock:
-            self._query_embedding_cache.clear()
+            self.query_cache.clear()
 
         # The outer store lock remains held here, so no cooperating writer can
         # commit between the failed write and these compensating replacements.
@@ -1449,9 +1471,7 @@ class DMLAdapter:
             self._last_observed_rag_state = self._path_stamp(self.rag_state_path)
 
     def _state_stamp(self) -> Optional[tuple[int, int]]:
-        if self._journal is not None:
-            return self._journal.stamp()
-        return self._path_stamp(self._active_state_path())
+        return self.lattice_persistence.stamp()
 
     @staticmethod
     def _path_stamp(path: Path) -> Optional[tuple[int, int]]:
@@ -1468,17 +1488,15 @@ class DMLAdapter:
         with self._refresh_lock:
             changed = False
             current = self._state_stamp()
+            if current is None and self._last_observed_state is not None:
+                raise FileNotFoundError("Previously initialized DML state is missing")
             if current is not None and current != self._last_observed_state:
-                if self._journal is not None:
-                    payload = self._journal.load()
-                elif self._persistence_enabled:
-                    items = load_persisted_memories(self._persistence_path)
-                    payload = {"items": [item.to_dict() for item in items]}
-                else:
-                    payload = json.loads(self.dml_state_path.read_text(encoding="utf-8"))
+                payload = self.lattice_persistence.load()
+                if self._journal:
+                    current = (self._journal.revision, current[1])
                 self.store.import_state(payload)
                 with self._query_embedding_cache_lock:
-                    self._query_embedding_cache.clear()
+                    self.query_cache.clear()
                 self._last_observed_state = current
                 changed = True
 
@@ -1512,60 +1530,20 @@ class DMLAdapter:
         return True
 
     def _load_persisted_state(self) -> None:
-        state_loaded = False
-        if self._journal is not None:
-            # Never silently replace existing JSON data with an empty journal.
-            if self._journal.stamp()[0] == 0 and (self.dml_state_path.exists() or self._persistence_path.exists()):
-                raise ValueError("Journal migration requires an explicit snapshot import")
-            payload = self._journal.load()
+        """Load the selected authority or fail; corruption is never an empty store."""
+        payload = self.lattice_persistence.load(startup=True)
+        if payload is not None:
+            validate_snapshot(payload)
             self._ensure_embedding_compatibility(payload)
             self.store.import_state(payload)
-            state_loaded = True
-        elif self._persistence_enabled:
-            try:
-                items = load_persisted_memories(self._persistence_path)
-            except FileNotFoundError:
-                pass
-            except Exception:
-                LOGGER.exception(
-                    "Failed to load durable DML state from %s", self._persistence_path
-                )
-            else:
-                payload = {"items": [item.to_dict() for item in items]}
-                report = self._ensure_embedding_compatibility(payload)
-                if report.get("status") in {"migrated", "partial"}:
-                    LOGGER.warning(
-                        "Loaded durable DML state from %s with embedding compatibility migration status=%s report=%s",
-                        self._persistence_path,
-                        report.get("status"),
-                        report.get("report_path"),
-                    )
-                self.store.import_state(payload)
-                state_loaded = True
-        if not state_loaded:
-            with contextlib.suppress(Exception):
-                if self.dml_state_path.exists():
-                    data = json.loads(self.dml_state_path.read_text(encoding="utf-8"))
-                    report = self._ensure_embedding_compatibility(data)
-                    if report.get("status") in {"migrated", "partial"}:
-                        LOGGER.warning(
-                            "Loaded JSON DML state from %s with embedding compatibility migration status=%s report=%s",
-                            self.dml_state_path,
-                            report.get("status"),
-                            report.get("report_path"),
-                        )
-                    self.store.import_state(data)
         if self._persistent_rag_loaded:
-            LOGGER.info(
-                "Skipping legacy RAG replay because durable persistent RAG is already loaded."
-            )
             if self.metrics_enabled:
                 record_operation("legacy_rag_replay_skipped")
-        elif not bool(self.config.get("skip_rag_state_import", False)):
-            with contextlib.suppress(Exception):
-                if self.rag_state_path.exists():
-                    data = json.loads(self.rag_state_path.read_text(encoding="utf-8"))
-                    self.rag_store.import_state(data)
+        elif not bool(self.config.get("skip_rag_state_import", False)) and self.rag_state_path.exists():
+            data = json.loads(self.rag_state_path.read_text(encoding="utf-8"))
+            if not isinstance(data, dict) or not isinstance(data.get("documents"), list):
+                raise ValueError("Invalid legacy RAG snapshot")
+            self.rag_store.import_state(data)
 
     def _persist_all(self) -> None:
         self._persist_dml_state()
@@ -1600,57 +1578,31 @@ class DMLAdapter:
                 LOGGER.exception("Failed to persist DML state during background save.")
 
     def _gather_checkpoint_state(self) -> Dict[str, Any]:
-        """Collect a combined state payload for checkpointing."""
-
-        return {
-            "timestamp": time.time(),
-            "dml": self.store.export_state(),
-            "rag": self.rag_store.export_state(),
-            "stats": self.stats(),
-        }
+        """Gather under the writer boundary so checkpoint readers see one state."""
+        with self._mutation_transaction("checkpoint-read"):
+            return {
+                "schema_version": 1,
+                "timestamp": time.time(),
+                "dml": self.store.export_state(),
+                "rag": self.rag_store.export_state(),
+                "stats": self.stats(),
+            }
 
     def _persist_dml_state(self) -> None:
-        if self._journal is not None:
-            with self._persist_lock:
-                try:
-                    self._journal.save(self.store.export_state())
-                    self._mark_committed_component("dml")
-                    self._last_observed_state = self._state_stamp()
-                except Exception as exc:
-                    self._record_durability_failure_locked("dml", exc)
-                    raise PersistenceCommitError("DML journal commit failed") from exc
-                self._clear_durability_failure_locked("dml")
-            return
-        if self._persistence_enabled:
-            with self._persist_lock:
-                items = self.store.items()
-                try:
-                    save_persisted_memories(items, self._persistence_path)
-                    self._last_observed_state = self._state_stamp()
-                    self._mark_committed_component("dml")
-                except Exception as exc:
-                    self._record_durability_failure_locked("dml", exc)
-                    LOGGER.exception(
-                        "Failed to persist DML state to %s", self._persistence_path
-                    )
-                    raise PersistenceCommitError(
-                        f"DML state persistence failed: {self._persistence_path}"
-                    ) from exc
-                self._clear_durability_failure_locked("dml")
-            return
         with self._persist_lock:
-            data = self.store.export_state()
             try:
-                self.dml_state_path.parent.mkdir(parents=True, exist_ok=True)
-                atomic_write_text(self.dml_state_path, json.dumps(data, indent=2))
-                self._last_observed_state = self._state_stamp()
+                jsonl = self._persistence_enabled and self._journal is None
+                stamp = self.lattice_persistence.commit(
+                    payload=None if jsonl else self.store.export_state(),
+                    items=self.store.items() if jsonl else None,
+                    expected_revision=self._last_observed_state[0] if self._journal and self._last_observed_state else 0,
+                    operation=getattr(self._mutation_local, "operation", "persist"),
+                )
                 self._mark_committed_component("dml")
+                self._last_observed_state = stamp
             except Exception as exc:
                 self._record_durability_failure_locked("dml", exc)
-                LOGGER.exception("Failed to persist DML state to %s", self.dml_state_path)
-                raise PersistenceCommitError(
-                    f"DML state persistence failed: {self.dml_state_path}"
-                ) from exc
+                raise PersistenceCommitError("DML state persistence failed") from exc
             self._clear_durability_failure_locked("dml")
 
     def _persist_rag_state(self) -> None:
@@ -2059,6 +2011,11 @@ class DMLAdapter:
             "avg_fidelity": float(np.mean([it.fidelity for it in items]) if items else 0.0),
         }
 
+    @_serialized_mutation
+    def _run_aging(self) -> None:
+        self.store.decay_step()
+        self._persist_dml_state()
+
     def run_maintenance(self, sample_ratio: float = 0.1) -> None:
         """Run a maintenance pass to assess quality without slowing retrieval."""
 
@@ -2233,6 +2190,42 @@ class DMLAdapter:
         dpm_project_id: Optional[str] = None,
         dpm_relationship_id: Optional[str] = None,
         include_quarantined: bool = False,
+        as_of: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        # Embedding/provider I/O happens before acquiring the store ownership.
+        query_embedding = self._embed_query(prompt)
+        with self._mutation_transaction("retrieve-context"):
+            return self._retrieve_context_owned(prompt, query_embedding=query_embedding,
+                tenant_id=tenant_id,
+                client_id=client_id,
+                session_id=session_id,
+                instance_id=instance_id,
+                kinds=kinds,
+                top_k=top_k,
+                phase=phase,
+                dpm_thread_id=dpm_thread_id,
+                dpm_project_id=dpm_project_id,
+                dpm_relationship_id=dpm_relationship_id,
+                include_quarantined=include_quarantined,
+                as_of=as_of,
+            )
+
+    def _retrieve_context_owned(
+        self,
+        prompt: str,
+        tenant_id: Optional[str] = None,
+        client_id: Optional[str] = None,
+        session_id: Optional[str] = None,
+        instance_id: Optional[str] = None,
+        kinds: Optional[List[str]] = None,
+        top_k: Optional[int] = None,
+        phase: Optional[str | MemoryPhase] = None,
+        dpm_thread_id: Optional[str] = None,
+        dpm_project_id: Optional[str] = None,
+        dpm_relationship_id: Optional[str] = None,
+        include_quarantined: bool = False,
+        as_of: Optional[float] = None,
+        query_embedding: Optional[np.ndarray] = None,
     ) -> Dict[str, Any]:
         """
         Retrieve context with agentic-aware routing.
@@ -2240,6 +2233,9 @@ class DMLAdapter:
         Returns retrieval report with selected kinds, scores, and tokens.
         """
         start = time.perf_counter()
+        effective_time = time.time() if as_of is None else float(as_of)
+        if not np.isfinite(effective_time):
+            raise ValueError("as_of must be finite")
         decision: Optional[RouterDecision] = None
         phase_enum = self._coerce_memory_phase(phase)
         if self.agentic_mode_enabled and self.agentic_router:
@@ -2265,7 +2261,8 @@ class DMLAdapter:
         if final_kinds is None and phase_enum in {MemoryPhase.EXECUTE, MemoryPhase.DEBUG}:
             final_kinds = ["action", "observation", "error"]
 
-        query_embedding = self._embed_query(prompt)
+        if query_embedding is None:
+            query_embedding = self._embed_query(prompt)
         scoped = any(value is not None for value in (tenant_id, client_id, session_id, instance_id))
         if scoped:
             items = self.store.retrieve_filtered(
@@ -2277,8 +2274,9 @@ class DMLAdapter:
                 kinds=final_kinds,
                 top_k=final_top_k,
                 strict_scope=True,
+                as_of=effective_time,
+                eligible=lambda item: suppression_reason(item.meta or {}, now=effective_time, include_quarantined=include_quarantined) is None,
             )
-            items = self._filter_retrievable_items(items, include_quarantined=include_quarantined)
             if not items:
                 items = self._recent_context_items(
                     tenant_id=tenant_id,
@@ -2289,6 +2287,7 @@ class DMLAdapter:
                     phase=phase_enum,
                     top_k=final_top_k,
                     include_quarantined=include_quarantined,
+                    as_of=effective_time,
                 )
         else:
             items = self._retrieve_items(
@@ -2308,6 +2307,7 @@ class DMLAdapter:
                     phase=phase_enum,
                     top_k=final_top_k,
                     include_quarantined=include_quarantined,
+                    as_of=effective_time,
                 )
 
         ledger_item = self._survival_ledger_for_scope(
@@ -2317,12 +2317,12 @@ class DMLAdapter:
             instance_id=instance_id,
         )
         ledger_included = False
-        if ledger_item is not None:
+        if ledger_item is not None and suppression_reason(ledger_item.meta or {}, now=effective_time, include_quarantined=include_quarantined) is None:
             items = [ledger_item] + [item for item in items if item.id != ledger_item.id]
             ledger_included = True
 
-        entries, context, tokens_used = self._compact_context_items(items)
         personality_overlay = None
+        personality_block = ""
         if getattr(self.settings.dpm, "include_in_context", True):
             personality_overlay = self.personality_overlay(
                 prompt=prompt,
@@ -2335,12 +2335,28 @@ class DMLAdapter:
                 if personality_overlay
                 else ""
             )
-            if personality_block:
-                context = f"{personality_block}\n\n{context}" if context else personality_block
-                tokens_used += overlay_token_count(personality_overlay)
+        entries, context, tokens_used = self._compact_context_items(items, prefix=personality_block)
         latency_ms = int((time.perf_counter() - start) * 1000.0)
 
+        scope = {"tenant_id": tenant_id, "client_id": client_id, "session_id": session_id, "instance_id": instance_id}
+        suppressed = []
+        for candidate in self.store.items():
+            meta = candidate.meta or {}
+            if scoped and any(meta.get(key) != value for key, value in scope.items()):
+                continue
+            reason = suppression_reason(meta, now=effective_time, include_quarantined=include_quarantined)
+            if reason:
+                suppressed.append({"id": str(candidate.id), "reason": reason})
+        evidence = retrieval_decision(
+            prompt=prompt, scope=scope, revision=self._last_observed_state[0] if self._journal and self._last_observed_state else None,
+            as_of=effective_time, entries=entries, context=context, top_k=final_top_k,
+            kinds=final_kinds, embedding=query_embedding, suppressed=suppressed,
+            replayable=scoped and not self.settings.ann_min_items and not self.enable_quality_on_retrieval,
+        )
         report = {
+            "decision": evidence,
+            "token_count_kind": "estimate",
+
             "raw_context": context,
             "context_tokens": tokens_used,
             "top_k": final_top_k,
@@ -2600,82 +2616,17 @@ class DMLAdapter:
             return None
 
     def _embed_query(self, prompt: str) -> np.ndarray:
-        # Embedders may distinguish case and whitespace. Cache the exact input.
-        key = str(prompt or "")
-        with self._query_embedding_cache_lock:
-            if self._query_embedding_cache_size > 0 and key in self._query_embedding_cache:
-                embedding = self._query_embedding_cache.pop(key)
-                self._query_embedding_cache[key] = embedding
-                return embedding
-            pending = self._query_embedding_inflight.get(key)
-            owner = pending is None
-            if owner:
-                pending = Future()
-                self._query_embedding_inflight[key] = pending
-        if not owner:
-            return pending.result()
-        try:
-            embedding = self.embedder.embed(prompt)
-            with self._query_embedding_cache_lock:
-                if self._query_embedding_cache_size > 0 and key:
-                    self._query_embedding_cache[key] = embedding
-                    while len(self._query_embedding_cache) > self._query_embedding_cache_size:
-                        self._query_embedding_cache.popitem(last=False)
-            pending.set_result(embedding)
-            return embedding
-        except BaseException as exc:
-            pending.set_exception(exc)
-            raise
-        finally:
-            with self._query_embedding_cache_lock:
-                self._query_embedding_inflight.pop(key, None)
+        self.query_cache.capacity = max(0, self._query_embedding_cache_size)
+        return self.query_cache.get(str(prompt or ""), self.embedder.embed)
 
-    def _compact_context_items(
-        self, items: List[MemoryItem]
-    ) -> tuple[List[Dict[str, Any]], str, int]:
-        if not items:
-            return [], "", 0
-        budget = int(self.config.get("token_budget", 600))
-        item_limit = self._context_item_limit(len(items))
-        summary_chars = self._context_summary_chars()
-        consumed = 0
-        lines: List[str] = ["=== Retrieved Context ==="]
-        entries: List[Dict[str, Any]] = []
-        for item in items[:item_limit]:
-            meta = item.meta or {}
-            max_len = summary_chars
-            if meta.get("kind") == SURVIVAL_LEDGER_KIND:
-                max_len = max(summary_chars, self.survival_ledger_summary_chars)
-            summary = item.cached_summary(max_len=max_len)
-            tokens = utils.estimate_tokens(summary)
-            if consumed + tokens > budget:
-                if entries:
-                    break
-                approx_chars = max(32, budget * 4)
-                summary = summary[:approx_chars].rstrip()
-                if len(item.cached_summary(max_len=max_len)) > len(summary):
-                    summary = summary.rstrip() + "..."
-                tokens = min(max(1, utils.estimate_tokens(summary)), budget)
-            consumed += tokens
-            source = meta.get("source", "unknown")
-            timestamp = time.strftime("%Y-%m-%d", time.gmtime(item.timestamp))
-            lines.append(f"- ({timestamp}) [source={source}]\n  {summary}")
-            entries.append(
-                {
-                    "id": str(item.id),
-                    "text": summary,
-                    "summary": summary,
-                    "meta": meta,
-                    "timestamp": float(item.timestamp),
-                    "level": item.level,
-                    "fidelity": float(item.fidelity),
-                    "salience": float(item.salience),
-                    "tokens": tokens,
-                }
-            )
-        if not entries:
-            return [], "", 0
-        return entries, "\n".join(lines), consumed
+    def _compact_context_items(self, items: List[MemoryItem], *, prefix: str = "") -> tuple[List[Dict[str, Any]], str, int]:
+        return compact_context(
+            items, budget=int(self.config.get("token_budget", 600)),
+            item_limit=self._context_item_limit(len(items)),
+            summary_chars=self._context_summary_chars(),
+            ledger_chars=self.survival_ledger_summary_chars,
+            count_tokens=utils.estimate_tokens, prefix=prefix,
+        )
 
     @staticmethod
     def _procedural_failure(meta: Dict[str, Any]) -> bool:
@@ -2724,11 +2675,7 @@ class DMLAdapter:
 
     @staticmethod
     def _meta_is_quarantined_or_suppressed(meta: Dict[str, Any]) -> bool:
-        state = str(meta.get("memory_state") or meta.get("lifecycle_state") or "").strip().lower()
-        namespace = str(meta.get("namespace") or "").strip().lower()
-        if state in {"quarantine", "quarantined", "suppressed", "deleted"}:
-            return True
-        return namespace in {"quarantine", "quarantined"}
+        return suppression_reason(meta, now=time.time()) is not None
 
     @classmethod
     def _is_quarantined_or_suppressed(cls, item: MemoryItem) -> bool:
@@ -2753,14 +2700,16 @@ class DMLAdapter:
         top_k: int,
         require_unscoped: bool = False,
         include_quarantined: bool = False,
+        as_of: Optional[float] = None,
     ) -> List[MemoryItem]:
+        effective_time = time.time() if as_of is None else as_of
         allowed_kinds = set(kinds or [])
         if not allowed_kinds and phase in {MemoryPhase.EXECUTE, MemoryPhase.DEBUG}:
             allowed_kinds = {"action", "observation", "error"}
         candidates: List[MemoryItem] = []
         scoped = any(value is not None for value in (tenant_id, client_id, session_id, instance_id))
         for item in self.store.items():
-            if not include_quarantined and self._is_quarantined_or_suppressed(item):
+            if suppression_reason(item.meta or {}, now=effective_time, include_quarantined=include_quarantined):
                 continue
             meta = item.meta or {}
             if require_unscoped and any(
@@ -2784,7 +2733,7 @@ class DMLAdapter:
             if allowed_kinds and item_kind not in allowed_kinds:
                 continue
             candidates.append(item)
-        return heapq.nlargest(max(1, top_k), candidates, key=lambda item: item.timestamp)
+        return heapq.nlargest(max(1, top_k), candidates, key=lambda item: (item.timestamp, -item.id))
 
     def _format_ltm_entries(self, items: List[MemoryStore.MemoryItem]) -> str:
         if not items:

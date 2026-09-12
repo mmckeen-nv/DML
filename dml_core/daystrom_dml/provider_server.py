@@ -25,6 +25,7 @@ from .cognition.learning import ProceduralLearningPolicy
 from .cognition.policy import DeterministicCognitionPolicy
 from .cognition.schema import CognitionConstraints, CognitionEvent, CognitionFeedback
 from .dml_adapter import DMLAdapter
+from .contracts.production import production_status
 from .frontier_pipeline import FrontierCompressionPipeline, FrontierPipelineConfig
 
 
@@ -269,12 +270,23 @@ def create_app(
     def health() -> dict[str, Any]:
         adapter = app.state.adapter
         stats = adapter.stats()
+        durability = adapter.durability_status() if hasattr(adapter, "durability_status") else {"status": "unknown"}
+        checkpoint = getattr(adapter, "checkpoint_manager", None)
+        checkpoint_status = checkpoint.status() if checkpoint is not None else {"status": "disabled"}
+        degraded = durability["status"] == "degraded" or checkpoint_status["status"] == "degraded"
         return {
-            "status": "ok",
+            "status": "degraded" if degraded else "ok",
+            "durability": durability,
+            "checkpoint": checkpoint_status,
+            "production": production_status(),
             "provider": "daystrom-dml",
             "uptime_seconds": round(time.time() - app.state.started_at, 2),
             "stats": stats,
         }
+
+    @app.get("/api/contracts")
+    def contracts() -> dict[str, Any]:
+        return production_status()
 
     @app.get("/api/stats")
     def stats() -> dict[str, Any]:
