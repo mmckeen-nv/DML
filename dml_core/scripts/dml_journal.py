@@ -63,7 +63,9 @@ def import_snapshot(source: Path, database: Path) -> None:
         store = JournalStateStore(database)
         if store.stamp()[0] != 0:
             raise ValueError("refusing to overwrite an initialized journal")
-        store.save(payload)
+        # Direct journal clients need not hold the CLI's advisory lock. Refuse
+        # to overwrite a first commit made after the emptiness check.
+        store.save(payload, expected_revision=0, operation="snapshot-import")
 
 
 def main(argv=None):

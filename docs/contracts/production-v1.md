@@ -57,6 +57,27 @@ Read and write validation checks the committed state digest and record count.
 The identity sidecar binds a storage location to the database identity; ordinary
 reads/writes use SQLite `mode=rw` and cannot create a missing database.
 
+Journal hardening additionally serializes first creation with a dedicated,
+persistent per-database initialization lock. Canonical absolute paths keep
+subsequent operations bound to the same location. A complete existing schema-1
+database is validated before a missing identity marker may be published, preserving
+compatibility with the initial schema-1 implementation. An already-open handle
+rejects a missing or changed marker. The database, identity and lock files must
+remain together; export refuses to overwrite these coordination files.
+
+Every constructor, load, stamp, save, decision-page read and passive checkpoint
+validates the state revision, contiguous decision history, replayed record digests
+and counts, and archived snapshot against its matching commit decision. Revision
+zero cannot conceal prior committed state. This currently scans **the entire
+decision history**, even for a stamp or one decision page: CPU and memory costs
+grow with history. It is a correctness-first implementation, not a long-horizon
+performance qualification. The isolated history-cost harness measures this cost;
+any future validation cache must retain corruption detection before adoption.
+
+The adapter pins startup ownership to the revision it actually loaded, even if a
+peer commits before startup finishes. CLI import uses compare-and-swap revision
+zero, so a competing journal client cannot have its first commit overwritten.
+
 The journal transaction currently covers the lattice, **not** persistent RAG,
 DPM/DCN files or runtime KV state. Normal JSON/RAG write compensation still exists.
 Idempotent client receipts and a transactional projection outbox are not yet
@@ -107,6 +128,17 @@ model identity, source bytes or actual rendered context. Full operator replay an
 bounded audit retention/export remain release gates. No payloads are newly logged.
 
 ## Migration and recovery
+
+Initialization has explicit process-death outcomes. Before database creation,
+retry can create a new journal. After file creation but before schema commit, the
+incomplete schema-0 file is preserved and rejected with `JournalSchemaError`;
+inspect it and choose a new location for a fresh store, or recover from a verified
+source. The schema-0 upgrade command accepts a valid legacy layout, not arbitrary
+incomplete files. After the schema transaction commits, restart verifies all state
+and can finish publishing the identity marker. No acknowledged memory operation
+occurs before construction succeeds. Keep incomplete files for diagnosis; do not
+remove markers to bypass a recovery-required state. See the [serial journal
+hardening record](../journal-hardening-2026-09-12.md) for the tested boundaries.
 
 Schema-0 journal fixtures are pinned to commit
 `48b2ba21ebc4f2b479b72062557afdf9b4398be4`; they are not mislabeled as a released

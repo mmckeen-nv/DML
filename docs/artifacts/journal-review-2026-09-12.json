@@ -1,0 +1,58 @@
+{
+  "schema_version": "dml-feature-review-v1",
+  "feature": "journal-initialization-integrity-recovery",
+  "base_commit": "b8626b73b2caeab2a7c25353d11aa526adf777a2",
+  "reviewer": "independent journal_grader agent",
+  "score": 9.5,
+  "minimum_accepted_score": 9.5,
+  "decision": "accepted",
+  "category_scores": {
+    "integrity": [
+      2.9,
+      3.0
+    ],
+    "initialization": [
+      1.9,
+      2.0
+    ],
+    "CAS_and_integration": [
+      2.0,
+      2.0
+    ],
+    "independent_harness": [
+      1.45,
+      1.5
+    ],
+    "compatibility_and_portability": [
+      0.85,
+      1.0
+    ],
+    "clarity_and_evidence": [
+      0.4,
+      0.5
+    ]
+  },
+  "source_sha256": {
+    "dml_core/daystrom_dml/journal.py": "d6394ea4f39877e7079bd6d03f4ba67e2404e6744769a06c5ad8de940cd61ec6",
+    "dml_core/daystrom_dml/dml_adapter.py": "4db0d95e0945dedb71a6501e9904badab118fc26089959598eeba9a2ec56c98b",
+    "dml_core/scripts/dml_journal.py": "ff3408956f2d3f689d22ab30853bcb1f747b434a235dbdc351dbc6524f7b4411",
+    "dml_core/scripts/journal_history_benchmark.py": "ca8e5f10f4198d2f16e1fd66cf08fbc1e3496ffcb5ad8bbc632cb8c03de42b13",
+    "dml_core/tests/test_journal_hardening.py": "355e48253acf9105db728b59a993149cb7a69e533ca2784ee8d60955284f588b",
+    "dml_core/tests/test_production_foundations.py": "5898a5c90dab4c22ee260487b4ec6c207781ddf014cd9a3bcffeb86fdc9456c4",
+    "dml_core/tests/fixtures/journal_schema1_b8626b7.sql": "eb3112df32b82bd8b37d8362ed1787b6dafd5351bd49d8e20f1423747a74b60e"
+  },
+  "verification": {
+    "full_core_hermes_wrapper_suite": "exit 0 after final runtime changes; 977 passing test items",
+    "final_journal_harness": "50 passed in 2.30s",
+    "separate_256_client_CAS": "passed",
+    "ruff": "passed",
+    "mypy": "43 maintained files passed; local Python target 3.12",
+    "reviewer_supplemental_oracle": "120 seeded insert/delete/reorder transitions; reopen each revision; URI paths and frozen input checks passed"
+  },
+  "limitations": [
+    "Feature-specific review, not a whole-platform grade or guarantee",
+    "Final-commit remote CI remains merge gate",
+    "Whole-history verification scales with history; history cost artifact records local evidence",
+    "No receipts, projection outbox, native KV or power-loss qualification"
+  ]
+}

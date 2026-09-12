@@ -432,12 +432,18 @@ class DMLAdapter:
             )
         try:
             self._load_persisted_state()
+            observed_state = self._state_stamp()
+            if self._journal is not None and observed_state is not None:
+                # A peer can commit between load and stat. Pin the revision of
+                # the payload actually imported so the next mutation refreshes
+                # instead of treating stale memory as that peer's new revision.
+                observed_state = (self._journal.revision, observed_state[1])
+            self._last_observed_state = observed_state
         except BaseException:
             if self.checkpoint_manager:
                 self.checkpoint_manager.close()
             self.store.close()
             raise
-        self._last_observed_state = self._state_stamp()
         self._last_observed_rag_state = self._path_stamp(self.rag_state_path)
         if self.persistent_rag_store is not None:
             self._last_observed_persistent_rag = self._path_stamp(

@@ -32,6 +32,7 @@ jobs:
         dml_core/daystrom_dml/context
         dml_core/daystrom_dml/services
         dml_mcp/dml_mcp_server.py
+        dml_core/daystrom_dml/journal.py
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
@@ -74,6 +75,7 @@ jobs:
           dml_core/tests/test_store_lock.py
           dml_core/tests/test_atomic_io.py
           dml_core/tests/test_production_foundations.py
+          dml_core/tests/test_journal_hardening.py
           dml_core/tests/test_adversarial_memory.py
           dml_core/tests/test_outcome_metrics.py
           dml_core/tests/test_fail_closed_persistence.py
@@ -104,6 +106,8 @@ jobs:
         run: python -m pytest dml_core/tests/test_production_foundations.py::test_concurrent_clients_use_compare_and_swap_without_lost_updates
       - name: Compare independent baseline on 1000 offline turns
         run: python -m scripts.production_baseline --turns 1000 --output production-artifacts/baseline.json
+      - name: Measure journal history validation cost
+        run: python -m scripts.journal_history_benchmark --output production-artifacts/journal-history.json
       - name: Preserve evidence without treating simulation as agent success
         uses: actions/upload-artifact@v4
         with:

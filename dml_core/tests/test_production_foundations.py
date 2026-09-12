@@ -236,7 +236,12 @@ def test_corruption_cannot_be_overwritten_by_a_write(tmp_path):
         connection.execute("DELETE FROM records")
     with pytest.raises(JournalIntegrityError):
         store.save(state("replacement must not conceal loss"))
-    assert store.stamp()[0] == 1
+    with pytest.raises(JournalIntegrityError):
+        store.stamp()
+    # Inspect the damaged authority directly; normal readers must reject it.
+    from contextlib import closing
+    with closing(sqlite3.connect(store.path)) as connection:
+        assert connection.execute("SELECT revision FROM state").fetchone()[0] == 1
 
 
 def test_provider_reports_degraded_durability_and_explicit_maturity(tmp_path):
