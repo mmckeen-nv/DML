@@ -421,15 +421,15 @@ class DMLAdapter:
                 top_k=int(self.config.get("ltm_top_k", self.config.get("dml_top_k", DEFAULT_DML_TOP_K))),
                 extract_max_tokens=int(self.config.get("stm_extract_max_tokens", 256)),
             )
-        self.checkpoint_manager: Optional[CheckpointManager] = None
-        if int(self.settings.checkpoint_interval_seconds) > 0:
-            self.checkpoint_manager = CheckpointManager(
-                self.checkpoint_dir,
-                self._gather_checkpoint_state,
-                interval_seconds=int(self.settings.checkpoint_interval_seconds),
-                retention=int(self.settings.checkpoint_retention),
-                start=False,
-            )
+        # Manual checkpoints share the same lifetime and drain boundary even
+        # when periodic checkpointing is disabled.
+        self.checkpoint_manager = CheckpointManager(
+            self.checkpoint_dir,
+            self._gather_checkpoint_state,
+            interval_seconds=int(self.settings.checkpoint_interval_seconds),
+            retention=int(self.settings.checkpoint_retention),
+            start=False,
+        )
         try:
             self._load_persisted_state()
             observed_state = self._state_stamp()
@@ -466,6 +466,11 @@ class DMLAdapter:
         """Stop background work and optionally persist an owned, current snapshot."""
 
         self._stop_persistence_loop()
+        # Checkpoint providers can own the memory transaction. Drain them before
+        # final persistence or closing their dependencies, and surface a timeout
+        # rather than claiming the adapter has shut down while a provider runs.
+        if self.checkpoint_manager and self.checkpoint_manager.close() is False:
+            raise TimeoutError("Checkpoint shutdown is incomplete; retry close after the provider drains")
         persistence_error: Optional[Exception] = None
         if persist:
             try:
@@ -473,14 +478,6 @@ class DMLAdapter:
                     self._persist_all()
             except Exception as exc:
                 persistence_error = exc
-        try:
-            if self.checkpoint_manager:
-                self.checkpoint_manager.close()
-        except Exception as exc:
-            if persistence_error is None:
-                persistence_error = exc
-            else:
-                LOGGER.warning("checkpoint close failed after persistence error: %s", exc)
         if self.metrics_enabled:
             with contextlib.suppress(Exception):
                 update_memory_gauge(len(self.store.items()))
@@ -490,7 +487,7 @@ class DMLAdapter:
             if persistence_error is None:
                 persistence_error = exc
             else:
-                LOGGER.warning("store close failed after persistence error: %s", exc)
+                LOGGER.warning("store close failed after persistence error (%s)", type(exc).__name__)
         if persistence_error is not None:
             raise persistence_error
 
@@ -1993,21 +1990,7 @@ class DMLAdapter:
 
     def create_checkpoint(self) -> Path:
         """Persist a combined snapshot of the lattice and RAG stores."""
-
-        if self.checkpoint_manager:
-            return self.checkpoint_manager.checkpoint()
-        self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
-        manager = CheckpointManager(
-            self.checkpoint_dir,
-            self._gather_checkpoint_state,
-            interval_seconds=0,
-            retention=int(self.settings.checkpoint_retention),
-            start=False,
-        )
-        try:
-            return manager.checkpoint()
-        finally:
-            manager.close()
+        return self.checkpoint_manager.checkpoint()
 
     def stats(self) -> Dict:
         items = self.store.items()

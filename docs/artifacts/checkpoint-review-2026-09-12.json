@@ -1,0 +1,62 @@
+{
+  "schema_version": "dml-feature-review-v1",
+  "feature": "semantic-checkpoint-publication-retention-shutdown",
+  "base_commit": "78d360b2a3c23fd87118e8960fd3c07d05889e76",
+  "reviewer": "independent grading agent, separate from checkpoint builder",
+  "minimum_accepted_score": 9.5,
+  "review_history": [
+    {
+      "score": 9.3,
+      "decision": "rejected",
+      "finding": "Older retention failure could replace newer successful outcome; first ownership-epoch correction could also hide unresolved failure before cleanup completed."
+    },
+    {
+      "score": 9.5,
+      "decision": "accepted",
+      "resolution": "Independent completed publication and retention epochs; both deterministic interleavings and independent reviewer reproductions pass."
+    }
+  ],
+  "score": 9.5,
+  "decision": "accepted",
+  "category_scores": {
+    "lifecycle_and_ownership": [
+      2.9,
+      3
+    ],
+    "publication_and_retention": [
+      2.9,
+      3
+    ],
+    "independent_failure_harness": [
+      1.85,
+      2
+    ],
+    "adapter_compatibility": [
+      0.95,
+      1
+    ],
+    "observability_and_documentation": [
+      0.9,
+      1
+    ]
+  },
+  "source_sha256": {
+    "dml_core/daystrom_dml/checkpoint.py": "0a727f7f0aec8ff54db4cba1ec07e096f8e8cd8f41384ebc03a8b873976e1efb",
+    "dml_core/daystrom_dml/dml_adapter.py": "1ae0e869d9588b63fc85601e6617a886d1915d0bdbddab22b89a691fc0e28d48",
+    "dml_core/tests/test_checkpoint_hardening.py": "81f6a7af7ebc534cd691bf5897da1167769122feb5fedbcb952817ecd95eed1b"
+  },
+  "verification": {
+    "final_focused_integration": "80 passed in7.95s",
+    "checkpoint_regressions": 26,
+    "full_suite_before_last_status_correction": "1005 passed,9skipped",
+    "ruff": "passed",
+    "mypy": "44 maintained files passed; local Python target3.12",
+    "reviewer_independent_reproductions": "start/close, corrupt retention/clock rollback, both stale-outcome interleavings passed"
+  },
+  "limitations": [
+    "Feature-specific engineering review, not whole-platform production certification",
+    "Final-commit remoteCI required before merge",
+    "NativeKV, hardwarepowerloss, durableaudit replay and allcomponentatomicity excluded",
+    "Legacy files outside quota; returned publication path has no retention lease"
+  ]
+}

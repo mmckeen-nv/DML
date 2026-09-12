@@ -119,6 +119,32 @@ shared directory lock. Failures remain visible through `CheckpointManager.status
 and provider health. Adapter checkpoint snapshots take the memory ownership lock.
 Native checkpoint compatibility gates remain enabled and experimental.
 
+Semantic checkpoint managers now have a terminal, bounded shutdown boundary.
+`close(timeout=1.0)` stops admissions and returns `True` only after manual work and
+the periodic worker drain; `False` explicitly means work is still running. Python
+cannot forcibly cancel a blocked provider. A provider that had not reached
+publication admission cannot publish after close; a previously admitted write
+may finish while close reports `False`. Retry close to observe complete drain.
+`DMLAdapter` owns the same manager even with periodic checkpoints disabled and
+raises `TimeoutError` on incomplete drain before closing the provider's store.
+
+New filenames bind a publication-order number and SHA-256 content digest while
+preserving the existing provider JSON shape. Retention validates all recognized
+new files before deleting any, orders them by publication rather than wall-clock
+mtime, and preserves legacy/unrecognized files outside the configured quota.
+A corrupt recognized candidate stops pruning and degrades status. This can leave
+extra files on disk until an operator inspects or repairs them. A successful write
+returns its path even if later retention fails; `publication_outcome` and
+`retention_error` report the two outcomes separately. A write exception after
+replacement reports uncertain durability and preserves older checkpoints.
+
+Publication order does not establish semantic freshness of an opaque provider
+snapshot. A returned path acknowledges publication, not a retention lease: another
+cooperating manager may subsequently prune it. These status fields are process-local
+diagnostics, not a durable operator audit log. Provider exceptions are propagated
+to the caller, while logs/status include only their type and stage, never their
+arbitrary message or traceback. See the [checkpoint hardening record](../checkpoint-hardening-2026-09-12.md).
+
 Journal commit decisions are durable and paginated with `dml-journal decisions`.
 Retrieval responses include a deterministic context digest, returned IDs, suppressed
 IDs/reasons, scope, effective time, query/vector digests and journal revision where

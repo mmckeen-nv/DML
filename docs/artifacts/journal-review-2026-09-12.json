@@ -54,5 +54,17 @@
     "Final-commit remote CI remains merge gate",
     "Whole-history verification scales with history; history cost artifact records local evidence",
     "No receipts, projection outbox, native KV or power-loss qualification"
-  ]
+  ],
+  "accepted_commit": "78d360b2a3c23fd87118e8960fd3c07d05889e76",
+  "remote_ci": {
+    "run_id": 34712523346,
+    "jobs_passed": 9,
+    "jobs_total": 9,
+    "platforms": [
+      "Linux",
+      "macOS",
+      "Windows"
+    ],
+    "url": "https://github.com/mmckeen-nv/DML/actions/runs/34712523346"
+  }
 }
