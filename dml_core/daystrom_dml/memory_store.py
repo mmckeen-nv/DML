@@ -498,10 +498,11 @@ class MemoryStore:
             self._lineage = lineage_map
             self._ensure_lattice_integrity()
             self._invalidate_embedding_cache()
-            if self._items:
-                self._id = max(item.id for item in self._items) + 1
-            else:
-                self._id = int(payload.get("next_id") or 0)
+            # Never reuse IDs belonging to archived lineage or an earlier
+            # acknowledged operation after live records have been removed.
+            self._id = max(int(payload.get("next_id") or 0),
+                           max(self._lineage, default=-1) + 1,
+                           max((item.id for item in self._items), default=-1) + 1)
             existing_queue = payload.get("repair_queue") or []
             self._repair_queue = [
                 int(val) for val in existing_queue if int(val) in self._lineage

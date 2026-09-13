@@ -7,7 +7,7 @@ import json
 import sqlite3
 from pathlib import Path
 
-from daystrom_dml.journal import JournalStateStore
+from daystrom_dml.journal import JournalStateStore, upgrade_receipt_journal
 from daystrom_dml.persistence import load_state, validate_snapshot
 from daystrom_dml.store_lock import store_write_lock
 
@@ -80,6 +80,9 @@ def main(argv=None):
     upgrade = commands.add_parser("upgrade")
     upgrade.add_argument("source", type=Path)
     upgrade.add_argument("destination", type=Path)
+    receipts = commands.add_parser("enable-receipts", help="Explicit side-by-side journal schema-1 to schema-2 upgrade")
+    receipts.add_argument("source", type=Path)
+    receipts.add_argument("destination", type=Path)
     decisions = commands.add_parser("decisions")
     decisions.add_argument("database", type=Path)
     decisions.add_argument("--after-revision", type=int, default=0)
@@ -89,6 +92,8 @@ def main(argv=None):
         import_snapshot(args.source, args.database)
     elif args.operation == "upgrade":
         upgrade_legacy(args.source, args.destination)
+    elif args.operation == "enable-receipts":
+        upgrade_receipt_journal(args.source, args.destination)
     elif args.operation == "decisions":
         if not args.database.is_file():
             raise FileNotFoundError(args.database)

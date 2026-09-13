@@ -56,3 +56,13 @@ fixed records are not statistical estimates of production performance or agent
 quality. No 10k/100k real-agent campaign has been run.
 
 No user memory stores were migrated and no runtime/GPU services were contacted.
+
+## Serial receipt follow-up
+
+The [append-only receipt contract](receipt-hardening-2026-09-12.md) adds an opt-in
+schema-2 journal and a narrow ingestion service. It advances areas 1, 2, 3, 7, 8,
+9 and 10: scoped historical receipts, atomic receipt/decision persistence, explicit
+side-by-side migration, embedding compatibility, process-death/concurrency evidence
+and retryable API outcomes. Stable APIs remain empty in the maturity inventory.
+Receipts for other lifecycle mutations and transactional external projections
+remain separate release gates. The original ten-area plan remains the task scope.

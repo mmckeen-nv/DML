@@ -42,6 +42,7 @@ from .atomic_io import atomic_write_text
 from .journal import JournalStateStore
 from .services.retrieval import QueryEmbeddingCache
 from .services.persistence import LatticePersistence
+from .services.receipt_ingestion import append_receipted, canonical_request, embedding_identity, validate_embedding_contract, ReceiptEmbeddingCompatibilityError
 from .services.context import compact_context
 from .services.lifecycle import suppression_reason
 from .services.telemetry import retrieval_decision
@@ -76,6 +77,7 @@ def _serialized_mutation(method):
 
     @wraps(method)
     def wrapped(self, *args, **kwargs):
+        self._require_legacy_mutations()
         with self._mutation_transaction(method.__name__):
             snapshot = self._capture_mutation_snapshot()
             previous_commits = getattr(
@@ -251,10 +253,19 @@ class DMLAdapter:
         except (TypeError, ValueError):
             self._persistence_interval = 0
         self._persistence_enabled = bool(persistence_settings and getattr(persistence_settings, "enable", False))
+        self._receipts_enabled = bool(persistence_settings and persistence_settings.receipts)
+        self._receipt_embedding_identity = getattr(persistence_settings, "receipt_embedding_identity", None)
+        if self._receipts_enabled and (persistence_settings is None or not persistence_settings.journal):
+            raise ValueError("Receipt ingestion requires persistence.journal=true")
         self._journal = (
-            JournalStateStore(self.storage_dir / "dml_state.sqlite3", snapshot_interval=persistence_settings.snapshot_interval)
+            JournalStateStore(self.storage_dir / "dml_state.sqlite3", snapshot_interval=persistence_settings.snapshot_interval,
+                              receipt_mode=self._receipts_enabled)
             if persistence_settings and persistence_settings.journal else None
         )
+        if self._journal is not None and self._journal.schema_version == 2:
+            # Receipt stores expose an append-only durable mutation boundary;
+            # retrieval must not apply unjournaled quality/lifecycle changes.
+            self.enable_quality_on_retrieval = False
         self._persistence_stop_event = Event()
         self._persistence_thread: Optional[threading.Thread] = None
         self.dml_state_path = self.storage_dir / "dml_store.json"
@@ -449,11 +460,12 @@ class DMLAdapter:
             self._last_observed_persistent_rag = self._path_stamp(
                 self.persistent_rag_store.manifest_path
             )
-        if start_aging_loop:
+        receipt_store = self._journal is not None and self._journal.schema_version == 2
+        if start_aging_loop and not receipt_store:
             self.store.start_aging()
-        if self.checkpoint_manager:
+        if self.checkpoint_manager and not receipt_store:
             self.checkpoint_manager.start()
-        if self._persistence_enabled and self._persistence_interval > 0:
+        if self._persistence_enabled and self._persistence_interval > 0 and not receipt_store:
             self._start_persistence_loop()
         if self.metrics_enabled:
             update_memory_gauge(len(self.store.items()))
@@ -472,7 +484,7 @@ class DMLAdapter:
         if self.checkpoint_manager and self.checkpoint_manager.close() is False:
             raise TimeoutError("Checkpoint shutdown is incomplete; retry close after the provider drains")
         persistence_error: Optional[Exception] = None
-        if persist:
+        if persist and not (getattr(self, "_journal", None) is not None and self._journal.schema_version == 2):
             try:
                 with self._mutation_transaction("close"):
                     self._persist_all()
@@ -532,6 +544,7 @@ class DMLAdapter:
 
     def ingest_fast(self, text: str, meta: Optional[Dict] = None) -> None:
         """Fast ingest - adds to RAG only, queues for background DML processing"""
+        self._require_legacy_mutations()
         if not text:
             return
         rag_meta: Dict[str, Any] = dict(meta or {})
@@ -810,6 +823,7 @@ class DMLAdapter:
         max_new_tokens: int = 256,
         session_id: Optional[str] = None,
     ) -> str:
+        self._require_legacy_retrieval()
         if self.enable_stm_controller and self.stm_controller:
             result = self._run_generation_with_controller(
                 prompt,
@@ -830,6 +844,7 @@ class DMLAdapter:
         max_new_tokens: int = 256,
         session_id: Optional[str] = None,
     ) -> Dict[str, Any]:
+        self._require_legacy_retrieval()
         if not (self.enable_stm_controller and self.stm_controller):
             return {
                 "response": self.run_generation(prompt, max_new_tokens=max_new_tokens),
@@ -855,6 +870,7 @@ class DMLAdapter:
         max_new_tokens: int,
         session_id: Optional[str],
     ) -> Dict[str, Any]:
+        self._require_legacy_retrieval()
         session_key = (session_id or "default").strip() or "default"
         controller = self.stm_controller
         if controller is None:
@@ -1365,6 +1381,7 @@ class DMLAdapter:
         ``_persist_all`` themselves; persistence runs on successful exit.
         """
 
+        self._require_legacy_mutations()
         with self._mutation_transaction(operation):
             snapshot = self._capture_mutation_snapshot()
             previous_commits = getattr(
@@ -1501,6 +1518,8 @@ class DMLAdapter:
                 with self._query_embedding_cache_lock:
                     self.query_cache.clear()
                 self._last_observed_state = current
+                with self._persist_lock:
+                    self._clear_durability_failure_locked("receipt_runtime")
                 changed = True
 
             rag_stamp = self._path_stamp(self.rag_state_path)
@@ -1537,7 +1556,8 @@ class DMLAdapter:
         payload = self.lattice_persistence.load(startup=True)
         if payload is not None:
             validate_snapshot(payload)
-            self._ensure_embedding_compatibility(payload)
+            if self._journal is None or self._journal.schema_version == 1:
+                self._ensure_embedding_compatibility(payload)
             self.store.import_state(payload)
         if self._persistent_rag_loaded:
             if self.metrics_enabled:
@@ -1582,6 +1602,8 @@ class DMLAdapter:
 
     def _gather_checkpoint_state(self) -> Dict[str, Any]:
         """Gather under the writer boundary so checkpoint readers see one state."""
+        if self._journal is not None and self._journal.schema_version == 2:
+            raise ValueError("Receipt journals require a full database backup; lattice-only checkpoints omit receipts")
         with self._mutation_transaction("checkpoint-read"):
             return {
                 "schema_version": 1,
@@ -1591,7 +1613,27 @@ class DMLAdapter:
                 "stats": self.stats(),
             }
 
+    def _require_legacy_mutations(self) -> None:
+        if self._journal is not None and self._journal.schema_version == 2:
+            raise ValueError("Schema-2 adapters support only receipted append mutations; legacy writes and lifecycle changes are unavailable")
+
+    def _require_legacy_retrieval(self) -> None:
+        if self._journal is not None and self._journal.schema_version == 2:
+            raise ValueError("Schema-2 adapters support only tenant-scoped retrieve_context; legacy retrieval and generation are unavailable")
+
+    def _receipt_embedding_space(self) -> dict:
+        return embedding_identity(self.embedder, self._receipt_embedding_identity)
+
+    def _validate_receipt_query(self, vector=None, *, identity=None) -> None:
+        if self._journal is not None and self._journal.schema_version == 2:
+            current_identity = self._receipt_embedding_space()
+            if identity is not None and identity != current_identity:
+                raise ReceiptEmbeddingCompatibilityError("Embedding identity changed before retrieval ownership")
+            _, payload = self._journal.read_snapshot()
+            validate_embedding_contract(payload, current_identity, vector)
+
     def _persist_dml_state(self) -> None:
+        self._require_legacy_mutations()
         with self._persist_lock:
             try:
                 jsonl = self._persistence_enabled and self._journal is None
@@ -1928,6 +1970,7 @@ class DMLAdapter:
     def query_database(self, prompt: str, mode: str = "auto") -> Dict:
         """Retrieve context-aware snippets from the external corpus."""
 
+        self._require_legacy_retrieval()
         if mode not in {"semantic", "literal", "hybrid", "auto"}:
             raise ValueError(f"Unsupported mode: {mode}")
         selected_mode = mode if mode != "auto" else decide_mode(prompt)
@@ -2008,11 +2051,44 @@ class DMLAdapter:
     def run_maintenance(self, sample_ratio: float = 0.1) -> None:
         """Run a maintenance pass to assess quality without slowing retrieval."""
 
+        self._require_legacy_mutations()
         self.store.maintenance_pass(sample_ratio=sample_ratio)
 
     # ------------------------------------------------------------------
     # Multi-tenant helpers used by the DML memory service
     # ------------------------------------------------------------------
+    def ingest_memory_receipted(self, text: str, *, idempotency_key: str, tenant_id: str,
+                               client_id: Optional[str] = None, session_id: Optional[str] = None,
+                               instance_id: Optional[str] = None, kind: Optional[str] = None,
+                               meta: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Append one journal-only memory and return its immutable historical receipt.
+
+        Opt-in API: no merge, promotion, survival ledger or external projection.
+        Retrying the same scoped key/request returns the original receipt.
+        """
+        if int(getattr(self._mutation_local, "depth", 0)):
+            raise ValueError("Receipt ingestion cannot be nested in a compensating transaction")
+        if not self._receipts_enabled or self._journal is None:
+            raise ValueError("Receipt ingestion requires persistence.journal and persistence.receipts")
+        if self.mirror_agentic_memory_to_rag:
+            raise ValueError("Receipt ingestion does not support external RAG mirroring")
+        request, digest = canonical_request(text, tenant_id=tenant_id, client_id=client_id,
+            session_id=session_id, instance_id=instance_id, kind=kind, meta=meta)
+        def hydrate(revision, payload):
+            validate_snapshot(payload)
+            self.store.import_state(payload)
+            self.query_cache.clear()
+            self._last_observed_state = (revision, self._journal.path.stat().st_mtime_ns)
+            with self._persist_lock:
+                self._clear_durability_failure_locked("receipt_runtime")
+        def degraded(exc):
+            self._last_observed_state = None
+            with self._persist_lock:
+                self._durability_failures["receipt_runtime"] = type(exc).__name__
+        return append_receipted(self._journal, request=request, request_digest=digest,
+            key=idempotency_key, embed=self.embedder.embed, capacity=self.store.capacity,
+            embedding_space=self._receipt_embedding_space, hydrate=hydrate, degraded=degraded)
+
     @_serialized_mutation
     def ingest_memory(
         self,
@@ -2092,6 +2168,7 @@ class DMLAdapter:
     ) -> Optional[str]:
         """Optionally store a successful agent workflow as a reusable template."""
 
+        self._require_legacy_mutations()
         if not self.enable_workflow_cache:
             return None
 
@@ -2114,6 +2191,7 @@ class DMLAdapter:
     ) -> List[Dict[str, Any]]:
         """Retrieve reusable workflow templates related to a new task."""
 
+        self._require_legacy_retrieval()
         if not self.enable_workflow_cache:
             return []
         try:
@@ -2121,7 +2199,7 @@ class DMLAdapter:
         except (TypeError, ValueError):
             limit = 3
 
-        query_embedding = self.embedder.embed(task_description)
+        query_embedding = self._embed_query(task_description)
         candidates = self.store.retrieve_by_kind(
             query_embedding=query_embedding, kind="workflow", top_k=limit
         )
@@ -2155,6 +2233,7 @@ class DMLAdapter:
             return state
 
     def _retrieve_ltm_items(self, prompt: str, top_k: int) -> List[MemoryStore.MemoryItem]:
+        self._require_legacy_retrieval()
         items = self._retrieve_items(prompt, top_k)
         filtered: List[MemoryStore.MemoryItem] = []
         for item in items:
@@ -2181,9 +2260,13 @@ class DMLAdapter:
         include_quarantined: bool = False,
         as_of: Optional[float] = None,
     ) -> Dict[str, Any]:
+        if self._journal is not None and self._journal.schema_version == 2 and (type(tenant_id) is not str or not tenant_id.strip()):
+            raise ValueError("Schema-2 retrieval requires an explicit nonempty tenant_id")
         # Embedding/provider I/O happens before acquiring the store ownership.
+        identity = self._receipt_embedding_space() if self._journal is not None and self._journal.schema_version == 2 else None
         query_embedding = self._embed_query(prompt)
         with self._mutation_transaction("retrieve-context"):
+            self._validate_receipt_query(query_embedding, identity=identity)
             return self._retrieve_context_owned(prompt, query_embedding=query_embedding,
                 tenant_id=tenant_id,
                 client_id=client_id,
@@ -2605,8 +2688,25 @@ class DMLAdapter:
             return None
 
     def _embed_query(self, prompt: str) -> np.ndarray:
+        text = str(prompt or "")
+        if self._journal is not None and self._journal.schema_version == 2:
+            # Receipt mode deliberately bypasses the legacy text-only cache.
+            # Its entries/single-flight futures carry no embedding identity,
+            # including entries left behind after a failed runtime hydration.
+            identity = self._receipt_embedding_space()
+            _, payload = self._journal.read_snapshot()
+            validate_embedding_contract(payload, identity)
+            vector = np.array(self.embedder.embed(text), dtype=np.float32, copy=True)
+            if vector.ndim != 1 or not vector.size or not np.isfinite(vector).all():
+                raise ReceiptEmbeddingCompatibilityError("Query embedding must be a nonempty finite vector")
+            if self._receipt_embedding_space() != identity:
+                raise ReceiptEmbeddingCompatibilityError("Embedding identity changed while preparing the query")
+            _, payload = self._journal.read_snapshot()
+            validate_embedding_contract(payload, identity, vector)
+            vector.setflags(write=False)
+            return vector
         self.query_cache.capacity = max(0, self._query_embedding_cache_size)
-        return self.query_cache.get(str(prompt or ""), self.embedder.embed)
+        return self.query_cache.get(text, self.embedder.embed)
 
     def _compact_context_items(self, items: List[MemoryItem], *, prefix: str = "") -> tuple[List[Dict[str, Any]], str, int]:
         return compact_context(
@@ -2895,6 +2995,7 @@ class DMLAdapter:
         include_quarantined: bool = False,
     ) -> List[MemoryStore.MemoryItem]:
         """Retrieve items with phase-aware filtering."""
+        self._require_legacy_retrieval()
         limit = self._resolve_dml_top_k(top_k)
         prompt_embedding = self._embed_query(prompt)
         semantic_items = self.store.retrieve(prompt_embedding, top_k=limit)

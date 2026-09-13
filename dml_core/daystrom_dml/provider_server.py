@@ -13,7 +13,7 @@ from typing import Any, AsyncIterator, Callable, Optional
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, PlainTextResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, StrictStr
 
 from .api_contracts import DaystromScope
 from .api_contracts import ContractError
@@ -26,6 +26,8 @@ from .cognition.policy import DeterministicCognitionPolicy
 from .cognition.schema import CognitionConstraints, CognitionEvent, CognitionFeedback
 from .dml_adapter import DMLAdapter
 from .contracts.production import production_status
+from .journal import IdempotencyConflict, JournalIntegrityError, RevisionConflict
+from .services.receipt_ingestion import ReceiptCommitRejected, ReceiptCommitUncertain, ReceiptEmbeddingError
 from .frontier_pipeline import FrontierCompressionPipeline, FrontierPipelineConfig
 
 
@@ -49,6 +51,11 @@ class RecallRequest(BaseModel):
     session_id: Optional[str] = None
     instance_id: Optional[str] = None
     top_k: int = 6
+
+
+class RememberReceiptRequest(RememberRequest):
+    model_config = ConfigDict(extra="forbid")
+    idempotency_key: StrictStr = Field(min_length=1, max_length=256)
 
 
 class RememberBatchRequest(BaseModel):
@@ -533,6 +540,25 @@ def create_app(
             instance_id=payload.instance_id,
             top_k=payload.top_k,
         )
+
+    @app.post("/api/remember/receipt")
+    def remember_receipted(payload: RememberReceiptRequest) -> dict[str, Any]:
+        try:
+            return app.state.adapter.ingest_memory_receipted(**payload.model_dump())
+        except IdempotencyConflict as exc:
+            raise HTTPException(status_code=409, detail={"code": "idempotency_conflict"}) from exc
+        except RevisionConflict as exc:
+            raise HTTPException(status_code=409, detail={"code": "revision_conflict", "retry_same_key": True}) from exc
+        except TimeoutError as exc:
+            raise HTTPException(status_code=503, detail={"code": "receipt_ownership_unavailable", "retry_same_key": True}) from exc
+        except (ReceiptCommitUncertain, JournalIntegrityError) as exc:
+            raise HTTPException(status_code=503, detail={"code": "receipt_outcome_unavailable", "retry_same_key": True}) from exc
+        except ReceiptCommitRejected as exc:
+            raise HTTPException(status_code=503, detail={"code": "receipt_not_committed", "retry_same_key": True}) from exc
+        except ReceiptEmbeddingError as exc:
+            raise HTTPException(status_code=503, detail={"code": "embedding_unavailable", "retry_same_key": True}) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail={"code": "invalid_or_unsupported_receipt_request"}) from exc
 
     @app.post("/api/remember/batch")
     def remember_batch(payload: RememberBatchRequest) -> dict[str, Any]:

@@ -80,10 +80,21 @@ zero, so a competing journal client cannot have its first commit overwritten.
 
 The journal transaction currently covers the lattice, **not** persistent RAG,
 DPM/DCN files or runtime KV state. Normal JSON/RAG write compensation still exists.
-Idempotent client receipts and a transactional projection outbox are not yet
-implemented. Journal schema 1 is therefore a production candidate, not a completed
+Append-only client receipts are an opt-in schema-2 candidate described below.
+A transactional external projection outbox is not yet implemented. Journal schema 1 is therefore a production candidate, not a completed
 all-component transaction contract. Checksums detect accidental corruption; they
 are not signatures against a writer with filesystem access.
+
+### Append-only receipts (journal schema 2)
+
+The opt-in receipt endpoint commits a memory, a scoped idempotency receipt and a
+journal decision atomically. Identical retries return the historical receipt;
+conflicting requests fail. Schema 2 binds embedding identity/dimension and refuses
+legacy adapter mutations and lattice-only checkpoints/exports. Migration is explicit
+and side-by-side; populated legacy stores cannot invent missing embedding provenance.
+See the [receipt contract and recovery procedure](../receipt-hardening-2026-09-12.md)
+for the supported profile, HTTP outcomes and qualification limits. External RAG
+projection transactions and receipts for other lifecycle mutations remain gates.
 
 ### Retrieval and context
 
@@ -205,7 +216,7 @@ LLM task success, TTFT or a DML advantage. Raw real-agent task outcome JSONL can
 reduced separately; absent measurements stay null, and failed-task/maintenance
 costs count toward tokens per completed task.
 
-Still required before production graduation: idempotent receipts; all-component
+Still required before production graduation: receipts for remaining mutation APIs; all-component
 atomicity; remaining lifecycle/retrieval/persistence orchestration extraction;
 complete mutation-point process-kill and platform/power-loss qualification; fully
 bound model/tokenizer identities; real-agent baseline value and long-horizon
