@@ -123,3 +123,13 @@ the exact current record digest, atomic historical receipts and outbox decisions
 and normal retrieval suppression. It retains historical content and capacity.
 Further lifecycle updates, supersession, promotion/merge and physical erasure are
 separate serial gates; the broader ten-area plan remains unchanged.
+
+## Serial supersession follow-up
+
+[Receipted supersession](supersession-hardening-2026-09-14.md) extends lifecycle
+receipt coverage to explicit same-scope replacement links. Both exact record
+digests guard the decision, only the old memory is changed, and normal retrieval
+suppresses it without modifying replacement trust. This is the tenth serial gate,
+not completion of the ten original areas. Work remains on update/promotion/merge,
+retention and erasure, full mutation qualification, adapter decomposition, native
+KV compatibility, decision replay and real-agent value at growing-store scale.

@@ -45,6 +45,7 @@ from .services.retrieval import QueryEmbeddingCache
 from .services.persistence import LatticePersistence
 from .services.receipt_ingestion import append_receipted, canonical_request, embedding_identity, validate_embedding_contract, ReceiptEmbeddingCompatibilityError
 from .services.receipt_lifecycle import canonical_retirement_request, retire_receipted
+from .services.receipt_supersession import canonical_supersession_request, supersede_receipted
 from .services.context import compact_context
 from .services.lifecycle import suppression_reason
 from .services.telemetry import retrieval_decision
@@ -1635,7 +1636,7 @@ class DMLAdapter:
 
     def _require_legacy_mutations(self) -> None:
         if self._journal is not None and self._journal.schema_version in (2, 3, 4):
-            raise ValueError("Receipt-journal adapters support only receipted append and retirement mutations; legacy writes and unqualified lifecycle changes are unavailable")
+            raise ValueError("Receipt-journal adapters support only receipted append, retirement and supersession mutations; legacy writes and unqualified lifecycle changes are unavailable")
 
     def _require_legacy_retrieval(self) -> None:
         if self._journal is not None and self._journal.schema_version in (2, 3, 4):
@@ -2214,6 +2215,45 @@ class DMLAdapter:
                 self._durability_failures["receipt_runtime"] = type(exc).__name__
 
         return retire_receipted(self._journal, request=request, request_digest=digest,
+            key=idempotency_key, hydrate=hydrate, degraded=degraded)
+
+    def supersede_memory_receipted(self, memory_id: int, *, replacement_memory_id: int,
+                                  expected_memory_digest: str, expected_replacement_digest: str,
+                                  reason: str, idempotency_key: str, tenant_id: str,
+                                  client_id: Optional[str] = None, session_id: Optional[str] = None,
+                                  instance_id: Optional[str] = None) -> Dict[str, Any]:
+        """Supersede a scoped memory with a current, independently ingested record.
+
+        Both digests bind the decision to the exact records. The source remains
+        available as history; the replacement is unchanged by this operation.
+        """
+        if int(getattr(self._mutation_local, "depth", 0)):
+            raise ValueError("Receipt supersession cannot be nested in a compensating transaction")
+        if not self._receipts_enabled or self._journal is None or self._journal.schema_version not in (2, 3, 4):
+            raise ValueError("Receipt supersession requires persistence.journal and persistence.receipts")
+        if self.mirror_agentic_memory_to_rag:
+            raise ValueError("Receipt supersession does not support external RAG mirroring")
+        request, digest = canonical_supersession_request(memory_id,
+            replacement_memory_id=replacement_memory_id,
+            expected_memory_digest=expected_memory_digest,
+            expected_replacement_digest=expected_replacement_digest, reason=reason,
+            tenant_id=tenant_id, client_id=client_id, session_id=session_id,
+            instance_id=instance_id)
+
+        def hydrate(revision, payload):
+            validate_snapshot(payload)
+            self.store.import_state(payload)
+            self.query_cache.clear()
+            self._last_observed_state = (revision, self._journal.path.stat().st_mtime_ns)
+            with self._persist_lock:
+                self._clear_durability_failure_locked("receipt_runtime")
+
+        def degraded(exc):
+            self._last_observed_state = None
+            with self._persist_lock:
+                self._durability_failures["receipt_runtime"] = type(exc).__name__
+
+        return supersede_receipted(self._journal, request=request, request_digest=digest,
             key=idempotency_key, hydrate=hydrate, degraded=degraded)
 
     @_serialized_mutation

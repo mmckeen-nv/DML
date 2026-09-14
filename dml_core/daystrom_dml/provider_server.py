@@ -76,6 +76,11 @@ class RetireReceiptRequest(BaseModel):
     instance_id: Optional[StrictStr] = Field(default=None, min_length=1, max_length=256)
 
 
+class SupersedeReceiptRequest(RetireReceiptRequest):
+    replacement_memory_id: StrictInt = Field(ge=0)
+    expected_replacement_digest: StrictStr = Field(pattern=r"^[0-9a-f]{64}$")
+
+
 class ResumeRequest(BaseModel):
     query: str = "active continuity checkpoint compaction handoff resume next action"
     tenant_id: str = "openclaw"
@@ -577,6 +582,27 @@ def create_app(
     def retire_memory_receipted(payload: RetireReceiptRequest) -> dict[str, Any]:
         try:
             return app.state.adapter.retire_memory_receipted(**payload.model_dump())
+        except ReceiptMemoryNotFound as exc:
+            raise HTTPException(status_code=404, detail={"code": "receipt_memory_not_found"}) from exc
+        except ReceiptLifecycleConflict as exc:
+            raise HTTPException(status_code=409, detail={"code": "receipt_lifecycle_conflict"}) from exc
+        except IdempotencyConflict as exc:
+            raise HTTPException(status_code=409, detail={"code": "idempotency_conflict"}) from exc
+        except RevisionConflict as exc:
+            raise HTTPException(status_code=409, detail={"code": "revision_conflict", "retry_same_key": True}) from exc
+        except TimeoutError as exc:
+            raise HTTPException(status_code=503, detail={"code": "receipt_ownership_unavailable", "retry_same_key": True}) from exc
+        except (ReceiptCommitUncertain, JournalIntegrityError) as exc:
+            raise HTTPException(status_code=503, detail={"code": "receipt_outcome_unavailable", "retry_same_key": True}) from exc
+        except ReceiptCommitRejected as exc:
+            raise HTTPException(status_code=503, detail={"code": "receipt_not_committed", "retry_same_key": True}) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail={"code": "invalid_or_unsupported_receipt_request"}) from exc
+
+    @app.post("/api/memory/supersede/receipt")
+    def supersede_memory_receipted(payload: SupersedeReceiptRequest) -> dict[str, Any]:
+        try:
+            return app.state.adapter.supersede_memory_receipted(**payload.model_dump())
         except ReceiptMemoryNotFound as exc:
             raise HTTPException(status_code=404, detail={"code": "receipt_memory_not_found"}) from exc
         except ReceiptLifecycleConflict as exc:

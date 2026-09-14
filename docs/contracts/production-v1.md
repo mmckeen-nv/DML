@@ -265,3 +265,9 @@ adds explicit scoped tombstones with an expected record digest and durable retry
 receipt. Normal retrieval suppresses retired memories; history and capacity are
 retained. Public update, supersession, promotion/merge and physical erasure remain
 separate gates. Journal schemas and existing receipt/event formats are unchanged.
+
+The candidate [receipted supersession contract](../supersession-hardening-2026-09-14.md)
+adds same-scope source/replacement links guarded by both exact record digests. Only
+the source is changed and suppressed; replacement trust and content remain intact.
+Explicit chains preserve historical links, while stale and opposing decisions
+cannot both commit. Physical erasure and other lifecycle mutations remain gates.
