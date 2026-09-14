@@ -248,3 +248,10 @@ adds opt-in bounded retry scheduling and explicit adapter ownership to coalesced
 projection delivery. It does not change durable schemas or receipt commit semantics.
 A shutdown timeout reports an undrained attempt; it does not cancel backend I/O.
 Historical runtime status does not replace a verified projection freshness check.
+
+
+The candidate [transactional outbox contract](../outbox-hardening-2026-09-14.md) adds
+explicit schema-3 creation, atomic full-state operation events and verified ordered
+delivery. It preserves existing schema-1/2 creation and requires separate migration
+qualification before enabling outbox mode for an existing authority. Historical
+events retain prior memory versions; live deletion is not historical erasure.

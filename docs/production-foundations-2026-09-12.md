@@ -94,3 +94,13 @@ backoff, terminal shutdown and historical pinned status. Process-death recovery
 derives pending work from durable source/target state. Receipt acknowledgements
 remain independent of backend availability. Durable operation outboxes, growing
 store costs and qualification of the existing FAISS backend remain separate gates.
+
+
+## Serial transactional outbox follow-up
+
+[Transactional operation events](outbox-hardening-2026-09-14.md) add opt-in journal
+schema 3 with full-state events committed beside memory/receipts/decisions, verified
+historical prefixes, and ordered idempotent delivery to a dedicated SQLite consumer.
+Existing schema-1/2 authorities are preserved. Explicit migration, remaining public
+lifecycle receipts, bounded history retention and ordered background scheduling
+remain separate serial gates.

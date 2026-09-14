@@ -74,8 +74,8 @@ def _state_contract(state: dict) -> dict | None:
 
 
 def prepare_source(source: JournalStateStore) -> dict:
-    if not source.path.is_file() or source.schema_version != 2:
-        raise ProjectionError("Projection source must be an existing schema-2 receipt journal")
+    if not source.path.is_file() or source.schema_version not in (2, 3):
+        raise ProjectionError("Projection source must be an existing schema-2/3 receipt journal")
     store_id, revision, state = source.verified_snapshot()
     _state_contract(state)
     return {"source_store_id": store_id, "source_revision": revision,

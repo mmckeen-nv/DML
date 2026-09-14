@@ -1,0 +1,82 @@
+{
+  "schema_version": "dml-feature-review-v1",
+  "feature": "transactional-journal-outbox-and-ordered-durable-delivery",
+  "base_commit": "733990ab22b341ae52c80386814493cb744ba546",
+  "reviewed_at": "2026-09-14",
+  "reviewer": "independent grading agent, separate from journal, delivery and adapter builders",
+  "minimum_accepted_score": 9.5,
+  "review_history": [
+    {
+      "score": 9.1,
+      "decision": "rejected",
+      "findings": [
+        "A correct latest consumer event could conceal an incorrect earlier checksum ledger, so status/delivery could claim current after skipped or fabricated historical acceptance"
+      ]
+    },
+    {
+      "score": 9.5,
+      "decision": "accepted",
+      "resolution": "Source pagination binds the entire preceding checksum ledger in the same verified transaction. Status and delivery compare that prefix and the exact final event. Final delivery rejects ledger regression. Four independent protocol/persisted-ledger regressions pass."
+    },
+    {
+      "score": 9.5,
+      "decision": "accepted",
+      "resolution": "Independent reviewer verified corrected 256-worker/256-party-barrier stress: passed in14.667s, exactly three event commits plus initialization. Runtime source unchanged; updated test hash accepted."
+    }
+  ],
+  "score": 9.5,
+  "decision": "accepted",
+  "category_scores": {
+    "transaction_atomicity": 9.6,
+    "integrity_and_authority_binding": 9.6,
+    "delivery_and_concurrency": 9.5,
+    "compatibility_boundaries": 9.5,
+    "adversarial_qualification": 9.5,
+    "maintainability_and_bounded_execution": 9.3
+  },
+  "source_sha256": {
+    "dml_core/daystrom_dml/journal.py": "aa5f7c580eab1ef427cf0ae5801bbc94d7d89fddb84bf8057b3954e32e84c43e",
+    "dml_core/daystrom_dml/services/journal_outbox.py": "bc17a82e8b5ce8bb38e1a59c2afb5dd81b1daa8c19cc2d4e318ccdfd0fa1dc0c",
+    "dml_core/daystrom_dml/services/outbox_delivery.py": "c5f9415c2a27f66f8104ba79aa2b32f7d11ececc234f0132921d9ff89ac897d9",
+    "dml_core/daystrom_dml/dml_adapter.py": "f0d438d53d853aca13e93093a7db0446fea63398e6e4836b410b9224fc95d99e",
+    "dml_core/daystrom_dml/settings.py": "4fa69a432e7e545b01a1e91fc33cfd8164f5889342ed28598e1c73399d2e63e9",
+    "dml_core/daystrom_dml/services/projection.py": "1555721d81471ac3c6fab7ca69772b0f893eccb2307116249f66ed67c6ffe256",
+    "dml_core/scripts/dml_outbox.py": "6cef3505a22c76f2ed22d60cd71820d209ed5dc14394cc9a1a514a9289fbfcc9",
+    "dml_core/scripts/dml_projection.py": "f02393d33c439491c0369cb71db7a6bd792633bface1d614e80617658c0efa85",
+    "dml_core/tests/test_journal_outbox.py": "56c9b1df9cf9e22bb02145ac7d4a842300e5b52e5a3741d9351445eddce890bf",
+    "dml_core/tests/test_outbox_delivery.py": "feae5b0e3b4a053ea9b44e18be82c5547ab0d048d84a4fc8eb8e38b2abede709",
+    "dml_core/tests/test_outbox_adversarial.py": "b5396baa82ea341fdeaec3f3772dc816e6541865b225b0ee6b8752919d4662ac",
+    "dml_core/tests/test_outbox_integration.py": "84439354157aeab2ea9cf5597809d093cbf8c0ef80d5cc23f3fbfeabfc77e211",
+    "dml_core/tests/test_outbox_recovery.py": "81984cfd3abe9225a29d90b51fe87a6cbb566c849bdf27b2e58b02b50cb48c6a"
+  },
+  "verification": {
+    "independent_focused": "144 passed, zero skips",
+    "journal_cases": 47,
+    "delivery_cases": 32,
+    "adapter_integration_cases": 33,
+    "additional_process_recovery_cases": 28,
+    "independent_adversarial_cases": 4,
+    "source_mutation_kill_hooks": 9,
+    "source_initialization_kill_hooks": 7,
+    "consumer_mutation_kill_hooks": 7,
+    "consumer_construction_kill_hooks": 14,
+    "delivery_processes": 8,
+    "simultaneous_delivery_clients": 256,
+    "stress_correction": "Original harness ran 256 requests through 16 workers. Corrected harness uses 256 workers and a bounded start barrier; explicit 256-client run passed. Default suite uses 32 simultaneous clients. CI has a dedicated 256-client lane.",
+    "full_suite": "1462 passed, 9 optional-dependency skips, 2 known warnings in 65.67s; runtime unchanged by subsequent stress-harness correction",
+    "ruff": "passed",
+    "mypy": "50 maintained files passed; local Python target 3.12",
+    "hermes_hygiene": "passed",
+    "independent_256_client_stress": "Passed with256 simultaneous clients in14.667s; three event commits plus initialization"
+  },
+  "limitations": [
+    "Feature-specific engineering review, not whole-platform production readiness",
+    "Schema3 explicit creation only; no schema1/2 migration or implicit upgrade",
+    "Full-state event per revision and full-history verification; page limits bound event count, not bytes or historical cost",
+    "Consumer retains latest event plus checksum ledger; source retains all events, including updated/deleted memory history",
+    "No arbitrary remote side effects or distributed exactly-once guarantee",
+    "New public lifecycle mutation receipts and ordered background delivery remain separate gates",
+    "No history retention/compaction or real-agent/growing-store performance qualification",
+    "Final exact-commit remote CI is a separate integration gate recorded in PR118"
+  ]
+}

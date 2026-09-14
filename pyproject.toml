@@ -103,6 +103,7 @@ dcm-workload-benchmark = "scripts.dcm_workload_benchmark:main"
 dcm-kv-probe = "scripts.dcm_kv_probe:main"
 dml-journal = "scripts.dml_journal:main"
 dml-projection = "scripts.dml_projection:main"
+dml-outbox = "scripts.dml_outbox:main"
 
 [tool.pytest.ini_options]
 addopts = "-q"
