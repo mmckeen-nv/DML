@@ -96,6 +96,15 @@ See the [receipt contract and recovery procedure](../receipt-hardening-2026-09-1
 for the supported profile, HTTP outcomes and qualification limits. External RAG
 projection transactions and receipts for other lifecycle mutations remain gates.
 
+### Disposable snapshot projection
+
+An explicit SQLite reference projection atomically publishes live memory records
+and the source identity/revision/digest. Full-snapshot reconciliation uses existing
+schema-2 authority; it introduces no source migration. Pinned vector queries refuse
+stale or corrupt targets and apply exact scope/lifecycle checks. This is disposable
+query data, not a receipt backup or incremental outbox. External FAISS routing and
+all-component atomicity remain unqualified. See the [projection contract](../projection-hardening-2026-09-14.md).
+
 ### Retrieval and context
 
 The adapter delegates lattice persistence, query caching, context compaction, lifecycle filtering and

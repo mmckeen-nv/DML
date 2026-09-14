@@ -518,6 +518,19 @@ class JournalStateStore:
         self._revision, self._encoded = revision, encoded
         return revision, payload
 
+    def verified_snapshot(self) -> tuple[str, int, dict]:
+        """Read verified authority identity, revision and state together."""
+        with self._connect() as connection:
+            connection.execute("BEGIN")
+            try:
+                rows = connection.execute("SELECT id,store_id FROM identity").fetchall()
+            except sqlite3.DatabaseError as exc:
+                raise JournalIntegrityError("Journal snapshot identity cannot be read") from exc
+            if len(rows) != 1 or rows[0] != (1, self._identity["store_id"]):
+                raise JournalIntegrityError("Journal snapshot identity changed")
+            revision, payload, _ = self._read_snapshot(connection)
+            return rows[0][1], revision, payload
+
     def load(self) -> dict:
         return self.read_snapshot()[1]
 

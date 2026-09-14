@@ -66,3 +66,12 @@ side-by-side migration, embedding compatibility, process-death/concurrency evide
 and retryable API outcomes. Stable APIs remain empty in the maturity inventory.
 Receipts for other lifecycle mutations and transactional external projections
 remain separate release gates. The original ten-area plan remains the task scope.
+
+
+## Serial projection follow-up
+
+The [disposable SQLite projection](projection-hardening-2026-09-14.md) advances
+P03 with atomic full-snapshot publication and pinned-source queries. It reuses
+the accepted journal format, keeps source writes independent of backend outages,
+and adds crash/concurrency/query regression evidence. Incremental outboxes, existing
+FAISS qualification and automatic provider routing remain separate gates.
