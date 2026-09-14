@@ -13,7 +13,7 @@ from daystrom_dml.services.projection import (
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("source", type=Path, help="Existing schema-2/3 authoritative journal")
+    parser.add_argument("source", type=Path, help="Existing schema-2/3/4 authoritative journal")
     parser.add_argument("target", type=Path, help="Projection journal in a separate directory")
     commands = parser.add_subparsers(dest="operation", required=True)
     sync = commands.add_parser("sync", help="Atomically update the disposable projection from authority")
@@ -30,8 +30,8 @@ def main(argv=None):
         if args.source.resolve().parent == args.target.resolve().parent:
             raise ValueError("Authority and projection require separate directories")
         source = JournalStateStore(args.source)
-        if source.schema_version not in (2, 3):
-            raise ValueError("Projection source requires journal schema 2 or 3")
+        if source.schema_version not in (2, 3, 4):
+            raise ValueError("Projection source requires journal schema 2, 3 or 4")
         target = SQLiteProjection(args.target)
         if args.operation == "sync":
             if args.incremental:

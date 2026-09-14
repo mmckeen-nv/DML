@@ -83,11 +83,26 @@ def main(argv=None):
     receipts = commands.add_parser("enable-receipts", help="Explicit side-by-side journal schema-1 to schema-2 upgrade")
     receipts.add_argument("source", type=Path)
     receipts.add_argument("destination", type=Path)
+    outbox = commands.add_parser("enable-outbox", help="Explicit side-by-side journal schema-2 to schema-4 upgrade; no automatic cutover")
+    outbox.add_argument("source", type=Path)
+    outbox.add_argument("destination", type=Path)
     decisions = commands.add_parser("decisions")
     decisions.add_argument("database", type=Path)
     decisions.add_argument("--after-revision", type=int, default=0)
     decisions.add_argument("--limit", type=int, default=100)
     args = parser.parse_args(argv)
+    if args.operation == "enable-outbox":
+        from daystrom_dml.services.outbox_migration import upgrade_outbox_journal
+
+        try:
+            if not args.source.is_file():
+                raise FileNotFoundError("An existing authority is required")
+            result = upgrade_outbox_journal(args.source, args.destination)
+        except Exception as exc:
+            print(json.dumps({"ok": False, "error": type(exc).__name__}))
+            return 2
+        print(json.dumps(result, sort_keys=True, allow_nan=False))
+        return 0
     if args.operation == "import":
         import_snapshot(args.source, args.database)
     elif args.operation == "upgrade":

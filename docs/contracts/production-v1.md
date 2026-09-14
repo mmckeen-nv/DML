@@ -81,7 +81,8 @@ zero, so a competing journal client cannot have its first commit overwritten.
 The journal transaction currently covers the lattice, **not** persistent RAG,
 DPM/DCN files or runtime KV state. Normal JSON/RAG write compensation still exists.
 Append-only client receipts are an opt-in schema-2 candidate described below.
-A transactional external projection outbox is not yet implemented. Journal schema 1 is therefore a production candidate, not a completed
+Ordered outbox delivery is qualified for the reference SQLite consumer; integration
+with external projection backends remains a separate gate. Journal schema 1 is a production candidate, not a completed
 all-component transaction contract. Checksums detect accidental corruption; they
 are not signatures against a writer with filesystem access.
 
@@ -252,6 +253,9 @@ Historical runtime status does not replace a verified projection freshness check
 
 The candidate [transactional outbox contract](../outbox-hardening-2026-09-14.md) adds
 explicit schema-3 creation, atomic full-state operation events and verified ordered
-delivery. It preserves existing schema-1/2 creation and requires separate migration
-qualification before enabling outbox mode for an existing authority. Historical
+delivery. It preserves existing schema-1/2 creation. The candidate
+[explicit migration contract](../outbox-migration-hardening-2026-09-14.md) upgrades
+an offline schema-2 authority to schema 4 at a separate path, preserving legacy
+receipts and decisions and beginning full-state delivery at an explicit baseline.
+Schema 3 remains the fresh-journal format. Historical
 events retain prior memory versions; live deletion is not historical erasure.

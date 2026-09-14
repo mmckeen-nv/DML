@@ -12,8 +12,21 @@ from ..journal import (
 )
 
 
+def validate_migration_origin(value: dict) -> dict:
+    """Validate the honest boundary before which full-state events do not exist."""
+    if not isinstance(value, dict) or set(value) != {"source_schema_version", "source_revision", "source_digest", "history_digest"}:
+        raise JournalIntegrityError("Invalid migration origin fields")
+    if type(value["source_schema_version"]) is not int or value["source_schema_version"] != 2:
+        raise JournalSchemaError("Unsupported migration source schema")
+    if type(value["source_revision"]) is not int or value["source_revision"] < 0:
+        raise JournalIntegrityError("Invalid migration source revision")
+    if not all(_is_digest(value[field]) for field in ("source_digest", "history_digest")):
+        raise JournalIntegrityError("Invalid migration origin digest")
+    return dict(value)
+
+
 def validate_outbox_event(value: dict) -> dict:
-    """Return a detached, strictly validated version-1 event.
+    """Return a detached, strictly validated version-1 or version-2 event.
 
     Decision/history binding is additionally verified by ``outbox_events`` on
     the authoritative journal; this function validates the standalone envelope.
@@ -24,13 +37,22 @@ def validate_outbox_event(value: dict) -> dict:
         raise JournalIntegrityError("Invalid outbox event serialization") from exc
     fields = {"schema_version", "event_format", "source_store_id", "source_revision",
               "source_digest", "operation", "receipt", "state", "decision_digest", "checksum"}
+    if isinstance(event, dict) and type(event.get("schema_version")) is int and event["schema_version"] == 2:
+        fields.add("origin")
     if not isinstance(event, dict) or set(event) != fields:
         raise JournalIntegrityError("Invalid outbox event fields")
-    if type(event["schema_version"]) is not int or event["schema_version"] != 1 or event["event_format"] != OUTBOX_EVENT_FORMAT:
+    version = event["schema_version"]
+    if type(version) is not int or version not in (1, 2) or event["event_format"] != (OUTBOX_EVENT_FORMAT if version == 1 else "dml-journal-outbox-v2"):
         raise JournalSchemaError("Unsupported outbox event version or format")
     _valid_identity({"schema_version": 1, "store_id": event["source_store_id"]})
     if type(event["source_revision"]) is not int or event["source_revision"] <= 0:
         raise JournalIntegrityError("Invalid outbox source revision")
+    if version == 2:
+        origin = validate_migration_origin(event["origin"])
+        if event["source_revision"] <= origin["source_revision"]:
+            raise JournalIntegrityError("Outbox event precedes migration boundary")
+        if event["source_revision"] == origin["source_revision"] + 1 and (event["operation"] != "outbox-migration-baseline-v1" or event["receipt"] is not None or event["source_digest"] != origin["source_digest"]):
+            raise JournalIntegrityError("Invalid migration baseline envelope")
     if not isinstance(event["operation"], str) or not event["operation"].strip():
         raise JournalIntegrityError("Invalid outbox operation")
     for key in ("source_digest", "decision_digest", "checksum"):

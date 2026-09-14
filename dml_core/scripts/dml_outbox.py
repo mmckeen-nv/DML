@@ -1,4 +1,4 @@
-"""Explicit bounded delivery from a schema-3 authority to a local consumer."""
+"""Explicit bounded delivery from a schema-3/4 authority to a local consumer."""
 from __future__ import annotations
 
 import argparse
@@ -11,7 +11,7 @@ from daystrom_dml.services.outbox_delivery import SQLiteOutboxConsumer, deliver_
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("source", type=Path, help="Existing schema-3 authoritative journal")
+    parser.add_argument("source", type=Path, help="Existing schema-3/4 authoritative journal")
     parser.add_argument("target", type=Path, help="Consumer journal in a separate directory")
     commands = parser.add_subparsers(dest="operation", required=True)
     sync = commands.add_parser("sync", help="Deliver one ordered page and verify durable acceptance")
@@ -28,8 +28,8 @@ def main(argv=None):
         if args.operation == "sync" and not 1 <= args.limit <= 1000:
             raise ValueError("Invalid delivery limit")
         source = JournalStateStore(args.source)
-        if source.schema_version != 3:
-            raise ValueError("Outbox source requires journal schema 3")
+        if source.schema_version not in (3, 4):
+            raise ValueError("Outbox source requires journal schema 3 or 4")
         consumer = SQLiteOutboxConsumer(args.target)
         result = deliver_outbox(source, consumer, limit=args.limit) if args.operation == "sync" else outbox_status(source, consumer)
     except Exception as exc:

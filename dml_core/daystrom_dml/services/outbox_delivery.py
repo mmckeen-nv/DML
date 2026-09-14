@@ -12,10 +12,11 @@ from typing import Callable, Protocol
 
 from ..journal import JournalStateStore, RevisionConflict
 from ..store_lock import store_write_lock
-from .journal_outbox import validate_outbox_event
+from .journal_outbox import validate_migration_origin, validate_outbox_event
 from .receipt_ingestion import _strict_json
 
 FORMAT = "dml-sqlite-outbox-consumer-v1"
+MIGRATED_FORMAT = "dml-sqlite-outbox-consumer-v2"
 
 
 class OutboxDeliveryError(ValueError):
@@ -45,33 +46,56 @@ def _empty() -> dict:
             "event_checksums": [], "last_event": None, "items": [], "lineage": []}
 
 
+def _offset(envelope: dict) -> int:
+    return envelope["origin"]["source_revision"] if envelope["consumer_format"] == MIGRATED_FORMAT else 0
+
+
+def _same_stream(envelope: dict, event: dict) -> bool:
+    migrated = envelope["consumer_format"] == MIGRATED_FORMAT
+    if event["schema_version"] != (2 if migrated else 1):
+        return False
+    return not migrated or _encode(envelope["origin"]) == _encode(event["origin"])
+
+
 def validate_consumer(value: dict) -> dict:
     """Freeze and check the complete consumer envelope, including its last state."""
     value = json.loads(_encode(value))
-    if type(value) is not dict or set(value) != set(_empty()):
+    if type(value) is not dict or type(value.get("schema_version")) is not int:
         raise OutboxDeliveryError("Invalid consumer envelope")
-    if type(value["schema_version"]) is not int or value["schema_version"] != 1 or value["consumer_format"] != FORMAT:
+    migrated = value.get("consumer_format") == MIGRATED_FORMAT
+    fields = set(_empty()) | ({"origin"} if migrated else set())
+    expected_format = MIGRATED_FORMAT if migrated else FORMAT
+    if set(value) != fields or value["schema_version"] != 1 or value["consumer_format"] != expected_format:
         raise OutboxDeliveryError("Unsupported consumer format")
+    if migrated:
+        validate_migration_origin(value["origin"])
     if value["items"] != [] or value["lineage"] != []:
         raise OutboxDeliveryError("Consumer records must be inside the event state")
     checksums = value["event_checksums"]
     if type(checksums) is not list or any(type(digest) is not str or len(digest) != 64 or any(c not in "0123456789abcdef" for c in digest) for digest in checksums):
         raise OutboxDeliveryError("Invalid consumer event ledger")
     if value["cursor"] is None:
-        if checksums or value["last_event"] is not None:
+        if checksums or value["last_event"] is not None or migrated:
             raise OutboxDeliveryError("Invalid unbound consumer")
     else:
         event = validate_outbox_event(value["last_event"])
-        if _encode(value["cursor"]) != _encode(_ack(event)) or len(checksums) != event["source_revision"] or checksums[-1] != event["checksum"]:
+        if (not _same_stream(value, event) or _encode(value["cursor"]) != _encode(_ack(event))
+                or len(checksums) != event["source_revision"] - _offset(value)
+                or not checksums or checksums[-1] != event["checksum"]):
             raise OutboxDeliveryError("Consumer state and ledger disagree")
     return value
 
 
 def _accepted(envelope: dict, event: dict) -> bool:
     cursor = envelope["cursor"]
-    if cursor is None or cursor["source_store_id"] != event["source_store_id"] or cursor["source_revision"] < event["source_revision"]:
+    if cursor is None:
         return False
-    if envelope["event_checksums"][event["source_revision"] - 1] != event["checksum"]:
+    if not _same_stream(envelope, event):
+        raise OutboxDeliveryError("Consumer is bound to another event format or migration origin")
+    if cursor["source_store_id"] != event["source_store_id"] or cursor["source_revision"] < event["source_revision"]:
+        return False
+    index = event["source_revision"] - _offset(envelope) - 1
+    if index < 0 or envelope["event_checksums"][index] != event["checksum"]:
         raise OutboxDeliveryError("Conflicting event at a previously accepted revision")
     if cursor["source_revision"] == event["source_revision"] and _encode(envelope["last_event"]) != _encode(event):
         raise OutboxDeliveryError("Consumer contents disagree with accepted event")
@@ -111,7 +135,13 @@ class SQLiteOutboxConsumer:
                 raise OutboxDeliveryError("Consumer is bound to another authority")
             if _accepted(current, event):
                 return desired_ack
-            if event["source_revision"] != len(current["event_checksums"]) + 1:
+            if cursor is None and event["schema_version"] == 2:
+                # The baseline and format binding commit in the same transaction.
+                current = {**current, "consumer_format": MIGRATED_FORMAT,
+                           "origin": event["origin"]}
+                if event["operation"] != "outbox-migration-baseline-v1":
+                    raise OutboxDeliveryError("A migrated stream must begin with its baseline")
+            if event["source_revision"] != _offset(current) + len(current["event_checksums"]) + 1:
                 raise OutboxDeliveryError("Delivery would skip a source revision")
             proposed = {**current, "cursor": desired_ack, "last_event": event,
                         "event_checksums": [*current["event_checksums"], event["checksum"]]}
@@ -133,16 +163,25 @@ class SQLiteOutboxConsumer:
 def _guard(source: JournalStateStore, consumer: OutboxConsumer) -> None:
     if source.path.resolve().parent == Path(consumer.path).resolve().parent:
         raise OutboxDeliveryError("Authority and consumer require separate directories")
-    if not source.path.is_file() or source.schema_version != 3:
-        raise OutboxDeliveryError("An existing schema-3 authority is required")
+    if not source.path.is_file() or source.schema_version not in (3, 4):
+        raise OutboxDeliveryError("An existing schema-3 or schema-4 authority is required")
 
 
 def _checked_position(source: JournalStateStore, consumer: OutboxConsumer) -> tuple[dict, dict]:
     current = validate_consumer(consumer.read())
     cursor = current["cursor"]
     revision = 0 if cursor is None else cursor["source_revision"]
-    page = source.outbox_events(after_revision=max(0, revision - 1), limit=1)
-    prefix = current["event_checksums"][:max(0, revision - 1)]
+    offset = _offset(current)
+    # The baseline's predecessor is legacy history, not a deliverable event.
+    predecessor = 0 if revision <= offset + 1 else revision - 1
+    page = source.outbox_events(after_revision=predecessor, limit=1)
+    if page["schema_version"] == 2:
+        origin = validate_migration_origin(page["origin"])
+        if cursor is not None and (current["consumer_format"] != MIGRATED_FORMAT or _encode(current["origin"]) != _encode(origin)):
+            raise OutboxDeliveryError("Consumer migration origin differs from authority")
+    elif current["consumer_format"] != FORMAT:
+        raise OutboxDeliveryError("Consumer format differs from authority")
+    prefix = current["event_checksums"][:-1] if cursor is not None else []
     if hashlib.sha256(_encode(prefix).encode("utf-8")).hexdigest() != page["prefix_digest"]:
         raise OutboxDeliveryError("Consumer history differs from the authoritative prefix")
     if cursor is not None:
@@ -156,12 +195,21 @@ def _checked_position(source: JournalStateStore, consumer: OutboxConsumer) -> tu
 
 def _report(current: dict, page: dict) -> dict:
     cursor = current["cursor"]
-    revision = 0 if cursor is None else cursor["source_revision"]
-    return {"source_store_id": page["source_store_id"],
-            "observed_head_revision": page["head_revision"], "consumer_cursor": cursor,
-            "backlog": page["head_revision"] - revision,
-            "matches_observed_source": page["head_revision"] == revision,
-            "bound": cursor is not None}
+    migrated = page["schema_version"] == 2
+    offset = page["origin"]["source_revision"] if migrated else 0
+    revision = offset if cursor is None else cursor["source_revision"]
+    report = {"source_store_id": page["source_store_id"],
+              "observed_head_revision": page["head_revision"], "consumer_cursor": cursor,
+              "backlog": page["head_revision"] - revision,
+              "matches_observed_source": page["head_revision"] == revision,
+              "bound": cursor is not None}
+    if migrated:
+        report["history_coverage"] = {
+            "mode": "migration-baseline-and-subsequent-events",
+            "origin": page["origin"], "first_deliverable_revision": offset + 1,
+            "legacy_operations_delivered": False,
+        }
+    return report
 
 
 def outbox_status(source: JournalStateStore, consumer: OutboxConsumer) -> dict:

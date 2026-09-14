@@ -270,7 +270,7 @@ class DMLAdapter:
                               receipt_mode=self._receipts_enabled, outbox_mode=self._outbox_enabled)
             if persistence_settings and persistence_settings.journal else None
         )
-        if self._journal is not None and self._journal.schema_version in (2, 3):
+        if self._journal is not None and self._journal.schema_version in (2, 3, 4):
             # Receipt stores expose an append-only durable mutation boundary;
             # retrieval must not apply unjournaled quality/lifecycle changes.
             self.enable_quality_on_retrieval = False
@@ -468,7 +468,7 @@ class DMLAdapter:
             self._last_observed_persistent_rag = self._path_stamp(
                 self.persistent_rag_store.manifest_path
             )
-        receipt_store = self._journal is not None and self._journal.schema_version in (2, 3)
+        receipt_store = self._journal is not None and self._journal.schema_version in (2, 3, 4)
         if start_aging_loop and not receipt_store:
             self.store.start_aging()
         if self.checkpoint_manager and not receipt_store:
@@ -503,7 +503,7 @@ class DMLAdapter:
         if self.checkpoint_manager and self.checkpoint_manager.close() is False:
             raise TimeoutError("Checkpoint shutdown is incomplete; retry close after the provider drains")
         persistence_error: Optional[Exception] = None
-        if persist and not (getattr(self, "_journal", None) is not None and self._journal.schema_version in (2, 3)):
+        if persist and not (getattr(self, "_journal", None) is not None and self._journal.schema_version in (2, 3, 4)):
             try:
                 with self._mutation_transaction("close"):
                     self._persist_all()
@@ -1621,7 +1621,7 @@ class DMLAdapter:
 
     def _gather_checkpoint_state(self) -> Dict[str, Any]:
         """Gather under the writer boundary so checkpoint readers see one state."""
-        if self._journal is not None and self._journal.schema_version in (2, 3):
+        if self._journal is not None and self._journal.schema_version in (2, 3, 4):
             raise ValueError("Receipt journals require a full database backup; lattice-only checkpoints omit receipts")
         with self._mutation_transaction("checkpoint-read"):
             return {
@@ -1633,18 +1633,18 @@ class DMLAdapter:
             }
 
     def _require_legacy_mutations(self) -> None:
-        if self._journal is not None and self._journal.schema_version in (2, 3):
+        if self._journal is not None and self._journal.schema_version in (2, 3, 4):
             raise ValueError("Receipt-journal adapters support only receipted append mutations; legacy writes and lifecycle changes are unavailable")
 
     def _require_legacy_retrieval(self) -> None:
-        if self._journal is not None and self._journal.schema_version in (2, 3):
+        if self._journal is not None and self._journal.schema_version in (2, 3, 4):
             raise ValueError("Receipt-journal adapters support only tenant-scoped retrieve_context; legacy retrieval and generation are unavailable")
 
     def _receipt_embedding_space(self) -> dict:
         return embedding_identity(self.embedder, self._receipt_embedding_identity)
 
     def _validate_receipt_query(self, vector=None, *, identity=None) -> None:
-        if self._journal is not None and self._journal.schema_version in (2, 3):
+        if self._journal is not None and self._journal.schema_version in (2, 3, 4):
             current_identity = self._receipt_embedding_space()
             if identity is not None and identity != current_identity:
                 raise ReceiptEmbeddingCompatibilityError("Embedding identity changed before retrieval ownership")
@@ -2077,7 +2077,7 @@ class DMLAdapter:
     # Multi-tenant helpers used by the DML memory service
     # ------------------------------------------------------------------
     def _require_projection_source(self) -> None:
-        if not self._receipts_enabled or self._journal is None or self._journal.schema_version not in (2, 3):
+        if not self._receipts_enabled or self._journal is None or self._journal.schema_version not in (2, 3, 4):
             raise ValueError("Projection integration requires an opt-in receipt journal")
         if int(getattr(self._mutation_local, "depth", 0)):
             raise ValueError("Projection backend I/O cannot run inside source ownership")
@@ -2088,8 +2088,8 @@ class DMLAdapter:
         Consumers must durably deduplicate events. A lost acknowledgement may
         cause redelivery; no source ownership is held during consumer I/O.
         """
-        if not self._outbox_enabled or self._journal is None or self._journal.schema_version != 3:
-            raise ValueError("Outbox delivery requires an opt-in schema-3 outbox journal")
+        if not self._outbox_enabled or self._journal is None or self._journal.schema_version not in (3, 4):
+            raise ValueError("Outbox delivery requires an opt-in schema-3/4 outbox journal")
         if int(getattr(self._mutation_local, "depth", 0)):
             raise ValueError("Outbox consumer I/O cannot run inside source ownership")
         from .services.outbox_delivery import deliver_outbox
@@ -2350,10 +2350,10 @@ class DMLAdapter:
         include_quarantined: bool = False,
         as_of: Optional[float] = None,
     ) -> Dict[str, Any]:
-        if self._journal is not None and self._journal.schema_version in (2, 3) and (type(tenant_id) is not str or not tenant_id.strip()):
+        if self._journal is not None and self._journal.schema_version in (2, 3, 4) and (type(tenant_id) is not str or not tenant_id.strip()):
             raise ValueError("Receipt-journal retrieval requires an explicit nonempty tenant_id")
         # Embedding/provider I/O happens before acquiring the store ownership.
-        identity = self._receipt_embedding_space() if self._journal is not None and self._journal.schema_version in (2, 3) else None
+        identity = self._receipt_embedding_space() if self._journal is not None and self._journal.schema_version in (2, 3, 4) else None
         query_embedding = self._embed_query(prompt)
         with self._mutation_transaction("retrieve-context"):
             self._validate_receipt_query(query_embedding, identity=identity)
@@ -2779,7 +2779,7 @@ class DMLAdapter:
 
     def _embed_query(self, prompt: str) -> np.ndarray:
         text = str(prompt or "")
-        if self._journal is not None and self._journal.schema_version in (2, 3):
+        if self._journal is not None and self._journal.schema_version in (2, 3, 4):
             # Receipt mode deliberately bypasses the legacy text-only cache.
             # Its entries/single-flight futures carry no embedding identity,
             # including entries left behind after a failed runtime hydration.

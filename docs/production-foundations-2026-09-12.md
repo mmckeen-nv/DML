@@ -104,3 +104,13 @@ historical prefixes, and ordered idempotent delivery to a dedicated SQLite consu
 Existing schema-1/2 authorities are preserved. Explicit migration, remaining public
 lifecycle receipts, bounded history retention and ordered background scheduling
 remain separate serial gates.
+
+## Serial outbox migration follow-up
+
+[Explicit schema-2 to schema-4 migration](outbox-migration-hardening-2026-09-14.md)
+preserves receipt and decision bytes, records an honest baseline for previously
+unavailable full-state history, and adds versioned consumer adoption. Seven actual
+process-kill boundaries, commit-pinned legacy reader/state fixtures and simultaneous
+consumer delivery qualify the migration path. Offline manual cutover remains required.
+The next serial gate is receipt coverage for remaining public lifecycle mutations;
+history retention, ordered background delivery and real-agent value remain open.

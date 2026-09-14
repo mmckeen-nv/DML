@@ -52,7 +52,7 @@ def test_schema3_opt_in_and_existing_version_guards(tmp_path):
         path = tmp_path / f"old{version}.sqlite"
         old = JournalStateStore(path, receipt_mode=version == 2)
         before = old.verified_snapshot()
-        with pytest.raises(JournalSchemaError, match="future explicit migration"):
+        with pytest.raises(JournalSchemaError, match="explicit upgrade_outbox_journal"):
             JournalStateStore(path, receipt_mode=True, outbox_mode=True)
         assert JournalStateStore(path).schema_version == version
         assert old.verified_snapshot() == before

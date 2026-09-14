@@ -20,9 +20,6 @@ from .store_lock import acquire_file_lock, release_file_lock
 
 JOURNAL_SCHEMA_VERSION = 1
 RECEIPT_JOURNAL_SCHEMA_VERSION = 2
-OUTBOX_JOURNAL_SCHEMA_VERSION = 3
-MIGRATED_OUTBOX_JOURNAL_SCHEMA_VERSION = 4
-OUTBOX_EVENT_FORMAT = "dml-journal-outbox-v1"
 RECEIPT_SCOPE_KEYS = {"tenant_id", "client_id", "session_id", "instance_id"}
 INIT_FAULT_POINTS = (
     "init_before_connect", "init_after_connect", "init_after_begin",
@@ -35,7 +32,6 @@ FAULT_POINTS = (
 )
 
 RECEIPT_FAULT_POINTS = (*FAULT_POINTS[:4], "after_receipt", *FAULT_POINTS[4:])
-OUTBOX_FAULT_POINTS = (*RECEIPT_FAULT_POINTS[:-2], "after_outbox", *RECEIPT_FAULT_POINTS[-2:])
 
 
 class IdempotencyConflict(RuntimeError):
@@ -211,14 +207,11 @@ def _initialization_lock(path: Path):
 class JournalStateStore:
     def __init__(self, path: Path, *, snapshot_interval: int = 128,
                  fault_hook: Callable[[str], None] | None = None,
-                 receipt_mode: bool = False, outbox_mode: bool = False):
+                 receipt_mode: bool = False):
         if type(receipt_mode) is not bool:
             raise ValueError("receipt_mode must be a boolean")
-        if type(outbox_mode) is not bool or (outbox_mode and not receipt_mode):
-            raise ValueError("outbox_mode must be a boolean and requires receipt_mode=True")
         self._receipt_mode = receipt_mode
-        self._outbox_mode = outbox_mode
-        self._schema_version = OUTBOX_JOURNAL_SCHEMA_VERSION if outbox_mode else (RECEIPT_JOURNAL_SCHEMA_VERSION if receipt_mode else JOURNAL_SCHEMA_VERSION)
+        self._schema_version = RECEIPT_JOURNAL_SCHEMA_VERSION if receipt_mode else JOURNAL_SCHEMA_VERSION
         self.path = Path(path).resolve()
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.snapshot_interval = max(1, snapshot_interval)
@@ -254,9 +247,7 @@ class JournalStateStore:
             if existed:
                 version = connection.execute("PRAGMA user_version").fetchone()[0]
                 self._validate_version(version)
-                if self._outbox_mode and version not in {OUTBOX_JOURNAL_SCHEMA_VERSION, MIGRATED_OUTBOX_JOURNAL_SCHEMA_VERSION}:
-                    raise JournalSchemaError("Outbox mode requires schema 3 or 4; schema-2 journals require explicit upgrade_outbox_journal to a new destination")
-                if self._receipt_mode and version < RECEIPT_JOURNAL_SCHEMA_VERSION:
+                if self._receipt_mode and version != RECEIPT_JOURNAL_SCHEMA_VERSION:
                     raise JournalSchemaError("Receipt mode requires explicit upgrade_receipt_journal to a new schema-2 database")
                 self._schema_version = version
             else:
@@ -273,10 +264,8 @@ class JournalStateStore:
                     connection.execute("CREATE TABLE identity (id INTEGER PRIMARY KEY CHECK(id=1), store_id TEXT NOT NULL)")
                     connection.execute("INSERT INTO identity VALUES (1,?)", (uuid.uuid4().hex,))
                     connection.execute("INSERT INTO state VALUES (1,0,?,?)", ("{}", _digest("{}")))
-                    if self._schema_version >= RECEIPT_JOURNAL_SCHEMA_VERSION:
+                    if self._schema_version == RECEIPT_JOURNAL_SCHEMA_VERSION:
                         self._create_receipt_table(connection)
-                    if self._schema_version >= OUTBOX_JOURNAL_SCHEMA_VERSION:
-                        connection.execute("CREATE TABLE outbox (revision INTEGER PRIMARY KEY, payload TEXT NOT NULL, checksum TEXT NOT NULL)")
                     connection.execute(f"PRAGMA user_version={self._schema_version}")
                     self._fault_hook("init_after_schema")
                 self._fault_hook("init_after_commit")
@@ -304,9 +293,9 @@ class JournalStateStore:
 
     @staticmethod
     def _validate_version(version):
-        if version not in {JOURNAL_SCHEMA_VERSION, RECEIPT_JOURNAL_SCHEMA_VERSION, OUTBOX_JOURNAL_SCHEMA_VERSION, MIGRATED_OUTBOX_JOURNAL_SCHEMA_VERSION}:
+        if version not in {JOURNAL_SCHEMA_VERSION, RECEIPT_JOURNAL_SCHEMA_VERSION}:
             raise JournalSchemaError(
-                f"Unsupported journal schema {version}; expected 1, 2, 3 or 4. "
+                f"Unsupported journal schema {version}; expected 1 or 2. "
                 "Schema 0 requires explicit dml-journal upgrade to a new database."
             )
 
@@ -326,12 +315,8 @@ class JournalStateStore:
             "decisions": [("revision", "INTEGER", 0, 1), ("payload", "TEXT", 0, 0), ("checksum", "TEXT", 1, 0)],
             "identity": [("id", "INTEGER", 0, 1), ("store_id", "TEXT", 1, 0)],
         }
-        if self._schema_version >= RECEIPT_JOURNAL_SCHEMA_VERSION:
+        if self._schema_version == RECEIPT_JOURNAL_SCHEMA_VERSION:
             columns["receipts"] = [("scope", "TEXT", 1, 1), ("key", "TEXT", 1, 2), ("revision", "INTEGER", 1, 0), ("payload", "TEXT", 1, 0), ("checksum", "TEXT", 1, 0)]
-        if self._schema_version >= OUTBOX_JOURNAL_SCHEMA_VERSION:
-            columns["outbox"] = [("revision", "INTEGER", 0, 1), ("payload", "TEXT", 1, 0), ("checksum", "TEXT", 1, 0)]
-        if self._schema_version == MIGRATED_OUTBOX_JOURNAL_SCHEMA_VERSION:
-            columns["migration_origin"] = [("id", "INTEGER", 0, 1), ("payload", "TEXT", 1, 0), ("checksum", "TEXT", 1, 0)]
         objects = connection.execute("SELECT type,name FROM sqlite_master WHERE name NOT GLOB 'sqlite_*'").fetchall()
         if set(objects) != {("table", name) for name in columns}:
             raise JournalSchemaError("Unexpected journal schema objects")
@@ -382,31 +367,18 @@ class JournalStateStore:
 
     _encode = staticmethod(_encode)
 
-    def _migration_origin(self, connection):
-        from .services.journal_outbox import validate_migration_origin
-
-        rows = connection.execute("SELECT id,payload,checksum FROM migration_origin").fetchall()
-        if len(rows) != 1 or rows[0][0] != 1:
-            raise JournalIntegrityError("Migration origin is missing or ambiguous")
-        return validate_migration_origin(_checked(rows[0][1], rows[0][2]))
-
-    def _decision(self, sql_revision, raw, checksum, *, expected_schema=None):
+    def _decision(self, sql_revision, raw, checksum):
         decision = _checked(raw, checksum)
         if not isinstance(decision, dict):
             raise JournalIntegrityError("Journal decision must be an object")
-        schema = self._schema_version if expected_schema is None else expected_schema
-        if type(decision.get("schema_version")) is not int or decision["schema_version"] != schema:
+        if type(decision.get("schema_version")) is not int or decision["schema_version"] != self._schema_version:
             raise JournalSchemaError("Journal decision schema mismatch")
         fields = {"schema_version", "revision", "operation", "changed", "deleted", "record_count", "state_digest"}
-        if schema >= RECEIPT_JOURNAL_SCHEMA_VERSION:
+        if self._schema_version == RECEIPT_JOURNAL_SCHEMA_VERSION:
             fields.add("receipt")
-        if schema >= OUTBOX_JOURNAL_SCHEMA_VERSION:
-            fields.add("outbox_digest")
-            if not _is_digest(decision.get("outbox_digest")):
-                raise JournalIntegrityError("Invalid decision outbox binding")
         if set(decision) != fields:
             raise JournalIntegrityError("Invalid journal decision fields")
-        if schema >= RECEIPT_JOURNAL_SCHEMA_VERSION and decision["receipt"] is not None:
+        if self._schema_version == RECEIPT_JOURNAL_SCHEMA_VERSION and decision["receipt"] is not None:
             binding = decision["receipt"]
             if not isinstance(binding, dict) or set(binding) != {"scope", "key", "request_digest", "digest"} or not _is_digest(binding["digest"]):
                 raise JournalIntegrityError("Invalid decision receipt binding")
@@ -442,10 +414,6 @@ class JournalStateStore:
         return decision
 
     def _read_snapshot(self, connection):
-        if self._schema_version >= OUTBOX_JOURNAL_SCHEMA_VERSION:
-            identity_rows = connection.execute("SELECT id,store_id FROM identity").fetchall()
-            if identity_rows != [(1, self._identity["store_id"])]:
-                raise JournalIntegrityError("Journal outbox transaction identity changed")
         rows = connection.execute("SELECT id,revision,metadata,checksum FROM state").fetchall()
         if len(rows) != 1 or rows[0][0] != 1:
             raise JournalIntegrityError("Journal state is missing or ambiguous")
@@ -463,14 +431,12 @@ class JournalStateStore:
             raise JournalIntegrityError("Uncommitted journal revision contains state")
         if len(events) != revision:
             raise JournalIntegrityError("Journal decision history is incomplete")
-        origin = self._migration_origin(connection) if self._schema_version == MIGRATED_OUTBOX_JOURNAL_SCHEMA_VERSION else None
         decisions = {}
         expected_records = {}
         for expected_revision, event in enumerate(events, 1):
             if event[0] != expected_revision:
                 raise JournalIntegrityError("Journal decision history is not contiguous")
-            expected_schema = RECEIPT_JOURNAL_SCHEMA_VERSION if origin is not None and expected_revision <= origin["source_revision"] else self._schema_version
-            decision = self._decision(*event, expected_schema=expected_schema)
+            decision = self._decision(*event)
             for entry in decision["deleted"]:
                 key = (entry["bucket"], entry["id"])
                 if key not in expected_records:
@@ -481,7 +447,7 @@ class JournalStateStore:
             if len(expected_records) != decision["record_count"]:
                 raise JournalIntegrityError("Journal decision record count mismatch")
             decisions[expected_revision] = decision
-        if self._schema_version >= RECEIPT_JOURNAL_SCHEMA_VERSION:
+        if self._schema_version == RECEIPT_JOURNAL_SCHEMA_VERSION:
             expected_receipts = {}
             for decision_revision, decision in decisions.items():
                 binding = decision["receipt"]
@@ -542,98 +508,7 @@ class JournalStateStore:
             snapshot = _normalized(_checked(raw, checksum))
             if decisions[snapshot_revision]["state_digest"] != _digest(_encode(snapshot)):
                 raise JournalIntegrityError("Journal snapshot differs from its commit decision")
-        if self._schema_version >= OUTBOX_JOURNAL_SCHEMA_VERSION:
-            self._validate_outbox(connection, revision, decisions)
         return revision, payload, encoded
-
-    def _validate_outbox(self, connection, revision, decisions):
-        from .services.journal_outbox import validate_outbox_event
-
-        rows = connection.execute("SELECT revision,payload,checksum FROM outbox ORDER BY revision").fetchall()
-        origin = self._migration_origin(connection) if self._schema_version == MIGRATED_OUTBOX_JOURNAL_SCHEMA_VERSION else None
-        boundary = origin["source_revision"] if origin is not None else 0
-        if origin is not None:
-            if revision <= boundary or origin["history_digest"] != _digest(_encode([decisions[index] for index in range(1, boundary + 1)])):
-                raise JournalIntegrityError("Migration origin history mismatch")
-            if boundary and decisions[boundary]["state_digest"] != origin["source_digest"]:
-                raise JournalIntegrityError("Migration origin state mismatch")
-            if not boundary and origin["source_digest"] != _digest(_encode({"items": [], "lineage": []})):
-                raise JournalIntegrityError("Empty migration origin state mismatch")
-        if len(rows) != revision - boundary:
-            raise JournalIntegrityError("Journal outbox history is incomplete")
-        previous = {}
-        for expected_revision, (sql_revision, raw, checksum) in enumerate(rows, boundary + 1):
-            event = validate_outbox_event(_checked(raw, checksum))
-            if origin is None:
-                if event["schema_version"] != 1:
-                    raise JournalSchemaError("Schema-3 outbox requires version-1 events")
-            elif event["schema_version"] != 2 or _encode(event["origin"]) != _encode(origin):
-                raise JournalIntegrityError("Outbox migration origin mismatch")
-            if sql_revision != expected_revision or event["source_revision"] != expected_revision:
-                raise JournalIntegrityError("Journal outbox history is not contiguous")
-            if event["source_store_id"] != self._identity["store_id"]:
-                raise JournalIntegrityError("Journal outbox belongs to another authority")
-            decision = decisions[expected_revision]
-            base_decision = {key: value for key, value in decision.items() if key != "outbox_digest"}
-            if decision["outbox_digest"] != event["checksum"] or event["decision_digest"] != _digest(_encode(base_decision)):
-                raise JournalIntegrityError("Journal outbox decision binding mismatch")
-            if event["source_digest"] != decision["state_digest"] or event["operation"] != decision["operation"] or _encode(event["receipt"]) != _encode(decision["receipt"]):
-                raise JournalIntegrityError("Journal outbox differs from its commit decision")
-            current = {}
-            for bucket in ("items", "lineage"):
-                for position, record in enumerate(event["state"][bucket]):
-                    current[(bucket, str(record["id"]))] = (position, _encode(record))
-            if origin is not None and expected_revision == boundary + 1:
-                if event["operation"] != "outbox-migration-baseline-v1" or event["receipt"] is not None or event["source_digest"] != origin["source_digest"]:
-                    raise JournalIntegrityError("Invalid migration baseline")
-                previous = current
-            changed = [{"bucket": bucket, "id": key, "digest": _digest(value[1])}
-                       for (bucket, key), value in current.items() if previous.get((bucket, key)) != value]
-            deleted = [{"bucket": bucket, "id": key} for bucket, key in sorted(previous.keys() - current.keys())]
-            if _encode(changed) != _encode(decision["changed"]) or _encode(deleted) != _encode(decision["deleted"]) or len(current) != decision["record_count"]:
-                raise JournalIntegrityError("Journal outbox state transition differs from decision history")
-            previous = current
-
-    def outbox_events(self, *, after_revision: int = 0, limit: int = 100) -> dict:
-        """Read one bounded event page and authority head from a verified snapshot.
-
-        Schema 3 retains a complete state per committed revision. Schema 4
-        starts with an explicit migration baseline; older decisions remain
-        auditable without fabricated full-state events. The page bounds event
-        count, not bytes or verification cost; all history is verified.
-        Delivery positions are consumer-owned and never mutate this history.
-        """
-        from .services.journal_outbox import validate_outbox_event
-
-        if self._schema_version not in {OUTBOX_JOURNAL_SCHEMA_VERSION, MIGRATED_OUTBOX_JOURNAL_SCHEMA_VERSION}:
-            raise JournalSchemaError("Transactional outbox requires a schema-3 or schema-4 journal")
-        if type(limit) is not int or not 1 <= limit <= 1000:
-            raise ValueError("outbox page size must be an integer between 1 and 1000")
-        if type(after_revision) is not int or after_revision < 0:
-            raise ValueError("after_revision must be a nonnegative integer")
-        with self._connect() as connection:
-            connection.execute("BEGIN")
-            identity_rows = connection.execute("SELECT id,store_id FROM identity").fetchall()
-            if identity_rows != [(1, self._identity["store_id"])]:
-                raise JournalIntegrityError("Journal outbox identity changed")
-            revision, _, _ = self._read_snapshot(connection)
-            origin = self._migration_origin(connection) if self._schema_version == MIGRATED_OUTBOX_JOURNAL_SCHEMA_VERSION else None
-            if origin is not None and 0 < after_revision <= origin["source_revision"]:
-                raise ValueError("after_revision precedes the migrated outbox baseline")
-            if after_revision > revision:
-                raise ValueError("after_revision exceeds the verified authority head")
-            rows = connection.execute("SELECT payload,checksum FROM outbox WHERE revision>? ORDER BY revision LIMIT ?", (after_revision, limit)).fetchall()
-            events = [validate_outbox_event(_checked(*row)) for row in rows]
-            prefix_rows = connection.execute("SELECT payload,checksum FROM outbox WHERE revision<=? ORDER BY revision", (after_revision,)).fetchall()
-            prefix_digest = _digest(_encode([_checked(*row)["checksum"] for row in prefix_rows]))
-            next_revision = events[-1]["source_revision"] if events else after_revision
-            page = {"schema_version": 1, "source_store_id": identity_rows[0][1],
-                    "head_revision": revision, "after_revision": after_revision,
-                    "next_revision": next_revision, "has_more": next_revision < revision,
-                    "prefix_digest": prefix_digest, "events": events}
-            if origin is not None:
-                page.update(schema_version=2, origin=origin)
-            return page
 
     def read_snapshot(self) -> tuple[int, dict]:
         """Return a detached state and its revision from one read transaction."""
@@ -643,24 +518,11 @@ class JournalStateStore:
         self._revision, self._encoded = revision, encoded
         return revision, payload
 
-    def verified_snapshot(self) -> tuple[str, int, dict]:
-        """Read verified authority identity, revision and state together."""
-        with self._connect() as connection:
-            connection.execute("BEGIN")
-            try:
-                rows = connection.execute("SELECT id,store_id FROM identity").fetchall()
-            except sqlite3.DatabaseError as exc:
-                raise JournalIntegrityError("Journal snapshot identity cannot be read") from exc
-            if len(rows) != 1 or rows[0] != (1, self._identity["store_id"]):
-                raise JournalIntegrityError("Journal snapshot identity changed")
-            revision, payload, _ = self._read_snapshot(connection)
-            return rows[0][1], revision, payload
-
     def load(self) -> dict:
         return self.read_snapshot()[1]
 
     def _require_receipts(self):
-        if self._schema_version < RECEIPT_JOURNAL_SCHEMA_VERSION:
+        if self._schema_version != RECEIPT_JOURNAL_SCHEMA_VERSION:
             raise JournalSchemaError("Receipts require explicit upgrade_receipt_journal to a new schema-2 database")
 
     @staticmethod
@@ -761,28 +623,11 @@ class JournalStateStore:
                     "deleted": [{"bucket": bucket, "id": key} for bucket, key in deleted],
                     "record_count": len(encoded), "state_digest": _digest(self._encode(normalized)),
                 }
-                if self._schema_version >= RECEIPT_JOURNAL_SCHEMA_VERSION:
+                if self._schema_version == RECEIPT_JOURNAL_SCHEMA_VERSION:
                     event["receipt"] = binding
-                outbox = None
-                if self._schema_version >= OUTBOX_JOURNAL_SCHEMA_VERSION:
-                    outbox = {
-                        "schema_version": 1, "event_format": OUTBOX_EVENT_FORMAT,
-                        "source_store_id": self._identity["store_id"], "source_revision": revision,
-                        "source_digest": event["state_digest"], "operation": operation,
-                        "receipt": binding, "state": normalized,
-                        "decision_digest": _digest(self._encode(event)),
-                    }
-                    if self._schema_version == MIGRATED_OUTBOX_JOURNAL_SCHEMA_VERSION:
-                        outbox.update(schema_version=2, event_format="dml-journal-outbox-v2", origin=self._migration_origin(connection))
-                    outbox["checksum"] = _digest(self._encode(outbox))
-                    event["outbox_digest"] = outbox["checksum"]
                 decision = self._encode(event)
                 connection.execute("INSERT INTO decisions VALUES (?,?,?)", (revision, decision, _digest(decision)))
                 self._fault_hook("after_decision")
-                if outbox is not None:
-                    raw_outbox = self._encode(outbox)
-                    connection.execute("INSERT INTO outbox VALUES (?,?,?)", (revision, raw_outbox, _digest(raw_outbox)))
-                    self._fault_hook("after_outbox")
             self._fault_hook("before_commit")
         self._fault_hook("after_commit")
         self._revision, self._encoded = revision, encoded
@@ -798,12 +643,11 @@ class JournalStateStore:
             connection.execute("BEGIN")
             self._read_snapshot(connection)
             rows = connection.execute("SELECT revision,payload,checksum FROM decisions WHERE revision>? ORDER BY revision LIMIT ?", (after_revision, limit)).fetchall()
-            origin = self._migration_origin(connection) if self._schema_version == MIGRATED_OUTBOX_JOURNAL_SCHEMA_VERSION else None
-            return [self._decision(*row, expected_schema=RECEIPT_JOURNAL_SCHEMA_VERSION if origin is not None and row[0] <= origin["source_revision"] else self._schema_version) for row in rows]
+        return [self._decision(*row) for row in rows]
 
     def export_snapshot(self, path: Path) -> Path:
-        if self._schema_version >= RECEIPT_JOURNAL_SCHEMA_VERSION:
-            raise JournalSchemaError("Receipt/outbox journals require a full database backup; lattice-only export loses receipt authority")
+        if self._schema_version == RECEIPT_JOURNAL_SCHEMA_VERSION:
+            raise JournalSchemaError("Schema-2 receipt journals require a full database backup; lattice-only export loses receipt authority")
         reserved = {self.path.resolve(), self.identity_path.resolve(), self.initialization_lock_path.resolve(), (self.path.parent / ".dml_store.lock").resolve(), (self.path.parent / ".dml_store.lock.json").resolve(), Path(str(self.path) + "-wal").resolve(), Path(str(self.path) + "-shm").resolve()}
         if Path(path).resolve() in reserved:
             raise ValueError("snapshot output must not overwrite the journal or its sidecars")
