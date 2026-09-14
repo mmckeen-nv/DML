@@ -18,6 +18,11 @@
       "score": 9.5,
       "decision": "accepted",
       "resolution": "Mixed-version decision paging now validates original rows under schema 2. Raw destination and all reserved sidecars use lexists guards before resolution. Eight independent regressions cover paths, typed metadata history, and source identity races. Pre-marker recovery harness preserves reserved init.lock and retries a fresh path."
+    },
+    {
+      "score": 9.5,
+      "decision": "accepted",
+      "resolution": "Independent review accepted test-only Windows portability corrections. All 17 affected adversarial/recovery cases pass; core.autocrlf=true checkout preserves both literal fixture hashes. Runtime hashes unchanged; exact-commit Windows CI remains required."
     }
   ],
   "score": 9.5,
@@ -45,10 +50,11 @@
     "dml_core/tests/fixtures/journal_schema2_8a08efa.sql": "054c8691516ee44f9bcee84716539cf1ffe7f6cef7054f4dc1cfed187a075797",
     "dml_core/tests/fixtures/journal_schema2_reader_8a08efa.py": "f3db12707a260765462961bdbed2b9d00a80887ec2c0071421d4795b41a4759e",
     "dml_core/tests/test_migrated_outbox_delivery.py": "862582bdc5936ba8f9ac51774486b6a5f076466d3395e10e2f4847571950b556",
-    "dml_core/tests/test_migration_adversarial.py": "5b866a536dacdacf0cafd1c4363105c48223e8ed4e50bb18646b7a2d2f43d273",
+    "dml_core/tests/test_migration_adversarial.py": "8610102fdaf79a28825bdd9e4d929b67af69f9dbeb5f051c9514b62fb2b469cf",
     "dml_core/tests/test_outbox_migration.py": "79ec3c7d5700cb104cb0c02a2e079957008638a56b24172060cffe466795ca0f",
     "dml_core/tests/test_outbox_migration_integration.py": "a7cf85371b0dc24f8db85440e7d2964d580cce4b2e86fa4b96300501d18a1cd6",
-    "dml_core/tests/test_outbox_migration_recovery.py": "28e70e1cdd76b1229d8e8229d4010b347de12d0dfc6351ea7bda19ca6ea88dfc"
+    "dml_core/tests/test_outbox_migration_recovery.py": "28e70e1cdd76b1229d8e8229d4010b347de12d0dfc6351ea7bda19ca6ea88dfc",
+    ".gitattributes": "c874ed13e10fb517af83e69fb6ed6ad12cda52e732ab387ef679bd1d2f19d62e"
   },
   "verification": {
     "independent_focused": "139 passed, zero skips/failures/errors in 8.784s",
@@ -63,7 +69,8 @@
     "full_suite": "1601 passed, 9 optional-dependency skips, 2 known warnings in 66.63s",
     "ruff": "passed",
     "mypy": "51 maintained files passed; local Python target 3.12",
-    "hermes_hygiene": "passed"
+    "hermes_hygiene": "passed",
+    "windows_harness_correction": "17 affected cases passed independently; both pinned fixture byte hashes preserved under core.autocrlf=true checkout; Ruff passed; final exact-commit Windows CI required"
   },
   "compatibility_fixture": {
     "generator_commit": "8a08efa0976677ac813597956f87c19543be6ac8",
@@ -83,5 +90,13 @@
     "Seven process-kill boundaries do not establish physical power-loss or every-filesystem durability",
     "Lifecycle receipts, retention and ordered background delivery remain separate gates",
     "Final exact-commit remote CI remains a separate integration gate recorded on PR118"
+  ],
+  "ci_history": [
+    {
+      "commit": "eb639b9380f418fcfac7e531c1de64fb6716e934",
+      "run_id": 34848463959,
+      "decision": "rejected",
+      "finding": "Windows3.13 found test-only CRLF hash changes in pinned text fixtures and native readlink path-prefix differences. Windows3.10 canceled by matrix; both fullsuite jobs, all Linux/macOS portability jobs and production evidence passed. Corrections preserve literal fixture hashes and compare actual raw symlink target before/after migration; runtime unchanged."
+    }
   ]
 }

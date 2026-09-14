@@ -111,3 +111,11 @@ power-loss guarantees. Full-state events and full-history verification retain
 unbounded byte/storage costs; event-count limits do not bound those costs. Ordered
 background delivery, lifecycle receipts, retention and real-agent growing-store
 value remain separate gates.
+
+The first remote run passed both full suites, all Linux/macOS portability jobs and
+production evidence. Windows 3.13 exposed two test-only portability assumptions:
+Git converted hash-pinned fixtures to CRLF, and native `readlink` added a path
+prefix. The two pinned fixtures now explicitly check out with LF. The symlink
+oracle compares the actual raw target before and after migration. Literal fixture
+hashes and preservation assertions remain enforced; runtime code is unchanged.
+The corrected commit must pass the full CI matrix before acceptance.

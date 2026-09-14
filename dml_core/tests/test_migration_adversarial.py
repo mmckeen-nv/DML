@@ -25,12 +25,13 @@ def test_existing_dangling_output_symlinks_remain_untouched(tmp_path, suffix):
         reserved.symlink_to(unrelated)
     except OSError:
         pytest.skip("Creating symlinks is unavailable on this platform")
+    original_link = os.readlink(reserved)
 
     with pytest.raises(ValueError):
         upgrade_outbox_journal(source.path, destination)
 
     assert reserved.is_symlink()
-    assert Path(os.readlink(reserved)) == unrelated
+    assert os.readlink(reserved) == original_link
     assert not unrelated.exists()
     assert not destination.exists()
     assert source.verified_snapshot() == before
