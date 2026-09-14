@@ -114,3 +114,12 @@ process-kill boundaries, commit-pinned legacy reader/state fixtures and simultan
 consumer delivery qualify the migration path. Offline manual cutover remains required.
 The next serial gate is receipt coverage for remaining public lifecycle mutations;
 history retention, ordered background delivery and real-agent value remain open.
+
+## Serial retirement follow-up
+
+[Receipted memory retirement](retirement-hardening-2026-09-14.md) adds the first
+qualified lifecycle mutation to the receipt profile: scoped tombstones guarded by
+the exact current record digest, atomic historical receipts and outbox decisions,
+and normal retrieval suppression. It retains historical content and capacity.
+Further lifecycle updates, supersession, promotion/merge and physical erasure are
+separate serial gates; the broader ten-area plan remains unchanged.

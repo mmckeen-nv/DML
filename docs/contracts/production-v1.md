@@ -259,3 +259,9 @@ an offline schema-2 authority to schema 4 at a separate path, preserving legacy
 receipts and decisions and beginning full-state delivery at an explicit baseline.
 Schema 3 remains the fresh-journal format. Historical
 events retain prior memory versions; live deletion is not historical erasure.
+
+The candidate [receipted retirement contract](../retirement-hardening-2026-09-14.md)
+adds explicit scoped tombstones with an expected record digest and durable retry
+receipt. Normal retrieval suppresses retired memories; history and capacity are
+retained. Public update, supersession, promotion/merge and physical erasure remain
+separate gates. Journal schemas and existing receipt/event formats are unchanged.
