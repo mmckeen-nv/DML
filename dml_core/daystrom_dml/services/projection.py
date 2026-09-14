@@ -151,6 +151,11 @@ class SQLiteProjection:
             raise ProjectionError("Unsupported target journal schema")
         return _validate(self.journal.read_snapshot()[1])
 
+    def apply_delta(self, packet: dict) -> dict:
+        from .projection_delta import apply_sqlite_delta
+
+        return apply_sqlite_delta(self, packet)
+
     def publish(self, snapshot: dict) -> dict:
         proposed, source_path = _prepared(snapshot)
         if source_path.parent == self.path.parent:

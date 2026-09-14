@@ -16,7 +16,8 @@ def main(argv=None):
     parser.add_argument("source", type=Path, help="Existing schema-2 authoritative journal")
     parser.add_argument("target", type=Path, help="Projection journal in a separate directory")
     commands = parser.add_subparsers(dest="operation", required=True)
-    commands.add_parser("sync", help="Atomically replace the disposable projection from authority")
+    sync = commands.add_parser("sync", help="Atomically update the disposable projection from authority")
+    sync.add_argument("--incremental", action="store_true", help="Deliver changed records with a checked base and complete ID manifest")
     commands.add_parser("status", help="Report revision lag without changing projection contents")
     query = commands.add_parser("query", help="Read only a projection matching a pinned authority snapshot")
     query.add_argument("request", type=Path, help="JSON: vector, embedding_identity, scope, top_k, as_of")
@@ -33,7 +34,11 @@ def main(argv=None):
             raise ValueError("Projection source requires journal schema 2")
         target = SQLiteProjection(args.target)
         if args.operation == "sync":
-            result = reconcile(source, target)
+            if args.incremental:
+                from daystrom_dml.services.projection_delta import reconcile_incremental
+                result = reconcile_incremental(source, target)
+            else:
+                result = reconcile(source, target)
         elif args.operation == "status":
             result = projection_status(source, target)
         else:

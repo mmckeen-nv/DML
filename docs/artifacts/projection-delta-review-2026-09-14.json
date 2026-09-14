@@ -1,0 +1,59 @@
+{
+  "schema_version": "dml-feature-review-v1",
+  "feature": "coalesced-projection-delta-and-explicit-backend-integration",
+  "base_commit": "baef9ec71126406e8380a502c3b08a02571bbf1f",
+  "reviewed_at": "2026-09-14",
+  "reviewer": "independent grading agent, separate from builder and integration-harness agent",
+  "minimum_accepted_score": 9.5,
+  "review_history": [
+    {
+      "score": 9.1,
+      "decision": "rejected",
+      "findings": [
+        "A correct-looking backend acknowledgement could be accepted without observed publication",
+        "Changed-record detection must distinguish JSON boolean/integer/float values",
+        "Require explicit multi-process and competing-base packet evidence"
+      ]
+    },
+    {
+      "score": 9.5,
+      "decision": "accepted",
+      "resolution": "Read-back verifies reached target or a newer revision from the same authority; equal revisions require the expected envelope digest. Canonical JSON comparisons and adversarial regressions pass."
+    }
+  ],
+  "score": 9.5,
+  "decision": "accepted",
+  "category_scores": {
+    "correctness": 9.5,
+    "failure_and_recovery": 9.6,
+    "concurrency": 9.5,
+    "contracts_and_maintainability": 9.4,
+    "harness": 9.5
+  },
+  "source_sha256": {
+    "dml_core/daystrom_dml/services/projection_delta.py": "946ff1000cbdd00efff33fbf3679dba023c2210c2b3cd8509edd0aea5c742a64",
+    "dml_core/daystrom_dml/services/projection.py": "10631d9403f97f6c0ae25b77e5dd606444b489a0da8e3f7159bffa2e99d56078",
+    "dml_core/daystrom_dml/dml_adapter.py": "d9c586585abb5d2f16f101490c61970ddc9c12d8c7fe21a0166a2e38e59a3fcd",
+    "dml_core/scripts/dml_projection.py": "c49648c9ec51f76c0f4a69591d154598c5686f852b69f96b3f63cc1c69ebf74e",
+    "dml_core/tests/test_projection_delta.py": "ae3ab39330ed284623ec85af5b2c24c76ac9f22a23b5469f0961443473b49111",
+    "dml_core/tests/test_projection_delta_integration.py": "5e9a702ac8e501367383cd7d28ea2d08e208206a4bd9b4e8d45860d2fb96af86"
+  },
+  "verification": {
+    "independent_targeted": "51 cases with DML_STRESS_CLIENTS=256 plus added format-validation regression passed; 52 total unique cases",
+    "full_suite": "1213 passed, 9 optional-dependency skips, 2 warnings in 48.39s",
+    "publication_process_kill_hooks": 7,
+    "publisher_processes": 8,
+    "concurrent_deliveries": 256,
+    "ruff": "passed",
+    "mypy": "47 maintained files passed; local Python target 3.12",
+    "hermes_hygiene": "passed"
+  },
+  "limitations": [
+    "Feature-specific engineering review, not whole-platform production certification",
+    "Coalesced changed-record transport with complete ID manifest; preparation/application still verify full snapshots/history",
+    "Trusted atomic read-after-write backend contract; SQLite implementation qualified, existing FAISS backend excluded",
+    "No durable per-operation changefeed, incremental outbox, automatic retry worker or distributed exactly-once claim",
+    "No 1k/10k/100k growing-store or real-agent performance qualification",
+    "Final exact-commit CI remains a separate integration gate"
+  ]
+}

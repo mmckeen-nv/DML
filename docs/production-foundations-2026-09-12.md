@@ -75,3 +75,12 @@ P03 with atomic full-snapshot publication and pinned-source queries. It reuses
 the accepted journal format, keeps source writes independent of backend outages,
 and adds crash/concurrency/query regression evidence. Incremental outboxes, existing
 FAISS qualification and automatic provider routing remain separate gates.
+
+
+## Serial delta delivery follow-up
+
+[Coalesced projection deltas](projection-delta-hardening-2026-09-14.md) add checked
+base/target publication, a narrow backend protocol and explicit adapter/CLI integration.
+Receipt availability remains independent of backend I/O. Full-state verification
+and complete ID manifests remain necessary; durable operation outboxes, workers
+and existing FAISS backend qualification are still separate gates.

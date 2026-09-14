@@ -105,6 +105,16 @@ stale or corrupt targets and apply exact scope/lifecycle checks. This is disposa
 query data, not a receipt backup or incremental outbox. External FAISS routing and
 all-component atomicity remain unqualified. See the [projection contract](../projection-hardening-2026-09-14.md).
 
+### Coalesced projection delta delivery
+
+The reference backend also accepts versioned coalesced deltas with checked base
+and target envelope digests. Changed records and deletions publish atomically with
+the source cursor; stale bases are refused. Explicit receipt-adapter sync/status/query
+methods and CLI `sync --incremental` integrate the backend without coupling receipt
+success to projection availability. This reduces transported record payloads while
+retaining full snapshot/history verification; it is not a durable operation outbox.
+See the [delta contract](../projection-delta-hardening-2026-09-14.md).
+
 ### Retrieval and context
 
 The adapter delegates lattice persistence, query caching, context compaction, lifecycle filtering and

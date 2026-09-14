@@ -2057,6 +2057,39 @@ class DMLAdapter:
     # ------------------------------------------------------------------
     # Multi-tenant helpers used by the DML memory service
     # ------------------------------------------------------------------
+    def _require_projection_source(self) -> None:
+        if not self._receipts_enabled or self._journal is None or self._journal.schema_version != 2:
+            raise ValueError("Projection integration requires an opt-in receipt journal")
+        if int(getattr(self._mutation_local, "depth", 0)):
+            raise ValueError("Projection backend I/O cannot run inside source ownership")
+
+    def sync_projection(self, backend) -> Dict[str, Any]:
+        """Explicitly deliver a coalesced delta; receipt ingestion never calls this."""
+        from .services.projection_delta import reconcile_incremental
+        self._require_projection_source()
+        return reconcile_incremental(self._journal, backend)
+
+    def projection_status(self, backend) -> Dict[str, Any]:
+        """Compare backend state against a pinned authoritative snapshot."""
+        from .services.projection import projection_status
+        self._require_projection_source()
+        return projection_status(self._journal, backend)
+
+    def query_projection(self, prompt: str, *, backend, tenant_id: str,
+                         client_id: Optional[str] = None, session_id: Optional[str] = None,
+                         instance_id: Optional[str] = None, top_k: int = 10,
+                         as_of: float) -> Dict[str, Any]:
+        """Query a matching disposable projection under an explicit scope and clock."""
+        from .services.projection import query_projection
+        self._require_projection_source()
+        identity = self._receipt_embedding_space()
+        vector = self._embed_query(prompt)
+        if self._receipt_embedding_space() != identity:
+            raise ReceiptEmbeddingCompatibilityError("Embedding identity changed during projected query preparation")
+        return query_projection(self._journal, backend, vector=vector, embedding_identity=identity,
+            scope={"tenant_id": tenant_id, "client_id": client_id, "session_id": session_id,
+                   "instance_id": instance_id}, top_k=top_k, as_of=as_of)
+
     def ingest_memory_receipted(self, text: str, *, idempotency_key: str, tenant_id: str,
                                client_id: Optional[str] = None, session_id: Optional[str] = None,
                                instance_id: Optional[str] = None, kind: Optional[str] = None,

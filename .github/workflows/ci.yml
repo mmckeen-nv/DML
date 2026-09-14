@@ -84,6 +84,8 @@ jobs:
           dml_core/tests/test_receipt_embedding_contract.py
           dml_core/tests/test_projection.py
           dml_core/tests/test_projection_queries.py
+          dml_core/tests/test_projection_delta.py
+          dml_core/tests/test_projection_delta_integration.py
           dml_core/tests/test_adversarial_memory.py
           dml_core/tests/test_outcome_metrics.py
           dml_core/tests/test_fail_closed_persistence.py
@@ -120,8 +122,12 @@ jobs:
         env:
           DML_STRESS_CLIENTS: "256"
         run: python -m pytest dml_core/tests/test_projection.py::test_concurrent_duplicate_publishers_publish_one_target_revision --junitxml=production-artifacts/projection-concurrency.xml
+      - name: Stress 256 duplicate delta deliveries
+        env:
+          DML_STRESS_CLIENTS: "256"
+        run: python -m pytest dml_core/tests/test_projection_delta.py::test_duplicate_concurrent_deliveries_commit_once --junitxml=production-artifacts/delta-concurrency.xml
       - name: Record serial recovery harness outcomes
-        run: python -m pytest dml_core/tests/test_journal_hardening.py dml_core/tests/test_checkpoint_hardening.py dml_core/tests/test_receipt_ingestion.py dml_core/tests/test_receipt_adapter.py dml_core/tests/test_receipt_embedding_contract.py dml_core/tests/test_projection.py dml_core/tests/test_projection_queries.py --junitxml=production-artifacts/recovery.xml
+        run: python -m pytest dml_core/tests/test_journal_hardening.py dml_core/tests/test_checkpoint_hardening.py dml_core/tests/test_receipt_ingestion.py dml_core/tests/test_receipt_adapter.py dml_core/tests/test_receipt_embedding_contract.py dml_core/tests/test_projection.py dml_core/tests/test_projection_queries.py dml_core/tests/test_projection_delta.py dml_core/tests/test_projection_delta_integration.py --junitxml=production-artifacts/recovery.xml
       - name: Compare independent baseline on 1000 offline turns
         run: python -m scripts.production_baseline --turns 1000 --output production-artifacts/baseline.json
       - name: Measure journal history validation cost
