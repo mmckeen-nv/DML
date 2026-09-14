@@ -1,0 +1,66 @@
+{
+  "schema_version": "dml-feature-review-v1",
+  "feature": "disposable-sqlite-snapshot-vector-projection",
+  "base_commit": "8a08efa0976677ac813597956f87c19543be6ac8",
+  "reviewed_at": "2026-09-14",
+  "reviewer": "independent grading agent, separate from builder and query-harness agent",
+  "minimum_accepted_score": 9.5,
+  "review_history": [
+    {
+      "score": 9.1,
+      "decision": "rejected",
+      "findings": [
+        "Reject schema-2 targets before publication",
+        "Freeze vector, identity and scope before backend I/O",
+        "Exercise constructor deaths and strengthen stale-status and concurrent-publisher oracles"
+      ]
+    },
+    {
+      "decision": "held pending correction",
+      "finding": "Final contract audit found identity verification preceded the snapshot BEGIN; reproduced before fix and now verified inside the same read transaction as state."
+    },
+    {
+      "score": 9.5,
+      "decision": "accepted",
+      "resolution": "All identified implementation and harness findings resolved; independent code, CLI and documentation review accepted the bounded candidate."
+    }
+  ],
+  "score": 9.5,
+  "decision": "accepted",
+  "category_scores": {
+    "crash_and_recovery": 9.5,
+    "concurrency_and_replay": 9.5,
+    "query_isolation": 9.5,
+    "maintainability": 9.4,
+    "scope_and_documentation": 9.6
+  },
+  "source_sha256": {
+    "dml_core/daystrom_dml/services/projection.py": "2b16ce2a314cecdb9042f23ee77244695bf8a8426e89f7e36385bc847e28da44",
+    "dml_core/daystrom_dml/journal.py": "bb535c6ae2cf0b2d423d614d676a1662245a8187f81dba6fe83ac0acb109539d",
+    "dml_core/scripts/dml_projection.py": "713a63fde3f82b1f6dfdd646d8d11a6c7f332cdd24095e1705ff165413e97dc0",
+    "dml_core/tests/test_projection.py": "bbdc983c411f7c3fd061836119c6dcb5216b7aaa7d903f166ed2ab5b5c3894a6",
+    "dml_core/tests/test_projection_queries.py": "58b5955f73a669c8d33df280665e41288147603dc4e9c59b103e0310b3990ae2"
+  },
+  "verification": {
+    "independent_projection_selection": "64 passed plus the final identity-race regression passed",
+    "final_targeted": "65 passed with DML_STRESS_CLIENTS=256",
+    "publication_process_kill_hooks": 7,
+    "construction_process_kill_hooks": 14,
+    "publisher_processes": 8,
+    "concurrent_publishers": 256,
+    "ruff": "passed",
+    "mypy": "46 maintained files passed; local Python target 3.12",
+    "hermes_hygiene": "passed",
+    "full_suite": "1161 passed, 9 optional-dependency skips, 2 warnings in 43.63s"
+  },
+  "limitations": [
+    "Feature-specific engineering review, not whole-platform production certification",
+    "Disposable SQLite full-snapshot backend only; no receipt backup, distributed atomic commit or incremental outbox",
+    "Existing FAISS backend, automatic adapter/provider routing and worker scheduling remain unqualified",
+    "Queries linearize at their verified authority read, not response completion",
+    "No 1k/10k/100k growing-store or real-agent performance qualification",
+    "Corrupt/incomplete projection requires explicit rebuild into a new dedicated directory",
+    "Checksums are not signatures against coherent filesystem tampering",
+    "Final exact-commit CI remains a separate integration gate"
+  ]
+}

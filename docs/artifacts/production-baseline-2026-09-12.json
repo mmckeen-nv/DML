@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "mode": "offline_retrieval_smoke",
+  "turns": 1000,
+  "memory_records": 100,
+  "agent_outcomes": null,
+  "value_gate": "not_evaluated",
+  "measurements": {
+    "sqlite_baseline": {
+      "evidence_hits": 1000,
+      "retrieval_ms_p50": 0.8420144986303058,
+      "retrieval_ms_p95": 1.4584549469873302,
+      "retrieval_ms_p99": 2.787556253169895,
+      "evidence_recall": 1.0
+    },
+    "dml": {
+      "evidence_hits": 1000,
+      "retrieval_ms_p50": 2.04300200130092,
+      "retrieval_ms_p95": 3.211720500985393,
+      "retrieval_ms_p99": 4.3844648973754365,
+      "evidence_recall": 1.0
+    }
+  },
+  "configuration": {
+    "embedding": "sha256-token-histogram-64-v1",
+    "top_k": 8,
+    "token_budget": 600,
+    "seed": "deterministic-record-cycle-v1",
+    "now": 2000000000.0,
+    "python": "3.12.14",
+    "numpy": "2.5.3",
+    "sqlite": "3.53.1"
+  },
+  "limitations": [
+    "No model or tools invoked",
+    "Fixed 100-record corpus; no growth claim",
+    "Compaction/framing differ; neither uses an LLM",
+    "No task-success or production speedup claim"
+  ]
+}

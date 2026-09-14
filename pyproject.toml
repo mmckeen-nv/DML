@@ -14,6 +14,7 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools]
 packages = [
     "daystrom_dml",
+    "daystrom_dml.services",
     "daystrom_dml.llm_backends",
     "daystrom_dml.provider_web",
     "daystrom_dml.stm",
@@ -101,6 +102,8 @@ dcm-model-probe = "scripts.dcm_model_probe:main"
 dcm-workload-benchmark = "scripts.dcm_workload_benchmark:main"
 dcm-kv-probe = "scripts.dcm_kv_probe:main"
 dml-journal = "scripts.dml_journal:main"
+dml-projection = "scripts.dml_projection:main"
+dml-outbox = "scripts.dml_outbox:main"
 
 [tool.pytest.ini_options]
 addopts = "-q"

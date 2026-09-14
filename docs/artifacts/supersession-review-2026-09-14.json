@@ -1,0 +1,66 @@
+{
+  "schema_version": "dml-feature-review-v1",
+  "feature": "scoped-receipted-memory-supersession-v1",
+  "base_commit": "108fb561cbbb6b96917df4126d3f15b14d0528b0",
+  "reviewed_at": "2026-09-14",
+  "reviewer": "independent grading agent, separate from service and adapter/provider builders",
+  "minimum_accepted_score": 9.5,
+  "score": 9.6,
+  "decision": "accepted",
+  "review_history": [
+    {
+      "score": 9.6,
+      "decision": "accepted",
+      "findings": "No unresolved blocking findings; both-record CAS, conservative lifecycle eligibility, frozen intent and historical receipt semantic validation verified"
+    }
+  ],
+  "source_sha256": {
+    "dml_core/daystrom_dml/services/receipt_supersession.py": "8c8edda11a92124586b94f4538500a01cf729e192a639dd64a31b0e04f73b0a4",
+    "dml_core/daystrom_dml/dml_adapter.py": "8b26f4ff22380a9c5a4f9a58c813f1d450c32eb04d67520dfef9ac1cacc3a84b",
+    "dml_core/daystrom_dml/provider_server.py": "fc0f9d7700606fac39f641d3e17d330e275de4148b86f9064bb6c901ddf5c733",
+    "dml_core/daystrom_dml/contracts/production.py": "30f83bae84ef10dbf5ebbe1825f01df71b2f0f043dd4fd7c24da6af95900ad0b",
+    "dml_core/tests/test_receipt_supersession.py": "36f37bd4fa7620508feb46df315d64596756b12ec04dea527ae51bc474323ae8",
+    "dml_core/tests/test_supersession_integration.py": "a70596d1e5d01e3da4ff282cbefce56e1b652f1a2bb06f6d08f05b09992b04d3",
+    "dml_core/tests/test_supersession_recovery.py": "3997b71ff5731ade3144c9a92443452054b7ad382a235af62053234dd3bc9f92",
+    "dml_core/tests/test_supersession_adversarial.py": "aba7e25ac933a9e4b1b9cb3cbea1f5d3b1bbdba8be802b7dfe7b6c011fc6c1d1",
+    ".github/workflows/ci.yml": "490bf1ba1d77d880686b2a773c51e8d51215fc2671f932c441685f6f2bd96b5d"
+  },
+  "verification": {
+    "independent_focused": "199 passed, zero failures/skips",
+    "service_cases": 78,
+    "adapter_api_cases": 57,
+    "recovery_concurrency_cases": 32,
+    "independent_adversarial_cases": 32,
+    "actual_process_kill_cases": 26,
+    "supported_journal_schemas": [
+      2,
+      3,
+      4
+    ],
+    "simultaneous_clients_per_schema": 256,
+    "competing_processes_per_schema": 8,
+    "opposing_edges": "Two independently authored start-barrier races require exactly one committed edge and no two-node cycle",
+    "disk_full": "Actual SQLite max_page_count exhaustion preserves both original receipts and state",
+    "serialization": "Injected encoding failure cannot acknowledge or partially publish a link",
+    "ruff": "passed",
+    "mypy": "53 maintained source files passed; local target Python 3.12",
+    "hermes_hygiene": "passed",
+    "full_suite": "1951 passed, 9 optional-dependency skips, 2 known warnings in 82.46s"
+  },
+  "plan_position": "Tenth serial hardening gate after foundation tranche; P03 durable lifecycle receipts, P04 schema compatibility, P07 supersession semantics; original ten production areas remain incomplete",
+  "limitations": [
+    "Candidate feature-specific review, not whole-platform production readiness",
+    "Replacement eligibility is checked during attempt; expiry may suppress it before acknowledgement",
+    "Existing source trust and replacement bytes unchanged; no automatic authority promotion",
+    "Historical links are not rewritten and retrieval does not resolve chains",
+    "No physical erasure, capacity reclamation or modification of prior receipts/outbox events",
+    "Exact authoritative records needed for digests; no new inspection endpoint",
+    "Existing trusted include_quarantined inspection can surface suppressed records",
+    "Bearer service callers select scopes; no per-token tenant authorization",
+    "Checksums do not authenticate a malicious writer that can replace all authority/history",
+    "No exact eligibility-clock replay or full P10 response reconstruction",
+    "Full-history verification/full-state event costs remain unqualified at growing-store scale",
+    "Process-death coverage does not prove physical power-loss durability",
+    "Final exact-commit CI remains a separate gate recorded on PR118"
+  ]
+}

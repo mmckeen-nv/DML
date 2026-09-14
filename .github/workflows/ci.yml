@@ -13,11 +13,17 @@ jobs:
       matrix:
         python-version: ["3.10", "3.11"]
     env:
+      OPENBLAS_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
       DML_CI_RUFF_TARGETS: >-
         dml_core/daystrom_dml/personality_matrix.py
         dml_core/daystrom_dml/config.py
         dml_core/daystrom_dml/settings.py
         dml_core/daystrom_dml/context
+        dml_core/daystrom_dml/services
+        dml_core/daystrom_dml/journal.py
+        dml_core/daystrom_dml/persistence.py
+        dml_core/daystrom_dml/checkpoint.py
         integrations/hermes/plugins/daystrom_dml
         dml_core/daystrom_dml/tests/test_dml.py
       DML_CI_MYPY_TARGETS: >-
@@ -25,7 +31,10 @@ jobs:
         dml_core/daystrom_dml/config.py
         dml_core/daystrom_dml/settings.py
         dml_core/daystrom_dml/context
+        dml_core/daystrom_dml/services
         dml_mcp/dml_mcp_server.py
+        dml_core/daystrom_dml/journal.py
+        dml_core/daystrom_dml/checkpoint.py
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
@@ -61,10 +70,46 @@ jobs:
         env:
           PYTHONPATH: dml_core
           DML_SKIP_VENV_REEXEC: "1"
+          OPENBLAS_NUM_THREADS: "1"
+          OMP_NUM_THREADS: "1"
         run: >-
           python -m pytest
           dml_core/tests/test_store_lock.py
           dml_core/tests/test_atomic_io.py
+          dml_core/tests/test_production_foundations.py
+          dml_core/tests/test_journal_hardening.py
+          dml_core/tests/test_checkpoint_hardening.py
+          dml_core/tests/test_receipt_ingestion.py
+          dml_core/tests/test_receipt_adapter.py
+          dml_core/tests/test_receipt_embedding_contract.py
+          dml_core/tests/test_projection.py
+          dml_core/tests/test_projection_queries.py
+          dml_core/tests/test_projection_delta.py
+          dml_core/tests/test_projection_delta_integration.py
+          dml_core/tests/test_projection_worker.py
+          dml_core/tests/test_projection_worker_integration.py
+          dml_core/tests/test_projection_worker_recovery.py
+          dml_core/tests/test_projection_worker_adversarial.py
+          dml_core/tests/test_journal_outbox.py
+          dml_core/tests/test_outbox_delivery.py
+          dml_core/tests/test_outbox_integration.py
+          dml_core/tests/test_outbox_recovery.py
+          dml_core/tests/test_outbox_adversarial.py
+          dml_core/tests/test_outbox_migration.py
+          dml_core/tests/test_migrated_outbox_delivery.py
+          dml_core/tests/test_outbox_migration_integration.py
+          dml_core/tests/test_outbox_migration_recovery.py
+          dml_core/tests/test_migration_adversarial.py
+          dml_core/tests/test_receipt_retirement.py
+          dml_core/tests/test_retirement_integration.py
+          dml_core/tests/test_retirement_recovery.py
+          dml_core/tests/test_retirement_adversarial.py
+          dml_core/tests/test_receipt_supersession.py
+          dml_core/tests/test_supersession_integration.py
+          dml_core/tests/test_supersession_recovery.py
+          dml_core/tests/test_supersession_adversarial.py
+          dml_core/tests/test_adversarial_memory.py
+          dml_core/tests/test_outcome_metrics.py
           dml_core/tests/test_fail_closed_persistence.py
           dml_core/tests/test_rag_store.py
           dml_core/daystrom_dml/tests/test_performance.py
@@ -73,3 +118,61 @@ jobs:
           dml_core/daystrom_dml/tests/context/test_working_set.py
           openclaw-wrapper/tests/test_dml_memory.py
           -q
+
+  production-evidence:
+    runs-on: ubuntu-latest
+    env:
+      OPENBLAS_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+      DML_SKIP_VENV_REEXEC: "1"
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - name: Install CPU evidence dependencies
+        run: python -m pip install .[server,dev]
+      - name: Stress 256 concurrent journal clients
+        env:
+          DML_STRESS_CLIENTS: "256"
+        run: python -m pytest dml_core/tests/test_production_foundations.py::test_concurrent_clients_use_compare_and_swap_without_lost_updates --junitxml=production-artifacts/concurrency.xml
+      - name: Stress 256 clients retrying one receipt key
+        env:
+          DML_STRESS_CLIENTS: "256"
+        run: python -m pytest dml_core/tests/test_receipt_ingestion.py::test_same_key_thread_clients_commit_one_receipt --junitxml=production-artifacts/receipt-concurrency.xml
+      - name: Stress 256 duplicate projection publishers
+        env:
+          DML_STRESS_CLIENTS: "256"
+        run: python -m pytest dml_core/tests/test_projection.py::test_concurrent_duplicate_publishers_publish_one_target_revision --junitxml=production-artifacts/projection-concurrency.xml
+      - name: Stress 256 duplicate delta deliveries
+        env:
+          DML_STRESS_CLIENTS: "256"
+        run: python -m pytest dml_core/tests/test_projection_delta.py::test_duplicate_concurrent_deliveries_commit_once --junitxml=production-artifacts/delta-concurrency.xml
+      - name: Stress 256 ordered outbox consumers
+        env:
+          DML_STRESS_CLIENTS: "256"
+        run: python -m pytest dml_core/tests/test_outbox_delivery.py::test_concurrent_duplicate_delivery_commits_each_event_once --junitxml=production-artifacts/outbox-concurrency.xml
+      - name: Stress 256 migrated outbox consumers
+        env:
+          DML_STRESS_CLIENTS: "256"
+        run: python -m pytest dml_core/tests/test_migrated_outbox_delivery.py::test_concurrent_baseline_binding_and_replay_commits_once --junitxml=production-artifacts/migrated-outbox-concurrency.xml
+      - name: Stress 256 simultaneous retirement clients
+        env:
+          DML_STRESS_CLIENTS: "256"
+        run: python -m pytest dml_core/tests/test_retirement_recovery.py::test_simultaneous_retirement_clients_commit_one_transition --junitxml=production-artifacts/retirement-concurrency.xml
+      - name: Stress 256 simultaneous supersession clients
+        env:
+          DML_STRESS_CLIENTS: "256"
+        run: python -m pytest dml_core/tests/test_supersession_recovery.py::test_simultaneous_supersession_clients_commit_one_transition --junitxml=production-artifacts/supersession-concurrency.xml
+      - name: Record serial recovery harness outcomes
+        run: python -m pytest dml_core/tests/test_journal_hardening.py dml_core/tests/test_checkpoint_hardening.py dml_core/tests/test_receipt_ingestion.py dml_core/tests/test_receipt_adapter.py dml_core/tests/test_receipt_embedding_contract.py dml_core/tests/test_projection.py dml_core/tests/test_projection_queries.py dml_core/tests/test_projection_delta.py dml_core/tests/test_projection_delta_integration.py dml_core/tests/test_projection_worker.py dml_core/tests/test_projection_worker_integration.py dml_core/tests/test_projection_worker_recovery.py dml_core/tests/test_projection_worker_adversarial.py dml_core/tests/test_journal_outbox.py dml_core/tests/test_outbox_delivery.py dml_core/tests/test_outbox_integration.py dml_core/tests/test_outbox_recovery.py dml_core/tests/test_outbox_adversarial.py dml_core/tests/test_outbox_migration.py dml_core/tests/test_migrated_outbox_delivery.py dml_core/tests/test_outbox_migration_integration.py dml_core/tests/test_outbox_migration_recovery.py dml_core/tests/test_migration_adversarial.py dml_core/tests/test_receipt_retirement.py dml_core/tests/test_retirement_integration.py dml_core/tests/test_retirement_recovery.py dml_core/tests/test_retirement_adversarial.py dml_core/tests/test_receipt_supersession.py dml_core/tests/test_supersession_integration.py dml_core/tests/test_supersession_recovery.py dml_core/tests/test_supersession_adversarial.py --junitxml=production-artifacts/recovery.xml
+      - name: Compare independent baseline on 1000 offline turns
+        run: python -m scripts.production_baseline --turns 1000 --output production-artifacts/baseline.json
+      - name: Measure journal history validation cost
+        run: python -m scripts.journal_history_benchmark --output production-artifacts/journal-history.json
+      - name: Preserve evidence without treating simulation as agent success
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-evidence
+          path: production-artifacts/
