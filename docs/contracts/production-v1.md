@@ -241,3 +241,10 @@ complete mutation-point process-kill and platform/power-loss qualification; full
 bound model/tokenizer identities; real-agent baseline value and long-horizon
 campaigns; complete migration coverage as releases accumulate; and durable replay
 of all memory decisions. See the [workstream status](../production-foundations-2026-09-12.md).
+
+
+The candidate [projection worker contract](../projection-worker-hardening-2026-09-14.md)
+adds opt-in bounded retry scheduling and explicit adapter ownership to coalesced
+projection delivery. It does not change durable schemas or receipt commit semantics.
+A shutdown timeout reports an undrained attempt; it does not cancel backend I/O.
+Historical runtime status does not replace a verified projection freshness check.

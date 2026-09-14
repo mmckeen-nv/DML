@@ -84,3 +84,13 @@ base/target publication, a narrow backend protocol and explicit adapter/CLI inte
 Receipt availability remains independent of backend I/O. Full-state verification
 and complete ID manifests remain necessary; durable operation outboxes, workers
 and existing FAISS backend qualification are still separate gates.
+
+
+## Serial worker follow-up
+
+[Bounded projection retry scheduling](projection-worker-hardening-2026-09-14.md)
+adds explicit adapter-owned delivery with coalesced notifications, capped failure
+backoff, terminal shutdown and historical pinned status. Process-death recovery
+derives pending work from durable source/target state. Receipt acknowledgements
+remain independent of backend availability. Durable operation outboxes, growing
+store costs and qualification of the existing FAISS backend remain separate gates.

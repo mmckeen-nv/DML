@@ -6,6 +6,7 @@ import copy
 import heapq
 import json
 import logging
+import math
 import os
 import re
 import threading
@@ -164,6 +165,10 @@ class DMLAdapter:
         runner: Optional[GPTRunner] = None,
         start_aging_loop: bool = True,
     ) -> None:
+        self._projection_lifecycle_lock = RLock()
+        self._projection_workers_closing = False
+        self._owned_projection_worker = None
+        self._owned_projection_backend = None
         overrides = dict(config_overrides or {})
         self.settings = load_config(config_path, overrides=overrides)
         self.config = self.settings.as_dict()
@@ -474,9 +479,20 @@ class DMLAdapter:
     # ------------------------------------------------------------------
     # Lifecycle helpers
     # ------------------------------------------------------------------
-    def close(self, persist: bool = True) -> None:
-        """Stop background work and optionally persist an owned, current snapshot."""
+    def close(self, persist: bool = True, *, projection_timeout: float = 5.0) -> None:
+        """Drain owned workers before closing dependencies; retry after a timeout."""
 
+        if (type(projection_timeout) not in (int, float)
+                or projection_timeout > threading.TIMEOUT_MAX or projection_timeout < 0
+                or not math.isfinite(projection_timeout)):
+            raise ValueError("Projection close timeout must be finite and nonnegative")
+        with self._projection_lifecycle_lock:
+            self._projection_workers_closing = True
+            projection_worker = self._owned_projection_worker
+        # Never hold this lock while waiting: an admitted backend may call into
+        # adapter lifecycle methods. A blocked callback retains its dependencies.
+        if projection_worker is not None and not projection_worker.close(timeout=projection_timeout):
+            raise TimeoutError("Projection shutdown is incomplete; retry close after the backend drains")
         self._stop_persistence_loop()
         # Checkpoint providers can own the memory transaction. Drain them before
         # final persistence or closing their dependencies, and surface a timeout
@@ -2068,6 +2084,31 @@ class DMLAdapter:
         from .services.projection_delta import reconcile_incremental
         self._require_projection_source()
         return reconcile_incremental(self._journal, backend)
+
+    def start_projection_worker(self, backend, *, poll_interval: float = 1.0,
+                                retry_initial: float = 0.1, retry_max: float = 30.0):
+        """Start one opt-in owned worker; repeated starts retain its first settings.
+
+        Backend identity is fixed for this adapter lifetime. Close the adapter
+        and create a new one to change backends or restart a terminal worker.
+        Receipt ingestion remains independent of this worker and its backend.
+        """
+        from .services.projection_worker import ProjectionWorker
+        self._require_projection_source()
+        with self._projection_lifecycle_lock:
+            if self._projection_workers_closing:
+                raise RuntimeError("Cannot start a projection worker after adapter shutdown begins")
+            if self._owned_projection_worker is not None:
+                if backend is not self._owned_projection_backend:
+                    raise ValueError("An adapter can own only one projection backend")
+                self._owned_projection_worker.start()
+                return self._owned_projection_worker
+            worker = ProjectionWorker(self._journal, backend, poll_interval=poll_interval,
+                                      retry_initial=retry_initial, retry_max=retry_max)
+            worker.start()
+            self._owned_projection_worker = worker
+            self._owned_projection_backend = backend
+            return worker
 
     def projection_status(self, backend) -> Dict[str, Any]:
         """Compare backend state against a pinned authoritative snapshot."""

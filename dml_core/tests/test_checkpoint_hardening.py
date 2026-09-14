@@ -231,6 +231,9 @@ def test_adapter_drains_checkpoints_before_persisting_or_closing_dependencies():
         def close(self):
             calls.append("store-close")
     adapter = DMLAdapter.__new__(DMLAdapter)
+    adapter._projection_lifecycle_lock = threading.RLock()
+    adapter._projection_workers_closing = False
+    adapter._owned_projection_worker = None
     adapter.checkpoint_manager = Manager()
     adapter.store = Store()
     adapter.metrics_enabled = False
