@@ -135,3 +135,12 @@ target 3.12) and Hermes hygiene passed. The
 [review record](artifacts/projection-worker-review-2026-09-14.json) pins accepted
 source hashes and preserves the rejected/accepted review history. Exact-commit
 remote CI remains a separate integration gate recorded in the PR.
+
+
+The first remote CI run found a portability race in the crash harness: on macOS,
+the worker thread could reach the fallback process exit before its `SIGKILL` took
+effect. The POSIX branch now waits briefly for signal termination, with a distinct
+failure exit if the signal fails; the parent still requires termination by signal.
+Windows retains its explicit abrupt-exit branch. Runtime source was unchanged by
+this correction; the seven crash cases were rerun and independently reviewed,
+with platform confirmation required from the corrected commit's CI.

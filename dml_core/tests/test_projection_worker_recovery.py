@@ -30,8 +30,14 @@ from daystrom_dml.services.projection_worker import ProjectionWorker
 source_path, target_path, point = sys.argv[1:]
 def crash(here):
     if here == point:
-        if os.name == 'posix': os.kill(os.getpid(), signal.SIGKILL)
-        os._exit(79)
+        if os.name == 'posix':
+            os.kill(os.getpid(), signal.SIGKILL)
+            # Delivery from a worker thread can lag the syscall on macOS.
+            # Keep the strict signal-death oracle; never race it with exit(79).
+            threading.Event().wait(5)
+            os._exit(80)
+        else:
+            os._exit(79)
 source = JournalStateStore(Path(source_path))
 target = SQLiteProjection(Path(target_path), fault_hook=crash)
 worker = ProjectionWorker(source, target, poll_interval=0.1, retry_initial=0.02, retry_max=0.1)

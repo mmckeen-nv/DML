@@ -18,6 +18,11 @@
       "score": 9.5,
       "decision": "accepted",
       "resolution": "Error classification and type introspection execute outside the lifecycle condition while the attempt remains in flight; classification failures become permanent faults with safe telemetry. Timeout validation precedes lifecycle changes. Blocking and raising formatter/property/metaclass regressions pass."
+    },
+    {
+      "score": 9.5,
+      "decision": "accepted",
+      "resolution": "Independent portability harness review: POSIX SIGKILL waits for signal termination with distinct failure fallback; strict -9 oracle retained. Seven corrected crash cases pass. Runtime sources unchanged; new exact-commit CI required."
     }
   ],
   "score": 9.5,
@@ -35,7 +40,7 @@
     "dml_core/daystrom_dml/dml_adapter.py": "f3fa31a81ad7a90b240ee5e7be210be0197f4923e7f232d309214246d545f38d",
     "dml_core/tests/test_projection_worker.py": "fa9126cf410287eacfd50b97408fa4d20d853c9c63c20297aca2e01382b782f3",
     "dml_core/tests/test_projection_worker_integration.py": "14a0e9bdcb3e090a80a8e3454f71732afd9ca0392188c75059d10517377f964b",
-    "dml_core/tests/test_projection_worker_recovery.py": "83030bc88c7cb8467c2e0f65c8fcf3cede6b211e2ad8185614a4d4155ae39400",
+    "dml_core/tests/test_projection_worker_recovery.py": "3ea87f9203a831d872cd808736943d08ea931d04f5452348cda4c2219ae0f23d",
     "dml_core/tests/test_projection_worker_adversarial.py": "9f66e50dbfa704d2ef3e1edff6331a5f61b46158bc4b41bdb260d1552d93ac85"
   },
   "verification": {
@@ -48,7 +53,8 @@
     "full_suite": "1318 passed, 9 optional-dependency skips, 2 warnings in 56.55s",
     "ruff": "passed",
     "mypy": "48 maintained files passed; local Python target 3.12",
-    "hermes_hygiene": "passed"
+    "hermes_hygiene": "passed",
+    "portability_correction": "7 independently rerun crash cases passed after harness-only macOS signal-delivery race correction"
   },
   "limitations": [
     "Feature-specific engineering review, not whole-platform production certification",
@@ -59,5 +65,13 @@
     "Retry frequency is bounded per worker; attempts may continue indefinitely and independent workers are not globally rate-limited",
     "Full snapshot/history verification cost remains; no growing-store or real-agent performance qualification",
     "Final exact-commit CI is a separate integration gate recorded in the PR"
+  ],
+  "ci_history": [
+    {
+      "commit": "1e82d70b93fb9eb62638c3e2e73eb1732626569b",
+      "run_id": 34834065203,
+      "decision": "rejected",
+      "finding": "macOS3.13 worker SIGKILL raced unconditional fallback exit in seven harness cases; strict signal assertion failed. Both full/lint/type jobs and production-evidence passed; sibling platform jobs canceled."
+    }
   ]
 }
