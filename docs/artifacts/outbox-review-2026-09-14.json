@@ -22,6 +22,11 @@
       "score": 9.5,
       "decision": "accepted",
       "resolution": "Independent reviewer verified corrected 256-worker/256-party-barrier stress: passed in14.667s, exactly three event commits plus initialization. Runtime source unchanged; updated test hash accepted."
+    },
+    {
+      "score": 9.5,
+      "decision": "accepted",
+      "resolution": "Independent review verified explicit connection close after test transaction commits; both affected tests passed. Test-only Windows correction; all-nine-job CI remains required."
     }
   ],
   "score": 9.5,
@@ -44,7 +49,7 @@
     "dml_core/scripts/dml_outbox.py": "6cef3505a22c76f2ed22d60cd71820d209ed5dc14394cc9a1a514a9289fbfcc9",
     "dml_core/scripts/dml_projection.py": "f02393d33c439491c0369cb71db7a6bd792633bface1d614e80617658c0efa85",
     "dml_core/tests/test_journal_outbox.py": "56c9b1df9cf9e22bb02145ac7d4a842300e5b52e5a3741d9351445eddce890bf",
-    "dml_core/tests/test_outbox_delivery.py": "feae5b0e3b4a053ea9b44e18be82c5547ab0d048d84a4fc8eb8e38b2abede709",
+    "dml_core/tests/test_outbox_delivery.py": "cddd44c60b3f439263bab0d9bd614d147bba3c62bda3f25b3eef583b6e8cd661",
     "dml_core/tests/test_outbox_adversarial.py": "b5396baa82ea341fdeaec3f3772dc816e6541865b225b0ee6b8752919d4662ac",
     "dml_core/tests/test_outbox_integration.py": "84439354157aeab2ea9cf5597809d093cbf8c0ef80d5cc23f3fbfeabfc77e211",
     "dml_core/tests/test_outbox_recovery.py": "81984cfd3abe9225a29d90b51fe87a6cbb566c849bdf27b2e58b02b50cb48c6a"
@@ -67,7 +72,8 @@
     "ruff": "passed",
     "mypy": "50 maintained files passed; local Python target 3.12",
     "hermes_hygiene": "passed",
-    "independent_256_client_stress": "Passed with256 simultaneous clients in14.667s; three event commits plus initialization"
+    "independent_256_client_stress": "Passed with256 simultaneous clients in14.667s; three event commits plus initialization",
+    "windows_harness_correction": "32 delivery tests and Ruff passed after explicitly closing the two test SQLite connections; runtime source unchanged"
   },
   "limitations": [
     "Feature-specific engineering review, not whole-platform production readiness",
@@ -78,5 +84,13 @@
     "New public lifecycle mutation receipts and ordered background delivery remain separate gates",
     "No history retention/compaction or real-agent/growing-store performance qualification",
     "Final exact-commit remote CI is a separate integration gate recorded in PR118"
+  ],
+  "ci_history": [
+    {
+      "commit": "f9f3d286115084575a1ae96c80628c65a00b20c0",
+      "run_id": 34836540494,
+      "decision": "rejected",
+      "finding": "Windows3.10 corruption test attempted database deletion with a still-open test connection. Two transaction contexts now explicitly close handles. Both fullsuite jobs, allLinux/macOS portability and production evidence passed; Windows3.13 canceled by matrix."
+    }
   ]
 }

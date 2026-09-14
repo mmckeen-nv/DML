@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import closing
 from copy import deepcopy
 import errno
 import json
@@ -257,8 +258,9 @@ def test_live_consumer_rejects_replaced_database_identity(pair):
     source, consumer = pair
     save(source, 1)
     deliver_outbox(source, consumer)
-    with sqlite3.connect(consumer.path) as connection:
-        connection.execute("UPDATE identity SET store_id=?", ("a" * 32,))
+    with closing(sqlite3.connect(consumer.path)) as connection:
+        with connection:
+            connection.execute("UPDATE identity SET store_id=?", ("a" * 32,))
     with pytest.raises(JournalIntegrityError):
         consumer.read()
     with pytest.raises(JournalIntegrityError):
@@ -269,8 +271,9 @@ def test_corrupt_consumer_and_missing_initialized_consumer_fail_closed(pair):
     source, consumer = pair
     save(source, 1)
     deliver_outbox(source, consumer)
-    with sqlite3.connect(consumer.path) as connection:
-        connection.execute("UPDATE state SET checksum=?", ("0" * 64,))
+    with closing(sqlite3.connect(consumer.path)) as connection:
+        with connection:
+            connection.execute("UPDATE state SET checksum=?", ("0" * 64,))
     with pytest.raises(JournalIntegrityError):
         deliver_outbox(source, consumer)
     consumer.path.unlink()

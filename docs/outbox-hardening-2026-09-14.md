@@ -156,3 +156,12 @@ stress-harness correction. Ruff, 50 maintained mypy files (local Python target
 3.12) and Hermes hygiene passed. The [review record](artifacts/outbox-review-2026-09-14.json)
 pins accepted source hashes and rejected/accepted findings. Exact-commit remote
 CI remains a separate integration gate recorded in PR #118.
+
+
+The first exact-commit CI run passed the two full-suite jobs, Linux/macOS
+portability and production evidence. Windows found a test resource-lifecycle
+issue: SQLite's transaction context does not close a connection, so the corruption
+fixture still held its database open when simulating deletion. The two test
+connections now close explicitly after their transactions. Runtime code is
+unchanged; the corrected harness requires another independent review and all nine
+CI jobs on the corrected commit before integration acceptance.
