@@ -133,6 +133,15 @@ and 2 known warnings, in 135.44 seconds. Ruff, the 54 maintained mypy source fil
 and Hermes hygiene passed. The review pins ten source/test/CI hashes; exact-commit
 CI is recorded on PR #118. No user memory stores were modified.
 
+The first exact-commit CI run (309) passed seven jobs but exposed a Windows
+test-harness defect: pytest expanded the oversized Unicode input into its test ID,
+exceeding the Windows environment-variable limit before that case could execute.
+The other Windows job was cancelled by matrix fail-fast. Explicit short parameter
+IDs retain the same input and assertions; all 73 integration cases pass after the
+correction, and all 265 gate IDs are at most 190 UTF-16 units. Runtime code is
+unchanged. The review records this rejected CI attempt separately, and the corrected
+commit requires a fresh complete CI run on PR #118.
+
 Process death does not qualify physical
 power loss. Full-history verification and full-state events retain growing costs.
 Promotion/merge, retention and physical erasure, remaining adapter extraction,

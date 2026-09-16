@@ -20,6 +20,23 @@
       "score": 9.6,
       "decision": "accepted",
       "blocking_findings": []
+    },
+    {
+      "event": "ci_gate",
+      "decision": "rejected",
+      "workflow_run_number": 309,
+      "commit": "ccc81c1c8ba4006dd2fd5a99a91806db9cf4dfe4",
+      "blocking_findings": [
+        "CU-03"
+      ],
+      "reason": "Windows Python 3.10 failed test setup/teardown because pytest expanded an oversized text parameter into PYTEST_CURRENT_TEST; seven other jobs succeeded and Windows Python 3.13 was cancelled by matrix fail-fast."
+    },
+    {
+      "event": "portability_regrade",
+      "score": 9.6,
+      "decision": "accepted",
+      "blocking_findings": [],
+      "exact_commit_ci": "pending fresh complete nine-job run"
     }
   ],
   "findings": [
@@ -46,6 +63,17 @@
       "regressions": [
         "test_content_update_integration.py::test_updated_text_overrides_historical_cached_summary_without_rewriting_provenance"
       ]
+    },
+    {
+      "id": "CU-03",
+      "severity": "medium",
+      "status": "resolved",
+      "finding": "The oversized multibyte input used an automatically generated pytest parameter ID. That ID exceeded the Windows environment value limit when pytest assigned PYTEST_CURRENT_TEST, preventing the test body from running.",
+      "resolution": "Added short explicit whitespace-only and oversized-multibyte-text parameter IDs. An AST comparison proved every parameter value, fixture, test body and assertion is unchanged. Runtime files and other reviewed test/CI hashes remain identical.",
+      "regressions": [
+        "test_content_update_integration.py::test_http_invalid_text_content_rejects_before_backend[whitespace-only]",
+        "test_content_update_integration.py::test_http_invalid_text_content_rejects_before_backend[oversized-multibyte-text]"
+      ]
     }
   ],
   "source_sha256": {
@@ -55,7 +83,7 @@
     "dml_core/daystrom_dml/memory_store.py": "57e87891a2255f50dc9d2ef2d8e668b8a5368b982351ce1f1d900d760bc307e8",
     "dml_core/daystrom_dml/contracts/production.py": "f5b6f11cd7eaeb2f8fa0bab42fd1220da522a9bc93004f886c93d6503390ed8e",
     "dml_core/tests/test_receipt_update.py": "2995ea1eb10e1698f778cbe6b7e85d2b20cdef5778069185097fd6053e618536",
-    "dml_core/tests/test_content_update_integration.py": "e2ec86a8a4bd371126cbf6af900d09589c0e970de301c64ababd41a6c0046e0f",
+    "dml_core/tests/test_content_update_integration.py": "9078abec0b70f232ff6b767150a81eac14b9237e5e6d6ba8e0ce54251a22cce1",
     "dml_core/tests/test_content_update_recovery.py": "1551cce6c8e55dd986f4b527333bdf8d73ff9c13ef292a0d7c62927774a8d3bd",
     "dml_core/tests/test_content_update_adversarial.py": "fce53b4b91efd707fda221b79b9319936907870c5a415e3c7b3960acf5e2a94d",
     ".github/workflows/ci.yml": "538e0ede5387743467eade75cd7e88e8cb55584bb727ebf996cd5fb889e27c6d"
@@ -97,7 +125,24 @@
       "Upstream Starlette AnyIO alias deprecation",
       "NumPy norm overflow in a deliberately rejected huge-vector query test"
     ],
-    "exact_commit_ci": "Separate final gate recorded on PR118; this artifact pins the reviewed source and local evidence"
+    "exact_commit_ci": "Separate final gate recorded on PR118; this artifact pins the reviewed source and local evidence",
+    "full_suite_commit": "ccc81c1c8ba4006dd2fd5a99a91806db9cf4dfe4; subsequent correction changes only two parameter IDs, independently proven by AST comparison",
+    "portability_regrade": {
+      "integration_passed": 73,
+      "integration_failures": 0,
+      "integration_errors": 0,
+      "integration_seconds": 3.455,
+      "collected_gate_cases": 265,
+      "max_nodeid_utf16_units": 190,
+      "max_pytest_current_test_utf16_units": 201,
+      "oversized_input_characters": 262144,
+      "oversized_input_utf8_bytes": 1048576,
+      "case_count_unchanged": true,
+      "ast_equal_except_parameter_ids": true,
+      "runtime_and_other_reviewed_files_unchanged": true,
+      "ruff_changed_test": "passed",
+      "fresh_remote_ci": "pending"
+    }
   },
   "plan_position": "Eleventh serial hardening gate after foundations; P03 durable lifecycle receipts, P04 schema compatibility and P07 content semantics; original ten production areas remain incomplete",
   "limitations": [
@@ -111,5 +156,17 @@
     "Exact authoritative record required for digest; no new inspection endpoint or per-token scope authorization",
     "No promotion/merge, retention/physical erasure, automatic re-embedding or implicit embedding contract adoption",
     "Real-agent 1k/10k/100k campaigns, native KV compatibility completion and full operator replay remain open"
+  ],
+  "ci_attempts": [
+    {
+      "run_number": 309,
+      "run_id": 35126134224,
+      "commit": "ccc81c1c8ba4006dd2fd5a99a91806db9cf4dfe4",
+      "decision": "rejected",
+      "successful_jobs": 7,
+      "failed_job": "Windows Python 3.10: pytest parameter ID exceeds environment-variable limit",
+      "cancelled_job": "Windows Python 3.13: matrix fail-fast",
+      "resolution": "Short explicit parameter IDs preserve the same oversized Unicode payload and rejection assertions; fresh complete exact-commit CI required"
+    }
   ]
 }

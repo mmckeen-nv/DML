@@ -352,7 +352,8 @@ def test_content_edit_preserves_retrieval_suppression(factory, metadata):
     assert UPDATED not in report["raw_context"]
 
 
-@pytest.mark.parametrize("text", [" \n\t", "\U0001f4dd" * (256 * 1024)])
+@pytest.mark.parametrize("text", [" \n\t", "\U0001f4dd" * (256 * 1024)],
+                         ids=["whitespace-only", "oversized-multibyte-text"])
 def test_http_invalid_text_content_rejects_before_backend(factory, monkeypatch, text):
     monkeypatch.delenv("DML_API_TOKEN", raising=False)
     monkeypatch.delenv("DML_ADMIN_TOKEN", raising=False)
