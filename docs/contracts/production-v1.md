@@ -271,3 +271,9 @@ adds same-scope source/replacement links guarded by both exact record digests. O
 the source is changed and suppressed; replacement trust and content remain intact.
 Explicit chains preserve historical links, while stale and opposing decisions
 cannot both commit. Physical erasure and other lifecycle mutations remain gates.
+
+The candidate [receipted content-update contract](../content-update-hardening-2026-09-16.md)
+adds atomic text/vector correction with a complete-record precondition and an
+unchanged declared embedding space. Model work runs outside ownership; exact
+retries return history without model access. Original identity, creation time,
+trust and lifecycle metadata are retained. No journal format changes are required.

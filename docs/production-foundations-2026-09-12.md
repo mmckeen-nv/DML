@@ -133,3 +133,12 @@ suppresses it without modifying replacement trust. This is the tenth serial gate
 not completion of the ten original areas. Work remains on update/promotion/merge,
 retention and erasure, full mutation qualification, adapter decomposition, native
 KV compatibility, decision replay and real-agent value at growing-store scale.
+
+## Serial content-update follow-up
+
+[Receipted content correction](content-update-hardening-2026-09-16.md) is the
+eleventh serial hardening gate. Exact record and embedding-space checks guard
+atomic text/vector updates while preserving scope, trust, lifecycle and creation
+time. Preparation runs outside ownership and historical retries bypass the model.
+Promotion/merge and retention/erasure remain future mutation gates, alongside the
+broader extraction, native compatibility, replay and real-agent qualification work.

@@ -58,7 +58,13 @@ class MemoryItem:
     def cached_summary(self, max_len: int = 256) -> str:
         summary = ""
         if self.meta is not None:
-            summary = str(self.meta.get("summary") or "").strip()
+            decision = self.meta.get("content_update_decision")
+            updated = (isinstance(decision, dict)
+                       and decision.get("schema_version") == "dml-content-update-decision-v1")
+            # A receipted edit retains old metadata as provenance. Its cached
+            # summary predates the corrected text and cannot ground a response.
+            if not updated:
+                summary = str(self.meta.get("summary") or "").strip()
         if summary:
             if len(summary) > max_len:
                 return summary[: max_len - 3] + "..."

@@ -81,6 +81,10 @@ class SupersedeReceiptRequest(RetireReceiptRequest):
     expected_replacement_digest: StrictStr = Field(pattern=r"^[0-9a-f]{64}$")
 
 
+class UpdateReceiptRequest(RetireReceiptRequest):
+    text: StrictStr = Field(min_length=1, max_length=1024 * 1024)
+
+
 class ResumeRequest(BaseModel):
     query: str = "active continuity checkpoint compaction handoff resume next action"
     tenant_id: str = "openclaw"
@@ -617,6 +621,29 @@ def create_app(
             raise HTTPException(status_code=503, detail={"code": "receipt_outcome_unavailable", "retry_same_key": True}) from exc
         except ReceiptCommitRejected as exc:
             raise HTTPException(status_code=503, detail={"code": "receipt_not_committed", "retry_same_key": True}) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail={"code": "invalid_or_unsupported_receipt_request"}) from exc
+
+    @app.post("/api/memory/update/receipt")
+    def update_memory_receipted(payload: UpdateReceiptRequest) -> dict[str, Any]:
+        try:
+            return app.state.adapter.update_memory_receipted(**payload.model_dump())
+        except ReceiptMemoryNotFound as exc:
+            raise HTTPException(status_code=404, detail={"code": "receipt_memory_not_found"}) from exc
+        except ReceiptLifecycleConflict as exc:
+            raise HTTPException(status_code=409, detail={"code": "receipt_lifecycle_conflict"}) from exc
+        except IdempotencyConflict as exc:
+            raise HTTPException(status_code=409, detail={"code": "idempotency_conflict"}) from exc
+        except RevisionConflict as exc:
+            raise HTTPException(status_code=409, detail={"code": "revision_conflict", "retry_same_key": True}) from exc
+        except TimeoutError as exc:
+            raise HTTPException(status_code=503, detail={"code": "receipt_ownership_unavailable", "retry_same_key": True}) from exc
+        except (ReceiptCommitUncertain, JournalIntegrityError) as exc:
+            raise HTTPException(status_code=503, detail={"code": "receipt_outcome_unavailable", "retry_same_key": True}) from exc
+        except ReceiptCommitRejected as exc:
+            raise HTTPException(status_code=503, detail={"code": "receipt_not_committed", "retry_same_key": True}) from exc
+        except ReceiptEmbeddingError as exc:
+            raise HTTPException(status_code=503, detail={"code": "embedding_unavailable", "retry_same_key": True}) from exc
         except ValueError as exc:
             raise HTTPException(status_code=400, detail={"code": "invalid_or_unsupported_receipt_request"}) from exc
 

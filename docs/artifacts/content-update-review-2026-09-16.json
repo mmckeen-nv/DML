@@ -1,0 +1,115 @@
+{
+  "schema_version": "dml-feature-review-v1",
+  "feature": "scoped-receipted-content-update-v1",
+  "base_commit": "456d0c046f181c86867944ab0497eae2af7cf67b",
+  "reviewed_at": "2026-09-16",
+  "reviewer": "independent grading agent, separate from service and adapter/provider builders",
+  "minimum_accepted_score": 9.5,
+  "score": 9.6,
+  "decision": "accepted",
+  "review_history": [
+    {
+      "score": 9.1,
+      "decision": "rejected",
+      "blocking_findings": [
+        "CU-01",
+        "CU-02"
+      ]
+    },
+    {
+      "score": 9.6,
+      "decision": "accepted",
+      "blocking_findings": []
+    }
+  ],
+  "findings": [
+    {
+      "id": "CU-01",
+      "severity": "high",
+      "status": "resolved",
+      "finding": "An identical request could commit between receipt lookup and a preparation/owned snapshot. The losing caller then treated the committed target as stale and returned a conflict instead of the authoritative receipt.",
+      "resolution": "Preparation, post-model compatibility checks and every owned CAS preparation reconcile guard failures against the exact scoped semantic receipt. Missing receipts retain the original guard error; conflicting intents retain IdempotencyConflict and unreadable authority yields ReceiptCommitUncertain.",
+      "regressions": [
+        "test_content_update_adversarial.py::test_identical_commit_between_initial_lookup_and_preparation_replays_receipt",
+        "test_content_update_adversarial.py::test_identical_raw_commit_after_owned_lookup_replays_receipt",
+        "test_receipt_update.py::test_failed_model_reconciliation_preserves_a_competing_intent_conflict",
+        "test_receipt_update.py::test_unreadable_guard_reconciliation_reports_uncertain_outcome",
+        "test_content_update_recovery.py::test_competing_content_update_processes_replay_one_durable_result"
+      ]
+    },
+    {
+      "id": "CU-02",
+      "severity": "high",
+      "status": "resolved",
+      "finding": "Preserved meta.summary could override corrected text through MemoryItem.cached_summary and put the obsolete claim back into normal retrieved context.",
+      "resolution": "Recognized content-update decision metadata invalidates cached summaries at read time. Current text is used without modifying stored metadata or earlier receipts; legacy summaries retain their existing behavior.",
+      "regressions": [
+        "test_content_update_integration.py::test_updated_text_overrides_historical_cached_summary_without_rewriting_provenance"
+      ]
+    }
+  ],
+  "source_sha256": {
+    "dml_core/daystrom_dml/services/receipt_update.py": "5c098abff3cedc04712f59cd12556308884d90ffe0c5a805e2f50f6dd18075ac",
+    "dml_core/daystrom_dml/dml_adapter.py": "3cee94e0547ded911c9fe4d75395213456bd57b1a7f42f562f74624e875e29a4",
+    "dml_core/daystrom_dml/provider_server.py": "b09b2b0e80940960fa9845575a803170fe51e7bac168b3aade615f4f5d746930",
+    "dml_core/daystrom_dml/memory_store.py": "57e87891a2255f50dc9d2ef2d8e668b8a5368b982351ce1f1d900d760bc307e8",
+    "dml_core/daystrom_dml/contracts/production.py": "f5b6f11cd7eaeb2f8fa0bab42fd1220da522a9bc93004f886c93d6503390ed8e",
+    "dml_core/tests/test_receipt_update.py": "2995ea1eb10e1698f778cbe6b7e85d2b20cdef5778069185097fd6053e618536",
+    "dml_core/tests/test_content_update_integration.py": "e2ec86a8a4bd371126cbf6af900d09589c0e970de301c64ababd41a6c0046e0f",
+    "dml_core/tests/test_content_update_recovery.py": "1551cce6c8e55dd986f4b527333bdf8d73ff9c13ef292a0d7c62927774a8d3bd",
+    "dml_core/tests/test_content_update_adversarial.py": "fce53b4b91efd707fda221b79b9319936907870c5a415e3c7b3960acf5e2a94d",
+    ".github/workflows/ci.yml": "538e0ede5387743467eade75cd7e88e8cb55584bb727ebf996cd5fb889e27c6d"
+  },
+  "reviewed_properties": [
+    "Canonical finite request freezing and exact full-record digest protect text, target, scope and typed provenance.",
+    "Only text, embedding and latest content-update decision mutate; creation time, trust, lifecycle, expiry, capacity, other records and historical receipts remain intact.",
+    "Identity descriptors and prepared vectors are detached; same-object descriptor mutation, retained vector aliasing, invalid values, dimension drift and CAS races fail closed.",
+    "Historical receipt replay precedes current target/model checks and intentionally does not reinterpret an old receipt using the current embedding contract.",
+    "Terminal aliases and decisions, missing exact scope members, unknown prior decision formats and malformed UTF-8 prior reasons cannot be silently overwritten.",
+    "Embedding executes outside store ownership; unrelated writes rebase, changed target/space fails, and competing same-key requests converge to one receipt.",
+    "Durable success survives observer/hydration failure and lost acknowledgements; failed or interrupted writes do not invent a receipt or reverse a commit.",
+    "Provider validation and typed failure responses remain narrow; projections/outbox/context carry corrected content and preserved provenance.",
+    "Journal/receipt/outbox schemas remain unchanged; production inventory remains candidate with no stable-platform claim."
+  ],
+  "verification": {
+    "independent_focused": "265 passed, zero failures/skips in 16.563s",
+    "service_cases": 116,
+    "adapter_api_cases": 73,
+    "recovery_concurrency_cases": 35,
+    "independent_adversarial_cases": 41,
+    "actual_process_kill_cases": 29,
+    "supported_journal_schemas": [
+      2,
+      3,
+      4
+    ],
+    "simultaneous_clients_per_schema": 256,
+    "competing_processes_per_schema": 8,
+    "concurrency": "All three 256-client cases passed in 15.647s; each caller received one identical durable receipt",
+    "disk_full": "Actual SQLite max_page_count exhaustion preserves original state and acknowledged receipts",
+    "serialization": "Interrupted serialization cannot publish either text or vector or acknowledge a missing commit",
+    "root_recovery_rerun": "35 passed after fixing the independently reproduced duplicate-request race",
+    "ruff": "passed",
+    "mypy": "54 maintained source files passed; local target Python 3.12",
+    "hermes_hygiene": "passed",
+    "full_suite": "2216 passed, 9 optional-dependency skips, 2 known warnings in 135.44s",
+    "known_warnings": [
+      "Upstream Starlette AnyIO alias deprecation",
+      "NumPy norm overflow in a deliberately rejected huge-vector query test"
+    ],
+    "exact_commit_ci": "Separate final gate recorded on PR118; this artifact pins the reviewed source and local evidence"
+  },
+  "plan_position": "Eleventh serial hardening gate after foundations; P03 durable lifecycle receipts, P04 schema compatibility and P07 content semantics; original ten production areas remain incomplete",
+  "limitations": [
+    "Declared embedding identity is a point-in-time operator/backend assertion, not weight attestation or semantic model-quality proof.",
+    "Raw provenance markers and receipts are not authentication against an attacker able to rewrite all authoritative history.",
+    "Backend latency is not bounded by store ownership timeout; backend deadlines remain a caller/provider responsibility.",
+    "Process-death and SQLite quota tests do not qualify physical power-loss behavior or every storage device.",
+    "Retained history and full-state verification/events continue to have growth costs; prior receipts and already-built context retain historical content.",
+    "Full repository and exact-commit CI acceptance remain the root release gate; this reviewer did not execute remote CI.",
+    "Candidate feature-specific acceptance; stable API inventory remains empty and production_ready remains false",
+    "Exact authoritative record required for digest; no new inspection endpoint or per-token scope authorization",
+    "No promotion/merge, retention/physical erasure, automatic re-embedding or implicit embedding contract adoption",
+    "Real-agent 1k/10k/100k campaigns, native KV compatibility completion and full operator replay remain open"
+  ]
+}
