@@ -277,3 +277,10 @@ adds atomic text/vector correction with a complete-record precondition and an
 unchanged declared embedding space. Model work runs outside ownership; exact
 retries return history without model access. Original identity, creation time,
 trust and lifecycle metadata are retained. No journal format changes are required.
+
+The candidate [receipted promotion/merge contract](../promotion-hardening-2026-09-17.md)
+adds explicit first-level derivation from one or more compatible base memories.
+It preserves sources and embeds exact source snapshots in the new memory's receipt.
+Trust, scope, merge policy and stale-record guards apply before preparation and
+commit; promotion grants no additional authority or freshness. Recursive derivation
+and cascading retirement remain separate gates.

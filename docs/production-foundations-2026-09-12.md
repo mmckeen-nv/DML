@@ -142,3 +142,14 @@ atomic text/vector updates while preserving scope, trust, lifecycle and creation
 time. Preparation runs outside ownership and historical retries bypass the model.
 Promotion/merge and retention/erasure remain future mutation gates, alongside the
 broader extraction, native compatibility, replay and real-agent qualification work.
+
+## Serial first-level promotion/merge follow-up
+
+[Receipted promotion/merge](promotion-hardening-2026-09-17.md) is the twelfth
+serial hardening gate, extending P03's durable mutations and P07's explicit
+lifecycle boundaries. The caller selects base memories and supplies derived text;
+one atomic append preserves every source and records complete source provenance.
+Multi-source merges respect `no_merge`; output scope/trust remain unchanged and
+ranking attributes cannot increase. First-level derivation is an independent
+snapshot with its own lifecycle. Recursive promotion, cascading invalidation,
+retention/erasure and the broader production qualification gates remain open.

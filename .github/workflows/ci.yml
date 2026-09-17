@@ -112,6 +112,10 @@ jobs:
           dml_core/tests/test_content_update_integration.py
           dml_core/tests/test_content_update_recovery.py
           dml_core/tests/test_content_update_adversarial.py
+          dml_core/tests/test_receipt_promotion.py
+          dml_core/tests/test_promotion_integration.py
+          dml_core/tests/test_promotion_recovery.py
+          dml_core/tests/test_promotion_adversarial.py
           dml_core/tests/test_adversarial_memory.py
           dml_core/tests/test_outcome_metrics.py
           dml_core/tests/test_fail_closed_persistence.py
@@ -172,8 +176,12 @@ jobs:
         env:
           DML_STRESS_CLIENTS: "256"
         run: python -m pytest dml_core/tests/test_content_update_recovery.py::test_simultaneous_content_update_clients_commit_one_transition --junitxml=production-artifacts/content-update-concurrency.xml
+      - name: Stress 256 simultaneous promotion clients
+        env:
+          DML_STRESS_CLIENTS: "256"
+        run: python -m pytest dml_core/tests/test_promotion_recovery.py::test_simultaneous_promotion_clients_commit_one_transition --junitxml=production-artifacts/promotion-concurrency.xml
       - name: Record serial recovery harness outcomes
-        run: python -m pytest dml_core/tests/test_journal_hardening.py dml_core/tests/test_checkpoint_hardening.py dml_core/tests/test_receipt_ingestion.py dml_core/tests/test_receipt_adapter.py dml_core/tests/test_receipt_embedding_contract.py dml_core/tests/test_projection.py dml_core/tests/test_projection_queries.py dml_core/tests/test_projection_delta.py dml_core/tests/test_projection_delta_integration.py dml_core/tests/test_projection_worker.py dml_core/tests/test_projection_worker_integration.py dml_core/tests/test_projection_worker_recovery.py dml_core/tests/test_projection_worker_adversarial.py dml_core/tests/test_journal_outbox.py dml_core/tests/test_outbox_delivery.py dml_core/tests/test_outbox_integration.py dml_core/tests/test_outbox_recovery.py dml_core/tests/test_outbox_adversarial.py dml_core/tests/test_outbox_migration.py dml_core/tests/test_migrated_outbox_delivery.py dml_core/tests/test_outbox_migration_integration.py dml_core/tests/test_outbox_migration_recovery.py dml_core/tests/test_migration_adversarial.py dml_core/tests/test_receipt_retirement.py dml_core/tests/test_retirement_integration.py dml_core/tests/test_retirement_recovery.py dml_core/tests/test_retirement_adversarial.py dml_core/tests/test_receipt_supersession.py dml_core/tests/test_supersession_integration.py dml_core/tests/test_supersession_recovery.py dml_core/tests/test_supersession_adversarial.py dml_core/tests/test_receipt_update.py dml_core/tests/test_content_update_integration.py dml_core/tests/test_content_update_recovery.py dml_core/tests/test_content_update_adversarial.py --junitxml=production-artifacts/recovery.xml
+        run: python -m pytest dml_core/tests/test_journal_hardening.py dml_core/tests/test_checkpoint_hardening.py dml_core/tests/test_receipt_ingestion.py dml_core/tests/test_receipt_adapter.py dml_core/tests/test_receipt_embedding_contract.py dml_core/tests/test_projection.py dml_core/tests/test_projection_queries.py dml_core/tests/test_projection_delta.py dml_core/tests/test_projection_delta_integration.py dml_core/tests/test_projection_worker.py dml_core/tests/test_projection_worker_integration.py dml_core/tests/test_projection_worker_recovery.py dml_core/tests/test_projection_worker_adversarial.py dml_core/tests/test_journal_outbox.py dml_core/tests/test_outbox_delivery.py dml_core/tests/test_outbox_integration.py dml_core/tests/test_outbox_recovery.py dml_core/tests/test_outbox_adversarial.py dml_core/tests/test_outbox_migration.py dml_core/tests/test_migrated_outbox_delivery.py dml_core/tests/test_outbox_migration_integration.py dml_core/tests/test_outbox_migration_recovery.py dml_core/tests/test_migration_adversarial.py dml_core/tests/test_receipt_retirement.py dml_core/tests/test_retirement_integration.py dml_core/tests/test_retirement_recovery.py dml_core/tests/test_retirement_adversarial.py dml_core/tests/test_receipt_supersession.py dml_core/tests/test_supersession_integration.py dml_core/tests/test_supersession_recovery.py dml_core/tests/test_supersession_adversarial.py dml_core/tests/test_receipt_update.py dml_core/tests/test_content_update_integration.py dml_core/tests/test_content_update_recovery.py dml_core/tests/test_content_update_adversarial.py dml_core/tests/test_receipt_promotion.py dml_core/tests/test_promotion_integration.py dml_core/tests/test_promotion_recovery.py dml_core/tests/test_promotion_adversarial.py --junitxml=production-artifacts/recovery.xml
       - name: Compare independent baseline on 1000 offline turns
         run: python -m scripts.production_baseline --turns 1000 --output production-artifacts/baseline.json
       - name: Measure journal history validation cost
