@@ -118,13 +118,25 @@ See the [delta contract](../projection-delta-hardening-2026-09-14.md).
 
 ### Retrieval and context
 
-The adapter delegates lattice persistence, query caching, context compaction, lifecycle filtering and
-retrieval evidence to `daystrom_dml.services`. The query cache coalesces exact-input
+The adapter delegates lattice persistence, query caching, scoped selection, context
+compaction/report construction, lifecycle filtering and retrieval evidence to
+`daystrom_dml.services`. The query cache coalesces exact-input
 misses, returns immutable vectors and invalidates in-flight cache publication on
 clear. Scoped retrieval runs under the adapter's cross-process ownership boundary,
 with embedding I/O performed beforehand. `as_of` pins scoped ranking and expiry;
 equal scores break ties by memory ID. Suppression happens before scoped top-k.
 Background adapter aging uses the mutation boundary instead of mutating behind it.
+
+The [scoped retrieval/context boundary](../retrieval-context-hardening-2026-09-17.md)
+freezes resolved scope, kinds, phase, top-k and effective time before selection.
+Ranking uses the public store capability; recent candidates are read only after
+an empty successful ranked result. A ranking failure propagates. Borrowed records
+remain under adapter ownership through report construction. Returned nested memory
+metadata, filter lists and personality overlays are detached from their inputs;
+evidence describes construction-time values and is not recomputed after callers
+edit the mutable response. This preserves receipt embedding/revision checks and
+legacy output, while leaving model/provider I/O and legacy hybrid ranking in the
+adapter. No new durable schema or stable API is introduced.
 
 Explicitly superseded/expired/quarantined/untrusted records are omitted by default,
 including from recent fallback and survival-ledger admission. Trusted operator

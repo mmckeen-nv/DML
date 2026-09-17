@@ -9,8 +9,8 @@ sections below retain the evidence and scope recorded when each gate was built.
 
 | Area | Implemented through the serial gates | Still required |
 | --- | --- | --- |
-| 1. Production contract | Explicit target, maturity/health and durable receipt APIs for ingestion, retirement, supersession, updates and first-level derivation | Complete supported profile, pinned retrieval/context integration and release graduation |
-| 2. Adapter decomposition | Narrow persistence, cache, compaction, lifecycle, receipt, projection, delivery and retention-inspection services | Persistence transaction coordinator and complete retrieval/context/lifecycle orchestration extraction |
+| 1. Production contract | Explicit target, maturity/health, durable receipt APIs and revision-pinned scoped retrieval/context integration | Complete supported profile, model/tokenizer budget binding and release graduation |
+| 2. Adapter decomposition | Narrow persistence, cache, scoped selection, context/report, lifecycle, receipt, projection, delivery and retention-inspection services | Persistence transaction coordinator and remaining legacy retrieval/lifecycle orchestration extraction |
 | 3. Crash consistency | Verified journals/checkpoints, atomic receipts/outbox, explicit migrations, real process-kill, quota, corruption and serialization cases | Remaining mutation/component inventory, supported filesystem/power-loss qualification and recovery runbook |
 | 4. Adversarial memory | Eight-case corpus plus lifecycle-specific conflict, scope, authority, provenance and historical-replay regressions | Real-agent semantic outcomes and long-running incorrect-retrieval feedback cases |
 | 5. Baseline | Independent durable SQLite + embeddings + recency + top-k + compaction implementation and runner | Held-out live episodes, equalized compaction and statistically supported value gate |
@@ -169,3 +169,17 @@ that physical erasure is unsupported. No purge, history compaction or capacity
 reclamation is implemented; those require a separately versioned history/retry
 contract and external-copy policy. This is a bounded operator-evidence gate within
 the original workstreams, not completion of their production qualification.
+
+## Serial scoped retrieval/context follow-up
+
+[Scoped retrieval and context services](retrieval-context-hardening-2026-09-17.md)
+are the fourteenth serial gate, advancing P06 and areas 1, 2 and 9. Frozen resolved
+inputs drive scoped selection and response evidence; narrow services handle recent
+fallback, suppression, ledger lookup and detached context reports. The existing
+store retains ranking, and the adapter retains model preparation, ownership,
+routing, DPM and metrics. Baseline characterization preserves exact rendered output
+and evidence across legacy, schema-1 and receipt-schema-2/3/4 paths. Receipt reads
+retain ownership through report construction, with explicit embedding-identity
+checks after preparation. Remaining legacy retrieval/lifecycle extraction, exact
+model-input budget binding and durable replay remain separate gates. Maturity
+remains candidate; this does not qualify the whole repository for production.

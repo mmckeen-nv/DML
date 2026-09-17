@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import contextlib
 import copy
-import heapq
 import json
 import logging
 import math
@@ -48,9 +47,15 @@ from .services.receipt_lifecycle import canonical_retirement_request, retire_rec
 from .services.receipt_supersession import canonical_supersession_request, supersede_receipted
 from .services.receipt_promotion import canonical_promotion_request, promote_receipted
 from .services.receipt_update import canonical_update_request, update_receipted
-from .services.context import compact_context
+from .services.context import build_context_report, compact_context
 from .services.lifecycle import suppression_reason
-from .services.telemetry import retrieval_decision
+from .services.scoped_retrieval import (
+    ScopedRetrievalRequest,
+    recent_context_items,
+    select_scoped_context,
+    suppressed_context_items,
+    survival_ledger_for_scope,
+)
 from .stm.controller import STMController
 from .stm.policy import LTMWritePolicy, MemoryWrite
 from .stm.schema import STMState
@@ -2604,40 +2609,30 @@ class DMLAdapter:
         if final_kinds is None and phase_enum in {MemoryPhase.EXECUTE, MemoryPhase.DEBUG}:
             final_kinds = ["action", "observation", "error"]
 
+        request = ScopedRetrievalRequest(
+            scope=(tenant_id, client_id, session_id, instance_id),
+            kinds=tuple(final_kinds) if final_kinds is not None else None,
+            phase=phase_enum.value if phase_enum else None,
+            top_k=final_top_k,
+            as_of=effective_time,
+            include_quarantined=include_quarantined,
+        )
         if query_embedding is None:
             query_embedding = self._embed_query(prompt)
-        scoped = any(value is not None for value in (tenant_id, client_id, session_id, instance_id))
+        scoped = any(value is not None for value in request.scope)
         if scoped:
-            items = self.store.retrieve_filtered(
-                query_embedding,
-                tenant_id=tenant_id,
-                client_id=client_id,
-                session_id=session_id,
-                instance_id=instance_id,
-                kinds=final_kinds,
-                top_k=final_top_k,
-                strict_scope=True,
-                as_of=effective_time,
-                eligible=lambda item: suppression_reason(item.meta or {}, now=effective_time, include_quarantined=include_quarantined) is None,
+            items = select_scoped_context(
+                retrieve_filtered=self.store.retrieve_filtered,
+                recent_candidates=self.store.items,
+                query_embedding=query_embedding,
+                request=request,
             )
-            if not items:
-                items = self._recent_context_items(
-                    tenant_id=tenant_id,
-                    client_id=client_id,
-                    session_id=session_id,
-                    instance_id=instance_id,
-                    kinds=final_kinds,
-                    phase=phase_enum,
-                    top_k=final_top_k,
-                    include_quarantined=include_quarantined,
-                    as_of=effective_time,
-                )
         else:
             items = self._retrieve_items(
                 prompt,
                 final_top_k,
-                phase=phase_enum.value if phase_enum else None,
-                kinds=final_kinds,
+                phase=request.phase,
+                kinds=list(request.kinds) if request.kinds is not None else None,
                 include_quarantined=include_quarantined,
             )
             if not items:
@@ -2646,7 +2641,7 @@ class DMLAdapter:
                     client_id=None,
                     session_id=None,
                     instance_id=None,
-                    kinds=final_kinds,
+                    kinds=list(request.kinds) if request.kinds is not None else None,
                     phase=phase_enum,
                     top_k=final_top_k,
                     include_quarantined=include_quarantined,
@@ -2682,35 +2677,18 @@ class DMLAdapter:
         latency_ms = int((time.perf_counter() - start) * 1000.0)
 
         scope = {"tenant_id": tenant_id, "client_id": client_id, "session_id": session_id, "instance_id": instance_id}
-        suppressed = []
-        for candidate in self.store.items():
-            meta = candidate.meta or {}
-            if scoped and any(meta.get(key) != value for key, value in scope.items()):
-                continue
-            reason = suppression_reason(meta, now=effective_time, include_quarantined=include_quarantined)
-            if reason:
-                suppressed.append({"id": str(candidate.id), "reason": reason})
-        evidence = retrieval_decision(
+        suppressed = suppressed_context_items(self.store.items(), request=request)
+        report = build_context_report(
             prompt=prompt, scope=scope, revision=self._last_observed_state[0] if self._journal and self._last_observed_state else None,
             as_of=effective_time, entries=entries, context=context, top_k=final_top_k,
-            kinds=final_kinds, embedding=query_embedding, suppressed=suppressed,
+            kinds=list(request.kinds) if request.kinds is not None else None,
+            embedding=query_embedding, suppressed=suppressed,
             replayable=scoped and not self.settings.ann_min_items and not self.enable_quality_on_retrieval,
+            tokens_used=tokens_used, phase=request.phase,
+            include_quarantined=include_quarantined,
+            survival_ledger_included=ledger_included,
+            personality_overlay=personality_overlay, latency_ms=latency_ms,
         )
-        report = {
-            "decision": evidence,
-            "token_count_kind": "estimate",
-
-            "raw_context": context,
-            "context_tokens": tokens_used,
-            "top_k": final_top_k,
-            "kinds": final_kinds,
-            "phase": phase_enum.value if phase_enum else None,
-            "include_quarantined": include_quarantined,
-            "items": entries,
-            "survival_ledger_included": ledger_included,
-            "personality_overlay": personality_overlay,
-            "latency_ms": latency_ms,
-        }
 
         if self.metrics_enabled:
             record_retrieval("context", latency_ms=latency_ms)
@@ -2823,28 +2801,11 @@ class DMLAdapter:
     ) -> Optional[MemoryItem]:
         if not self.survival_ledger_enabled or not tenant_id or not session_id:
             return None
-        target = self._survival_scope_key(
-            tenant_id=tenant_id,
-            client_id=client_id,
-            session_id=session_id,
-            instance_id=instance_id,
+        return survival_ledger_for_scope(
+            self.store.items(),
+            scope=(tenant_id, client_id, session_id, instance_id),
+            enabled=self.survival_ledger_enabled,
         )
-        candidates: List[MemoryItem] = []
-        for item in self.store.items():
-            meta = item.meta or {}
-            if meta.get("kind") != SURVIVAL_LEDGER_KIND:
-                continue
-            scope = self._survival_scope_key(
-                tenant_id=meta.get("tenant_id"),
-                client_id=meta.get("client_id"),
-                session_id=meta.get("session_id"),
-                instance_id=meta.get("instance_id"),
-            )
-            if scope == target:
-                candidates.append(item)
-        if not candidates:
-            return None
-        return max(candidates, key=lambda item: item.timestamp)
 
     def _upsert_survival_ledger(
         self,
@@ -3063,37 +3024,17 @@ class DMLAdapter:
         as_of: Optional[float] = None,
     ) -> List[MemoryItem]:
         effective_time = time.time() if as_of is None else as_of
-        allowed_kinds = set(kinds or [])
-        if not allowed_kinds and phase in {MemoryPhase.EXECUTE, MemoryPhase.DEBUG}:
-            allowed_kinds = {"action", "observation", "error"}
-        candidates: List[MemoryItem] = []
-        scoped = any(value is not None for value in (tenant_id, client_id, session_id, instance_id))
-        for item in self.store.items():
-            if suppression_reason(item.meta or {}, now=effective_time, include_quarantined=include_quarantined):
-                continue
-            meta = item.meta or {}
-            if require_unscoped and any(
-                meta.get(scope_key) is not None
-                for scope_key in ("tenant_id", "client_id", "session_id", "instance_id")
-            ):
-                continue
-            if scoped and meta.get("tenant_id") != tenant_id:
-                continue
-            if scoped and meta.get("client_id") != client_id:
-                continue
-            if scoped and meta.get("session_id") != session_id:
-                continue
-            if scoped and meta.get("instance_id") != instance_id:
-                continue
-            if phase is not None:
-                item_phase = meta.get("phase")
-                if item_phase is not None and str(item_phase).strip().lower() != phase.value:
-                    continue
-            item_kind = str(meta.get("kind") or "memory").lower()
-            if allowed_kinds and item_kind not in allowed_kinds:
-                continue
-            candidates.append(item)
-        return heapq.nlargest(max(1, top_k), candidates, key=lambda item: (item.timestamp, -item.id))
+        request = ScopedRetrievalRequest(
+            scope=(tenant_id, client_id, session_id, instance_id),
+            kinds=tuple(kinds) if kinds is not None else None,
+            phase=phase.value if phase else None,
+            top_k=top_k,
+            as_of=effective_time,
+            include_quarantined=include_quarantined,
+        )
+        return recent_context_items(
+            self.store.items(), request=request, require_unscoped=require_unscoped,
+        )
 
     def _format_ltm_entries(self, items: List[MemoryStore.MemoryItem]) -> str:
         if not items:

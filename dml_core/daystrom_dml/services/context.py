@@ -3,9 +3,12 @@ from __future__ import annotations
 
 import copy
 import time
-from typing import Callable, Sequence
+from typing import Any, Callable, Sequence
+
+import numpy as np
 
 from ..memory_store import MemoryItem
+from .telemetry import retrieval_decision
 
 
 class ContextBudgetError(ValueError):
@@ -49,3 +52,65 @@ def compact_context(items: Sequence[MemoryItem], *, budget: int, item_limit: int
                         "tokens": count(summary)})
     context = "\n".join(lines) if entries else prefix
     return entries, context, count(context)
+
+
+def build_context_report(
+    *,
+    entries: list[dict[str, Any]],
+    context: str,
+    tokens_used: int,
+    prompt: str,
+    scope: dict[str, str | None],
+    revision: int | None,
+    as_of: float,
+    top_k: int,
+    kinds: list[str] | None,
+    embedding: np.ndarray,
+    suppressed: list[dict[str, str]],
+    replayable: bool,
+    phase: str | None,
+    include_quarantined: bool,
+    survival_ledger_included: bool,
+    personality_overlay: dict[str, Any] | None,
+    latency_ms: int,
+) -> dict[str, Any]:
+    """Build context evidence and a detached compatibility report.
+
+    All inputs are borrowed read-only. Selection, lifecycle decisions, rendering,
+    token counting, revision ownership, and timing remain the caller's work.
+    The returned report owns copies of mutable input data, including nested item
+    metadata; it neither retains the query vector nor reads runtime state.
+    Digests describe the values at construction time. The returned dictionaries
+    remain mutable for compatibility, and later edits do not recompute evidence.
+    """
+    report_entries = copy.deepcopy(entries)
+    report_scope = copy.deepcopy(scope)
+    report_kinds = copy.deepcopy(kinds)
+    report_suppressed = copy.deepcopy(suppressed)
+    evidence = retrieval_decision(
+        prompt=prompt,
+        scope=report_scope,
+        revision=revision,
+        as_of=as_of,
+        entries=report_entries,
+        context=context,
+        top_k=top_k,
+        kinds=report_kinds,
+        embedding=embedding,
+        suppressed=report_suppressed,
+        replayable=replayable,
+    )
+    return {
+        "decision": evidence,
+        "token_count_kind": "estimate",
+        "raw_context": context,
+        "context_tokens": tokens_used,
+        "top_k": top_k,
+        "kinds": report_kinds,
+        "phase": phase,
+        "include_quarantined": include_quarantined,
+        "items": report_entries,
+        "survival_ledger_included": survival_ledger_included,
+        "personality_overlay": copy.deepcopy(personality_overlay),
+        "latency_ms": latency_ms,
+    }
