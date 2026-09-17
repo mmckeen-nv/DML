@@ -71,6 +71,7 @@ def import_snapshot(source: Path, database: Path) -> None:
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="operation", required=True)
+    commands.add_parser("retention-contract", help="Describe receipt retention and erasure limits without opening a store")
     incoming = commands.add_parser("import")
     incoming.add_argument("source", type=Path)
     incoming.add_argument("database", type=Path)
@@ -91,6 +92,11 @@ def main(argv=None):
     decisions.add_argument("--after-revision", type=int, default=0)
     decisions.add_argument("--limit", type=int, default=100)
     args = parser.parse_args(argv)
+    if args.operation == "retention-contract":
+        from daystrom_dml.contracts.retention import retention_contract
+
+        print(json.dumps(retention_contract(), sort_keys=True, allow_nan=False))
+        return 0
     if args.operation == "enable-outbox":
         from daystrom_dml.services.outbox_migration import upgrade_outbox_journal
 

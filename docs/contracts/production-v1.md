@@ -284,3 +284,12 @@ It preserves sources and embeds exact source snapshots in the new memory's recei
 Trust, scope, merge policy and stale-record guards apply before preparation and
 commit; promotion grants no additional authority or freshness. Recursive derivation
 and cascading retirement remain separate gates.
+
+The candidate [retention-inspection contract](../retention-inspection-hardening-2026-09-17.md)
+adds a strict scoped report of known structured memory copies from one verified
+journal revision, including historical receipts, snapshots, outbox states and
+first-level promotion proofs. Reports expose counts and revision identity, without
+memory payloads or receipt keys. Retirement is retrieval suppression; physical
+erasure, history pruning and live-capacity reclamation are not provided. The API
+explicitly lists external and physical storage surfaces it does not inspect and
+never certifies erasure. Existing receipt and outbox formats remain unchanged.

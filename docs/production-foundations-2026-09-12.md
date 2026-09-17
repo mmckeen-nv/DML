@@ -4,18 +4,21 @@ This is the first implementation tranche of the [ten-area plan](productionizatio
 The repository remains alpha. The [production contract](contracts/production-v1.md)
 defines implemented behavior, migration and remaining release gates.
 
-| Area | Implemented in this tranche | Still required |
+The table summarizes the foundations and subsequent serial gates. Historical
+sections below retain the evidence and scope recorded when each gate was built.
+
+| Area | Implemented through the serial gates | Still required |
 | --- | --- | --- |
-| 1. Production contract | Small explicit target; machine-readable maturity and honest health | Receipt-based stable profile and release graduation |
-| 2. Adapter decomposition | Extracted lattice persistence, cache, compaction, lifecycle predicates and retrieval evidence; journal/checkpoint services strengthened | Persistence transaction coordinator, complete retrieval/lifecycle extraction |
-| 3. Crash consistency | Strict startup; checksummed journal states/decisions; seven abrupt process-kill hooks; disk quota, corruption and serialization cases | All component/mutation hooks, projection outbox, hardware/power-loss matrix |
-| 4. Adversarial memory | Eight-case versioned corpus, scoped canaries, restart checks and provenance/trust/expiry guards | Natural-language conflict adjudication and real-agent outcomes |
+| 1. Production contract | Explicit target, maturity/health and durable receipt APIs for ingestion, retirement, supersession, updates and first-level derivation | Complete supported profile, pinned retrieval/context integration and release graduation |
+| 2. Adapter decomposition | Narrow persistence, cache, compaction, lifecycle, receipt, projection, delivery and retention-inspection services | Persistence transaction coordinator and complete retrieval/context/lifecycle orchestration extraction |
+| 3. Crash consistency | Verified journals/checkpoints, atomic receipts/outbox, explicit migrations, real process-kill, quota, corruption and serialization cases | Remaining mutation/component inventory, supported filesystem/power-loss qualification and recovery runbook |
+| 4. Adversarial memory | Eight-case corpus plus lifecycle-specific conflict, scope, authority, provenance and historical-replay regressions | Real-agent semantic outcomes and long-running incorrect-retrieval feedback cases |
 | 5. Baseline | Independent durable SQLite + embeddings + recency + top-k + compaction implementation and runner | Held-out live episodes, equalized compaction and statistically supported value gate |
-| 6. Agent outcomes | Validated terminal-event reducer with failure-inclusive token costs, quality rates, TTFT/latency/overhead/recovery distributions and growth observations | Wire all agent harnesses; actual 1k/10k/100k-turn agent campaigns |
+| 6. Agent outcomes | Outcome reducer, failure-inclusive costs, quality/latency/recovery distributions, CI offline baseline and journal-history cost evidence | Wire real agent harnesses; continuous 1k/10k and 100k-turn release campaigns |
 | 7. Stability boundaries | Provider contract inventory; native KV remains experimental; exact rendered budget boundary | Full runtime/model/tokenizer binding audit and hardware compatibility canaries |
-| 8. Version migration | Journal schema 1, record versions, unknown-version rejection, explicit schema-0 side-by-side upgrade and commit-pinned fixture | More actual release fixtures and all persistent artifact families |
-| 9. Concurrency | Journal CAS/read snapshots, owned scoped reads/background aging, cache invalidation epochs and 256-client journal stress | Multi-process/provider stress campaigns, lock-latency SLOs, moving remaining model work outside locks |
-| 10. Observability | Atomic journal decision history; retrieval/suppression/context digests; checkpoint and provider degradation | Durable full request replay, complete authority/promotion reasons, bounded retention/export |
+| 8. Version migration | Explicit side-by-side schema 0/1/2/4 paths, schema-3 fresh authorities, preserved historical receipts and commit-pinned compatibility fixtures | More released-version fixtures and coverage of all persistent artifact families |
+| 9. Concurrency | Journal CAS/pinned reads, 256-client receipt/lifecycle/delivery tests, competing processes and deterministic race regressions | Mixed-operation HTTP/provider campaigns, cancellation/starvation checks and lock-latency SLOs |
+| 10. Observability | Durable mutation decisions/source proofs, response retrieval traces, degradation status and scoped retention inspection | Durable full request/context replay, complete decision coverage and bounded audit retention/export |
 
 ## Validation commands
 
@@ -153,3 +156,16 @@ Multi-source merges respect `no_merge`; output scope/trust remain unchanged and
 ranking attributes cannot increase. First-level derivation is an independent
 snapshot with its own lifecycle. Recursive promotion, cascading invalidation,
 retention/erasure and the broader production qualification gates remain open.
+
+## Serial retention-inspection follow-up
+
+[Verified retention inspection](retention-inspection-hardening-2026-09-17.md)
+is the thirteenth serial gate. One pinned verified transaction counts known
+same-scope memory and first-level source-proof occurrences across current records,
+lineage, the archived journal snapshot, receipts and outbox states. Historical-only
+records remain inspectable without exposing payloads or receipt keys. The static
+contract and report explicitly state that retirement does not erase content and
+that physical erasure is unsupported. No purge, history compaction or capacity
+reclamation is implemented; those require a separately versioned history/retry
+contract and external-copy policy. This is a bounded operator-evidence gate within
+the original workstreams, not completion of their production qualification.

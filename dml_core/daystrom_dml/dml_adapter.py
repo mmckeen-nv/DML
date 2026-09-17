@@ -2080,6 +2080,23 @@ class DMLAdapter:
     # ------------------------------------------------------------------
     # Multi-tenant helpers used by the DML memory service
     # ------------------------------------------------------------------
+    def inspect_memory_retention(self, memory_id: int, *, tenant_id: str,
+                                 client_id: Optional[str] = None,
+                                 session_id: Optional[str] = None,
+                                 instance_id: Optional[str] = None) -> Dict[str, Any]:
+        """Count known scoped references at one journal revision without mutation.
+
+        This does not inspect external copies or establish physical erasure. It
+        neither embeds nor hydrates runtime memory, and takes no writer lock.
+        """
+        from .services.retention import canonical_retention_request, inspect_memory_retention
+
+        if not self._receipts_enabled or self._journal is None or self._journal.schema_version not in (2, 3, 4):
+            raise ValueError("Retention inspection requires a configured receipt journal")
+        request = canonical_retention_request(memory_id, tenant_id=tenant_id,
+            client_id=client_id, session_id=session_id, instance_id=instance_id)
+        return inspect_memory_retention(self._journal, request=request)
+
     def _require_projection_source(self) -> None:
         if not self._receipts_enabled or self._journal is None or self._journal.schema_version not in (2, 3, 4):
             raise ValueError("Projection integration requires an opt-in receipt journal")

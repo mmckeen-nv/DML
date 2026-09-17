@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import sqlite3
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -11,7 +12,9 @@ from pathlib import Path
 from typing import Any, AsyncIterator, Callable, Optional
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse, PlainTextResponse, StreamingResponse
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, StrictInt, StrictStr
 
@@ -26,9 +29,11 @@ from .cognition.policy import DeterministicCognitionPolicy
 from .cognition.schema import CognitionConstraints, CognitionEvent, CognitionFeedback
 from .dml_adapter import DMLAdapter
 from .contracts.production import production_status
+from .contracts.retention import retention_contract
 from .journal import IdempotencyConflict, JournalIntegrityError, RevisionConflict
 from .services.receipt_ingestion import ReceiptCapacityError, ReceiptCommitRejected, ReceiptCommitUncertain, ReceiptEmbeddingError
 from .services.receipt_lifecycle import ReceiptLifecycleConflict, ReceiptMemoryNotFound
+from .services.retention import RetentionInspectionUnsupported
 from .frontier_pipeline import FrontierCompressionPipeline, FrontierPipelineConfig
 
 
@@ -70,6 +75,15 @@ class RetireReceiptRequest(BaseModel):
     expected_memory_digest: StrictStr = Field(pattern=r"^[0-9a-f]{64}$")
     reason: StrictStr = Field(min_length=1, max_length=1024)
     idempotency_key: StrictStr = Field(min_length=1, max_length=256)
+    tenant_id: StrictStr = Field(min_length=1, max_length=256)
+    client_id: Optional[StrictStr] = Field(default=None, min_length=1, max_length=256)
+    session_id: Optional[StrictStr] = Field(default=None, min_length=1, max_length=256)
+    instance_id: Optional[StrictStr] = Field(default=None, min_length=1, max_length=256)
+
+
+class RetentionInspectionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    memory_id: StrictInt = Field(ge=0)
     tenant_id: StrictStr = Field(min_length=1, max_length=256)
     client_id: Optional[StrictStr] = Field(default=None, min_length=1, max_length=256)
     session_id: Optional[StrictStr] = Field(default=None, min_length=1, max_length=256)
@@ -270,6 +284,15 @@ def create_app(
 
     app = FastAPI(title="Daystrom DML Provider", lifespan=lifespan)
     app.add_middleware(BearerAuthMiddleware)
+
+    @app.exception_handler(RequestValidationError)
+    async def validation_error(request: Request, exc: RequestValidationError):
+        if request.url.path == "/api/memory/retention/inspect":
+            # Unknown fields may themselves contain memory text or credentials.
+            # Do not echo Pydantic's input values from this read-only surface.
+            return JSONResponse(status_code=422, content={"detail": {"code": "retention_validation_failed"}})
+        return await request_validation_exception_handler(request, exc)
+
     app.state.adapter = adapter
     app.state.dcn_learning = ProceduralLearningPolicy()
     app.state.dcn_controller = CognitionController(
@@ -333,7 +356,7 @@ def create_app(
 
     @app.get("/api/contracts")
     def contracts() -> dict[str, Any]:
-        return production_status()
+        return {**production_status(), "retention": retention_contract()}
 
     @app.get("/api/stats")
     def stats() -> dict[str, Any]:
@@ -599,6 +622,19 @@ def create_app(
             raise HTTPException(status_code=503, detail={"code": "embedding_unavailable", "retry_same_key": True}) from exc
         except ValueError as exc:
             raise HTTPException(status_code=400, detail={"code": "invalid_or_unsupported_receipt_request"}) from exc
+
+    @app.post("/api/memory/retention/inspect")
+    def inspect_memory_retention(payload: RetentionInspectionRequest) -> dict[str, Any]:
+        try:
+            return app.state.adapter.inspect_memory_retention(**payload.model_dump())
+        except ReceiptMemoryNotFound as exc:
+            raise HTTPException(status_code=404, detail={"code": "receipt_memory_not_found"}) from exc
+        except RetentionInspectionUnsupported as exc:
+            raise HTTPException(status_code=409, detail={"code": "retention_inspection_unsupported"}) from exc
+        except (JournalIntegrityError, OSError, sqlite3.Error) as exc:
+            raise HTTPException(status_code=503, detail={"code": "retention_outcome_unavailable"}) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail={"code": "invalid_or_unsupported_retention_request"}) from exc
 
     @app.post("/api/memory/retire/receipt")
     def retire_memory_receipted(payload: RetireReceiptRequest) -> dict[str, Any]:

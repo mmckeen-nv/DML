@@ -656,6 +656,39 @@ class JournalStateStore:
             revision, payload, _ = self._read_snapshot(connection)
             return rows[0][1], revision, payload
 
+    def read_retention_view(self) -> dict:
+        """Return detached, verified retention surfaces from one read transaction.
+
+        The complete authority history is verified before any surface is exposed.
+        This inspection neither creates a journal nor changes its rows, schemas,
+        snapshots, receipts, or delivery positions. Callers must already hold an
+        initialized receipt authority; costs grow with its retained history.
+        """
+        self._require_receipts()
+        with self._connect() as connection:
+            connection.execute("BEGIN")
+            identity_rows = connection.execute("SELECT id,store_id FROM identity").fetchall()
+            if identity_rows != [(1, self._identity["store_id"])]:
+                raise JournalIntegrityError("Journal retention identity changed")
+            revision, payload, _ = self._read_snapshot(connection)
+            self._fault_hook("retention_after_snapshot")
+            snapshot_rows = connection.execute("SELECT payload,checksum FROM snapshot WHERE id=1").fetchall()
+            snapshot = _normalized(_checked(*snapshot_rows[0])) if snapshot_rows else None
+            receipts = [_validated_receipt(_checked(raw, checksum)) for raw, checksum in
+                        connection.execute("SELECT payload,checksum FROM receipts ORDER BY revision,scope,key").fetchall()]
+            outbox = ([_checked(raw, checksum) for raw, checksum in
+                       connection.execute("SELECT payload,checksum FROM outbox ORDER BY revision").fetchall()]
+                      if self._schema_version >= OUTBOX_JOURNAL_SCHEMA_VERSION else [])
+            self._fault_hook("retention_after_history")
+            if _read_identity(self.identity_path) != self._identity:
+                raise JournalIntegrityError("Journal retention identity marker changed")
+            if self.migration_path.exists():
+                raise JournalIntegrityError("Incomplete journal migration")
+            return {"store_id": identity_rows[0][1], "schema_version": self._schema_version,
+                    "revision": revision, "state_digest": _digest(_encode(payload)),
+                    "state": payload, "snapshot": snapshot,
+                    "receipts": receipts, "outbox": outbox}
+
     def load(self) -> dict:
         return self.read_snapshot()[1]
 
