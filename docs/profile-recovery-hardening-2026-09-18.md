@@ -16,10 +16,12 @@ with 24 skips** on the initial published source `8037ba2`. The
 [review artifact](artifacts/profile-recovery-review-2026-09-18.json) records the
 source-hashed review and separately attributed evidence. Its first published run,
 CI 318, rejected qualification because of macOS bootstrap and ENOSPC-fixture
-failures. The test/bootstrap-only correction is described below. Independent
-re-review accepts the corrected source at **9.6/10, with no blockers**; publication
-and exact-source CI remain pending at this snapshot. Software acceptance does not
-qualify corrected or unobserved environments. The repository remains alpha and `production_ready=false`; the original
+failures. Independent re-review accepted the first correction, published as
+`8c66634`, at **9.6/10, with no blockers**. CI 319 then passed 13 real ENOSPC cases
+but rejected two allocation-setup cases. A further fixture-only correction is
+described below. Independent revision 3 review accepts this source at **9.6/10,
+with no blockers**; publication and exact-source CI remain pending at this snapshot. Software acceptance does not qualify corrected or unobserved
+environments. The repository remains alpha and `production_ready=false`; the original
 ten workstreams and finite thirteen-milestone scope are unchanged.
 
 ## Prior-source evidence
@@ -96,8 +98,8 @@ stage-17 review artifact remains unchanged.
 | Remaining evidence | Status at this source snapshot |
 | --- | --- |
 | Real ext4 ENOSPC selection | Fifteen cases require the dedicated CI mount; local capability skips do not count as passing evidence. |
-| Six measured-platform recovery lanes | Four initial-source artifacts accepted; corrected-source results, including macOS, remain pending. |
-| Corrected-source publication and all seventeen CI jobs | Pending after rejected CI 318; outcomes will be recorded in PR #118. |
+| Six measured-platform recovery lanes | All six CI 319 artifacts accepted on APFS/ext4/NTFS; acceptance on the next corrected source remains pending. |
+| Corrected-source publication and all seventeen CI jobs | Pending after rejected CI 318 and 319; outcomes will be recorded in PR #118. |
 
 Focused, full-suite, fault-campaign and remote CI selections overlap; their counts
 must not be added into one test total. A simulated I/O error, SQLite quota-full
@@ -129,9 +131,10 @@ qualification report. Local overlay runs can pass tests while recording
 The seventeenth workflow job, `profile-filesystem-full`, uses CPython 3.12 on a
 new disposable **128 MiB ext4 loopback volume**. It checks the mount, dedicated
 marker and capacity before allocating physical extents to block-sized exhaustion.
-The corrected fixture holds the filler and independent probe descriptors open,
-requires separate-inode ENOSPC and zero available blocks, and records those
-observations in JUnit before the attempted SQLite commit.
+The corrected fixture holds both allocation descriptors open and consumes any
+residual capacity available to the second inode under bounded byte and call
+limits. It requires ENOSPC from both inodes and zero available blocks, and records
+those observations in JUnit before the attempted SQLite commit.
 For all five mutations on three schemas, the journal must actually encounter
 SQLite FULL, preserve the prior authority and receipts, then succeed once on an
 exact retry after capacity is freed. `REQUIRE_FILESYSTEM_FULL_TESTS=1` makes
@@ -196,17 +199,64 @@ source remains unchanged. The corrected evidence-recorder/bootstrap unit module 
 skips** in **0.38 seconds**, including ten new bootstrap cases. This targeted run
 is separate from the independent re-review run, which passed **44 tests with zero
 skips, failures or errors** in **0.36 seconds** (JUnit 0.341 seconds). The
-independent correction review accepts the source at **9.6/10, with no blockers**.
-Actual platform qualification remains pending.
+independent correction review accepted source `8c66634` at **9.6/10, with no
+blockers**. These unit results remain evidence for that first correction; they are
+not new runs after the second fixture change. Actual platform qualification
+remains pending.
 The added cases make the required corrected recovery selection **460 collected
-cases**; Windows is expected to retain its 15 documented POSIX-only skips. No
-460-case run or corrected full-suite run is claimed. The local physical-volume
+cases**; Windows retains its 15 documented POSIX-only skips. The later CI 319
+460-case platform results are recorded below; no new local full-suite run is
+claimed. The local physical-volume
 selection records 15 explicit capability skips, not passing filesystem evidence.
 The initial **4,048-pass full-suite result belongs to `8037ba2`**.
-Actual macOS recovery and corrected-volume ENOSPC qualification require the next
-published-source CI run. All seventeen jobs, six accepted recovery artifacts and
+The subsequent CI 319 results below supersede the first correction's pending
+platform status. All seventeen jobs, six accepted recovery artifacts and
 15 passing real ENOSPC cases remain the closure gate. The source ledger therefore
 retains **8 first-release milestones and 2 deferred milestones**.
+
+## Rejected CI 319 and residual-allocation correction
+
+First corrected source [`8c66634`](https://github.com/mmckeen-nv/DML/commit/8c666349b6e1d7a98fa290befd82b8cad6180c7f)
+ran in [CI 319](https://github.com/mmckeen-nv/DML/actions/runs/35358537343).
+The dedicated ext4 job recorded **13 passes and 2 failures, with zero errors or
+skips**. Each passing case established actual SQLite FULL, preserved authority
+and verified exact retry after capacity recovery. Retirement on schemas 2 and 4
+failed the fixture's independent-inode allocation check before attempting the
+SQLite mutation: the second inode could still allocate a block after the first
+inode reported ENOSPC. Those are allocation-setup failures, not observed failed
+persistence or recovery. Qualification was rejected because all 15 cases are
+required.
+
+The next fixture correction consumes that observed residual capacity through both
+retained inodes, advancing independent offsets under a shared 128 MiB bound.
+Bounded byte and allocation-call limits prevent an unbounded fill loop. After
+synchronization and before SQLite can run, the fixture requires a final pair of
+ENOSPC failures, one from each inode, and zero available blocks. It keeps
+the existing SQLite FULL, prior-history and exact-retry assertions. Production
+runtime and the 44-case bootstrap unit module are unchanged; no new full-suite or
+physical-volume result is claimed for this correction.
+
+All six CI 319 recovery artifacts were independently verified: macOS at CPython
+3.10 and 3.13 each passed **460 cases with zero skips** on measured **APFS**;
+Ubuntu at the same versions each passed **460 cases with zero skips** on measured
+**ext4**. Windows at both versions passed **445 cases with 15 documented
+POSIX-only skips** on measured **NTFS**. All six recorded `accepted: true`,
+matching archive and JUnit hashes,
+and clean merge `e59ed72` with tree `61a3fd4` exactly matching published `8c66634`.
+Both macOS logs confirmed the requested Homebrew CPython minor and linked SQLite
+**3.53.4**. These six historical successes do not waive the failed ENOSPC gate
+or qualify the next source before CI. Independent source review accepts the
+second fixture correction at **9.6/10, with no blockers**. Five independent
+simulated allocator checks passed, including second-inode residual capacity,
+capacity available after synchronization, refusal of nonzero available blocks,
+I/O-error propagation and aggregate allocation bounds. Those simulations are
+control-flow evidence, not actual filesystem qualification.
+
+The required recovery selection remains 460 collected cases, with only the 15
+documented Windows POSIX-only skips permitted. The next exact-source run must
+pass all seventeen jobs, return all six accepted recovery artifacts and pass all
+15 real ENOSPC cases. Milestone 4 remains open and the source ledger stays at
+**8 first-release milestones and 2 deferred milestones**.
 
 ## Qualification limits
 

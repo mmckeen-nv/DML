@@ -81,45 +81,60 @@ def fill_until_enospc(filler, probe, mount):
     assert 0 < block_size <= 1024 * 1024
     assert (1024 * 1024) % block_size == 0
     assert initial.f_bavail > 0, "The volume must begin with usable capacity"
-    total = 0
-    step = 1024 * 1024
-    exhausted_attempts = 0
-    while total + step <= MAX_VOLUME_BYTES:
+    handles = (filler, probe)
+    offsets, attempts, exhausted_attempts = [0, 0], [0, 0], [0, 0]
+
+    def allocate(index, amount):
+        if sum(offsets) + amount > MAX_VOLUME_BYTES:
+            pytest.fail("Allocation reached its aggregate byte limit without stable exhaustion")
+        attempts[index] += 1
         try:
-            os.posix_fallocate(filler.fileno(), total, step)
+            os.posix_fallocate(handles[index].fileno(), offsets[index], amount)
         except OSError as exc:
             if exc.errno != errno.ENOSPC:
                 raise
-            exhausted_attempts += 1
-            if step != block_size:
-                step = block_size
-                continue
-            os.fsync(filler.fileno())
-            # Probe another already-created inode, independently of the filler
-            # extent layout. A successful single-block allocation is not full.
-            try:
-                os.posix_fallocate(probe.fileno(), 0, block_size)
-            except OSError as probe_error:
-                if probe_error.errno != errno.ENOSPC:
-                    raise
-            else:
-                pytest.fail("A separate inode could still allocate a filesystem block")
-            final = os.statvfs(mount)
-            assert final.f_bavail == 0, "Kernel ENOSPC left usable filesystem blocks"
-            assert total > 0
-            return {
-                "schema_version": "dml-real-enospc-evidence-v1",
-                "filesystem": "ext4", "allocator": "posix_fallocate",
-                "volume_bytes": initial.f_blocks * block_size,
-                "block_bytes": block_size, "initial_available_blocks": initial.f_bavail,
-                "allocated_bytes": os.fstat(filler.fileno()).st_blocks * 512,
-                "confirmed_extent_bytes": total, "enospc_attempts": exhausted_attempts,
-                "filler_errno": errno.ENOSPC, "separate_inode_probe_errno": errno.ENOSPC,
-                "final_free_blocks": final.f_bfree, "final_available_blocks": final.f_bavail,
-                "descriptors_held_open": not filler.closed and not probe.closed,
-            }
-        total += step
-    pytest.fail("Bounded allocation did not produce real filesystem ENOSPC")
+            exhausted_attempts[index] += 1
+            return False
+        offsets[index] += amount
+        return True
+
+    while allocate(0, 1024 * 1024):
+        pass
+    for round_number in range(1, MAX_VOLUME_BYTES // block_size + 3):
+        # Different inode layouts can still accept blocks after the first inode
+        # reports ENOSPC. Consume those real allocations, advancing each offset.
+        progress = [allocate(index, block_size) for index in range(2)]
+        if any(progress):
+            continue
+        for handle in handles:
+            os.fsync(handle.fileno())
+        # Recheck both next extents after synchronization. Only a complete pass
+        # with no successful allocation can establish the terminal condition.
+        progress = [allocate(index, block_size) for index in range(2)]
+        if any(progress):
+            continue
+        final = os.statvfs(mount)
+        assert final.f_bavail == 0, "Kernel ENOSPC left usable filesystem blocks"
+        physical_bytes = [os.fstat(handle.fileno()).st_blocks * 512 for handle in handles]
+        assert 0 < sum(physical_bytes) <= MAX_VOLUME_BYTES
+        assert sum(offsets) > 0
+        return {
+            "schema_version": "dml-real-enospc-evidence-v1",
+            "filesystem": "ext4", "allocator": "posix_fallocate",
+            "volume_bytes": initial.f_blocks * block_size,
+            "block_bytes": block_size, "initial_available_blocks": initial.f_bavail,
+            "allocated_bytes": physical_bytes[0], "probe_allocated_bytes": physical_bytes[1],
+            "total_allocated_bytes": sum(physical_bytes),
+            "confirmed_extent_bytes": offsets[0], "probe_confirmed_extent_bytes": offsets[1],
+            "allocation_attempts": attempts[0], "probe_allocation_attempts": attempts[1],
+            "enospc_attempts": sum(exhausted_attempts),
+            "filler_enospc_attempts": exhausted_attempts[0], "probe_enospc_attempts": exhausted_attempts[1],
+            "allocation_rounds": round_number,
+            "filler_errno": errno.ENOSPC, "separate_inode_probe_errno": errno.ENOSPC,
+            "final_free_blocks": final.f_bfree, "final_available_blocks": final.f_bavail,
+            "descriptors_held_open": not filler.closed and not probe.closed,
+        }
+    pytest.fail("Bounded allocation passes did not produce stable filesystem ENOSPC")
 
 
 def contains_sqlite_full(error):
