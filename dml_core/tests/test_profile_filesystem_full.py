@@ -7,6 +7,7 @@ No host/root/shared filesystem is filled, and SQLite quota is not substituted.
 from __future__ import annotations
 
 import errno
+import json
 import os
 from pathlib import Path
 import re
@@ -68,24 +69,56 @@ def dedicated_volume():
     return mount
 
 
-def fill_until_enospc(path):
-    """Allocate bounded real bytes and require the kernel's ENOSPC response."""
-    block = bytes(range(256)) * 4096
-    assert len(block) == 1024 * 1024
+def fill_until_enospc(filler, probe, mount):
+    """Exhaust real ext4 allocation, including the tail below one MiB.
+
+    Fallocate avoids mistaking a delayed-allocation write/fsync failure for an
+    exhausted filesystem. Both descriptors remain open through the attempted
+    SQLite commit, so close cannot release reservations before that attempt.
+    """
+    initial = os.statvfs(mount)
+    block_size = initial.f_frsize
+    assert 0 < block_size <= 1024 * 1024
+    assert (1024 * 1024) % block_size == 0
+    assert initial.f_bavail > 0, "The volume must begin with usable capacity"
     total = 0
-    with path.open("xb", buffering=0) as filler:
-        while total < MAX_VOLUME_BYTES:
+    step = 1024 * 1024
+    exhausted_attempts = 0
+    while total + step <= MAX_VOLUME_BYTES:
+        try:
+            os.posix_fallocate(filler.fileno(), total, step)
+        except OSError as exc:
+            if exc.errno != errno.ENOSPC:
+                raise
+            exhausted_attempts += 1
+            if step != block_size:
+                step = block_size
+                continue
+            os.fsync(filler.fileno())
+            # Probe another already-created inode, independently of the filler
+            # extent layout. A successful single-block allocation is not full.
             try:
-                written = filler.write(block[:min(len(block), MAX_VOLUME_BYTES - total)])
-                assert written is not None and written > 0
-                total += written
-                # Force ext4 delayed allocation to become an actual allocation.
-                os.fsync(filler.fileno())
-            except OSError as exc:
-                if exc.errno != errno.ENOSPC:
+                os.posix_fallocate(probe.fileno(), 0, block_size)
+            except OSError as probe_error:
+                if probe_error.errno != errno.ENOSPC:
                     raise
-                assert total > 0, "The volume must begin with usable capacity"
-                return {"errno": exc.errno, "bytes_written": total}
+            else:
+                pytest.fail("A separate inode could still allocate a filesystem block")
+            final = os.statvfs(mount)
+            assert final.f_bavail == 0, "Kernel ENOSPC left usable filesystem blocks"
+            assert total > 0
+            return {
+                "schema_version": "dml-real-enospc-evidence-v1",
+                "filesystem": "ext4", "allocator": "posix_fallocate",
+                "volume_bytes": initial.f_blocks * block_size,
+                "block_bytes": block_size, "initial_available_blocks": initial.f_bavail,
+                "allocated_bytes": os.fstat(filler.fileno()).st_blocks * 512,
+                "confirmed_extent_bytes": total, "enospc_attempts": exhausted_attempts,
+                "filler_errno": errno.ENOSPC, "separate_inode_probe_errno": errno.ENOSPC,
+                "final_free_blocks": final.f_bfree, "final_available_blocks": final.f_bavail,
+                "descriptors_held_open": not filler.closed and not probe.closed,
+            }
+        total += step
     pytest.fail("Bounded allocation did not produce real filesystem ENOSPC")
 
 
@@ -114,40 +147,50 @@ def isolated_configuration(tmp_path, monkeypatch):
 
 @pytest.mark.parametrize("schema", SCHEMAS)
 @pytest.mark.parametrize("operation", OPERATIONS)
-def test_real_ext4_enospc_preserves_receipts_and_retry_commits_once(schema, operation):
+def test_real_ext4_enospc_preserves_receipts_and_retry_commits_once(schema, operation, request):
     mount = dedicated_volume()
     with TemporaryDirectory(prefix="dml-enospc-case-", dir=mount) as scratch:
         case = Path(scratch)
         scenario = prepare(case / "authority", schema)
-        request = request_for(operation, scenario.records)
+        operation_request = request_for(operation, scenario.records)
         filler = case / "synthetic-filler.bin"
+        probe = case / "synthetic-allocation-probe.bin"
         reached = []
         adapter = make_adapter(scenario.directory, schema)
-
-        def exhaust(point):
-            if point == "after_begin":
-                assert not reached, "The fault must target exactly one attempted commit"
-                reached.append(fill_until_enospc(filler))
-
-        adapter._journal._fault_hook = exhaust
         try:
-            with pytest.raises((ReceiptCommitRejected, ReceiptCommitUncertain)) as observed:
-                invoke(adapter, request)
-            assert reached and reached[0]["errno"] == errno.ENOSPC
-            assert contains_sqlite_full(observed.value), "The journal must actually encounter SQLITE_FULL"
+            with filler.open("xb", buffering=0) as filler_handle, probe.open("xb", buffering=0) as probe_handle:
+                def exhaust(point):
+                    if point == "after_begin":
+                        assert not reached, "The fault must target exactly one attempted commit"
+                        evidence = fill_until_enospc(filler_handle, probe_handle, mount)
+                        reached.append(evidence)
+                        request.node.user_properties.append(("enospc_evidence", json.dumps(evidence, sort_keys=True)))
+
+                adapter._journal._fault_hook = exhaust
+                with pytest.raises((ReceiptCommitRejected, ReceiptCommitUncertain)) as observed:
+                    invoke(adapter, operation_request)
+                assert reached and reached[0]["filler_errno"] == errno.ENOSPC
+                assert contains_sqlite_full(observed.value), "The journal must actually encounter SQLITE_FULL"
+                request.node.user_properties.append(("sqlite_full_verified", "true"))
         finally:
             # Free capacity before close/recovery, even if the operation or oracle failed.
-            filler.unlink(missing_ok=True)
-            adapter.close(persist=False)
+            try:
+                filler.unlink(missing_ok=True)
+            finally:
+                try:
+                    probe.unlink(missing_ok=True)
+                finally:
+                    adapter.close(persist=False)
         assert sql_observation(scenario.directory) == scenario.before
         reopened = make_adapter(scenario.directory, schema)
         try:
             assert sql_observation(scenario.directory) == scenario.before
-            receipt = invoke(reopened, request)
+            receipt = invoke(reopened, operation_request)
             after = sql_observation(scenario.directory)
-            assert receipt == assert_transition(scenario.before, after, request)
+            assert receipt == assert_transition(scenario.before, after, operation_request)
             # Replay is historical, and must not create a second revision.
-            assert invoke(reopened, request) == receipt
+            assert invoke(reopened, operation_request) == receipt
             assert sql_observation(scenario.directory) == after
+            request.node.user_properties.append(("recovery_verified", "true"))
         finally:
             reopened.close(persist=False)

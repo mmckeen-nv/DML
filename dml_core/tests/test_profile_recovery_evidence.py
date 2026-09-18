@@ -220,7 +220,11 @@ def test_bootstrap_probes_actual_linked_sqlite_and_preserves_already_patched_hos
     assert bootstrap.patched(expected[0]) is True
     bootstrap.main()
     observed = json.loads(capsys.readouterr().out)
-    assert observed == {"sqlite_version": expected[0], "sqlite_source_id": expected[1], "ci_replacement": False}
+    assert observed == {**bootstrap.interpreter_identity(), "sqlite_version": expected[0],
+                        "sqlite_source_id": expected[1], "ci_replacement": False}
+    assert observed["python_minor"] == f"{sys.version_info.major}.{sys.version_info.minor}"
+    assert Path(observed["python_real_executable"]) == Path(sys.executable).resolve()
+    assert observed["sqlite_extension"] == "built-in" or Path(observed["sqlite_extension"]).is_file()
 
 
 def test_bootstrap_refuses_automatic_replacement_outside_disposable_ci(bootstrap, monkeypatch):
@@ -285,3 +289,50 @@ def test_conflicting_deepest_mounts_reject_until_actual_device_identifies_one():
                                              device_id=os.makedev(8, 2))
         assert observed["type"] == "ext4"
         assert observed["local"] is True
+
+
+@pytest.mark.parametrize("version", ["3", "3.013", "3.13.1", "3.13-custom"])
+def test_bootstrap_expected_minor_rejects_malformed_input_before_probe(bootstrap, monkeypatch, version):
+    monkeypatch.setattr(bootstrap, "probe", lambda *_: pytest.fail("Malformed minor reached SQL probe"))
+    with pytest.raises(ValueError, match="canonical MAJOR.MINOR"):
+        bootstrap.main(version)
+
+
+def test_bootstrap_expected_minor_rejects_wrong_interpreter_before_probe(bootstrap, monkeypatch):
+    monkeypatch.setattr(bootstrap, "probe", lambda *_: pytest.fail("Wrong interpreter reached SQL probe"))
+    with pytest.raises(RuntimeError, match="Expected Python"):
+        bootstrap.main("2.7")
+
+
+def test_bootstrap_expected_minor_cli_reports_actual_interpreter(bootstrap):
+    import subprocess
+    minor = f"{sys.version_info.major}.{sys.version_info.minor}"
+    result = subprocess.run([sys.executable, str(REPO / ".github/scripts/prepare_sqlite.py"),
+                             "--expected-python", minor], capture_output=True, text=True, timeout=30)
+    assert result.returncode == 0, result.stderr
+    observed = json.loads(result.stdout)
+    assert observed["python_minor"] == minor
+    assert observed["python_version"] == bootstrap.platform.python_version()
+    assert observed["sqlite_version"] == bootstrap.probe()[0]
+    assert observed["ci_replacement"] is False
+
+
+def test_mac_dependency_parser_accepts_only_one_actual_sqlite_load_command(bootstrap):
+    dependency = "/opt/homebrew/opt/sqlite/lib/libsqlite3.0.dylib"
+    listing = ("/path/_sqlite3.so:\n"
+               "\t/usr/lib/libSystem.B.dylib (compatibility version 1.0.0, current version 1351.0.0)\n"
+               f"\t{dependency} (compatibility version 9.0.0, current version 9.6.0)\n")
+    assert bootstrap.mac_sqlite_dependency(listing) == dependency
+    # Universal binaries can repeat the same dependency for each architecture.
+    assert bootstrap.mac_sqlite_dependency(listing + listing) == dependency
+
+
+@pytest.mark.parametrize("listing", [
+    "/path/_sqlite3.so:\n\t/usr/lib/libSystem.B.dylib (compatibility version 1.0.0, current version 1.0.0)\n",
+    "/path/libsqlite3.0.dylib:\n\t/usr/lib/libSystem.B.dylib (compatibility version 1.0.0, current version 1.0.0)\n",
+    "/path/_sqlite3.so:\n\t/first/libsqlite3.0.dylib (compatibility version 1.0.0, current version 1.0.0)\n"
+    "\t/second/libsqlite3.dylib (compatibility version 1.0.0, current version 1.0.0)\n",
+], ids=["static", "sqlite-header-only", "ambiguous"])
+def test_mac_dependency_parser_rejects_static_or_ambiguous_sqlite(bootstrap, listing):
+    with pytest.raises(RuntimeError, match="static or ambiguous"):
+        bootstrap.mac_sqlite_dependency(listing)

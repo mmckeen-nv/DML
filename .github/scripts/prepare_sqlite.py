@@ -6,7 +6,9 @@ This script changes CI's interpreter/library environment, never an application s
 """
 from __future__ import annotations
 
+import argparse
 import hashlib
+import importlib.util
 import io
 import json
 import os
@@ -54,13 +56,54 @@ def archive(kind: str) -> zipfile.ZipFile:
     return zipfile.ZipFile(io.BytesIO(payload))
 
 
-def main():
+def interpreter_identity(expected_python: str | None = None) -> dict:
+    minor = f"{sys.version_info.major}.{sys.version_info.minor}"
+    if expected_python is not None:
+        if (type(expected_python) is not str or len(expected_python) > 16 or
+                re.fullmatch(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)", expected_python) is None):
+            raise ValueError("Expected Python must be a canonical MAJOR.MINOR version")
+        if minor != expected_python:
+            raise RuntimeError(f"Expected Python {expected_python}, running {minor}: {sys.executable}")
+    extension = importlib.util.find_spec("_sqlite3")
+    if extension is None or not extension.origin:
+        raise RuntimeError("The selected interpreter has no SQLite extension")
+    return {"python_executable": sys.executable,
+            "python_real_executable": str(Path(sys.executable).resolve(strict=True)),
+            "python_version": platform.python_version(), "python_minor": minor,
+            "sqlite_extension": (extension.origin if extension.origin == "built-in"
+                                 else str(Path(extension.origin).resolve(strict=True)))}
+
+
+def mac_sqlite_dependency(listing: str) -> str:
+    """Identify a real dynamic dependency; DYLD cannot replace embedded SQLite.
+
+    python.org macOS installers statically link SQLite. The CI workflow selects
+    Homebrew CPython instead; no extension or framework binary is rewritten here.
+    """
+    dependencies = set()
+    for line in listing.splitlines():
+        path, marker, _version = line.strip().partition(" (compatibility version ")
+        if marker and re.fullmatch(r"libsqlite3(?:\.[0-9]+)*\.dylib", Path(path).name):
+            dependencies.add(path)
+    if len(dependencies) != 1:
+        raise RuntimeError("Unpatched macOS SQLite is static or ambiguous; select a Homebrew CPython runtime")
+    return dependencies.pop()
+
+
+def main(expected_python: str | None = None):
+    identity = interpreter_identity(expected_python)
     observed = probe()
     if patched(observed[0]):
-        print(json.dumps({"sqlite_version": observed[0], "sqlite_source_id": observed[1], "ci_replacement": False}))
+        print(json.dumps({**identity, "sqlite_version": observed[0], "sqlite_source_id": observed[1], "ci_replacement": False}))
         return
     if os.environ.get("GITHUB_ACTIONS") != "true" or not os.environ.get("RUNNER_TEMP"):
         raise RuntimeError("Upgrade the Python SQLite runtime; automatic replacement is limited to disposable GitHub CI")
+    if identity["sqlite_extension"] == "built-in":
+        raise RuntimeError("Unpatched built-in SQLite cannot be replaced; select a compatible CPython runtime")
+    if sys.platform == "darwin":
+        dependencies = subprocess.check_output(["otool", "-L", identity["sqlite_extension"]],
+                                               text=True, timeout=30)
+        identity["mac_sqlite_dependency"] = mac_sqlite_dependency(dependencies)
     build = Path(tempfile.mkdtemp(prefix="dml-sqlite-", dir=os.environ["RUNNER_TEMP"]))
     env = os.environ.copy()
     exported = None
@@ -101,14 +144,17 @@ def main():
         raise RuntimeError("Unsupported CI SQLite build platform")
     observed = probe(env)
     if observed[0] != VERSION:
-        raise RuntimeError("Python did not load the pinned patched SQLite library")
+        raise RuntimeError(f"Python {identity['python_minor']} at {identity['python_executable']} "
+                           f"loaded SQLite {observed[0]} ({observed[1]}); expected pinned SQLite {VERSION}")
     if exported:
         if any("\n" in value or "\r" in value for value in exported):
             raise RuntimeError("Invalid CI environment value")
         with Path(os.environ["GITHUB_ENV"]).open("a", encoding="utf-8") as output:
             output.write("=".join(exported) + "\n")
-    print(json.dumps({"sqlite_version": observed[0], "sqlite_source_id": observed[1], "ci_replacement": True}))
+    print(json.dumps({**identity, "sqlite_version": observed[0], "sqlite_source_id": observed[1], "ci_replacement": True}))
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--expected-python", metavar="MAJOR.MINOR", help="Require this actual interpreter minor before any effects")
+    main(parser.parse_args().expected_python)

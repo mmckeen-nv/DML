@@ -74,10 +74,22 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
+        if: runner.os != 'macOS'
         with:
           python-version: ${{ matrix.python-version }}
+      - name: Provision Homebrew CPython with dynamic SQLite on macOS
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          DML_PYTHON_MINOR: ${{ matrix.python-version }}
+        run: |
+          case "$DML_PYTHON_MINOR" in 3.10|3.13) ;; *) exit 1 ;; esac
+          brew install "python@$DML_PYTHON_MINOR"
+          python_prefix=$(brew --prefix "python@$DML_PYTHON_MINOR")
+          "$python_prefix/bin/python$DML_PYTHON_MINOR" -m venv "$RUNNER_TEMP/dml-python"
+          echo "$RUNNER_TEMP/dml-python/bin" >> "$GITHUB_PATH"
       - name: Require patched SQLite runtime
-        run: python .github/scripts/prepare_sqlite.py
+        run: python .github/scripts/prepare_sqlite.py --expected-python ${{ matrix.python-version }}
       - name: Install portability-test dependencies
         run: python -m pip install -e .[faiss] pytest httpx2
       - name: Verify locks, atomic persistence, rollback, RAG recovery, and wrapper paths
@@ -325,10 +337,22 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
+        if: runner.os != 'macOS'
         with:
           python-version: ${{ matrix.python-version }}
+      - name: Provision Homebrew CPython with dynamic SQLite on macOS
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          DML_PYTHON_MINOR: ${{ matrix.python-version }}
+        run: |
+          case "$DML_PYTHON_MINOR" in 3.10|3.13) ;; *) exit 1 ;; esac
+          brew install "python@$DML_PYTHON_MINOR"
+          python_prefix=$(brew --prefix "python@$DML_PYTHON_MINOR")
+          "$python_prefix/bin/python$DML_PYTHON_MINOR" -m venv "$RUNNER_TEMP/dml-python"
+          echo "$RUNNER_TEMP/dml-python/bin" >> "$GITHUB_PATH"
       - name: Require patched SQLite runtime
-        run: python .github/scripts/prepare_sqlite.py
+        run: python .github/scripts/prepare_sqlite.py --expected-python ${{ matrix.python-version }}
       - name: Install recovery evidence dependencies
         run: python -m pip install -e .[server,dev]
       - name: Lint recovery evidence and CI bootstrap
