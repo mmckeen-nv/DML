@@ -1,18 +1,29 @@
 """Machine-readable maturity inventory; implementation is not graduation."""
 from copy import deepcopy
 
+from .profile import PROFILE_ID, production_profile_contract
+
 _PRODUCTION_STATUS = {
     "schema_version": "dml-production-status-v1",
     "production_ready": False,
     "stable": [],
-    "candidate": ["jsonl-v1-validation", "journal-v1-integrity", "append-only-receipts-v1", "sqlite-snapshot-projection-v1", "coalesced-projection-delta-v1", "bounded-projection-worker-v1", "transactional-outbox-v1", "explicit-outbox-migration-v1", "receipted-memory-retirement-v1", "receipted-memory-supersession-v1", "receipted-content-update-v1", "receipted-first-level-promotion-v1", "scoped-retention-inspection-v1", "scoped-exact-retrieval", "bounded-rendered-context"],
+    "candidate": [PROFILE_ID, "jsonl-v1-validation", "journal-v1-integrity", "append-only-receipts-v1", "sqlite-snapshot-projection-v1", "coalesced-projection-delta-v1", "bounded-projection-worker-v1", "transactional-outbox-v1", "explicit-outbox-migration-v1", "receipted-memory-retirement-v1", "receipted-memory-supersession-v1", "receipted-content-update-v1", "receipted-first-level-promotion-v1", "scoped-retention-inspection-v1", "scoped-exact-retrieval", "bounded-rendered-context"],
     "experimental": ["native-kv-reuse", "ann", "automatic-abstraction-promotion", "dpm", "dcn", "kv-fabric-routing"],
     "research": ["physical-rdma-gds-transfer", "self-improving-memory-policy"],
-    "remaining_release_gates": ["idempotent-write-receipts", "all-component-atomicity", "complete-adapter-extraction",
-                                "all-mutation-crash-campaign", "real-agent-baseline-value", "100k-turn-agent-campaign",
-                                "supported-platform-power-loss", "durable-full-decision-replay"],
+    "remaining_release_gates": [
+        "exact-model-tokenizer-budgets", "supported-profile-crash-recovery-filesystems",
+        "persisted-format-migration-coverage", "mixed-operation-concurrency",
+        "live-agent-semantic-outcome-harness", "fair-baseline-value",
+        "continuous-1k-10k-and-100k-campaign", "durable-decision-replay-audit-retention",
+        "release-qualification-support",
+    ],
+    "deferred_milestones": ["remaining-legacy-retrieval-lifecycle-extraction", "native-kv-restore-identity"],
+    "remaining_first_release_milestones": 9,
+    "remaining_deferred_milestones": 2,
 }
 
 
 def production_status() -> dict:
-    return deepcopy(_PRODUCTION_STATUS)
+    result = deepcopy(_PRODUCTION_STATUS)
+    result["supported_profiles"] = [production_profile_contract()]
+    return result

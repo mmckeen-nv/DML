@@ -211,14 +211,23 @@ def _initialization_lock(path: Path):
 class JournalStateStore:
     def __init__(self, path: Path, *, snapshot_interval: int = 128,
                  fault_hook: Callable[[str], None] | None = None,
-                 receipt_mode: bool = False, outbox_mode: bool = False):
+                 receipt_mode: bool = False, outbox_mode: bool = False,
+                 allowed_schema_versions: frozenset[int] | None = None):
         if type(receipt_mode) is not bool:
             raise ValueError("receipt_mode must be a boolean")
         if type(outbox_mode) is not bool or (outbox_mode and not receipt_mode):
             raise ValueError("outbox_mode must be a boolean and requires receipt_mode=True")
+        if allowed_schema_versions is not None and (
+                type(allowed_schema_versions) is not frozenset or not allowed_schema_versions
+                or any(type(version) is not int or version not in {1, 2, 3, 4}
+                       for version in allowed_schema_versions)):
+            raise ValueError("allowed_schema_versions must be a nonempty frozenset of supported versions")
+        self._allowed_schema_versions = allowed_schema_versions
         self._receipt_mode = receipt_mode
         self._outbox_mode = outbox_mode
         self._schema_version = OUTBOX_JOURNAL_SCHEMA_VERSION if outbox_mode else (RECEIPT_JOURNAL_SCHEMA_VERSION if receipt_mode else JOURNAL_SCHEMA_VERSION)
+        if allowed_schema_versions is not None and self._schema_version not in allowed_schema_versions:
+            raise JournalSchemaError("New journal schema is outside the caller's admitted versions")
         self.path = Path(path).resolve()
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.snapshot_interval = max(1, snapshot_interval)
@@ -254,6 +263,8 @@ class JournalStateStore:
             if existed:
                 version = connection.execute("PRAGMA user_version").fetchone()[0]
                 self._validate_version(version)
+                if self._allowed_schema_versions is not None and version not in self._allowed_schema_versions:
+                    raise JournalSchemaError("Existing journal schema is outside the caller's admitted versions")
                 if self._outbox_mode and version not in {OUTBOX_JOURNAL_SCHEMA_VERSION, MIGRATED_OUTBOX_JOURNAL_SCHEMA_VERSION}:
                     raise JournalSchemaError("Outbox mode requires schema 3 or 4; schema-2 journals require explicit upgrade_outbox_journal to a new destination")
                 if self._receipt_mode and version < RECEIPT_JOURNAL_SCHEMA_VERSION:

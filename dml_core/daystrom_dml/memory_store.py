@@ -15,7 +15,7 @@ from typing import Callable, Any, Dict, Iterable, List, Optional, Sequence, Tupl
 import numpy as np
 
 from . import utils
-from .vector_backend import get_vector_backend
+from .vector_backend import VectorBackend, get_vector_backend
 from .summarizer import Summarizer
 
 
@@ -113,6 +113,7 @@ class MemoryStore:
         ann_candidate_multiplier: int = 8,
         scope_cache_bytes: int = 64 * 1024 * 1024,
         aging_callback: Optional[Callable[[], None]] = None,
+        vector_backend: VectorBackend | None = None,
     ) -> None:
         self.summarizer = summarizer
         self.beta_a = beta_a
@@ -145,7 +146,7 @@ class MemoryStore:
         self.similarity_threshold = float(max(-1.0, min(1.0, similarity_threshold)))
         # Expensive quality/repair checks can be deferred to a maintenance pass.
         self.enable_quality_on_retrieval = bool(enable_quality_on_retrieval)
-        self._vector_backend = get_vector_backend()
+        self._vector_backend = vector_backend if vector_backend is not None else get_vector_backend()
         self._aging_thread: Optional[threading.Thread] = None
         self._aging_callback = aging_callback
         if start_aging_loop:

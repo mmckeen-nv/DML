@@ -18,10 +18,16 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 from .config import load_config
+from .settings import DMLSettings
+from .contracts.profile import (
+    ProductionProfileError, validate_profile_config, validate_profile_embedding,
+    validate_profile_authority, validate_profile_platform,
+)
 from .checkpoint import CheckpointManager
 from .embeddings import Embedder, create_embedder, embed_texts
 from .gpt_runner import GPTRunner
 from .memory_store import MemoryItem, MemoryStore
+from .vector_backend import NumpyVectorBackend
 from .metrics import (
     record_operation,
     record_retrieval,
@@ -42,6 +48,9 @@ from .atomic_io import atomic_write_text
 from .journal import JournalStateStore
 from .services.retrieval import QueryEmbeddingCache
 from .services.persistence import LatticePersistence, PersistenceCoordinator, PersistenceState
+from .services.profile_runtime import (
+    outside_production_profile, preflight_profile_authority, validate_profile_retrieval,
+)
 from .services.transactions import (
     PersistenceCommitError,
     PersistenceRollbackError,
@@ -133,14 +142,34 @@ class DMLAdapter:
         summarizer: Optional[Summarizer] = None,
         runner: Optional[GPTRunner] = None,
         start_aging_loop: bool = True,
+        _validated_settings: DMLSettings | None = None,
     ) -> None:
         self._projection_lifecycle_lock = RLock()
         self._projection_workers_closing = False
         self._owned_projection_worker = None
         self._owned_projection_backend = None
         overrides = dict(config_overrides or {})
-        self.settings = load_config(config_path, overrides=overrides)
+        if _validated_settings is not None:
+            if not isinstance(_validated_settings, DMLSettings) or config_path is not None or overrides:
+                raise ValueError("A settings snapshot cannot be combined with configuration inputs")
+            self.settings = copy.deepcopy(_validated_settings)
+        else:
+            self.settings = load_config(config_path, overrides=overrides)
         self.config = self.settings.as_dict()
+        self._production_profile = validate_profile_config(self.config)
+        self._profile_validation_complete = False
+        self._profile_embedding_identity = None
+        if self._production_profile is not None:
+            validate_profile_platform(self._production_profile)
+            if runner is not None or summarizer is not None:
+                raise ProductionProfileError("Profile generation and summarizer injection are unsupported")
+            preflight_profile_authority(
+                self._production_profile, self.settings.storage_dir,
+                outbox_enabled=self.settings.persistence.outbox,
+            )
+            if embedder is not None:
+                validate_profile_embedding(self._production_profile, embedder,
+                                           self.settings.persistence.receipt_embedding_identity)
         self.config.setdefault("dml_top_k", DEFAULT_DML_TOP_K)
         self.enable_workflow_cache = bool(
             self.config.get("enable_workflow_cache", False)
@@ -185,6 +214,11 @@ class DMLAdapter:
             device=self.config.get("embedding_device"),
             allow_random_fallback=not strict_embedding_required,
         )
+        if self._production_profile is not None:
+            validate_profile_embedding(self._production_profile, self.embedder,
+                                       self.settings.persistence.receipt_embedding_identity)
+            self._profile_embedding_identity = embedding_identity(
+                self.embedder, self.settings.persistence.receipt_embedding_identity)
         self.query_cache = QueryEmbeddingCache(int(self.config.get("query_embedding_cache_size", 64) or 0))
         # Compatibility aliases for existing embedders/integration tests.
         self._query_embedding_cache = self.query_cache.values
@@ -199,7 +233,7 @@ class DMLAdapter:
             self.summarizer = LLMSummarizer(self.runner)
         self.storage_dir = self.settings.storage_dir.expanduser()
         self.storage_dir.mkdir(parents=True, exist_ok=True)
-        self.personality_matrix = PersonalityMatrix(
+        self.personality_matrix = None if self._production_profile is not None else PersonalityMatrix(
             getattr(self.settings, "dpm", None),
             storage_dir=self.storage_dir,
         )
@@ -212,7 +246,7 @@ class DMLAdapter:
         if not persistence_path.is_absolute():
             legacy_path = (self.storage_dir / persistence_path).resolve()
             persistence_path = self._resolve_storage_path(persistence_path).resolve()
-            if legacy_path != persistence_path and legacy_path.exists() and not persistence_path.exists():
+            if self._production_profile is None and legacy_path != persistence_path and legacy_path.exists() and not persistence_path.exists():
                 persistence_path.parent.mkdir(parents=True, exist_ok=True)
                 persistence_path.write_bytes(legacy_path.read_bytes())
                 LOGGER.info(
@@ -236,9 +270,14 @@ class DMLAdapter:
             raise ValueError("Receipt ingestion requires persistence.journal=true")
         self._journal = (
             JournalStateStore(self.storage_dir / "dml_state.sqlite3", snapshot_interval=persistence_settings.snapshot_interval,
-                              receipt_mode=self._receipts_enabled, outbox_mode=self._outbox_enabled)
+                              receipt_mode=self._receipts_enabled, outbox_mode=self._outbox_enabled,
+                              allowed_schema_versions=(
+                                  frozenset({3, 4} if self._outbox_enabled else {2})
+                                  if self._production_profile is not None else None))
             if persistence_settings and persistence_settings.journal else None
         )
+        if self._production_profile is not None:
+            validate_profile_authority(self._production_profile, self._journal.schema_version, self._outbox_enabled)
         if self._journal is not None and self._journal.schema_version in (2, 3, 4):
             # Receipt stores expose an append-only durable mutation boundary;
             # retrieval must not apply unjournaled quality/lifecycle changes.
@@ -265,7 +304,8 @@ class DMLAdapter:
                 self._active_state_path().expanduser().resolve().parent,
                 operation=operation, timeout_ms=30000,
             ),
-            refresh=lambda: self.refresh_if_changed(),
+            refresh=lambda: (self._refresh_if_changed() if self._production_profile is not None
+                             else self.refresh_if_changed()),
             capture=lambda: self._capture_mutation_snapshot(),
             rollback=lambda snapshot, components: self._rollback_mutation(snapshot, components),
             record_rollback_failure=lambda error: self._record_durability_failure_locked("rollback", error),
@@ -396,6 +436,7 @@ class DMLAdapter:
             ann_min_items=self.settings.ann_min_items,
             ann_candidate_multiplier=self.settings.ann_candidate_multiplier,
             scope_cache_bytes=self.settings.scope_cache_bytes,
+            vector_backend=NumpyVectorBackend() if self._production_profile is not None else None,
         )
         self.enable_stm_controller = bool(self.config.get("enable_stm_controller", False))
         self.stm_controller: Optional[STMController] = None
@@ -430,7 +471,7 @@ class DMLAdapter:
         )
         # Manual checkpoints share the same lifetime and drain boundary even
         # when periodic checkpointing is disabled.
-        self.checkpoint_manager = CheckpointManager(
+        self.checkpoint_manager = None if self._production_profile is not None else CheckpointManager(
             self.checkpoint_dir,
             self._gather_checkpoint_state,
             interval_seconds=int(self.settings.checkpoint_interval_seconds),
@@ -465,11 +506,31 @@ class DMLAdapter:
             self._start_persistence_loop()
         if self.metrics_enabled:
             update_memory_gauge(len(self.store.items()))
+        self._profile_validation_complete = self._production_profile is not None
         LOGGER.info("Daystrom Memory Lattice initialised with %d capacity", self.store.capacity)
 
     # ------------------------------------------------------------------
     # Lifecycle helpers
     # ------------------------------------------------------------------
+    @property
+    def production_profile_id(self) -> str | None:
+        return getattr(self, "_production_profile", None)
+
+    def production_profile_status(self) -> Dict[str, Any]:
+        """Describe startup admission, not continuous availability or graduation."""
+        return {
+            "profile_id": self.production_profile_id,
+            "status": "candidate" if self.production_profile_id is not None else "unselected",
+            "production_ready": False,
+            "validated": self._profile_validation_complete,
+            "validation_scope": "startup_configuration_and_authority",
+            "authority": {
+                "journal_schema_version": self._journal.schema_version if self._journal is not None else None,
+                "outbox_enabled": self._outbox_enabled,
+            },
+            "embedding_identity": copy.deepcopy(self._profile_embedding_identity),
+        }
+
     def close(self, persist: bool = True, *, projection_timeout: float = 5.0) -> None:
         """Drain owned workers before closing dependencies; retry after a timeout."""
 
@@ -514,6 +575,7 @@ class DMLAdapter:
     # Memory operations
     # ------------------------------------------------------------------
     @_serialized_mutation
+    @outside_production_profile
     def ingest(
         self,
         text: str,
@@ -549,6 +611,7 @@ class DMLAdapter:
         if self.metrics_enabled:
             update_memory_gauge(len(self.store.items()))
 
+    @outside_production_profile
     def ingest_fast(self, text: str, meta: Optional[Dict] = None) -> None:
         """Fast ingest - adds to RAG only, queues for background DML processing"""
         self._require_legacy_mutations()
@@ -564,6 +627,7 @@ class DMLAdapter:
             update_memory_gauge(len(self.store.items()))
 
     @_serialized_mutation
+    @outside_production_profile
     def ingest_agentic(
         self,
         text: str,
@@ -647,6 +711,7 @@ class DMLAdapter:
             record_operation("lattice_write")
             update_memory_gauge(len(self.store.items()))
 
+    @outside_production_profile
     def get_context(self, query: str, max_tokens: int = 1000) -> str:
         """Return formatted retrieval context, truncated to an approximate token cap."""
         report = self.retrieve_context(query)
@@ -656,6 +721,7 @@ class DMLAdapter:
             return raw_context[: max_tokens * 4]
         return raw_context
 
+    @outside_production_profile
     def memory_count(self) -> int:
         """Return the number of currently stored DML memories.
 
@@ -707,6 +773,7 @@ class DMLAdapter:
             if hasattr(self, '_background_timer'):
                 self._background_timer.cancel()
 
+    @outside_production_profile
     def build_preamble(self, prompt: str, top_k: Optional[int] = None) -> str:
         items = self._retrieve_items(prompt, top_k)
         _, preamble, _ = self._prepare_context(prompt, items)
@@ -717,6 +784,7 @@ class DMLAdapter:
                 preamble = f"{block}\n\n{preamble}" if preamble else block
         return preamble
 
+    @outside_production_profile
     def personality_overlay(
         self,
         *,
@@ -734,6 +802,7 @@ class DMLAdapter:
             relationship_id=relationship_id,
         )
 
+    @outside_production_profile
     def record_personality_preference(
         self,
         text: str,
@@ -753,11 +822,13 @@ class DMLAdapter:
             meta=meta,
         )
 
+    @outside_production_profile
     def personality_graph(self) -> Optional[Dict[str, Any]]:
         """Return the current DPM preference graph, if one exists."""
 
         return self.personality_matrix.graph()
 
+    @outside_production_profile
     def record_personality_interaction(
         self,
         prompt: str,
@@ -775,6 +846,7 @@ class DMLAdapter:
             meta=meta,
         )
 
+    @outside_production_profile
     def suppress_personality_preference(
         self, node_id: str, *, reason: str = "suppressed_by_user"
     ) -> Optional[Dict[str, Any]]:
@@ -782,12 +854,14 @@ class DMLAdapter:
 
         return self.personality_matrix.suppress_preference(node_id, reason=reason)
 
+    @outside_production_profile
     def delete_personality_preference(self, node_id: str) -> Optional[Dict[str, Any]]:
         """Delete a DPM preference node in active-write mode."""
 
         return self.personality_matrix.delete_preference(node_id)
 
     @_serialized_mutation
+    @outside_production_profile
     def reinforce(self, prompt: str, response: str, meta: Optional[Dict] = None) -> None:
         prompt_text = (prompt or "").strip()
         response_text = self._clean_context_fragment(response)
@@ -823,6 +897,7 @@ class DMLAdapter:
         if self.metrics_enabled:
             update_memory_gauge(len(self.store.items()))
 
+    @outside_production_profile
     def run_generation(
         self,
         prompt: str,
@@ -844,6 +919,7 @@ class DMLAdapter:
         self.reinforce(prompt, response)
         return response
 
+    @outside_production_profile
     def generate_with_controller(
         self,
         prompt: str,
@@ -864,6 +940,7 @@ class DMLAdapter:
             session_id=session_id,
         )
 
+    @outside_production_profile
     def get_stm_state(self, session_id: Optional[str] = None) -> STMState:
         if not self.enable_stm_controller:
             raise RuntimeError("STM controller is disabled.")
@@ -928,6 +1005,7 @@ class DMLAdapter:
             "mode": retrieval_plan.mode,
         }
 
+    @outside_production_profile
     def retrieval_report(self, prompt: str, *, top_k: Optional[int] = None) -> Dict:
         start = time.perf_counter()
         items = self._retrieve_items(prompt, top_k)
@@ -943,6 +1021,7 @@ class DMLAdapter:
             "latency_ms": latency_ms,
         }
 
+    @outside_production_profile
     def compare_responses(
         self,
         prompt: str,
@@ -1153,6 +1232,7 @@ class DMLAdapter:
             "evaluations": evaluations,
         }
 
+    @outside_production_profile
     def knowledge_report(self) -> Dict:
         """Expose summaries of the RAG corpus and DML memory lattice."""
 
@@ -1395,12 +1475,14 @@ class DMLAdapter:
     def _active_state_path(self) -> Path:
         return self.lattice_persistence.path
 
+    @outside_production_profile
     def mutation_transaction(self, operation: str):
         """Expose one nestable durable transaction to trusted batch front ends."""
 
         return self._mutation_transaction(operation)
 
     @contextlib.contextmanager
+    @outside_production_profile
     def atomic_batch(self, operation: str):
         """Run a trusted legacy batch with rollback and persistence on exit.
 
@@ -1438,10 +1520,16 @@ class DMLAdapter:
     def _path_stamp(path: Path) -> Optional[tuple[int, int]]:
         return PersistenceCoordinator.path_stamp(path)
 
+    @outside_production_profile
     def refresh_if_changed(self) -> bool:
+        """Refresh the legacy public facade; selected profiles refresh internally."""
+        return self._refresh_if_changed()
+
+    def _refresh_if_changed(self) -> bool:
         """Reload component state through the coordinator and record reload timing."""
         started = time.perf_counter()
-        if not self.persistence_coordinator.refresh(state_stamp=lambda: self._state_stamp()):
+        if not self.persistence_coordinator.refresh(
+                state_stamp=lambda: self._state_stamp(), include_auxiliary=self._production_profile is None):
             return False
         latency_ms = (time.perf_counter() - started) * 1000.0
         LOGGER.info(
@@ -1459,6 +1547,8 @@ class DMLAdapter:
             validate_snapshot(payload)
             if self._journal is None or self._journal.schema_version == 1:
                 self._ensure_embedding_compatibility(payload)
+            if self._production_profile is not None:
+                validate_embedding_contract(payload, self._receipt_embedding_space())
             self.store.import_state(payload)
         if self._persistent_rag_loaded:
             if self.metrics_enabled:
@@ -1525,6 +1615,8 @@ class DMLAdapter:
             raise ValueError("Receipt-journal adapters support only tenant-scoped retrieve_context; legacy retrieval and generation are unavailable")
 
     def _receipt_embedding_space(self) -> dict:
+        if self._production_profile is not None:
+            validate_profile_embedding(self._production_profile, self.embedder, self._receipt_embedding_identity)
         return embedding_identity(self.embedder, self._receipt_embedding_identity)
 
     def _validate_receipt_query(self, vector=None, *, identity=None) -> None:
@@ -1825,6 +1917,7 @@ class DMLAdapter:
             )
         return report
 
+    @outside_production_profile
     def query_database(self, prompt: str, mode: str = "auto") -> Dict:
         """Retrieve context-aware snippets from the external corpus."""
 
@@ -1889,10 +1982,12 @@ class DMLAdapter:
             "latency_ms": int(latency_ms),
         }
 
+    @outside_production_profile
     def create_checkpoint(self) -> Path:
         """Persist a combined snapshot of the lattice and RAG stores."""
         return self.checkpoint_manager.checkpoint()
 
+    @outside_production_profile
     def stats(self) -> Dict:
         items = self.store.items()
         return {
@@ -1906,6 +2001,7 @@ class DMLAdapter:
         self.store.decay_step()
         self._persist_dml_state()
 
+    @outside_production_profile
     def run_maintenance(self, sample_ratio: float = 0.1) -> None:
         """Run a maintenance pass to assess quality without slowing retrieval."""
 
@@ -1938,6 +2034,7 @@ class DMLAdapter:
         if int(getattr(self._mutation_local, "depth", 0)):
             raise ValueError("Projection backend I/O cannot run inside source ownership")
 
+    @outside_production_profile
     def deliver_outbox(self, consumer, *, limit: int = 100) -> Dict[str, Any]:
         """Explicitly deliver a bounded batch; ingestion never calls consumers.
 
@@ -1951,12 +2048,14 @@ class DMLAdapter:
         from .services.outbox_delivery import deliver_outbox
         return deliver_outbox(self._journal, consumer, limit=limit)
 
+    @outside_production_profile
     def sync_projection(self, backend) -> Dict[str, Any]:
         """Explicitly deliver a coalesced delta; receipt ingestion never calls this."""
         from .services.projection_delta import reconcile_incremental
         self._require_projection_source()
         return reconcile_incremental(self._journal, backend)
 
+    @outside_production_profile
     def start_projection_worker(self, backend, *, poll_interval: float = 1.0,
                                 retry_initial: float = 0.1, retry_max: float = 30.0):
         """Start one opt-in owned worker; repeated starts retain its first settings.
@@ -1982,12 +2081,14 @@ class DMLAdapter:
             self._owned_projection_backend = backend
             return worker
 
+    @outside_production_profile
     def projection_status(self, backend) -> Dict[str, Any]:
         """Compare backend state against a pinned authoritative snapshot."""
         from .services.projection import projection_status
         self._require_projection_source()
         return projection_status(self._journal, backend)
 
+    @outside_production_profile
     def query_projection(self, prompt: str, *, backend, tenant_id: str,
                          client_id: Optional[str] = None, session_id: Optional[str] = None,
                          instance_id: Optional[str] = None, top_k: int = 10,
@@ -2196,6 +2297,7 @@ class DMLAdapter:
             capacity=self.store.capacity, hydrate=hydrate, degraded=degraded)
 
     @_serialized_mutation
+    @outside_production_profile
     def ingest_memory(
         self,
         text: str,
@@ -2216,6 +2318,7 @@ class DMLAdapter:
         return item
 
     @_serialized_mutation
+    @outside_production_profile
     def ingest_memory_batch(self, records: List[Dict[str, Any]], *, batch_size: int = 64) -> List[MemoryItem]:
         """Embed and commit a bounded batch under one rollback-capable transaction."""
         if not records:
@@ -2255,6 +2358,7 @@ class DMLAdapter:
             update_memory_gauge(len(self.store.items()))
         return item
 
+    @outside_production_profile
     def collect_instance_scratch(
         self,
         tenant_id: str,
@@ -2269,6 +2373,7 @@ class DMLAdapter:
             instance_id=instance_id,
         )
 
+    @outside_production_profile
     def record_agent_workflow(
         self, task_description: str, steps: List[str], outcome: str
     ) -> Optional[str]:
@@ -2292,6 +2397,7 @@ class DMLAdapter:
         )
         return str(item.id)
 
+    @outside_production_profile
     def suggest_workflows_for_task(
         self, task_description: str, top_k: int = 3
     ) -> List[Dict[str, Any]]:
@@ -2366,6 +2472,13 @@ class DMLAdapter:
         include_quarantined: bool = False,
         as_of: Optional[float] = None,
     ) -> Dict[str, Any]:
+        if self._production_profile is not None:
+            validate_profile_retrieval(
+                prompt, scope=(tenant_id, client_id, session_id, instance_id), top_k=top_k,
+                kinds=kinds, phase=phase.value if isinstance(phase, MemoryPhase) else phase,
+                include_quarantined=include_quarantined, as_of=as_of,
+                dpm_identifiers=(dpm_thread_id, dpm_project_id, dpm_relationship_id),
+            )
         if self._journal is not None and self._journal.schema_version in (2, 3, 4) and (type(tenant_id) is not str or not tenant_id.strip()):
             raise ValueError("Receipt-journal retrieval requires an explicit nonempty tenant_id")
         # Embedding/provider I/O happens before acquiring the store ownership.

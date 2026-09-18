@@ -1,14 +1,14 @@
 # Finite production release plan
 
 Date: 2026-09-18. This is the current remaining-work ledger for the
-[production contract](contracts/production-v1.md), after fifteen reviewed serial
-hardening gates, including the transaction-coordinator extraction. The
+[production contract](contracts/production-v1.md), after sixteen reviewed serial
+hardening gates, including transaction-coordinator extraction and the supported-profile freeze. The
 [original ten areas](productionization-plan-2026-09-12.md) remain the organizing
 workstreams; a serial gate or pull request is not another release milestone.
 
 The audited scope contains 13 milestones: 11 for the first production release
-and 2 deferred beyond it. Milestone 2 is now closed at the reviewed-source gate,
-leaving **12 remaining: 10 for the first release and 2 deferred**. Publication and
+and 2 deferred beyond it. Milestones 1 and 2 are now closed at their reviewed-source gates,
+leaving **11 remaining: 9 for the first release and 2 deferred**. Publication and
 exact-commit CI are pending at this source snapshot; outcomes will be recorded in
 PR #118. This is not a merged release.
 These are closure decisions, each of which may require
@@ -17,16 +17,24 @@ gate does not complete all persistence qualification or promote the repository
 from alpha. The table records remaining obligations, not a claim that each area
 starts from zero.
 
-## First production release: 10 remaining of 11 milestones
+Milestone 1 closed at the reviewed-source gate as the sixteenth serial gate:
+[`dml-receipted-local-v1`](supported-production-profile-v1.md) freezes the admitted
+candidate boundary. Its [review and evidence record](production-profile-hardening-2026-09-18.md)
+records independent acceptance at 9.6/10 and passing local integration evidence.
+That closes the scope freeze without promoting the profile or repository to
+production-ready. **Milestone 3, exact model-input and tokenizer budget binding,
+is next.**
+
+## First production release: 9 remaining of 11 milestones
 
 | # | Milestone | Status | Closure criteria | Original areas |
 | --- | --- | --- | --- | --- |
-| 1 | Freeze the supported production profile | Open | Publish the exact supported APIs, authoritative journal/receipt format, local-host/filesystem/platform matrix, trusted-caller scope model, dependencies, limits and error/retry outcomes. Experimental features must be outside the profile's correctness dependencies. | 1, 7, 9 |
+| 1 | Freeze the supported production profile | Closed at reviewed-source gate: serial gate 16 | Explicit candidate APIs, journal/receipt authority, platform target versus demonstrated qualification, trusted-caller scope, dependencies, limits and retry outcomes enforced with experimental paths excluded. Independent review **9.6/10**, 441 focused passes, and **3,342 full-suite passes with 9 skips**. [Evidence and limits](production-profile-hardening-2026-09-18.md); publication and exact-commit CI remain pending at this source snapshot. | 1, 7, 9 |
 | 2 | Extract persistence and transaction coordination | Closed at reviewed-source gate: serial gate 15 | Narrow services integrated with characterized legacy and receipt-schema-2/3/4 behavior; independent review **9.6/10**, 164 focused passes, 256-client stress pass, and 2,948 full-suite passes with 9 skips. [Evidence and limits](transaction-coordinator-hardening-2026-09-18.md) explicitly exclude cross-file crash atomicity. | 2, 3, 9 |
 | 3 | Bind exact model input and tokenizer budgets | Open | Pin model, tokenizer and chat-template identities; count the complete final input, including tools/framing and reserved output, and reject overflow before inference. Verify all supported entry points and prevent unchecked additions after counting. | 1, 2, 7 |
 | 4 | Qualify crash recovery and supported filesystems | Open | Finish the supported-profile mutation/component inventory and deterministic plus seeded fault matrix; account for acknowledged, rejected and uncertain operations on restart; qualify the advertised filesystem/platform failure guarantees and publish a tested recovery runbook. Keep process-kill and power-loss evidence distinct. | 3, 9 |
 | 5 | Complete persisted-format and migration coverage | Open | Inventory every persisted family admitted by the supported profile; enforce supported versions and compatibility; pass source-version, future-version, interrupted migration, export and restore cases using accurately labeled release or commit-pinned fixtures. Document excluded families and rollback limitations. | 3, 8 |
-| 6 | Qualify mixed-operation concurrency | Open | Exercise supported reads, writes, lifecycle operations, checkpoints and recovery through threads, processes and HTTP/provider callers at 1/16/64/256-client levels with an independent history checker. Show zero lost updates, dirty reads, deadlocks or scope leakage and satisfy predeclared cancellation, timeout, starvation and lock-latency requirements. | 3, 9 |
+| 6 | Qualify mixed-operation concurrency | Open | Exercise supported reads, writes, lifecycle operations and journal checkpoint/recovery behavior through threads, processes and HTTP/provider callers at 1/16/64/256-client levels with an independent history checker. Show zero lost updates, dirty reads, deadlocks or scope leakage and satisfy predeclared cancellation, timeout, starvation and lock-latency requirements. | 3, 9 |
 | 7 | Wire the live-agent semantic and outcome harness | Open | Run pinned tool-driven agent episodes with task verifiers, raw events and failure-inclusive cost/quality metrics; cover the adversarial semantic cases and incorrect-retrieval feedback loops. Distinguish live outcomes from deterministic state checks and offline retrieval smoke. | 4, 6 |
 | 8 | Demonstrate fair baseline value | Open | Freeze a fairness manifest and acceptance thresholds before held-out evaluation; compare no memory, the independent durable baseline and the supported DML profile with equal models, embeddings, budgets, tools and compaction. Meet the predeclared value, quality and latency gates with paired episodes and confidence intervals. | 5, 6 |
 | 9 | Run continuous 1k/10k lanes and the 100k campaign | Open | Provision recurring 1k/10k live workload lanes and a completed 100k-turn release campaign with growing-store measurements, recovery checks, raw events, seeds, configuration/runtime identities and quality/latency distributions. Report turns and record counts separately; skips and offline simulations cannot close this milestone. | 3, 5, 6, 9 |
@@ -44,7 +52,9 @@ starts from zero.
 
 The first release builds on existing receipted ingestion, retirement, supersession,
 content correction and first-level promotion/merge, verified retention inspection,
-projection delivery/migration and scoped retrieval/context services. Those are
+projection delivery/migration and scoped retrieval/context services. The selected
+profile admits journal outbox formats but excludes runtime projection/consumer
+backend APIs; their prior feature evidence does not enlarge its runtime surface. Those are
 implemented candidate boundaries with their own evidence, not new remaining
 milestones. Their broader release qualification is captured above.
 

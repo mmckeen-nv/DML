@@ -28,6 +28,8 @@ from .cognition.learning import ProceduralLearningPolicy
 from .cognition.policy import DeterministicCognitionPolicy
 from .cognition.schema import CognitionConstraints, CognitionEvent, CognitionFeedback
 from .dml_adapter import DMLAdapter
+from .config import load_config
+from .settings import DMLSettings
 from .contracts.production import production_status
 from .contracts.retention import retention_contract
 from .journal import IdempotencyConflict, JournalIntegrityError, RevisionConflict
@@ -165,7 +167,11 @@ class DCNModePromotionRequest(BaseModel):
     reason: str = ""
 
 
-def _build_adapter(config_path: str | None, storage_dir: str | None) -> DMLAdapter:
+def _build_adapter(
+    config_path: str | None, storage_dir: str | None, *, settings: DMLSettings | None = None,
+) -> DMLAdapter:
+    if settings is not None:
+        return DMLAdapter(_validated_settings=settings, start_aging_loop=False)
     overrides: dict[str, Any] = {}
     if storage_dir:
         overrides["storage_dir"] = storage_dir
@@ -272,8 +278,30 @@ def create_app(
     adapter_factory: Callable[[], DMLAdapter] | None = None,
     config_path: str | None = None,
     storage_dir: str | None = None,
+    production_profile: str | None = None,
 ) -> FastAPI:
-    adapter = adapter_factory() if adapter_factory else _build_adapter(config_path, storage_dir)
+    overrides: dict[str, Any] = {}
+    if storage_dir:
+        overrides["storage_dir"] = storage_dir
+    if production_profile is not None:
+        overrides["production_profile"] = production_profile
+    # Resolve once: validation and construction consume the same settings snapshot.
+    settings = load_config(config_path, overrides=overrides or None)
+    selected_profile = getattr(settings, "production_profile", None)
+    if selected_profile is not None:
+        from .services.profile_http import build_profile_app, profile_credentials
+
+        tokens = profile_credentials()
+        adapter = adapter_factory() if adapter_factory else _build_adapter(None, None, settings=settings)
+        try:
+            return build_profile_app(adapter, tokens=tokens, expected_settings=settings)
+        except Exception:
+            if adapter_factory is None:
+                adapter.close()
+            raise
+    adapter = adapter_factory() if adapter_factory else _build_adapter(None, None, settings=settings)
+    if getattr(adapter, "production_profile_id", None) is not None:
+        raise ValueError("A selected production profile requires matching provider configuration")
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
@@ -902,11 +930,13 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--config-path")
     parser.add_argument("--storage-dir")
+    parser.add_argument("--production-profile", help="Explicit supported production candidate profile ID")
     args = parser.parse_args(argv)
 
     import uvicorn
 
-    app = create_app(config_path=args.config_path, storage_dir=args.storage_dir)
+    app = create_app(config_path=args.config_path, storage_dir=args.storage_dir,
+                     production_profile=args.production_profile)
     uvicorn.run(app, host=args.host, port=args.port)
 
 

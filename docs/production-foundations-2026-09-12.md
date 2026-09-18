@@ -4,20 +4,22 @@ This is the first implementation tranche of the [ten-area plan](productionizatio
 The repository remains alpha. The [production contract](contracts/production-v1.md)
 defines implemented behavior, migration and remaining release gates.
 The current [finite remaining-work ledger](production-remaining-work-2026-09-18.md)
-contains eleven first-release milestones and two deferred broader milestones.
+contains eleven first-release milestones and two deferred broader milestones;
+two reviewed-source milestones are closed, leaving nine first-release milestones
+and two deferred milestones.
 
 The table summarizes the foundations and subsequent serial gates. Historical
 sections below retain the evidence and scope recorded when each gate was built.
 
 | Area | Implemented through the serial gates | Still required |
 | --- | --- | --- |
-| 1. Production contract | Explicit target, maturity/health, durable receipt APIs and revision-pinned scoped retrieval/context integration | Complete supported profile, model/tokenizer budget binding and release graduation |
-| 2. Adapter decomposition | Narrow persistence, cache, scoped selection, context/report, lifecycle, receipt, projection, delivery and retention-inspection services; transaction coordination extraction in progress | Finish the bounded coordinator gate; remaining legacy retrieval/lifecycle extraction is deferred beyond the first release |
+| 1. Production contract | Explicit target, maturity/health, durable receipt APIs and revision-pinned scoped retrieval/context integration; reviewed supported-profile freeze | Bind model/tokenizer budgets and complete release qualification |
+| 2. Adapter decomposition | Narrow persistence, cache, scoped selection, context/report, lifecycle, receipt, projection, delivery and retention-inspection services; reviewed transaction coordination extraction | Remaining legacy retrieval/lifecycle extraction is deferred beyond the first release |
 | 3. Crash consistency | Verified journals/checkpoints, atomic receipts/outbox, explicit migrations, real process-kill, quota, corruption and serialization cases | Remaining mutation/component inventory, supported filesystem/power-loss qualification and recovery runbook |
 | 4. Adversarial memory | Eight-case corpus plus lifecycle-specific conflict, scope, authority, provenance and historical-replay regressions | Real-agent semantic outcomes and long-running incorrect-retrieval feedback cases |
 | 5. Baseline | Independent durable SQLite + embeddings + recency + top-k + compaction implementation and runner | Held-out live episodes, equalized compaction and statistically supported value gate |
 | 6. Agent outcomes | Outcome reducer, failure-inclusive costs, quality/latency/recovery distributions, CI offline baseline and journal-history cost evidence | Wire real agent harnesses; continuous 1k/10k and 100k-turn release campaigns |
-| 7. Stability boundaries | Provider contract inventory; native KV remains experimental; exact rendered budget boundary | Supported-profile/model/tokenizer binding for the first release; native-KV restore identity audit and hardware canaries are deferred |
+| 7. Stability boundaries | Provider contract inventory and reviewed supported-profile boundary; native KV remains experimental; exact rendered budget boundary | Model/tokenizer binding for the first release; native-KV restore identity audit and hardware canaries are deferred |
 | 8. Version migration | Explicit side-by-side schema 0/1/2/4 paths, schema-3 fresh authorities, preserved historical receipts and commit-pinned compatibility fixtures | More released-version fixtures and coverage of all persistent artifact families |
 | 9. Concurrency | Journal CAS/pinned reads, 256-client receipt/lifecycle/delivery tests, competing processes and deterministic race regressions | Mixed-operation HTTP/provider campaigns, cancellation/starvation checks and lock-latency SLOs |
 | 10. Observability | Durable mutation decisions/source proofs, response retrieval traces, degradation status and scoped retention inspection | Durable full request/context replay, complete decision coverage and bounded audit retention/export |
@@ -208,3 +210,24 @@ independent review accepted 9.6/10; 164 focused tests, 256-client stress and
 2,948 full-suite tests passed, with 9 full-suite skips. Evidence and qualification
 limits are recorded in the gate's hardening record;
 this work alone does not close the remaining release qualification milestones.
+
+## Serial supported-profile follow-up
+
+The [supported-profile freeze](production-profile-hardening-2026-09-18.md) is the
+sixteenth serial gate and closes milestone 1 at the reviewed-source gate. The explicit
+[`dml-receipted-local-v1` candidate](supported-production-profile-v1.md) fixes
+admitted runtime APIs, receipt-journal authority, trusted caller scope, strict
+configuration, dependency declarations, limits and retry behavior. Its HTTP
+surface admits nine routes with explicit tenant input and startup-bound service
+credentials. Experimental features, legacy RAG files, generation, semantic
+checkpoints and backend projection operations are outside that selected runtime.
+Profile admission on Linux/macOS/Windows and CPython 3.10–3.13 is separate from
+demonstrated portability and filesystem/power-loss qualification. Independent
+final review accepted **9.6/10**, with **441 focused tests passing**. The final root
+full suite passed **3,342 tests**, with **9 skips** and **3 warnings**, in 163.26
+seconds; maintained/new-surface Ruff, the 63-file mypy selection, Hermes hygiene
+and the diff check passed. The [review record](artifacts/production-profile-review-2026-09-18.json)
+and hardening document retain the evidence and limits. Publication and exact-commit
+CI remain pending at this source snapshot; outcomes will be recorded in PR #118.
+Eleven milestones remain: nine for the first release and two deferred. Exact
+model-input and tokenizer budget binding is next; no maturity promotion occurred.

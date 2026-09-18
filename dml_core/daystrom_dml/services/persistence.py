@@ -222,7 +222,8 @@ class PersistenceCoordinator:
             self._write_text(self.rag_path, json.dumps(payload, indent=2))
             self.state.observed_rag = self.path_stamp(self.rag_path)
 
-    def refresh(self, *, state_stamp: Callable[[], Stamp] | None = None) -> bool:
+    def refresh(self, *, state_stamp: Callable[[], Stamp] | None = None,
+                include_auxiliary: bool = True) -> bool:
         """Import changed components; caller handles reload logging and metrics."""
         persistent = self._persistent_rag()
         with self.state.refresh_lock:
@@ -240,6 +241,9 @@ class PersistenceCoordinator:
                 self.state.lattice_recovery_error = None
                 self.clear_failure("receipt_runtime")
                 changed = True
+
+            if not include_auxiliary:
+                return changed
 
             rag_stamp = self.path_stamp(self.rag_path)
             if rag_stamp is not None and rag_stamp != self.state.observed_rag:

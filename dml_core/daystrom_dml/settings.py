@@ -132,6 +132,7 @@ class DPMSettings(BaseModel):
 class DMLSettings(BaseModel):
     """Central configuration for the DML stack with env overrides."""
 
+    production_profile: str | None = None
     beta_a: float = 0.08
     beta_r: float = 0.2
     eta: float = 0.15

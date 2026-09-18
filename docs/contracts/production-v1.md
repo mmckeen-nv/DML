@@ -5,8 +5,16 @@ attributable context out, with explicit recovery and version compatibility**.
 This is the production target, not a declaration that the current alpha meets it.
 `GET /api/contracts` and `/health` expose the current maturity inventory.
 The [finite remaining-work ledger](../production-remaining-work-2026-09-18.md)
-tracks ten remaining first-release milestones and two explicitly deferred
-milestones after the reviewed coordinator milestone.
+tracks nine remaining first-release milestones and two explicitly deferred
+milestones after the reviewed coordinator and supported-profile milestones.
+
+The explicit first-release support target is
+[`dml-receipted-local-v1`](../supported-production-profile-v1.md). Selecting
+`production_profile` enforces that candidate's admitted APIs, configuration,
+authority and caller boundary. The profile freeze passed the reviewed-source gate
+for milestone 1; it does not qualify filesystems, power loss, dependency combinations
+or the whole repository. The historical feature sections below include candidate
+capabilities that the selected profile deliberately excludes.
 
 ## Scope
 
@@ -16,6 +24,15 @@ individual tenants: holders are trusted service callers. Native KV reuse,
 automatic promotion/abstraction, DPM/DCN, ANN and fabric routing remain experimental;
 unimplemented transfer data planes remain research. No feature is promoted to
 stable merely because it has been refactored or passed a smoke test.
+
+The selected profile uses receipt schema-2/3/4 journal authority, strict declared
+embeddings, scoped context and retention inspection. It excludes legacy mutations,
+generation, RAG/projection backend APIs, semantic checkpoints and experimental
+services from its admitted runtime surface. Its `persistence.enable=false` disables
+legacy JSONL persistence; `persistence.journal=true` and `receipts=true` preserve
+durable journal commits. The [explicit example](../examples/production-profile-v1.yaml)
+is the configuration reference for this opt-in; older per-feature examples describe
+their historical unselected adapter configuration.
 
 ## Required release behavior
 
@@ -302,9 +319,12 @@ model/tokenizer budgets; crash/recovery/filesystem qualification; persisted-form
 and migration coverage; mixed-operation concurrency; a live-agent semantic/outcome
 harness; fair baseline value; continuous 1k/10k lanes and a 100k campaign; durable
 decision replay with audit export/retention; and release qualification/support
-documentation. The coordinator milestone has passed its reviewed-source gate,
-leaving ten first-release milestones; implemented serial gates
+documentation. The coordinator and supported-profile milestones have passed their
+reviewed-source gates, leaving nine first-release milestones; implemented serial gates
 do not independently close the broader qualification obligations.
+Milestone 3, exact model-input and tokenizer budget binding, is next. Publication
+and exact-commit CI are pending at this source snapshot; outcomes will be recorded
+in PR #118. The profile and repository have not been promoted in maturity.
 
 Remaining legacy retrieval/lifecycle extraction and native-KV restore identity
 qualification are the two deferred broader milestones. Physical erasure,

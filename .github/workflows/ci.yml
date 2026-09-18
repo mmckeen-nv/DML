@@ -25,6 +25,8 @@ jobs:
         dml_core/daystrom_dml/persistence.py
         dml_core/daystrom_dml/checkpoint.py
         dml_core/daystrom_dml/contracts/retention.py
+        dml_core/daystrom_dml/contracts/profile.py
+        dml_core/daystrom_dml/contracts/production.py
         integrations/hermes/plugins/daystrom_dml
         dml_core/daystrom_dml/tests/test_dml.py
       DML_CI_MYPY_TARGETS: >-
@@ -37,6 +39,8 @@ jobs:
         dml_core/daystrom_dml/journal.py
         dml_core/daystrom_dml/checkpoint.py
         dml_core/daystrom_dml/contracts/retention.py
+        dml_core/daystrom_dml/contracts/profile.py
+        dml_core/daystrom_dml/contracts/production.py
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
@@ -131,6 +135,11 @@ jobs:
           dml_core/tests/test_transaction_integration.py
           dml_core/tests/test_transaction_recovery.py
           dml_core/tests/test_transaction_adversarial.py
+          dml_core/tests/test_production_profile.py
+          dml_core/tests/test_production_profile_config.py
+          dml_core/tests/test_production_profile_integration.py
+          dml_core/tests/test_production_profile_api.py
+          dml_core/tests/test_production_profile_adversarial.py
           dml_core/tests/test_adversarial_memory.py
           dml_core/tests/test_outcome_metrics.py
           dml_core/tests/test_fail_closed_persistence.py
@@ -209,6 +218,8 @@ jobs:
         run: python -m pytest dml_core/tests/test_retrieval_service.py dml_core/tests/test_context_service.py dml_core/tests/test_retrieval_context_integration.py dml_core/tests/test_retrieval_context_adversarial.py --junitxml=production-artifacts/retrieval-context.xml
       - name: Verify transaction and persistence coordination
         run: python -m pytest dml_core/tests/test_transaction_service.py dml_core/tests/test_persistence_service.py dml_core/tests/test_transaction_integration.py dml_core/tests/test_transaction_recovery.py dml_core/tests/test_transaction_adversarial.py --junitxml=production-artifacts/transaction-coordinator.xml
+      - name: Verify supported production profile admission
+        run: python -m pytest dml_core/tests/test_production_profile.py dml_core/tests/test_production_profile_config.py dml_core/tests/test_production_profile_integration.py dml_core/tests/test_production_profile_api.py dml_core/tests/test_production_profile_adversarial.py --junitxml=production-artifacts/production-profile.xml
       - name: Compare independent baseline on 1000 offline turns
         run: python -m scripts.production_baseline --turns 1000 --output production-artifacts/baseline.json
       - name: Measure journal history validation cost
