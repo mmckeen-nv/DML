@@ -22,6 +22,8 @@ jobs:
         dml_core/daystrom_dml/context
         dml_core/daystrom_dml/services
         dml_core/daystrom_dml/journal.py
+        dml_core/daystrom_dml/atomic_io.py
+        dml_core/daystrom_dml/store_lock.py
         dml_core/daystrom_dml/persistence.py
         dml_core/daystrom_dml/checkpoint.py
         dml_core/daystrom_dml/contracts/retention.py
@@ -48,6 +50,8 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
+      - name: Require patched SQLite runtime
+        run: python .github/scripts/prepare_sqlite.py
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
@@ -72,6 +76,8 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
+      - name: Require patched SQLite runtime
+        run: python .github/scripts/prepare_sqlite.py
       - name: Install portability-test dependencies
         run: python -m pip install -e .[faiss] pytest httpx2
       - name: Verify locks, atomic persistence, rollback, RAG recovery, and wrapper paths
@@ -171,6 +177,8 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
+      - name: Require patched SQLite runtime
+        run: python .github/scripts/prepare_sqlite.py
       - name: Install pinned CPU model-input dependencies
         run: |
           python -m pip install --upgrade pip
@@ -230,6 +238,8 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
+      - name: Require patched SQLite runtime
+        run: python .github/scripts/prepare_sqlite.py
       - name: Install CPU evidence dependencies
         run: python -m pip install .[server,dev]
       - name: Stress 256 concurrent journal clients
@@ -298,3 +308,105 @@ jobs:
         with:
           name: production-evidence
           path: production-artifacts/
+
+  profile-recovery:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python-version: ["3.10", "3.13"]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    env:
+      OPENBLAS_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      DML_SKIP_VENV_REEXEC: "1"
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Require patched SQLite runtime
+        run: python .github/scripts/prepare_sqlite.py
+      - name: Install recovery evidence dependencies
+        run: python -m pip install -e .[server,dev]
+      - name: Lint recovery evidence and CI bootstrap
+        run: ruff check dml_core/scripts/profile_recovery_evidence.py .github/scripts/prepare_sqlite.py
+      - name: Qualify profile recovery on the measured test filesystem
+        run: >-
+          python -m pytest -p scripts.profile_recovery_evidence
+          dml_core/tests/test_production_profile_recovery.py
+          dml_core/tests/test_profile_recovery_campaign.py
+          dml_core/tests/test_profile_storage_faults.py
+          dml_core/tests/test_authority_backup.py
+          dml_core/tests/test_crash_qualification_adversarial.py
+          dml_core/tests/test_profile_recovery_evidence.py
+          --basetemp=profile-recovery-work/stores
+          --junitxml=profile-recovery-artifacts/recovery.xml
+          --recovery-evidence=profile-recovery-artifacts/evidence.json
+          --require-recovery-filesystem
+      - name: Preserve measured recovery evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: profile-recovery-${{ matrix.os }}-py${{ matrix.python-version }}
+          path: profile-recovery-artifacts/
+
+  profile-filesystem-full:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      OPENBLAS_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      DML_SKIP_VENV_REEXEC: "1"
+      REQUIRE_FILESYSTEM_FULL_TESTS: "1"
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Require patched SQLite runtime
+        run: python .github/scripts/prepare_sqlite.py
+      - name: Install filesystem test dependencies
+        run: python -m pip install -e .[server,dev]
+      - name: Provision a bounded disposable ext4 volume
+        shell: bash
+        run: |
+          volume_dir=$(mktemp -d "$RUNNER_TEMP/dml-enospc.XXXXXX")
+          mkdir "$volume_dir/mount"
+          truncate -s 128M "$volume_dir/disk.img"
+          mkfs.ext4 -q -F -m 0 "$volume_dir/disk.img"
+          echo "RECOVERY_ENOSPC_VOLUME=$volume_dir" >> "$GITHUB_ENV"
+          echo "RECOVERY_ENOSPC_MOUNT=$volume_dir/mount" >> "$GITHUB_ENV"
+          sudo mount -o loop "$volume_dir/disk.img" "$volume_dir/mount"
+          sudo chown "$USER" "$volume_dir/mount"
+          python -c 'import pathlib,sys; (pathlib.Path(sys.argv[1])/".dml-ci-enospc-volume").write_bytes(b"dml-ci-enospc-v1\n")' "$volume_dir/mount"
+      - name: Require real filesystem ENOSPC recovery for every mutation
+        run: >-
+          python -m pytest dml_core/tests/test_profile_filesystem_full.py
+          --junitxml=filesystem-full-artifacts/filesystem-full.xml
+      - name: Require all fifteen real disk-full cases without skips
+        run: |
+          python - <<'PY'
+          import xml.etree.ElementTree as ET
+          root = ET.parse("filesystem-full-artifacts/filesystem-full.xml").getroot()
+          counts = {key: len(list(root.iter(key))) for key in ("testcase", "failure", "error", "skipped")}
+          print(counts)
+          if counts != {"testcase": 15, "failure": 0, "error": 0, "skipped": 0}:
+              raise SystemExit("Real filesystem qualification requires all 15 passing cases")
+          PY
+      - name: Preserve filesystem failure evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: profile-ext4-enospc
+          path: filesystem-full-artifacts/
+      - name: Unmount disposable volume
+        if: always()
+        shell: bash
+        run: |
+          if [ -n "${RECOVERY_ENOSPC_MOUNT:-}" ] && mountpoint -q "$RECOVERY_ENOSPC_MOUNT"; then
+            sudo umount "$RECOVERY_ENOSPC_MOUNT"
+          fi

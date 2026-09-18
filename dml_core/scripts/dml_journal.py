@@ -72,6 +72,16 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="operation", required=True)
     commands.add_parser("retention-contract", help="Describe receipt retention and erasure limits without opening a store")
+    backup = commands.add_parser("backup", help="Back up a stopped-writer receipt authority into a new directory")
+    backup.add_argument("source", type=Path)
+    backup.add_argument("destination", type=Path)
+    verify = commands.add_parser("verify-backup", help="Verify a full authority backup and optional retained client receipts")
+    verify.add_argument("source", type=Path)
+    verify.add_argument("--receipts", type=Path)
+    restore = commands.add_parser("restore", help="Restore a verified backup into a new storage directory; never cut over")
+    restore.add_argument("source", type=Path)
+    restore.add_argument("destination", type=Path)
+    restore.add_argument("--receipts", type=Path)
     incoming = commands.add_parser("import")
     incoming.add_argument("source", type=Path)
     incoming.add_argument("database", type=Path)
@@ -92,6 +102,34 @@ def main(argv=None):
     decisions.add_argument("--after-revision", type=int, default=0)
     decisions.add_argument("--limit", type=int, default=100)
     args = parser.parse_args(argv)
+    if args.operation in {"backup", "verify-backup", "restore"}:
+        from daystrom_dml.journal import _decode
+        from daystrom_dml.services.authority_backup import (
+            MAX_RECEIPTS_BYTES, backup_authority, restore_backup, verify_backup,
+        )
+
+        try:
+            receipts = None
+            receipt_path = getattr(args, "receipts", None)
+            if receipt_path is not None:
+                with receipt_path.open("rb") as handle:
+                    raw = handle.read(MAX_RECEIPTS_BYTES + 1)
+                if len(raw) > MAX_RECEIPTS_BYTES:
+                    raise ValueError("Retained receipts exceed the size limit")
+                receipts = _decode(raw.decode("utf-8"))
+                if type(receipts) is not list:
+                    raise ValueError("Retained receipts must be a JSON array")
+            if args.operation == "backup":
+                report = backup_authority(args.source, args.destination)
+            elif args.operation == "verify-backup":
+                report = verify_backup(args.source, receipts=receipts)
+            else:
+                report = restore_backup(args.source, args.destination, receipts=receipts)
+        except Exception as exc:
+            print(json.dumps({"ok": False, "error": type(exc).__name__}))
+            return 2
+        print(json.dumps({"ok": True, **report}, sort_keys=True, allow_nan=False))
+        return 0
     if args.operation == "retention-contract":
         from daystrom_dml.contracts.retention import retention_contract
 

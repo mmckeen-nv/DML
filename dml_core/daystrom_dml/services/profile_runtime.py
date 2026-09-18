@@ -8,6 +8,7 @@ from pathlib import Path
 import sqlite3
 
 from ..contracts.profile import ProductionProfileError, validate_profile_authority
+from ..journal import JournalIntegrityError, require_patched_sqlite
 
 
 def outside_production_profile(method):
@@ -30,6 +31,10 @@ def preflight_profile_authority(profile_id: str | None, storage_dir: Path,
     """
     if profile_id is None:
         return
+    try:
+        require_patched_sqlite()
+    except JournalIntegrityError as exc:
+        raise ProductionProfileError(str(exc)) from exc
     path = storage_dir.expanduser().resolve() / "dml_state.sqlite3"
     if path.with_name(path.name + ".migration.json").exists():
         raise ProductionProfileError("Incomplete journal migration requires recovery")
@@ -42,9 +47,12 @@ def preflight_profile_authority(profile_id: str | None, storage_dir: Path,
     try:
         with closing(sqlite3.connect(path.as_uri() + "?mode=ro", uri=True, timeout=30)) as connection:
             version = connection.execute("PRAGMA user_version").fetchone()[0]
+            journal_mode = connection.execute("PRAGMA journal_mode").fetchone()[0]
     except sqlite3.Error as exc:
         raise ProductionProfileError("Profile authority cannot be inspected") from exc
     validate_profile_authority(profile_id, version, outbox_enabled)
+    if journal_mode != "wal":
+        raise ProductionProfileError("Selected profile requires SQLite WAL journal mode")
 
 
 def validate_profile_retrieval(prompt, *, scope, top_k, kinds, phase,

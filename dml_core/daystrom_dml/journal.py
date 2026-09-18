@@ -8,6 +8,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import re
 import sqlite3
 import time
 import uuid
@@ -52,6 +53,45 @@ class JournalSchemaError(JournalIntegrityError):
 
 class RevisionConflict(RuntimeError):
     """The caller attempted to overwrite a revision it has not read."""
+
+
+def _patched_sqlite_version(version: str) -> bool:
+    """Recognize official WAL-reset fix releases, including both backports."""
+    if type(version) is not str or len(version) > 64 or re.fullmatch(
+        r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)", version
+    ) is None:
+        return False
+    parts = tuple(int(part) for part in version.split("."))
+    return (parts >= (3, 51, 3)
+            or (parts[:2] == (3, 44) and parts[2] >= 6)
+            or (parts[:2] == (3, 50) and parts[2] >= 7))
+
+
+def require_patched_sqlite() -> dict[str, str]:
+    """Inspect the linked SQL runtime before touching profile authority.
+
+    SQLite's WAL-reset race can affect simultaneous writers/checkpointers,
+    including automatic checkpoints on connection close. The profile therefore
+    requires an upstream fixed release; writer ownership alone is insufficient.
+    See https://sqlite.org/wal.html#walresetbug. Reported versions identify the
+    linked runtime; this check does not attest a custom SQLite build's source.
+    """
+    try:
+        connection = sqlite3.connect(":memory:")
+        try:
+            version, source_id = connection.execute(
+                "SELECT sqlite_version(), sqlite_source_id()"
+            ).fetchone()
+        finally:
+            connection.close()
+    except sqlite3.Error as exc:
+        raise JournalIntegrityError("SQLite runtime cannot be inspected") from exc
+    if not _patched_sqlite_version(version):
+        raise JournalIntegrityError(
+            "Selected profile requires SQLite with the WAL-reset fix: "
+            "3.51.3 or later, 3.44.6+ on the 3.44 branch, or 3.50.7+ on the 3.50 branch"
+        )
+    return {"sqlite_version": version, "sqlite_source_id": source_id}
 
 
 def _encode(payload) -> str:
@@ -212,11 +252,14 @@ class JournalStateStore:
     def __init__(self, path: Path, *, snapshot_interval: int = 128,
                  fault_hook: Callable[[str], None] | None = None,
                  receipt_mode: bool = False, outbox_mode: bool = False,
-                 allowed_schema_versions: frozenset[int] | None = None):
+                 allowed_schema_versions: frozenset[int] | None = None,
+                 require_wal: bool = False):
         if type(receipt_mode) is not bool:
             raise ValueError("receipt_mode must be a boolean")
         if type(outbox_mode) is not bool or (outbox_mode and not receipt_mode):
             raise ValueError("outbox_mode must be a boolean and requires receipt_mode=True")
+        if type(require_wal) is not bool:
+            raise ValueError("require_wal must be a boolean")
         if allowed_schema_versions is not None and (
                 type(allowed_schema_versions) is not frozenset or not allowed_schema_versions
                 or any(type(version) is not int or version not in {1, 2, 3, 4}
@@ -225,9 +268,12 @@ class JournalStateStore:
         self._allowed_schema_versions = allowed_schema_versions
         self._receipt_mode = receipt_mode
         self._outbox_mode = outbox_mode
+        self._require_wal = require_wal
         self._schema_version = OUTBOX_JOURNAL_SCHEMA_VERSION if outbox_mode else (RECEIPT_JOURNAL_SCHEMA_VERSION if receipt_mode else JOURNAL_SCHEMA_VERSION)
         if allowed_schema_versions is not None and self._schema_version not in allowed_schema_versions:
             raise JournalSchemaError("New journal schema is outside the caller's admitted versions")
+        if require_wal:
+            require_patched_sqlite()
         self.path = Path(path).resolve()
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.snapshot_interval = max(1, snapshot_interval)
@@ -293,6 +339,7 @@ class JournalStateStore:
                 self._fault_hook("init_after_commit")
             with connection:
                 connection.execute("BEGIN")
+                self._validate_journal_mode(connection)
                 if connection.execute("PRAGMA quick_check").fetchall() != [("ok",)]:
                     raise JournalIntegrityError("Journal integrity check failed")
                 self._validate_layout(connection)
@@ -324,6 +371,12 @@ class JournalStateStore:
     @staticmethod
     def _create_receipt_table(connection):
         connection.execute("CREATE TABLE receipts (scope TEXT NOT NULL, key TEXT NOT NULL, revision INTEGER NOT NULL, payload TEXT NOT NULL, checksum TEXT NOT NULL, PRIMARY KEY(scope,key))")
+
+    def _validate_journal_mode(self, connection):
+        # The profile promises WAL. Existing authorities must never be silently
+        # converted during admission or read/commit; legacy readers opt out.
+        if self._require_wal and connection.execute("PRAGMA journal_mode").fetchone() != ("wal",):
+            raise JournalIntegrityError("Selected profile requires SQLite WAL journal mode")
 
     @property
     def schema_version(self) -> int:
@@ -363,6 +416,7 @@ class JournalStateStore:
                 self._validate_version(version)
                 if version != self._schema_version:
                     raise JournalSchemaError("Journal schema changed while open")
+                self._validate_journal_mode(connection)
                 if self.migration_path.exists():
                     raise JournalIntegrityError("Incomplete journal migration")
                 self._validate_layout(connection)

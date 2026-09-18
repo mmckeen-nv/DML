@@ -331,10 +331,24 @@ token IDs. Independent review accepted 9.6/10 with 256 focused passes and zero
 skips; the final root full suite passed 3,598 tests with 9 skips. It does not
 change the memory profile's HTTP routes or turn retrieval estimates into exact
 model-input counts. The published stage-16 source passed all nine jobs in CI run
-315; stage-17 publication and exact-commit CI remain pending at this source snapshot,
-with outcomes to be recorded in PR #118.
+315; stage-17 corrected source `49368a9` subsequently passed all ten jobs in
+[CI run 317](https://github.com/mmckeen-nv/DML/actions/runs/35348088493).
+PR #118 remains unmerged.
 The profile and repository have not been promoted in maturity.
-Milestone 4, crash recovery and filesystem qualification, is next.
+Milestone 4, crash recovery and filesystem qualification, is in progress under
+the [profile recovery contract](../profile-recovery-v1.md). Its software review
+accepted 9.6/10, with 416 independent focused passes, 450 actual evidence-plugin
+passes and 4,048 root full-suite passes with 24 skips. The selections overlap;
+15 full-suite skips require the dedicated ext4 CI volume. All six measured-platform
+lanes and all 15 real ENOSPC cases remain pending, so milestone 4 stays open at
+this source snapshot. The operator
+commands verify complete schema-2/3/4 authority, capture consistent backups and
+restore into a separate location. External receipts are required to identify
+consistent rollback or acknowledged WAL loss; a backup recovers its captured
+revision only. Process-kill, caught-error, SQLite quota and physical filesystem-full
+evidence remain distinct, and physical power loss is unclaimed. The source ledger
+retains eight first-release and two deferred milestones until that environment
+qualification succeeds; PR #118 records subsequent outcomes. Maturity is unchanged.
 
 Remaining legacy retrieval/lifecycle extraction and native-KV restore identity
 qualification are the two deferred broader milestones. Physical erasure,

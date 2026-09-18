@@ -1,8 +1,9 @@
 # Finite production release plan
 
 Date: 2026-09-18. This is the current remaining-work ledger for the
-[production contract](contracts/production-v1.md), after seventeen independently reviewed serial
-hardening gates, including transaction coordination, supported-profile freeze and exact model-input binding. The
+[production contract](contracts/production-v1.md), after eighteen independently reviewed serial
+software-hardening gates, including transaction coordination, supported-profile
+freeze, exact model-input binding and profile recovery. The
 [original ten areas](productionization-plan-2026-09-12.md) remain the organizing
 workstreams; a serial gate or pull request is not another release milestone.
 
@@ -10,11 +11,12 @@ The audited scope contains 13 milestones: 11 for the first production release
 and 2 deferred beyond it. Milestones 1–3 have passed their reviewed-source gates,
 leaving **10 remaining: 8 for the first release and 2 deferred**. The published
 stage-16 source `dc85123` passed all nine jobs in CI run 315 (`35341742222`);
-the tested PR merge tree matched that published source tree. PR #118 remains open
-and unmerged. Stage 17 has independent acceptance and a passing final root
-integration run. Its publication and exact-commit CI remain pending at this source
-snapshot; their outcomes will be recorded in PR #118. Earlier CI success does not
-cover the new source.
+the tested PR merge tree matched that published source tree. Stage 17's corrected
+published source `49368a9` subsequently passed all ten jobs in
+[CI run 317](https://github.com/mmckeen-nv/DML/actions/runs/35348088493).
+PR #118 remains open and unmerged. Stage 18's recovery software passed independent
+review at 9.6/10 and root integration; prior CI success does not cover it. Its
+measured-platform qualification and exact-source CI remain pending.
 These are closure decisions, each of which may require
 several implementations and evidence runs. Completing the coordinator
 gate does not complete all persistence qualification or promote the repository
@@ -30,9 +32,19 @@ production-ready. **Milestone 3, exact model-input and tokenizer budget binding,
 is closed at the reviewed-source gate** through the
 [local input companion](model-input-contract-v1.md): 9.6/10 and 256 focused passes
 with zero skips, followed by 3,598 full-suite passes and 9 skips. Its
-[evidence record](model-input-hardening-2026-09-18.md) keeps publication and
-exact-commit CI pending separately. **Milestone 4,
-crash recovery and filesystem qualification, is next.**
+[evidence record](model-input-hardening-2026-09-18.md) preserves the initial
+source-snapshot evidence separately from subsequent CI.
+**Milestone 4, crash recovery and filesystem qualification, is in progress.** The
+[recovery contract](profile-recovery-v1.md) and
+[hardening record](profile-recovery-hardening-2026-09-18.md) define its mutation
+matrix, operator procedure and bounded failure claims. Independent review accepted
+**9.6/10**, with **416 independent focused passes**, **450 passes in the actual
+evidence-plugin run**, and **4,048 root full-suite passes with 24 skips**. Those
+selections overlap. The local overlay remains unqualified and 15 full-suite skips
+require the dedicated ext4 CI volume. All six measured-platform lanes and all
+15 real ENOSPC cases must pass before milestone 4 closes. Software acceptance
+alone does not reduce the remaining count; PR #118 will record subsequent CI and
+closure, with source-ledger history carried forward at the next milestone.
 
 ## First production release: 8 remaining of 11 milestones
 
@@ -40,8 +52,8 @@ crash recovery and filesystem qualification, is next.**
 | --- | --- | --- | --- | --- |
 | 1 | Freeze the supported production profile | Closed at reviewed-source gate: serial gate 16 | Explicit candidate APIs, journal/receipt authority, platform target versus demonstrated qualification, trusted-caller scope, dependencies, limits and retry outcomes enforced with experimental paths excluded. Independent review **9.6/10**, 441 focused passes, and **3,342 local full-suite passes with 9 skips**. [Evidence and limits](production-profile-hardening-2026-09-18.md); subsequent published stage-16 source passed all nine CI jobs in run 315. | 1, 7, 9 |
 | 2 | Extract persistence and transaction coordination | Closed at reviewed-source gate: serial gate 15 | Narrow services integrated with characterized legacy and receipt-schema-2/3/4 behavior; independent review **9.6/10**, 164 focused passes, 256-client stress pass, and 2,948 full-suite passes with 9 skips. [Evidence and limits](transaction-coordinator-hardening-2026-09-18.md) explicitly exclude cross-file crash atomicity. | 2, 3, 9 |
-| 3 | Bind exact model input and tokenizer budgets | Closed at reviewed-source gate: serial gate 17 | The Python-only [local Transformers companion](model-input-contract-v1.md) pins model/tokenizer/template identities, counts complete messages/tools/framing plus reserved output, rejects overflow and dispatches the immutable token IDs. The memory profile retains its nine-route/no-generation boundary. Independent review **9.6/10**, **256 focused passes with 0 skips**, and **3,598 full-suite passes with 9 skips**. [Evidence and limits](model-input-hardening-2026-09-18.md); publication and exact-commit CI remain pending at this source snapshot. | 1, 2, 7 |
-| 4 | Qualify crash recovery and supported filesystems | Open | Finish the supported-profile mutation/component inventory and deterministic plus seeded fault matrix; account for acknowledged, rejected and uncertain operations on restart; qualify the advertised filesystem/platform failure guarantees and publish a tested recovery runbook. Keep process-kill and power-loss evidence distinct. | 3, 9 |
+| 3 | Bind exact model input and tokenizer budgets | Closed at reviewed-source gate: serial gate 17 | The Python-only [local Transformers companion](model-input-contract-v1.md) pins model/tokenizer/template identities, counts complete messages/tools/framing plus reserved output, rejects overflow and dispatches the immutable token IDs. The memory profile retains its nine-route/no-generation boundary. Independent review **9.6/10**, **256 focused passes with 0 skips**, and **3,598 full-suite passes with 9 skips**. [Evidence and limits](model-input-hardening-2026-09-18.md); subsequent corrected source `49368a9` passed all ten CI jobs in run 317. | 1, 2, 7 |
+| 4 | Qualify crash recovery and supported filesystems | Software accepted: serial gate 18, 9.6/10; measured-platform and real ENOSPC CI pending | Finish the supported-profile mutation/component inventory and deterministic plus seeded fault matrix; account for acknowledged, rejected and uncertain operations on restart; qualify the advertised filesystem/platform failure guarantees and publish a tested recovery runbook. Keep process-kill and power-loss evidence distinct. | 3, 9 |
 | 5 | Complete persisted-format and migration coverage | Open | Inventory every persisted family admitted by the supported profile; enforce supported versions and compatibility; pass source-version, future-version, interrupted migration, export and restore cases using accurately labeled release or commit-pinned fixtures. Document excluded families and rollback limitations. | 3, 8 |
 | 6 | Qualify mixed-operation concurrency | Open | Exercise supported reads, writes, lifecycle operations and journal checkpoint/recovery behavior through threads, processes and HTTP/provider callers at 1/16/64/256-client levels with an independent history checker. Show zero lost updates, dirty reads, deadlocks or scope leakage and satisfy predeclared cancellation, timeout, starvation and lock-latency requirements. | 3, 9 |
 | 7 | Wire the live-agent semantic and outcome harness | Open | Run pinned tool-driven agent episodes with task verifiers, raw events and failure-inclusive cost/quality metrics; cover the adversarial semantic cases and incorrect-retrieval feedback loops. Distinguish live outcomes from deterministic state checks and offline retrieval smoke. | 4, 6 |

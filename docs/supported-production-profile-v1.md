@@ -133,9 +133,14 @@ full database plus its identity sidecar. Copying only a live main database while
 WAL is active is insufficient. Lattice-only JSON exports and semantic checkpoints
 omit receipt authority and are outside this profile. A missing or corrupt store
 requires recovery into a separate location from verified evidence; never delete
-identity or migration markers to make a damaged store look new. Complete
-backup/restore qualification and the tested release runbook remain milestones 4,
-5 and 11.
+identity or migration markers to make a damaged store look new. The
+recovery boundary and offline operator commands are defined in the
+[recovery contract](profile-recovery-v1.md), with acceptance and measured-platform
+results tracked in its [hardening record](profile-recovery-hardening-2026-09-18.md).
+Milestone 4 is in progress; persisted-format coverage and final release support
+remain milestones 5 and 11. A backup captures one revision only; independent
+client receipts are required to detect a consistent rollback or acknowledged WAL
+loss that internal checksums cannot establish.
 
 ## Scope and caller authority
 
@@ -219,6 +224,12 @@ The package permits Python `>=3.10`; this selected profile admits only CPython
 3.10–3.13 on the runtime systems below. A declared floor is not evidence that every
 version combination works. The provider uses the resolved Pydantic 2 interface;
 the base `pydantic>=1.10` line does not qualify Pydantic 1 for this HTTP profile.
+The linked SQLite runtime must be 3.51.3 or newer, or a patched 3.44.x with patch
+level at least 6, or a patched 3.50.x with patch level at least 7, accounting for
+SQLite's [WAL-reset fix](https://sqlite.org/wal.html#walresetbug). Admission queries
+the library linked by Python; an updated standalone SQLite CLI is insufficient.
+Existing profile authority must already be WAL, and mode drift rejects without
+silent conversion. The version/source-ID probe does not attest a custom build.
 Installed transitive dependencies, SQLite, embedding implementation/model and
 operating-system details must be captured with each qualification run. No lockfile
 or fleet-wide dependency qualification is introduced here. Test doubles used in
@@ -247,6 +258,11 @@ Network/shared filesystems, multi-host coordination, noncooperating writers and
 unqualified mount/device combinations have no profile support claim. Runtime
 platform checks do not prove the filesystem or mount is suitable.
 
+The [recovery contract](profile-recovery-v1.md) inventories admitted components
+and separately records subprocess-kill, SQLite quota, real bounded-volume ENOSPC,
+corruption and caught-I/O-failure evidence. Its new CI jobs measure the actual test
+filesystem; runner labels do not substitute for an accepted observation. Actual
+platform and ENOSPC qualification remain pending until those jobs pass.
 Existing subprocess-kill, SQLite quota, corruption and caught-I/O-failure tests
 are distinct evidence classes. Process-kill success does not establish physical
 power-loss durability, arbitrary device failure behavior or all-component crash
@@ -333,8 +349,9 @@ Milestone 3 is closed at the reviewed-source gate through a separate
 caller's complete final messages and tool definitions after memory recall, using
 a verified local GPT-2/tokenizer snapshot. Independent review accepted 9.6/10
 with 256 focused passes and zero skips, and the final root full suite passed 3,598
-tests with 9 skips. Publication and exact-commit CI remain pending at this source
-snapshot; their outcomes will be recorded in PR #118. This companion does not add memory HTTP routes, permit generation
+tests with 9 skips on the initial source. The subsequent corrected source
+`49368a9` passed all ten jobs in CI run 317; PR #118 remains unmerged. This
+companion does not add memory HTTP routes, permit generation
 through `DMLAdapter`, or relabel the memory context estimator as an exact final
 model-input count.
 

@@ -271,6 +271,7 @@ class DMLAdapter:
         self._journal = (
             JournalStateStore(self.storage_dir / "dml_state.sqlite3", snapshot_interval=persistence_settings.snapshot_interval,
                               receipt_mode=self._receipts_enabled, outbox_mode=self._outbox_enabled,
+                              require_wal=self._production_profile is not None,
                               allowed_schema_versions=(
                                   frozenset({3, 4} if self._outbox_enabled else {2})
                                   if self._production_profile is not None else None))

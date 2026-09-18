@@ -1,0 +1,227 @@
+{
+  "acceptance_basis": [
+    "The supported profile retains a single SQLite receipt authority and its five existing public mutation APIs across admitted journal schemas 2, 3 and 4.",
+    "The parent-held oracle independently reconstructs complete records, request digests, historical receipts, decisions, outbox state, scoped reads and retention outcomes after 184 deterministic process kills.",
+    "Nine seeded histories accumulate independently expected state across 108 logical mutations and 36 killed attempts, distinguishing acknowledged, explicitly rejected and uncertain outcomes.",
+    "POSIX directory barrier failures propagate; ownership cleanup always attempts descriptor closure while preserving the primary failure, and failures after publication are not called rollback.",
+    "Selected profile admission verifies WAL mode without silent conversion and requires a linked SQLite release containing the documented WAL-reset fix before authority access.",
+    "Backup captures committed WAL through SQLite backup, verifies complete retained history, and restores only to a separate new destination protected by an incomplete marker.",
+    "Marker-first private reservation removes the empty-visible-destination gap. Sealed verification rejects unexpected sidecars, mismatched hashes, corrupt history and semantic manifest mismatches.",
+    "Externally retained receipt comparison detects tested stale, foreign and altered acknowledgements; documentation explicitly excludes freshness proofs without complete independent evidence.",
+    "The actual evidence plugin binds source/runtime/filesystem and per-case outcomes to JUnit, rejects incomplete selections and inappropriate skips, and correctly refuses to qualify the volatile local overlay.",
+    "Dedicated CI runs are mandatory for six measured platform combinations and all fifteen actual bounded-ext4 ENOSPC cases; local capability skips cannot satisfy them.",
+    "Independent focused tests, separately inspected plugin integration and the complete root regression suite pass; scope, release accounting and production_ready=false remain explicit."
+  ],
+  "actual_evidence_plugin_integration": {
+    "accepted": false,
+    "errors": [],
+    "executed_by": "Harness agent",
+    "failed": 0,
+    "independent_verification": "Grader read actual JSON, XML and log and verified JUnit hash, source attribution, filesystem observation, per-test totals and nonqualification flags. This is not synthetic unit-report evidence.",
+    "junit_seconds": 114.898,
+    "junit_sha256": "938493595b2980ab043761d698896f66b6395cbc43702844c43991d49fbfc48a",
+    "module_case_counts": {
+      "test_authority_backup": 60,
+      "test_crash_qualification_adversarial": 40,
+      "test_production_profile_recovery": 185,
+      "test_profile_recovery_campaign": 55,
+      "test_profile_recovery_evidence": 34,
+      "test_profile_storage_faults": 76
+    },
+    "passed": 450,
+    "power_loss_qualified": false,
+    "pytest_seconds": 114.92,
+    "report_sha256": "4a00c29b2621af13270521b5a3ab1ab00d42f88d123748c3af4123c24e7d3643",
+    "skipped": 0,
+    "source_commit": "49368a999ae9c197d19949b39814311d4d0bed11",
+    "source_tree": "1ce250619aee114cf4ba9eb295d31c82a281ac69",
+    "testcases": 450,
+    "tests_passed": true,
+    "working_tree_dirty": true
+  },
+  "base_commit": "49368a999ae9c197d19949b39814311d4d0bed11",
+  "blockers": [],
+  "decision": "ACCEPT",
+  "decision_scope": "Software source quality and bounded local correctness evidence. This decision does not close milestone 4 before exact-source measured-platform and real filesystem-full CI evidence passes.",
+  "evidence_environment": {
+    "filesystem": {
+      "device_id": 28,
+      "local": false,
+      "options": [
+        "fsync=volatile",
+        "relatime",
+        "rw"
+      ],
+      "source": "proc-self-mountinfo",
+      "type": "overlay"
+    },
+    "filesystem_qualified": false,
+    "implementation": "CPython",
+    "platform": "Linux-6.18.44-x86_64-with-glibc2.39",
+    "power_loss_qualified": false,
+    "python": "3.12.14",
+    "sqlite_source_id": "2026-05-05 10:34:17 c88b22011a54b4f6fbd149e9f8e4de77658ce58143a1af0e3785e4e6475127e9",
+    "sqlite_version": "3.53.1",
+    "working_tree_dirty": true
+  },
+  "grade_out_of_10": 9.6,
+  "independent_final_evidence_module_validation": {
+    "command": "OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 DML_SKIP_VENV_REEXEC=1 ../dml-venv/bin/python -m pytest dml_core/tests/test_profile_recovery_evidence.py --junitxml=/tmp/profile-recovery-evidence-independent-final.xml",
+    "errors": 0,
+    "executed_by": "Independent crash_grader agent",
+    "failed": 0,
+    "junit_seconds": 0.265,
+    "junit_sha256": "f6bd6d6adb8e6f650ab5de55009fe43688d01344ac2e7758d9a89283a6d625aa",
+    "module_case_counts": {
+      "test_profile_recovery_evidence": 34
+    },
+    "passed": 34,
+    "pytest_seconds": 0.29,
+    "skipped": 0,
+    "testcases": 34
+  },
+  "independent_focused_validation": {
+    "command": "OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 DML_SKIP_VENV_REEXEC=1 ../dml-venv/bin/python -m pytest dml_core/tests/test_production_profile_recovery.py dml_core/tests/test_profile_recovery_campaign.py dml_core/tests/test_profile_storage_faults.py dml_core/tests/test_authority_backup.py dml_core/tests/test_crash_qualification_adversarial.py --junitxml=/tmp/profile-recovery-independent-final.xml",
+    "errors": 0,
+    "executed_by": "Independent crash_grader agent",
+    "failed": 0,
+    "junit_seconds": 114.332,
+    "junit_sha256": "35ee335411ccbd98f8c35c282562318f9095e210932eb9e268d3703771e36123",
+    "module_case_counts": {
+      "test_authority_backup": 60,
+      "test_crash_qualification_adversarial": 40,
+      "test_production_profile_recovery": 185,
+      "test_profile_recovery_campaign": 55,
+      "test_profile_storage_faults": 76
+    },
+    "own_adversarial_cases_included": 40,
+    "passed": 416,
+    "pytest_seconds": 114.35,
+    "skipped": 0,
+    "testcases": 416
+  },
+  "limits_and_non_claims": [
+    "No physical power-loss, controller cache, arbitrary device fault, whole-filesystem-family or production readiness certification.",
+    "The local overlay has fsync=volatile and is explicitly not an accepted target filesystem despite passing software tests.",
+    "The new 184-case interruption matrix exercises actual Python APIs and a subprocess acknowledgement channel, not real HTTP disconnect timing or every CPU instruction.",
+    "A consistent older authority or lost committed WAL cannot always be identified without separately retained acknowledged receipts and original requests.",
+    "Receipt comparison attests only supplied receipts; a missing, empty or incomplete client ledger cannot establish completeness.",
+    "Restore recovers the captured revision, never merges divergent histories, performs cutover, or recovers newer acknowledged commits by itself.",
+    "Checksums and source-ID reporting do not attest authenticity against hostile filesystem writers, malicious in-process code or custom libraries that forge identities.",
+    "Network/shared filesystems, multi-host ownership, noncooperating writers and experimental persistence/component paths remain excluded.",
+    "Physical erasure, persisted-family migration qualification, mixed-operation concurrency qualification, live-agent outcomes and release promotion remain separate outstanding scope.",
+    "Focused, plugin, full-suite and future CI selections overlap and must not be added into one aggregate test count."
+  ],
+  "milestone": {
+    "name": "Qualify crash recovery and supported filesystems",
+    "number": 4,
+    "status": "software_source_accepted_environment_qualification_pending"
+  },
+  "primary_sources_independently_verified": [
+    "https://sqlite.org/wal.html#walresetbug",
+    "https://sqlite.org/download.html"
+  ],
+  "publication": {
+    "branch": "feat/production-foundations",
+    "exact_source_ci": "pending_at_reviewed_snapshot",
+    "expected_workflow_jobs": 17,
+    "merged": false,
+    "pull_request": 118,
+    "repository": "mmckeen-nv/DML",
+    "reviewed_source_publication": "pending_at_reviewed_snapshot"
+  },
+  "remaining_milestones_at_reviewed_snapshot": {
+    "current": 4,
+    "deferred": 2,
+    "first_release": 8,
+    "next_after_environment_qualification": 5,
+    "total": 10
+  },
+  "required_grade_out_of_10": 9.5,
+  "required_remaining_qualification": [
+    "All six profile-recovery jobs on Ubuntu/macOS/Windows and CPython 3.10/3.13 must pass on the exact published source.",
+    "Downloaded real runner evidence must report accepted=true, the actual supported local filesystem and linked SQLite identity, with matching JUnit digest and complete passing matrix; Windows permits only the fifteen inapplicable directory-barrier parameter cases.",
+    "The dedicated bounded 128 MiB ext4 job must report fifteen passing actual filesystem-full cases, zero skips and zero failures/errors; logical SQLite quota and local skips are not substitutes.",
+    "All seventeen workflow jobs must pass; source tree/PR merge attribution must be verified and PR #118 must remain unmerged."
+  ],
+  "resolved_review_findings": [
+    "POSIX directory-open errors had been silently ignored by the directory durability barrier; they now propagate after visible publication.",
+    "Diagnostic cleanup or explicit unlock failure could prevent final descriptor closure; cleanup now attempts every release step and preserves the primary error.",
+    "Previously selected existing authorities were not required to remain in WAL mode; strict profile admission and live connections now reject mode drift.",
+    "Official SQLite WAL-reset corruption exposure cannot be excluded by existing writer ownership because pre-lock read connections may checkpoint on close; patched runtime admission and real CI runtime provisioning were added.",
+    "Immutable SQLite reports journal_mode=delete even for a sealed WAL-format file; sealed verification now checks the actual database header and absence of journal sidecar dependence.",
+    "Writing the incomplete marker after creating the requested destination exposed a fresh empty directory on failure; a marker-first private directory is now published atomically under a cooperating publisher lock.",
+    "Python dictionary equality accepted boolean aliases for manifest integer claims; canonical JSON authority comparison now distinguishes their types.",
+    "Evidence recording now includes dirty-tree attribution, actual test directory/device verification, minimum matrix coverage, positive coverage from each required module, precise skip rules and a mandatory JUnit report.",
+    "Conflicting deepest Linux mount observations reject unless the actual device identifies the mount; arbitrary runner labels and unmeasured filesystems do not qualify.",
+    "Documentation distinguishes Python/subprocess acknowledgement interruption from untested HTTP transport loss and directs corrupt-source recovery to an earlier separately verified backup."
+  ],
+  "reviewed_at_utc": "2026-09-18T14:28:50.859228+00:00",
+  "reviewed_snapshot": "The 24 changed source/test/workflow/documentation files bound below. Source is uncommitted at review; publication and actual runner qualification are pending.",
+  "reviewed_source_sha256": {
+    ".github/scripts/prepare_sqlite.py": "5a983a42ddce8781d4521a4a5e8e65e71f0e1ab91497927c2b1345497a2709f1",
+    ".github/workflows/ci.yml": "f0b696030891371caa73f808317c2d4d075646dc19579c0d5288c247e8c16393",
+    "dml_core/daystrom_dml/atomic_io.py": "6493efea4f8f4885c6f66e81043a185c79ab348cf75147bda2369838f95a9b42",
+    "dml_core/daystrom_dml/dml_adapter.py": "7e799ae137ca04531b7f85defd2c19571f07a6f1588ec137cf747516299e5411",
+    "dml_core/daystrom_dml/journal.py": "a421fcdf9e0dea64ee931b1714c9fb744d0c5f1897e6053a43ae8d36444ac2a8",
+    "dml_core/daystrom_dml/services/authority_backup.py": "9cfd431b43600792bad15a86f9e75f308d5cb025c324a74921e1780e49e832fc",
+    "dml_core/daystrom_dml/services/profile_runtime.py": "2ea41e1651700a639b3205ffaa8b59230e94566bc9f9af3b4d61240966658d98",
+    "dml_core/daystrom_dml/store_lock.py": "eab2229cef4a032ae56a7bd32ef963294ce0e6adbaa3af4f016f3a8081230f0f",
+    "dml_core/scripts/dml_journal.py": "42b19aabd4b09f7202d1a8ed6638826dfa04bea8aa6dc25108312725a913f197",
+    "dml_core/scripts/profile_recovery_evidence.py": "723abcd82fa9b5ee1f73cd2ea730a676bb3a7126539d3b86035a2cefd56079c1",
+    "dml_core/tests/profile_crash_fixture.py": "09c82c5f34657ac30f0fb31cbf218096267c595f8a1f55310561f5b5fbe00d49",
+    "dml_core/tests/test_authority_backup.py": "24f38a53de5be0f5524117e26e72111ccc38a262f513d399ba1b79489b74ea8e",
+    "dml_core/tests/test_crash_qualification_adversarial.py": "e29ae520a004b48f2d65e443c11e8d2da67540557b036811dba892c8f5b20e84",
+    "dml_core/tests/test_production_profile_recovery.py": "6a8e6e0ed4616199b32ea7f66f66fedfc9cecc585f4b454b34c37a46e1b5e0e9",
+    "dml_core/tests/test_profile_filesystem_full.py": "9094a1058f27f9516a2f13187ceeac0bae1563237e3690ed4082ae8f198d4aba",
+    "dml_core/tests/test_profile_recovery_campaign.py": "a460743728992e415de78800c477b23d44cdc84aba2b89a3350f18655124621d",
+    "dml_core/tests/test_profile_recovery_evidence.py": "c2c038155d22eb2c887b6c53ed75dcb3093e25be3ac2286dfcbe603ceae1496c",
+    "dml_core/tests/test_profile_storage_faults.py": "113951bb35d18769fa09b85223ac70a818c832b0f538ca4589543f86441597ff",
+    "docs/contracts/production-v1.md": "7de0053b4562a6f35774095b95c3b5b6cc170da900b5689d1599fe11006abb12",
+    "docs/production-foundations-2026-09-12.md": "f602f4e0c9a67af32083b1204e57785193721276f2a76e2f42b50dddfe5c93e3",
+    "docs/production-remaining-work-2026-09-18.md": "315558afaa55ce96623ab9d1e0178d459f5743cdc2c19637ffc14047365b786b",
+    "docs/profile-recovery-hardening-2026-09-18.md": "a804e38e3d9f5d6b0d32f874cdcca64534610fc3a7bfef279251ef96429daab1",
+    "docs/profile-recovery-v1.md": "3342882e728fa3af6674fc1410cd70938cec9b7dc2dbb49b40618a22e055c3dc",
+    "docs/supported-production-profile-v1.md": "445a52b48e61bfaa1716afa63f4cd03ba317547fa7813ad03496aad4b5d964d9"
+  },
+  "reviewer": "Independent crash_grader agent; implementation delegated to separate runtime, harness, campaign, operator and evidence owners",
+  "root_full_suite_validation": {
+    "errors": 0,
+    "executed_by": "Root agent; one complete regression run",
+    "failed": 0,
+    "independent_verification": "Grader independently read full XML and log; did not rerun the full suite.",
+    "junit_seconds": 257.093,
+    "junit_sha256": "881d935c556beef11c20d454ea97d7ecff8685c53e970b0fc3a73a34dda6f731",
+    "new_regular_recovery_cases": {
+      "passed": 450,
+      "skipped": 0
+    },
+    "passed": 4048,
+    "pytest_seconds": 257.17,
+    "skip_classes": {
+      "dedicated_ext4_mount_unavailable": 15,
+      "prior_optional_capability_skips": 9
+    },
+    "skipped": 24,
+    "testcases": 4072,
+    "warnings": 3
+  },
+  "schema_version": 1,
+  "serial_stage": 18,
+  "source_file_count": 24,
+  "source_hash_algorithm": "SHA-256",
+  "source_hashes_exclude": [
+    "docs/artifacts/profile-recovery-review-2026-09-18.json"
+  ],
+  "static_validation": {
+    "independently_checked_git_diff_check": "passed",
+    "independently_executed_ruff": "Passed for authority backup, evidence recorder, CI SQLite bootstrap and grader-authored adversarial tests",
+    "root_reported_hermes_hygiene": "passed",
+    "root_reported_maintained_ruff": "passed",
+    "root_reported_mypy": {
+      "passed": true,
+      "source_files": 67
+    },
+    "root_reported_strict_new_surfaces_ruff": "passed"
+  }
+}

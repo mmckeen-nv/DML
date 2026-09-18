@@ -258,3 +258,42 @@ source snapshot; outcomes will be recorded in PR #118. The ledger has ten remain
 milestones: eight first-release and two deferred. Crash/filesystem qualification
 is next. The memory profile retains its nine HTTP routes and no
 generation, and retrieval token counts remain labeled estimates.
+
+
+## Serial supported-profile recovery follow-up
+
+Before this gate, corrected stage-17 source `49368a9` passed all ten jobs in
+[CI run 317](https://github.com/mmckeen-nv/DML/actions/runs/35348088493), including
+256 mandatory model-input cases with zero skips. Those published-source results
+supplement the earlier stage-17 snapshot; its review artifact remains historical.
+PR #118 remains unmerged.
+
+The [profile recovery gate](profile-recovery-hardening-2026-09-18.md) is the
+eighteenth serial gate and addresses milestone 4. It exercises the existing
+five-mutation, schema-2/3/4 candidate boundary using actual selected-profile
+process termination, seeded changing histories, fault handling and offline
+backup/restore. The [recovery contract](profile-recovery-v1.md) records the full
+component inventory, operator commands and acknowledged/rejected/uncertain
+outcomes. Internal consistency cannot prove absence of a consistent rollback;
+independently retained receipts are required. Backup recovery stops at its
+captured revision. The selected profile additionally requires a linked SQLite
+runtime with the admitted WAL-reset fix.
+
+The independent five-module selection passed **416 tests**, with **zero failures,
+errors or skips**, in **114.35 seconds**. The actual six-module recorder run passed
+**450 tests with zero skips** in **114.92 seconds**, accurately recording the local
+overlay with `fsync=volatile` as unqualified. The root full suite passed **4,048
+tests with 24 skips and 3 warnings** in **257.17 seconds**; all 450 regular recovery
+cases passed, while 15 dedicated ext4 capability cases and 9 existing cases
+skipped. Maintained/strict Ruff, mypy over 67 files, Hermes hygiene and the diff
+check passed. Independent software review accepted **9.6/10**, with no blockers;
+the [review artifact](artifacts/profile-recovery-review-2026-09-18.json) hashes the
+24 reviewed files and distinguishes each evidence source.
+
+Publication and exact-source CI remain pending at this snapshot. All six new
+measured-platform lanes and all 15 real ext4 ENOSPC cases must pass before the
+environment qualification closes. Local overlay process-failure evidence does
+not replace those results, and physical power loss is unclaimed. Milestone 4
+remains open, leaving **10 milestones: 8 first-release and 2 deferred**. PR #118
+will record subsequent CI results and closure; the next milestone's source
+ledger update will carry that history forward.
