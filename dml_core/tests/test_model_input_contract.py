@@ -189,7 +189,8 @@ def test_surrogates_are_rejected_in_all_text_positions(location):
     b'{"messages":[{"role":"user","content":"x"}],"tools":[],"output_reserved_tokens":NaN}',
     b'{"messages":[{"role":"user","content":"\\ud800"}],"output_reserved_tokens":1}',
     b'\xff', b'[]', b'{', b'{}' + b' ' * MAX_REQUEST_BYTES,
-])
+], ids=["duplicate-root-key", "duplicate-message-key", "nonfinite-number", "surrogate",
+        "invalid-utf8", "array-root", "incomplete-object", "oversized-json"])
 def test_raw_json_rejects_duplicate_invalid_nonfinite_or_oversized_values(raw):
     with pytest.raises(ModelInputError):
         ModelInputRequest.from_json(raw)

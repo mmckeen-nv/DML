@@ -111,7 +111,7 @@ def create_snapshot(tmp_path: Path, *, context_window: int = 256, seed: int = 20
     save_file({name: tensor.detach().cpu().clone().contiguous()
                for name, tensor in model.state_dict().items()}, str(path / "model.safetensors"))
     tokenizer.backend_tokenizer.save(str(path / "tokenizer.json"))
-    (path / "chat_template.jinja").write_text(SUPPORTED_CHAT_TEMPLATE, encoding="utf-8")
+    (path / "chat_template.jinja").write_bytes(SUPPORTED_CHAT_TEMPLATE.encode("utf-8"))
     filenames = ("config.json", "model.safetensors", "tokenizer.json", "chat_template.jinja")
     manifest = {
         "schema_version": "dml-model-snapshot-v1",

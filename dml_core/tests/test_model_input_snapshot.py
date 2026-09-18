@@ -28,7 +28,7 @@ def source(tmp_path, monkeypatch):
     header += b" " * (-len(header) % 8)
     (directory / "model.safetensors").write_bytes(struct.pack("<Q", len(header)) + header + struct.pack("<f", 0.5))
     (directory / "tokenizer.json").write_text(json.dumps({"version": "1.0", "model": {"type": "WordLevel"}}), encoding="utf-8")
-    (directory / "chat_template.jinja").write_text(SUPPORTED_CHAT_TEMPLATE, encoding="utf-8")
+    (directory / "chat_template.jinja").write_bytes(SUPPORTED_CHAT_TEMPLATE.encode("utf-8"))
     manifest = {
         "schema_version": snapshots.SNAPSHOT_SCHEMA_VERSION, "model_id": "local-fixture",
         "model_revision": "immutable-fixture-v1", "context_window": 64,
@@ -53,6 +53,7 @@ def replace_artifact(source, name, contents):
 
 
 def test_verified_snapshot_owns_exact_bytes_and_cleans_up(source):
+    assert (source / "chat_template.jinja").read_bytes() == SUPPORTED_CHAT_TEMPLATE.encode("utf-8")
     with verify_local_snapshot(source) as verified:
         private = verified.path
         assert private != source
