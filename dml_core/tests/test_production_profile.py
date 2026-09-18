@@ -220,7 +220,7 @@ def test_manifest_and_status_are_detached_and_preserve_open_qualification_gates(
     status = production_status()
     assert status["production_ready"] is False
     assert status["stable"] == []
-    assert len(status["remaining_release_gates"]) == status["remaining_first_release_milestones"] == 9
+    assert len(status["remaining_release_gates"]) == status["remaining_first_release_milestones"] == 8
     assert len(status["deferred_milestones"]) == status["remaining_deferred_milestones"] == 2
     status["supported_profiles"][0]["platform"]["power_loss_qualified"] = True
     assert production_status()["supported_profiles"][0]["platform"]["power_loss_qualified"] is False

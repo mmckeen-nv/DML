@@ -1,16 +1,20 @@
 # Finite production release plan
 
 Date: 2026-09-18. This is the current remaining-work ledger for the
-[production contract](contracts/production-v1.md), after sixteen reviewed serial
-hardening gates, including transaction-coordinator extraction and the supported-profile freeze. The
+[production contract](contracts/production-v1.md), after seventeen independently reviewed serial
+hardening gates, including transaction coordination, supported-profile freeze and exact model-input binding. The
 [original ten areas](productionization-plan-2026-09-12.md) remain the organizing
 workstreams; a serial gate or pull request is not another release milestone.
 
 The audited scope contains 13 milestones: 11 for the first production release
-and 2 deferred beyond it. Milestones 1 and 2 are now closed at their reviewed-source gates,
-leaving **11 remaining: 9 for the first release and 2 deferred**. Publication and
-exact-commit CI are pending at this source snapshot; outcomes will be recorded in
-PR #118. This is not a merged release.
+and 2 deferred beyond it. Milestones 1–3 have passed their reviewed-source gates,
+leaving **10 remaining: 8 for the first release and 2 deferred**. The published
+stage-16 source `dc85123` passed all nine jobs in CI run 315 (`35341742222`);
+the tested PR merge tree matched that published source tree. PR #118 remains open
+and unmerged. Stage 17 has independent acceptance and a passing final root
+integration run. Its publication and exact-commit CI remain pending at this source
+snapshot; their outcomes will be recorded in PR #118. Earlier CI success does not
+cover the new source.
 These are closure decisions, each of which may require
 several implementations and evidence runs. Completing the coordinator
 gate does not complete all persistence qualification or promote the repository
@@ -23,15 +27,20 @@ candidate boundary. Its [review and evidence record](production-profile-hardenin
 records independent acceptance at 9.6/10 and passing local integration evidence.
 That closes the scope freeze without promoting the profile or repository to
 production-ready. **Milestone 3, exact model-input and tokenizer budget binding,
-is next.**
+is closed at the reviewed-source gate** through the
+[local input companion](model-input-contract-v1.md): 9.6/10 and 256 focused passes
+with zero skips, followed by 3,598 full-suite passes and 9 skips. Its
+[evidence record](model-input-hardening-2026-09-18.md) keeps publication and
+exact-commit CI pending separately. **Milestone 4,
+crash recovery and filesystem qualification, is next.**
 
-## First production release: 9 remaining of 11 milestones
+## First production release: 8 remaining of 11 milestones
 
 | # | Milestone | Status | Closure criteria | Original areas |
 | --- | --- | --- | --- | --- |
-| 1 | Freeze the supported production profile | Closed at reviewed-source gate: serial gate 16 | Explicit candidate APIs, journal/receipt authority, platform target versus demonstrated qualification, trusted-caller scope, dependencies, limits and retry outcomes enforced with experimental paths excluded. Independent review **9.6/10**, 441 focused passes, and **3,342 full-suite passes with 9 skips**. [Evidence and limits](production-profile-hardening-2026-09-18.md); publication and exact-commit CI remain pending at this source snapshot. | 1, 7, 9 |
+| 1 | Freeze the supported production profile | Closed at reviewed-source gate: serial gate 16 | Explicit candidate APIs, journal/receipt authority, platform target versus demonstrated qualification, trusted-caller scope, dependencies, limits and retry outcomes enforced with experimental paths excluded. Independent review **9.6/10**, 441 focused passes, and **3,342 local full-suite passes with 9 skips**. [Evidence and limits](production-profile-hardening-2026-09-18.md); subsequent published stage-16 source passed all nine CI jobs in run 315. | 1, 7, 9 |
 | 2 | Extract persistence and transaction coordination | Closed at reviewed-source gate: serial gate 15 | Narrow services integrated with characterized legacy and receipt-schema-2/3/4 behavior; independent review **9.6/10**, 164 focused passes, 256-client stress pass, and 2,948 full-suite passes with 9 skips. [Evidence and limits](transaction-coordinator-hardening-2026-09-18.md) explicitly exclude cross-file crash atomicity. | 2, 3, 9 |
-| 3 | Bind exact model input and tokenizer budgets | Open | Pin model, tokenizer and chat-template identities; count the complete final input, including tools/framing and reserved output, and reject overflow before inference. Verify all supported entry points and prevent unchecked additions after counting. | 1, 2, 7 |
+| 3 | Bind exact model input and tokenizer budgets | Closed at reviewed-source gate: serial gate 17 | The Python-only [local Transformers companion](model-input-contract-v1.md) pins model/tokenizer/template identities, counts complete messages/tools/framing plus reserved output, rejects overflow and dispatches the immutable token IDs. The memory profile retains its nine-route/no-generation boundary. Independent review **9.6/10**, **256 focused passes with 0 skips**, and **3,598 full-suite passes with 9 skips**. [Evidence and limits](model-input-hardening-2026-09-18.md); publication and exact-commit CI remain pending at this source snapshot. | 1, 2, 7 |
 | 4 | Qualify crash recovery and supported filesystems | Open | Finish the supported-profile mutation/component inventory and deterministic plus seeded fault matrix; account for acknowledged, rejected and uncertain operations on restart; qualify the advertised filesystem/platform failure guarantees and publish a tested recovery runbook. Keep process-kill and power-loss evidence distinct. | 3, 9 |
 | 5 | Complete persisted-format and migration coverage | Open | Inventory every persisted family admitted by the supported profile; enforce supported versions and compatibility; pass source-version, future-version, interrupted migration, export and restore cases using accurately labeled release or commit-pinned fixtures. Document excluded families and rollback limitations. | 3, 8 |
 | 6 | Qualify mixed-operation concurrency | Open | Exercise supported reads, writes, lifecycle operations and journal checkpoint/recovery behavior through threads, processes and HTTP/provider callers at 1/16/64/256-client levels with an independent history checker. Show zero lost updates, dirty reads, deadlocks or scope leakage and satisfy predeclared cancellation, timeout, starvation and lock-latency requirements. | 3, 9 |

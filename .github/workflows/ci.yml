@@ -27,6 +27,7 @@ jobs:
         dml_core/daystrom_dml/contracts/retention.py
         dml_core/daystrom_dml/contracts/profile.py
         dml_core/daystrom_dml/contracts/production.py
+        dml_core/daystrom_dml/contracts/model_input.py
         integrations/hermes/plugins/daystrom_dml
         dml_core/daystrom_dml/tests/test_dml.py
       DML_CI_MYPY_TARGETS: >-
@@ -41,6 +42,7 @@ jobs:
         dml_core/daystrom_dml/contracts/retention.py
         dml_core/daystrom_dml/contracts/profile.py
         dml_core/daystrom_dml/contracts/production.py
+        dml_core/daystrom_dml/contracts/model_input.py
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
@@ -140,6 +142,8 @@ jobs:
           dml_core/tests/test_production_profile_integration.py
           dml_core/tests/test_production_profile_api.py
           dml_core/tests/test_production_profile_adversarial.py
+          dml_core/tests/test_model_input_contract.py
+          dml_core/tests/test_model_input_snapshot.py
           dml_core/tests/test_adversarial_memory.py
           dml_core/tests/test_outcome_metrics.py
           dml_core/tests/test_fail_closed_persistence.py
@@ -150,6 +154,70 @@ jobs:
           dml_core/daystrom_dml/tests/context/test_working_set.py
           openclaw-wrapper/tests/test_dml_memory.py
           -q
+
+  model-input-cpu:
+    runs-on: ubuntu-latest
+    env:
+      OPENBLAS_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+      TOKENIZERS_PARALLELISM: "false"
+      REQUIRE_MODEL_INPUT_TESTS: "1"
+      DML_SKIP_VENV_REEXEC: "1"
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install pinned CPU model-input dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install torch==2.8.0 --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install '.[model-input,dev]'
+      - name: Strict lint of exact model-input surfaces
+        run: ruff check dml_core/daystrom_dml/contracts/model_input.py dml_core/daystrom_dml/services/model_input.py dml_core/daystrom_dml/services/model_input_snapshot.py
+      - name: Record pinned runtime versions
+        run: |
+          mkdir -p model-input-artifacts
+          python -m pip freeze > model-input-artifacts/dependencies.txt
+          python --version > model-input-artifacts/python.txt
+      - name: Verify real model-input compilation and CPU execution
+        run: >-
+          python -m pytest
+          dml_core/tests/test_model_input_contract.py
+          dml_core/tests/test_model_input_snapshot.py
+          dml_core/tests/test_model_input_runtime.py
+          dml_core/tests/test_model_input_integration.py
+          dml_core/tests/test_model_input_adversarial.py
+          --junitxml=model-input-artifacts/model-input.xml
+      - name: Require positive real-model evidence without skipped tests
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+          report = ET.parse(Path("model-input-artifacts/model-input.xml")).getroot()
+          counts = {name: len(list(report.iter(name))) for name in ("testcase", "failure", "error", "skipped")}
+          required_modules = {
+              "test_model_input_contract", "test_model_input_snapshot", "test_model_input_runtime",
+              "test_model_input_integration", "test_model_input_adversarial",
+          }
+          observed_modules = set()
+          for case in report.iter("testcase"):
+              observed_modules.update(required_modules.intersection(case.get("classname", "").split(".")))
+          print(counts)
+          if counts["testcase"] <= 0 or any(counts[name] for name in ("failure", "error", "skipped")):
+              raise SystemExit("Required model-input evidence must contain passing tests and zero skips")
+          if observed_modules != required_modules:
+              raise SystemExit("Missing required model-input test modules: " + ", ".join(sorted(required_modules - observed_modules)))
+          PY
+      - name: Preserve exact model-input evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: model-input-cpu-evidence
+          path: model-input-artifacts/
 
   production-evidence:
     runs-on: ubuntu-latest

@@ -328,6 +328,16 @@ Those are milestones 3–11. Remaining legacy orchestration extraction and nativ
 restore identity are the two deferred milestones. Physical erasure, recursive
 promotion, cascading invalidation and extra deployment profiles remain excluded.
 
+Milestone 3 is closed at the reviewed-source gate through a separate
+[Python-only exact-input consumer](model-input-contract-v1.md). It consumes the
+caller's complete final messages and tool definitions after memory recall, using
+a verified local GPT-2/tokenizer snapshot. Independent review accepted 9.6/10
+with 256 focused passes and zero skips, and the final root full suite passed 3,598
+tests with 9 skips. Publication and exact-commit CI remain pending at this source
+snapshot; their outcomes will be recorded in PR #118. This companion does not add memory HTTP routes, permit generation
+through `DMLAdapter`, or relabel the memory context estimator as an exact final
+model-input count.
+
 Freeze acceptance requires independent review and exact-source passing evidence;
 the profile's production-readiness flag remains false afterward. Release promotion
 requires the ledger's separate qualification and release process.

@@ -5,7 +5,7 @@ The repository remains alpha. The [production contract](contracts/production-v1.
 defines implemented behavior, migration and remaining release gates.
 The current [finite remaining-work ledger](production-remaining-work-2026-09-18.md)
 contains eleven first-release milestones and two deferred broader milestones;
-two reviewed-source milestones are closed, leaving nine first-release milestones
+three milestones have reviewed-source acceptance, leaving eight first-release milestones
 and two deferred milestones.
 
 The table summarizes the foundations and subsequent serial gates. Historical
@@ -13,13 +13,13 @@ sections below retain the evidence and scope recorded when each gate was built.
 
 | Area | Implemented through the serial gates | Still required |
 | --- | --- | --- |
-| 1. Production contract | Explicit target, maturity/health, durable receipt APIs and revision-pinned scoped retrieval/context integration; reviewed supported-profile freeze | Bind model/tokenizer budgets and complete release qualification |
+| 1. Production contract | Explicit target, maturity/health, durable receipt APIs and revision-pinned scoped retrieval/context integration; reviewed supported-profile freeze and exact-input companion | Complete broader release qualification |
 | 2. Adapter decomposition | Narrow persistence, cache, scoped selection, context/report, lifecycle, receipt, projection, delivery and retention-inspection services; reviewed transaction coordination extraction | Remaining legacy retrieval/lifecycle extraction is deferred beyond the first release |
 | 3. Crash consistency | Verified journals/checkpoints, atomic receipts/outbox, explicit migrations, real process-kill, quota, corruption and serialization cases | Remaining mutation/component inventory, supported filesystem/power-loss qualification and recovery runbook |
 | 4. Adversarial memory | Eight-case corpus plus lifecycle-specific conflict, scope, authority, provenance and historical-replay regressions | Real-agent semantic outcomes and long-running incorrect-retrieval feedback cases |
 | 5. Baseline | Independent durable SQLite + embeddings + recency + top-k + compaction implementation and runner | Held-out live episodes, equalized compaction and statistically supported value gate |
 | 6. Agent outcomes | Outcome reducer, failure-inclusive costs, quality/latency/recovery distributions, CI offline baseline and journal-history cost evidence | Wire real agent harnesses; continuous 1k/10k and 100k-turn release campaigns |
-| 7. Stability boundaries | Provider contract inventory and reviewed supported-profile boundary; native KV remains experimental; exact rendered budget boundary | Model/tokenizer binding for the first release; native-KV restore identity audit and hardware canaries are deferred |
+| 7. Stability boundaries | Provider contract inventory, reviewed supported-profile boundary and exact model/tokenizer input companion; native KV remains experimental | Release qualification; native-KV restore identity audit and hardware canaries are deferred |
 | 8. Version migration | Explicit side-by-side schema 0/1/2/4 paths, schema-3 fresh authorities, preserved historical receipts and commit-pinned compatibility fixtures | More released-version fixtures and coverage of all persistent artifact families |
 | 9. Concurrency | Journal CAS/pinned reads, 256-client receipt/lifecycle/delivery tests, competing processes and deterministic race regressions | Mixed-operation HTTP/provider campaigns, cancellation/starvation checks and lock-latency SLOs |
 | 10. Observability | Durable mutation decisions/source proofs, response retrieval traces, degradation status and scoped retention inspection | Durable full request/context replay, complete decision coverage and bounded audit retention/export |
@@ -231,3 +231,30 @@ and hardening document retain the evidence and limits. Publication and exact-com
 CI remain pending at this source snapshot; outcomes will be recorded in PR #118.
 Eleven milestones remain: nine for the first release and two deferred. Exact
 model-input and tokenizer budget binding is next; no maturity promotion occurred.
+
+## Serial exact model-input follow-up
+
+Before this gate began, the published stage-16 source `dc85123` passed all nine
+jobs in CI run 315 (`35341742222`). Both Linux full-suite jobs passed 3,343 tests
+with 8 skips, the production lane passed 394 profile tests, and all six portability
+jobs passed. The tested PR merge tree matched the published source tree. These
+remote results supplement the earlier local source snapshot; they do not qualify
+the later stage-17 implementation or imply that PR #118 has merged.
+
+The [exact-input companion](model-input-hardening-2026-09-18.md) is the seventeenth
+serial gate and addresses milestone 3. It verifies a local GPT-2 snapshot, pins the
+real tokenizer and fixed messages/tools template, and rejects an oversized complete
+input plus output reservation before inference. Its owning consumer dispatches the
+immutable compiled token IDs directly. A dedicated pinned CPU lane exercises a real
+tiny model and tokenizer with zero permitted skips. Independent review accepted
+**9.6/10**, with **256 focused tests passing and 0 skips** in 5.59 seconds.
+The final root full suite passed **3,598 tests**, with **9 skips** and **3 warnings**,
+in **146.54 seconds**; all 256 new model-input cases passed without skips.
+Maintained/strict new-surface Ruff, the 66-file mypy selection, Hermes hygiene and
+the diff check passed. The [review record](artifacts/model-input-review-2026-09-18.json)
+retains source hashes and separately attributed evidence. Milestone 3 is closed
+at the reviewed-source gate. Publication and exact-commit CI remain pending at this
+source snapshot; outcomes will be recorded in PR #118. The ledger has ten remaining
+milestones: eight first-release and two deferred. Crash/filesystem qualification
+is next. The memory profile retains its nine HTTP routes and no
+generation, and retrieval token counts remain labeled estimates.

@@ -5,8 +5,9 @@ attributable context out, with explicit recovery and version compatibility**.
 This is the production target, not a declaration that the current alpha meets it.
 `GET /api/contracts` and `/health` expose the current maturity inventory.
 The [finite remaining-work ledger](../production-remaining-work-2026-09-18.md)
-tracks nine remaining first-release milestones and two explicitly deferred
-milestones after the reviewed coordinator and supported-profile milestones.
+tracks eight remaining first-release milestones and two explicitly deferred
+milestones after reviewed-source acceptance of coordination, the supported profile
+and exact model-input binding, including its final root integration pass.
 
 The explicit first-release support target is
 [`dml-receipted-local-v1`](../supported-production-profile-v1.md). Selecting
@@ -319,12 +320,21 @@ model/tokenizer budgets; crash/recovery/filesystem qualification; persisted-form
 and migration coverage; mixed-operation concurrency; a live-agent semantic/outcome
 harness; fair baseline value; continuous 1k/10k lanes and a 100k campaign; durable
 decision replay with audit export/retention; and release qualification/support
-documentation. The coordinator and supported-profile milestones have passed their
-reviewed-source gates, leaving nine first-release milestones; implemented serial gates
+documentation. The coordinator, supported-profile and exact model-input milestones
+have passed their reviewed-source gates, leaving eight first-release milestones; implemented serial gates
 do not independently close the broader qualification obligations.
-Milestone 3, exact model-input and tokenizer budget binding, is next. Publication
-and exact-commit CI are pending at this source snapshot; outcomes will be recorded
-in PR #118. The profile and repository have not been promoted in maturity.
+Milestone 3, exact model-input and tokenizer budget binding, is closed at the reviewed-source gate through
+the [Python-only local Transformers input companion](../model-input-contract-v1.md).
+It verifies a local GPT-2 snapshot, compiles the complete messages/tools/framing
+with the actual pinned tokenizer, reserves output tokens, and executes the stored
+token IDs. Independent review accepted 9.6/10 with 256 focused passes and zero
+skips; the final root full suite passed 3,598 tests with 9 skips. It does not
+change the memory profile's HTTP routes or turn retrieval estimates into exact
+model-input counts. The published stage-16 source passed all nine jobs in CI run
+315; stage-17 publication and exact-commit CI remain pending at this source snapshot,
+with outcomes to be recorded in PR #118.
+The profile and repository have not been promoted in maturity.
+Milestone 4, crash recovery and filesystem qualification, is next.
 
 Remaining legacy retrieval/lifecycle extraction and native-KV restore identity
 qualification are the two deferred broader milestones. Physical erasure,

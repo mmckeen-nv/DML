@@ -71,6 +71,13 @@ server = [
     "websockets>=11.0",
 ]
 tokenizer = ["tiktoken>=0.4"]
+model-input = [
+    "torch==2.8.0",
+    "transformers==4.56.2",
+    "tokenizers==0.22.0",
+    "safetensors==0.6.2",
+    "Jinja2==3.1.6",
+]
 embeddings = ["sentence-transformers>=2.2"]
 faiss = ["faiss-cpu>=1.7"]
 multiplex_rag = [

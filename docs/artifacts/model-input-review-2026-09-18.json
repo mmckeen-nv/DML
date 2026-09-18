@@ -1,0 +1,153 @@
+{
+  "acceptance_basis": [
+    "Strict finite complete-message/tool request validation rejects unsupported or uncounted payload fields.",
+    "Verified private local snapshots bind model/config, tokenizer, special tokens, template and pinned runtime identities to content hashes.",
+    "The independent literal framing and separate real tokenizer oracle matches full compiled IDs, including Unicode, HTML-like text, tool definitions and tool history.",
+    "A real tiny CPU model receives the exact admitted token IDs in generate and forward; execute does not render or tokenize again.",
+    "Input length plus positive reserved output is checked before inference; exact fit is admitted and overflow refused without truncation.",
+    "Authenticated immutable artifacts reject field forgery, cross-consumer use, runtime identity drift and post-tokenization mutation before dispatch.",
+    "Generated output must retain the admitted prefix and remain inside the reservation; dispatch failures are sanitized and never automatically retried.",
+    "Python and HTTP memory recall integrate into the complete final model request without broadening the memory profile or legacy generation surface.",
+    "Candidate inventory, release ledger and documentation consistently close only milestone 3 while preserving remaining qualification gates."
+  ],
+  "base_commit": "dc85123ad2be25371e791c65b71f5596770c4c57",
+  "blockers": [],
+  "decision": "ACCEPT",
+  "evidence_environment": {
+    "implementation": "CPython",
+    "packages": {
+      "jinja2": "3.1.6",
+      "safetensors": "0.6.2",
+      "tokenizers": "0.22.0",
+      "torch": "2.8.0+cpu",
+      "transformers": "4.56.2"
+    },
+    "platform": "Linux-6.18.44-x86_64-with-glibc2.39",
+    "python": "3.12.14",
+    "real_runtime_required_flag": "REQUIRE_MODEL_INPUT_TESTS=1"
+  },
+  "grade_out_of_10": 9.6,
+  "independent_focused_validation": {
+    "command": "REQUIRE_MODEL_INPUT_TESTS=1 ../dml-venv/bin/python -m pytest dml_core/tests/test_model_input_contract.py dml_core/tests/test_model_input_snapshot.py dml_core/tests/test_model_input_runtime.py dml_core/tests/test_model_input_integration.py dml_core/tests/test_model_input_adversarial.py -o addopts='' -q --junitxml=/tmp/model-input-independent-final.xml",
+    "errors": 0,
+    "executed_by": "independent profile_grader agent",
+    "failed": 0,
+    "junit_seconds": 5.572,
+    "junit_sha256": "43b06ffdd2d5fd0a845d512e44d16e15cde52dfcb1ad070ff9f36112b520c8b2",
+    "module_case_counts": {
+      "test_model_input_adversarial": 57,
+      "test_model_input_contract": 109,
+      "test_model_input_integration": 7,
+      "test_model_input_runtime": 8,
+      "test_model_input_snapshot": 75
+    },
+    "own_adversarial_ruff": "passed",
+    "passed": 256,
+    "pytest_seconds": 5.59,
+    "skipped": 0,
+    "warning": "Starlette TestClient uses the deprecated AnyIO BlockingPortal alias.",
+    "warnings": 1
+  },
+  "limits_and_non_claims": [
+    "Reviewed-source acceptance does not assert publication, exact-source remote CI or production readiness.",
+    "The real model fixture demonstrates tokenization, budgeting and dispatch correctness, not language quality or live-agent outcomes.",
+    "No qualification of other models, templates, architectures, operating systems, Python versions, hardware, remote endpoints, GPU or native-KV paths.",
+    "Pinned direct dependencies do not qualify every transitive dependency combination; full live-model hashing is not a large-model latency or capacity claim.",
+    "The boundary assumes cooperating callers; hostile private-state mutation or a writer replacing a complete bundle and all declared hashes is outside its integrity model.",
+    "Artifacts are ephemeral consumer-owned capabilities, not durable receipts, cross-process caches or exactly-once execution guarantees.",
+    "No tool execution or logical tool-call pairing validation, durable decision replay, filesystem/crash qualification or quality/release promotion is established."
+  ],
+  "milestone": {
+    "name": "Bind exact complete model input and tokenizer budgets",
+    "number": 3,
+    "status": "closed_at_reviewed_source_gate"
+  },
+  "publication": {
+    "merged": false,
+    "pull_request": 118,
+    "stage_17_exact_source_ci": "pending_at_reviewed_snapshot",
+    "stage_17_publication": "pending_at_reviewed_snapshot"
+  },
+  "remaining_milestones": {
+    "deferred": 2,
+    "first_release": 8,
+    "next": 4,
+    "total": 10
+  },
+  "required_grade_out_of_10": 9.5,
+  "resolved_review_findings": [
+    "Consumer snapshot-admission errors now use the documented ModelInputError family; direct low-level verification retains SnapshotVerificationError.",
+    "Production status inventory removes the completed exact-token-budget gate, adds the candidate companion and retains production_ready=false."
+  ],
+  "reviewed_at_utc": "2026-09-18T12:43:51.346032+00:00",
+  "reviewed_snapshot": "Working source snapshot identified by the complete file hashes below; no final commit or remote CI is asserted.",
+  "reviewed_source_sha256": {
+    ".github/workflows/ci.yml": "16010710d45e42a38e4a456692dec476b36281b6adb82d5ce77f5f356f67ffde",
+    "dml_core/daystrom_dml/contracts/model_input.py": "4d53f0f2e17116d6d7778094c9c82387734763e98ab087e8b577682b74aa29a9",
+    "dml_core/daystrom_dml/contracts/production.py": "ed4a11307d0b882dbfd159db74a3ce3bce319118e66f4b662846427c1ff476b0",
+    "dml_core/daystrom_dml/services/model_input.py": "aa9194ec7657af9ba74fa4c527c1f4125327aa33c6d1d047dbadf1d41652bde7",
+    "dml_core/daystrom_dml/services/model_input_snapshot.py": "cf2442fc84441793b9c7169b3279d5782d047dcf54071090fc48c111a7ff5673",
+    "dml_core/tests/model_input_fixture.py": "5ceb180b6c8f5d4bd9e460751abbd8b37819db9e460ca1ccf7adebf3022a404c",
+    "dml_core/tests/test_model_input_adversarial.py": "88c6d4f1d801aab62e4258343a5eac886fff715197b11ad0cf196d759c8237f3",
+    "dml_core/tests/test_model_input_contract.py": "7f9d3d08e984d7df62a2f7043ced81b78cccf062df69efc3b2c47e88c58e89bd",
+    "dml_core/tests/test_model_input_integration.py": "ec4be138bc7f6de1cf58d3e448fd0c818ca92b12cc0b082b007fb4a07168a26d",
+    "dml_core/tests/test_model_input_runtime.py": "b4f22a97dad753ff1a94d27e16ed6fe81b9865e1ab68c8e140b8fb3a9d02d4d9",
+    "dml_core/tests/test_model_input_snapshot.py": "efd8b82887b20159e5a17ab952e6d90f597f1c50e5930198b3c4794d85539dac",
+    "dml_core/tests/test_production_profile.py": "a98c14ce9fe20485d5d0205db9a9fb4999d5bb45a0fadcda1a88b0f30537d534",
+    "docs/contracts/production-v1.md": "ba7a152e9fd86eb7e2c7960da6a98184a183851d88e567b08b0bd96364c35644",
+    "docs/model-input-contract-v1.md": "fc3190128842ccdfdc5f197cca3cc7557f6c8142303df6db16db71844d5e2252",
+    "docs/model-input-hardening-2026-09-18.md": "0638eeda21ab3decac514e7a4a063363cc311c145b85dd9e9ad63ebef9fd4e79",
+    "docs/production-foundations-2026-09-12.md": "c5ddc6eac02fba11025773162436cc00aee33521919a64a9aaba5e5cb7e34e57",
+    "docs/production-remaining-work-2026-09-18.md": "fa240445247ee36b265e86e031ba093edb05e38f4f4ede787f400ebf7bfd4a38",
+    "docs/supported-production-profile-v1.md": "51015ebd7cdeaab6a9218a8bff7b072caba478796d4c1cfa631eef00aa3395c3",
+    "pyproject.toml": "18993baf053c0d4f47d4cc29a42a7fb965da971c60a8140c0b424619aa73f703"
+  },
+  "reviewer": "independent profile_grader agent",
+  "root_full_suite_validation": {
+    "counting_note": "Focused and full-suite selections overlap; counts are not additive.",
+    "errors": 0,
+    "executed_by": "root agent",
+    "failed": 0,
+    "independently_verified_by": "profile_grader inspected the final root log and JUnit XML; did not rerun the full suite",
+    "junit_seconds": 146.468,
+    "junit_sha256": "2f29b1c91f64e3117324b7cbc4babb1714693d6337ccd11d9ba7043b4c1ab119",
+    "junit_total": 3607,
+    "log_sha256": "1635b786237d4112eebb767444d469209fb2872763d1dde3bb6181826827e3c7",
+    "new_model_input_cases": 256,
+    "new_model_input_skipped": 0,
+    "passed": 3598,
+    "pytest_seconds": 146.54,
+    "skipped": 9,
+    "warnings": 3
+  },
+  "root_reported_static_validation": {
+    "executed_by": "root agent",
+    "git_diff_check": "passed",
+    "hermes_smoke_hygiene": "passed",
+    "independently_reexecuted": false,
+    "maintained_mypy": "passed",
+    "maintained_mypy_files": 66,
+    "maintained_ruff": "passed",
+    "strict_ruff_all_nine_new_python_files": "passed"
+  },
+  "schema_version": "dml-independent-source-review-v1",
+  "serial_stage": 17,
+  "source_file_count": 19,
+  "source_hash_algorithm": "SHA-256",
+  "source_hashes_exclude": [
+    "docs/artifacts/model-input-review-2026-09-18.json"
+  ],
+  "supported_boundary": {
+    "candidate": "exact-model-input-v1",
+    "consumer": "daystrom_dml.services.model_input.LocalTransformersInputConsumer",
+    "entrypoints": [
+      "constructor",
+      "compile(messages, tools=None, *, output_reserved_tokens)",
+      "execute(artifact)",
+      "close/context manager"
+    ],
+    "memory_profile": "dml-receipted-local-v1 remains memory-only with nine HTTP routes; recall token counts remain estimates",
+    "production_ready": false,
+    "runtime": "Built-in GPT2LMHeadModel, CPU float32, local safetensors weights, fast tokenizer, fixed full-JSON messages/tools template, greedy decoding, no KV cache"
+  }
+}
