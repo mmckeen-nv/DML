@@ -4,6 +4,9 @@ The smallest target is **durable, scoped, attributed memory in; bounded,
 attributable context out, with explicit recovery and version compatibility**.
 This is the production target, not a declaration that the current alpha meets it.
 `GET /api/contracts` and `/health` expose the current maturity inventory.
+The [finite remaining-work ledger](../production-remaining-work-2026-09-18.md)
+tracks ten remaining first-release milestones and two explicitly deferred
+milestones after the reviewed coordinator milestone.
 
 ## Scope
 
@@ -79,7 +82,8 @@ peer commits before startup finishes. CLI import uses compare-and-swap revision
 zero, so a competing journal client cannot have its first commit overwritten.
 
 The journal transaction currently covers the lattice, **not** persistent RAG,
-DPM/DCN files or runtime KV state. Normal JSON/RAG write compensation still exists.
+DPM/DCN files or runtime KV state. Normal JSON/RAG write compensation runs through
+the transaction/component coordinators described below.
 Append-only client receipts are an opt-in schema-2 candidate described below.
 Ordered outbox delivery is qualified for the reference SQLite consumer; integration
 with external projection backends remains a separate gate. Journal schema 1 is a production candidate, not a completed
@@ -94,8 +98,51 @@ conflicting requests fail. Schema 2 binds embedding identity/dimension and refus
 legacy adapter mutations and lattice-only checkpoints/exports. Migration is explicit
 and side-by-side; populated legacy stores cannot invent missing embedding provenance.
 See the [receipt contract and recovery procedure](../receipt-hardening-2026-09-12.md)
-for the supported profile, HTTP outcomes and qualification limits. External RAG
-projection transactions and receipts for other lifecycle mutations remain gates.
+for the supported profile, HTTP outcomes and qualification limits. Later candidate
+gates add retirement, supersession, content correction and first-level
+promotion/merge receipts, as described below. External RAG backend qualification
+is not established by those receipt guarantees.
+
+### Transaction and component coordination
+
+The bounded [coordinator extraction](../transaction-coordinator-hardening-2026-09-18.md)
+separates `TransactionCoordinator` ownership/nesting/rollback orchestration from
+`PersistenceCoordinator` component snapshot/restore/refresh/commit behavior.
+The adapter retains compatibility shims. Outermost ownership refreshes before a
+rollback baseline is captured; nested scopes reuse the outer operation label and
+ownership. The public ownership-only transaction context remains distinct from
+rollback-capable mutation/batch contexts.
+
+After a fork, an inherited `TransactionCoordinator` rejects transaction/mutation
+entry with `RuntimeError` before ownership callbacks or the body run. The child
+must create a fresh adapter; inherited runtime, locks and thread-local state are
+not reset or adopted. This is an ownership guard, not general adapter/provider
+fork-safety qualification.
+
+Rollback runs for Python `BaseException` failures while ownership remains held,
+restores runtime/cache state, then attempts compensation for touched durable
+components. Inner touched components remain tracked by outer frames even after
+successful inner compensation, because an inner baseline may include outer
+uncommitted state. Successful compensation re-raises the original exception;
+failed compensation raises `PersistenceRollbackError` with both errors and
+degrades process-local health. This is not a durable recovery log or a guarantee
+of complete restoration after failed compensation.
+
+Legacy file/manifest failure reconciliation compares content fingerprints rather
+than treating unchanged stat stamps as proof of nonpublication. Journal failure
+reconciliation verifies revision and payload before compensating a detected
+publication; explicit CAS rejection cannot rebase onto and overwrite a peer commit.
+Diverged or unverifiable authority surfaces rollback failure. The extra full-file
+read on ordinary legacy file writes is a cost requiring later scale qualification.
+Receipt-schema-2/3/4 commits and lost-acknowledgement retry semantics are unchanged.
+
+Compensation is best effort for caught failures and **not crash-atomic across
+files**. Abrupt process death between lattice and RAG publication can preserve a
+split component state. Receipt atomicity comes from its authoritative journal
+transaction, not this legacy compensation mechanism. No all-component, power-loss
+or arbitrary noncooperating-writer guarantee is added. Final independent review
+and integration acceptance for this completed extraction gate are recorded in
+its hardening document.
 
 ### Disposable snapshot projection
 
@@ -248,12 +295,22 @@ LLM task success, TTFT or a DML advantage. Raw real-agent task outcome JSONL can
 reduced separately; absent measurements stay null, and failed-task/maintenance
 costs count toward tokens per completed task.
 
-Still required before production graduation: receipts for remaining mutation APIs; all-component
-atomicity; remaining lifecycle/retrieval/persistence orchestration extraction;
-complete mutation-point process-kill and platform/power-loss qualification; fully
-bound model/tokenizer identities; real-agent baseline value and long-horizon
-campaigns; complete migration coverage as releases accumulate; and durable replay
-of all memory decisions. See the [workstream status](../production-foundations-2026-09-12.md).
+Production graduation is governed by the
+[eleven first-release milestones](../production-remaining-work-2026-09-18.md):
+the frozen supported profile; persistence/transaction coordination; exact
+model/tokenizer budgets; crash/recovery/filesystem qualification; persisted-format
+and migration coverage; mixed-operation concurrency; a live-agent semantic/outcome
+harness; fair baseline value; continuous 1k/10k lanes and a 100k campaign; durable
+decision replay with audit export/retention; and release qualification/support
+documentation. The coordinator milestone has passed its reviewed-source gate,
+leaving ten first-release milestones; implemented serial gates
+do not independently close the broader qualification obligations.
+
+Remaining legacy retrieval/lifecycle extraction and native-KV restore identity
+qualification are the two deferred broader milestones. Physical erasure,
+recursive derivation, cascading invalidation and additional experimental features
+are excluded from this finite first-release scope. See the
+[workstream status and historical evidence](../production-foundations-2026-09-12.md).
 
 
 The candidate [projection worker contract](../projection-worker-hardening-2026-09-14.md)
@@ -275,14 +332,17 @@ events retain prior memory versions; live deletion is not historical erasure.
 The candidate [receipted retirement contract](../retirement-hardening-2026-09-14.md)
 adds explicit scoped tombstones with an expected record digest and durable retry
 receipt. Normal retrieval suppresses retired memories; history and capacity are
-retained. Public update, supersession, promotion/merge and physical erasure remain
-separate gates. Journal schemas and existing receipt/event formats are unchanged.
+retained. The subsequent candidate gates below add supersession, content updates
+and first-level promotion/merge. Physical erasure remains unsupported and outside
+the finite release scope. Journal schemas and existing receipt/event formats are
+unchanged.
 
 The candidate [receipted supersession contract](../supersession-hardening-2026-09-14.md)
 adds same-scope source/replacement links guarded by both exact record digests. Only
 the source is changed and suppressed; replacement trust and content remain intact.
 Explicit chains preserve historical links, while stale and opposing decisions
-cannot both commit. Physical erasure and other lifecycle mutations remain gates.
+cannot both commit. Later content-update and first-level promotion gates extend
+that lifecycle coverage; physical erasure remains unsupported.
 
 The candidate [receipted content-update contract](../content-update-hardening-2026-09-16.md)
 adds atomic text/vector correction with a complete-record precondition and an
@@ -295,7 +355,7 @@ adds explicit first-level derivation from one or more compatible base memories.
 It preserves sources and embeds exact source snapshots in the new memory's receipt.
 Trust, scope, merge policy and stale-record guards apply before preparation and
 commit; promotion grants no additional authority or freshness. Recursive derivation
-and cascading retirement remain separate gates.
+and cascading retirement are outside the finite first-release scope.
 
 The candidate [retention-inspection contract](../retention-inspection-hardening-2026-09-17.md)
 adds a strict scoped report of known structured memory copies from one verified

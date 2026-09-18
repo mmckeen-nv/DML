@@ -3,6 +3,8 @@
 This is the first implementation tranche of the [ten-area plan](productionization-plan-2026-09-12.md).
 The repository remains alpha. The [production contract](contracts/production-v1.md)
 defines implemented behavior, migration and remaining release gates.
+The current [finite remaining-work ledger](production-remaining-work-2026-09-18.md)
+contains eleven first-release milestones and two deferred broader milestones.
 
 The table summarizes the foundations and subsequent serial gates. Historical
 sections below retain the evidence and scope recorded when each gate was built.
@@ -10,12 +12,12 @@ sections below retain the evidence and scope recorded when each gate was built.
 | Area | Implemented through the serial gates | Still required |
 | --- | --- | --- |
 | 1. Production contract | Explicit target, maturity/health, durable receipt APIs and revision-pinned scoped retrieval/context integration | Complete supported profile, model/tokenizer budget binding and release graduation |
-| 2. Adapter decomposition | Narrow persistence, cache, scoped selection, context/report, lifecycle, receipt, projection, delivery and retention-inspection services | Persistence transaction coordinator and remaining legacy retrieval/lifecycle orchestration extraction |
+| 2. Adapter decomposition | Narrow persistence, cache, scoped selection, context/report, lifecycle, receipt, projection, delivery and retention-inspection services; transaction coordination extraction in progress | Finish the bounded coordinator gate; remaining legacy retrieval/lifecycle extraction is deferred beyond the first release |
 | 3. Crash consistency | Verified journals/checkpoints, atomic receipts/outbox, explicit migrations, real process-kill, quota, corruption and serialization cases | Remaining mutation/component inventory, supported filesystem/power-loss qualification and recovery runbook |
 | 4. Adversarial memory | Eight-case corpus plus lifecycle-specific conflict, scope, authority, provenance and historical-replay regressions | Real-agent semantic outcomes and long-running incorrect-retrieval feedback cases |
 | 5. Baseline | Independent durable SQLite + embeddings + recency + top-k + compaction implementation and runner | Held-out live episodes, equalized compaction and statistically supported value gate |
 | 6. Agent outcomes | Outcome reducer, failure-inclusive costs, quality/latency/recovery distributions, CI offline baseline and journal-history cost evidence | Wire real agent harnesses; continuous 1k/10k and 100k-turn release campaigns |
-| 7. Stability boundaries | Provider contract inventory; native KV remains experimental; exact rendered budget boundary | Full runtime/model/tokenizer binding audit and hardware compatibility canaries |
+| 7. Stability boundaries | Provider contract inventory; native KV remains experimental; exact rendered budget boundary | Supported-profile/model/tokenizer binding for the first release; native-KV restore identity audit and hardware canaries are deferred |
 | 8. Version migration | Explicit side-by-side schema 0/1/2/4 paths, schema-3 fresh authorities, preserved historical receipts and commit-pinned compatibility fixtures | More released-version fixtures and coverage of all persistent artifact families |
 | 9. Concurrency | Journal CAS/pinned reads, 256-client receipt/lifecycle/delivery tests, competing processes and deterministic race regressions | Mixed-operation HTTP/provider campaigns, cancellation/starvation checks and lock-latency SLOs |
 | 10. Observability | Durable mutation decisions/source proofs, response retrieval traces, degradation status and scoped retention inspection | Durable full request/context replay, complete decision coverage and bounded audit retention/export |
@@ -67,8 +69,10 @@ schema-2 journal and a narrow ingestion service. It advances areas 1, 2, 3, 7, 8
 9 and 10: scoped historical receipts, atomic receipt/decision persistence, explicit
 side-by-side migration, embedding compatibility, process-death/concurrency evidence
 and retryable API outcomes. Stable APIs remain empty in the maturity inventory.
-Receipts for other lifecycle mutations and transactional external projections
-remain separate release gates. The original ten-area plan remains the task scope.
+Later serial gates added retirement, supersession, content correction and
+first-level promotion/merge receipts, plus reference projection delivery. External
+backend qualification remains outside those bounded results. The original ten
+areas remain workstreams; the finite ledger defines the current release scope.
 
 
 ## Serial projection follow-up
@@ -76,8 +80,9 @@ remain separate release gates. The original ten-area plan remains the task scope
 The [disposable SQLite projection](projection-hardening-2026-09-14.md) advances
 P03 with atomic full-snapshot publication and pinned-source queries. It reuses
 the accepted journal format, keeps source writes independent of backend outages,
-and adds crash/concurrency/query regression evidence. Incremental outboxes, existing
-FAISS qualification and automatic provider routing remain separate gates.
+and adds crash/concurrency/query regression evidence. Later gates added incremental
+delivery and durable outboxes. Existing FAISS qualification and automatic provider
+routing were not established by this gate.
 
 
 ## Serial delta delivery follow-up
@@ -85,8 +90,8 @@ FAISS qualification and automatic provider routing remain separate gates.
 [Coalesced projection deltas](projection-delta-hardening-2026-09-14.md) add checked
 base/target publication, a narrow backend protocol and explicit adapter/CLI integration.
 Receipt availability remains independent of backend I/O. Full-state verification
-and complete ID manifests remain necessary; durable operation outboxes, workers
-and existing FAISS backend qualification are still separate gates.
+and complete ID manifests remain necessary. Later gates added workers and durable
+operation outboxes; existing FAISS backend qualification remains unproven.
 
 
 ## Serial worker follow-up
@@ -95,8 +100,9 @@ and existing FAISS backend qualification are still separate gates.
 adds explicit adapter-owned delivery with coalesced notifications, capped failure
 backoff, terminal shutdown and historical pinned status. Process-death recovery
 derives pending work from durable source/target state. Receipt acknowledgements
-remain independent of backend availability. Durable operation outboxes, growing
-store costs and qualification of the existing FAISS backend remain separate gates.
+remain independent of backend availability. The following gate added durable
+operation outboxes. Growing-store costs and qualification of the existing FAISS
+backend were not established by this worker gate.
 
 
 ## Serial transactional outbox follow-up
@@ -104,9 +110,9 @@ store costs and qualification of the existing FAISS backend remain separate gate
 [Transactional operation events](outbox-hardening-2026-09-14.md) add opt-in journal
 schema 3 with full-state events committed beside memory/receipts/decisions, verified
 historical prefixes, and ordered idempotent delivery to a dedicated SQLite consumer.
-Existing schema-1/2 authorities are preserved. Explicit migration, remaining public
-lifecycle receipts, bounded history retention and ordered background scheduling
-remain separate serial gates.
+Existing schema-1/2 authorities are preserved. Later gates added explicit migration
+and the supported lifecycle receipts. Bounded audit retention and ordered
+background scheduling were not established by this gate.
 
 ## Serial outbox migration follow-up
 
@@ -115,8 +121,9 @@ preserves receipt and decision bytes, records an honest baseline for previously
 unavailable full-state history, and adds versioned consumer adoption. Seven actual
 process-kill boundaries, commit-pinned legacy reader/state fixtures and simultaneous
 consumer delivery qualify the migration path. Offline manual cutover remains required.
-The next serial gate is receipt coverage for remaining public lifecycle mutations;
-history retention, ordered background delivery and real-agent value remain open.
+The subsequent retirement through promotion gates added the supported lifecycle
+receipt coverage. Audit retention and real-agent value remain in the finite
+release ledger; this migration did not qualify ordered background delivery.
 
 ## Serial retirement follow-up
 
@@ -124,8 +131,8 @@ history retention, ordered background delivery and real-agent value remain open.
 qualified lifecycle mutation to the receipt profile: scoped tombstones guarded by
 the exact current record digest, atomic historical receipts and outbox decisions,
 and normal retrieval suppression. It retains historical content and capacity.
-Further lifecycle updates, supersession, promotion/merge and physical erasure are
-separate serial gates; the broader ten-area plan remains unchanged.
+Subsequent gates added supersession, content updates and first-level promotion/merge.
+Physical erasure remains unsupported and is excluded from the finite release plan.
 
 ## Serial supersession follow-up
 
@@ -133,9 +140,10 @@ separate serial gates; the broader ten-area plan remains unchanged.
 receipt coverage to explicit same-scope replacement links. Both exact record
 digests guard the decision, only the old memory is changed, and normal retrieval
 suppresses it without modifying replacement trust. This is the tenth serial gate,
-not completion of the ten original areas. Work remains on update/promotion/merge,
-retention and erasure, full mutation qualification, adapter decomposition, native
-KV compatibility, decision replay and real-agent value at growing-store scale.
+not completion of the ten original areas. Later gates added content updates,
+first-level promotion/merge and retention inspection. Full mutation qualification,
+decision replay and real-agent value at growing-store scale remain in the finite
+ledger; physical erasure is excluded and native-KV qualification is deferred.
 
 ## Serial content-update follow-up
 
@@ -143,8 +151,9 @@ KV compatibility, decision replay and real-agent value at growing-store scale.
 eleventh serial hardening gate. Exact record and embedding-space checks guard
 atomic text/vector updates while preserving scope, trust, lifecycle and creation
 time. Preparation runs outside ownership and historical retries bypass the model.
-Promotion/merge and retention/erasure remain future mutation gates, alongside the
-broader extraction, native compatibility, replay and real-agent qualification work.
+Later gates added first-level promotion/merge and retention inspection. Broader
+qualification and replay remain in the finite ledger; physical erasure is excluded
+and native compatibility is deferred.
 
 ## Serial first-level promotion/merge follow-up
 
@@ -154,8 +163,9 @@ lifecycle boundaries. The caller selects base memories and supplies derived text
 one atomic append preserves every source and records complete source provenance.
 Multi-source merges respect `no_merge`; output scope/trust remain unchanged and
 ranking attributes cannot increase. First-level derivation is an independent
-snapshot with its own lifecycle. Recursive promotion, cascading invalidation,
-retention/erasure and the broader production qualification gates remain open.
+snapshot with its own lifecycle. The next gate added retention inspection.
+Recursive promotion, cascading invalidation and physical erasure are excluded
+from the finite first-release scope; broader production qualification remains open.
 
 ## Serial retention-inspection follow-up
 
@@ -180,6 +190,21 @@ store retains ranking, and the adapter retains model preparation, ownership,
 routing, DPM and metrics. Baseline characterization preserves exact rendered output
 and evidence across legacy, schema-1 and receipt-schema-2/3/4 paths. Receipt reads
 retain ownership through report construction, with explicit embedding-identity
-checks after preparation. Remaining legacy retrieval/lifecycle extraction, exact
-model-input budget binding and durable replay remain separate gates. Maturity
+checks after preparation. Exact model-input budget binding and durable replay
+remain first-release gates; remaining legacy retrieval/lifecycle extraction is
+deferred beyond that release. Maturity
 remains candidate; this does not qualify the whole repository for production.
+
+## Serial transaction-coordinator follow-up
+
+The reviewed [transaction and persistence coordinator gate](transaction-coordinator-hardening-2026-09-18.md)
+is the fifteenth serial gate and milestone 2 of the finite release ledger. It
+separates ownership/nesting/rollback orchestration from component
+snapshot/restore/refresh/commit behavior, retaining adapter compatibility shims.
+It also addresses caught publish-then-error outcomes in legacy persistence.
+Receipt-schema-2/3/4 authority and retry semantics remain unchanged. Compensating
+legacy file writes do not provide crash atomicity across components. Final
+independent review accepted 9.6/10; 164 focused tests, 256-client stress and
+2,948 full-suite tests passed, with 9 full-suite skips. Evidence and qualification
+limits are recorded in the gate's hardening record;
+this work alone does not close the remaining release qualification milestones.

@@ -41,7 +41,12 @@ from .store_lock import store_write_lock
 from .atomic_io import atomic_write_text
 from .journal import JournalStateStore
 from .services.retrieval import QueryEmbeddingCache
-from .services.persistence import LatticePersistence
+from .services.persistence import LatticePersistence, PersistenceCoordinator, PersistenceState
+from .services.transactions import (
+    PersistenceCommitError,
+    PersistenceRollbackError,
+    TransactionCoordinator,
+)
 from .services.receipt_ingestion import append_receipted, canonical_request, embedding_identity, validate_embedding_contract, ReceiptEmbeddingCompatibilityError
 from .services.receipt_lifecycle import canonical_retirement_request, retire_receipted
 from .services.receipt_supersession import canonical_supersession_request, supersede_receipted
@@ -67,62 +72,17 @@ from .policy_router import PolicyRouter, TaskType, RouterDecision
 LOGGER = logging.getLogger(__name__)
 
 
-class PersistenceCommitError(RuntimeError):
-    """Raised when a configured durability write does not commit."""
-
-
-class PersistenceRollbackError(RuntimeError):
-    """Raised when a failed mutation cannot restore its pre-mutation state."""
-
-    def __init__(self, original_error: Exception, rollback_error: Exception) -> None:
-        super().__init__(
-            f"Persistence failed and rollback also failed: {type(rollback_error).__name__}"
-        )
-        self.original_error = original_error
-        self.rollback_error = rollback_error
-
-
 def _serialized_mutation(method):
     """Run a public mutation as a rollback-capable durable transaction."""
 
     @wraps(method)
     def wrapped(self, *args, **kwargs):
         self._require_legacy_mutations()
-        with self._mutation_transaction(method.__name__):
-            snapshot = self._capture_mutation_snapshot()
-            previous_commits = getattr(
-                self._mutation_local, "committed_components", None
-            )
-            committed_components: set[str] = set()
-            self._mutation_local.committed_components = committed_components
-            succeeded = False
-            try:
-                result = method(self, *args, **kwargs)
-                succeeded = True
-                return result
-            except Exception as original_error:
-                self._mutation_local.committed_components = None
-                try:
-                    self._rollback_mutation(snapshot, committed_components)
-                except Exception as rollback_error:
-                    root_rollback_error = (
-                        rollback_error.__cause__
-                        if isinstance(rollback_error, PersistenceCommitError)
-                        and isinstance(rollback_error.__cause__, Exception)
-                        else rollback_error
-                    )
-                    with self._persist_lock:
-                        self._record_durability_failure_locked(
-                            "rollback", root_rollback_error
-                        )
-                    raise PersistenceRollbackError(
-                        original_error, root_rollback_error
-                    ) from original_error
-                raise
-            finally:
-                if succeeded and previous_commits is not None:
-                    previous_commits.update(committed_components)
-                self._mutation_local.committed_components = previous_commits
+        with self.transaction_coordinator.mutation(
+            method.__name__,
+            ownership=lambda: self._mutation_transaction(method.__name__),
+        ):
+            return method(self, *args, **kwargs)
 
     return wrapped
 
@@ -295,13 +255,22 @@ class DMLAdapter:
             write_jsonl=lambda items, path: save_persisted_memories(items, path),
             write_text=lambda path, text: atomic_write_text(path, text),
         )
-        self._persist_lock = RLock()
-        self._durability_failures: Dict[str, str] = {}
-        self._refresh_lock = RLock()
-        self._mutation_local = threading.local()
-        self._last_observed_state: Optional[tuple[int, int]] = None
-        self._last_observed_rag_state: Optional[tuple[int, int]] = None
-        self._last_observed_persistent_rag: Optional[tuple[int, int]] = None
+        self._persistence_state = PersistenceState()
+        # Compatibility aliases share the service's ownership and health state.
+        self._persist_lock = self._persistence_state.persist_lock
+        self._durability_failures = self._persistence_state.failures
+        self._refresh_lock = self._persistence_state.refresh_lock
+        self.transaction_coordinator = TransactionCoordinator(
+            acquire_ownership=lambda operation: store_write_lock(
+                self._active_state_path().expanduser().resolve().parent,
+                operation=operation, timeout_ms=30000,
+            ),
+            refresh=lambda: self.refresh_if_changed(),
+            capture=lambda: self._capture_mutation_snapshot(),
+            rollback=lambda snapshot, components: self._rollback_mutation(snapshot, components),
+            record_rollback_failure=lambda error: self._record_durability_failure_locked("rollback", error),
+        )
+        self._mutation_local = self.transaction_coordinator.local
         literal_cfg = getattr(self.settings, "literal", None)
         literal_tokens = 160
         literal_snippets = 8
@@ -449,6 +418,16 @@ class DMLAdapter:
                 top_k=int(self.config.get("ltm_top_k", self.config.get("dml_top_k", DEFAULT_DML_TOP_K))),
                 extract_max_tokens=int(self.config.get("stm_extract_max_tokens", 256)),
             )
+        self.persistence_coordinator = PersistenceCoordinator(
+            state=self._persistence_state, lattice=self.lattice_persistence,
+            runtime=self.store, rag=self.rag_store, rag_path=self.rag_state_path,
+            persistent_rag=lambda: self.persistent_rag_store,
+            invalidate_cache=lambda: self.query_cache.clear(),
+            write_text=lambda path, text: atomic_write_text(path, text),
+            mark_committed=lambda component: self._mark_committed_component(component),
+            require_legacy=lambda: self._require_legacy_mutations(),
+            operation=lambda: getattr(self._mutation_local, "operation", "persist"),
+        )
         # Manual checkpoints share the same lifetime and drain boundary even
         # when periodic checkpointing is disabled.
         self.checkpoint_manager = CheckpointManager(
@@ -1389,6 +1368,30 @@ class DMLAdapter:
     # ------------------------------------------------------------------
     # Persistence helpers
     # ------------------------------------------------------------------
+    @property
+    def _last_observed_state(self) -> Optional[tuple[int, int]]:
+        return self._persistence_state.observed_lattice
+
+    @_last_observed_state.setter
+    def _last_observed_state(self, value: Optional[tuple[int, int]]) -> None:
+        self._persistence_state.observed_lattice = value
+
+    @property
+    def _last_observed_rag_state(self) -> Optional[tuple[int, int]]:
+        return self._persistence_state.observed_rag
+
+    @_last_observed_rag_state.setter
+    def _last_observed_rag_state(self, value: Optional[tuple[int, int]]) -> None:
+        self._persistence_state.observed_rag = value
+
+    @property
+    def _last_observed_persistent_rag(self) -> Optional[tuple[int, int]]:
+        return self._persistence_state.observed_persistent_rag
+
+    @_last_observed_persistent_rag.setter
+    def _last_observed_persistent_rag(self, value: Optional[tuple[int, int]]) -> None:
+        self._persistence_state.observed_persistent_rag = value
+
     def _active_state_path(self) -> Path:
         return self.lattice_persistence.path
 
@@ -1399,181 +1402,51 @@ class DMLAdapter:
 
     @contextlib.contextmanager
     def atomic_batch(self, operation: str):
-        """Run a trusted batch of mutations as one rollback-capable transaction.
+        """Run a trusted legacy batch with rollback and persistence on exit.
 
-        Mirrors ``_serialized_mutation``: captures a pre-batch snapshot, tracks
-        components committed by the inner ``_persist_all`` on successful exit,
-        and restores runtime state while compensating already-committed durable
-        components if the batch body or the final persist raises. Callers ingest
-        with ``persist=False`` inside this context and must not call
-        ``_persist_all`` themselves; persistence runs on successful exit.
+        Callers ingest with ``persist=False`` inside the context. The shared
+        coordinator owns the same recovery frame used by decorated mutations;
+        compensation is not a crash-atomic transaction across separate files.
         """
-
         self._require_legacy_mutations()
-        with self._mutation_transaction(operation):
-            snapshot = self._capture_mutation_snapshot()
-            previous_commits = getattr(
-                self._mutation_local, "committed_components", None
-            )
-            committed_components: set[str] = set()
-            self._mutation_local.committed_components = committed_components
-            succeeded = False
-            try:
-                yield
-                self._persist_all()
-                succeeded = True
-            except Exception as original_error:
-                self._mutation_local.committed_components = None
-                try:
-                    self._rollback_mutation(snapshot, committed_components)
-                except Exception as rollback_error:
-                    root_rollback_error = (
-                        rollback_error.__cause__
-                        if isinstance(rollback_error, PersistenceCommitError)
-                        and isinstance(rollback_error.__cause__, Exception)
-                        else rollback_error
-                    )
-                    with self._persist_lock:
-                        self._record_durability_failure_locked(
-                            "rollback", root_rollback_error
-                        )
-                    raise PersistenceRollbackError(
-                        original_error, root_rollback_error
-                    ) from original_error
-                raise
-            finally:
-                if succeeded and previous_commits is not None:
-                    previous_commits.update(committed_components)
-                self._mutation_local.committed_components = previous_commits
+        with self.transaction_coordinator.mutation(
+            operation, ownership=lambda: self._mutation_transaction(operation),
+            persist=lambda: self._persist_all(),
+        ):
+            yield
 
-    @contextlib.contextmanager
     def _mutation_transaction(self, operation: str):
-        """Serialize and refresh a complete read-modify-persist transaction."""
-
-        depth = int(getattr(self._mutation_local, "depth", 0))
-        if depth:
-            self._mutation_local.depth = depth + 1
-            try:
-                yield
-            finally:
-                self._mutation_local.depth -= 1
-            return
-
-        lock_root = self._active_state_path().expanduser().resolve().parent
-        with store_write_lock(lock_root, operation=operation, timeout_ms=30000):
-            self._mutation_local.depth = 1
-            self._mutation_local.operation = operation
-            try:
-                self.refresh_if_changed()
-                yield
-            finally:
-                self._mutation_local.depth = 0
+        """Serialize and refresh through the shared ownership coordinator."""
+        return self.transaction_coordinator.transaction(operation)
 
     def _capture_mutation_snapshot(self) -> Dict[str, Any]:
-        """Capture rollback state while the cross-process mutation lock is held."""
-
-        persistent_rag = None
-        if self.persistent_rag_store is not None:
-            persistent_rag = self.persistent_rag_store.snapshot_state()
-        return {
-            "dml": self.store.snapshot_state(),
-            "rag": self.rag_store.snapshot_state(),
-            "persistent_rag": persistent_rag,
-        }
+        """Capture component rollback state under transaction ownership."""
+        return self.persistence_coordinator.capture_snapshot()
 
     def _rollback_mutation(
-        self,
-        snapshot: Dict[str, Any],
-        committed_components: set[str],
+        self, snapshot: Dict[str, Any], committed_components: set[str],
     ) -> None:
-        """Restore runtime state and compensate durable components already committed."""
-
-        self.store.import_state(copy.deepcopy(snapshot["dml"]))
-        self.rag_store.restore_state(snapshot["rag"])
-        persistent_snapshot = snapshot.get("persistent_rag")
-        if self.persistent_rag_store is not None and persistent_snapshot is not None:
-            self.persistent_rag_store.restore_state(persistent_snapshot)
-        with self._query_embedding_cache_lock:
-            self.query_cache.clear()
-
-        # The outer store lock remains held here, so no cooperating writer can
-        # commit between the failed write and these compensating replacements.
-        if "dml" in committed_components:
-            self._persist_dml_state()
-        if (
-            "persistent_rag" in committed_components
-            and self.persistent_rag_store is not None
-        ):
-            self.persistent_rag_store.persist()
-            self._last_observed_persistent_rag = self._path_stamp(
-                self.persistent_rag_store.manifest_path
-            )
-        if "rag" in committed_components:
-            legacy_payload = {
-                "documents": copy.deepcopy(snapshot["rag"].get("documents") or [])
-            }
-            atomic_write_text(
-                self.rag_state_path,
-                json.dumps(legacy_payload, indent=2),
-            )
-            self._last_observed_rag_state = self._path_stamp(self.rag_state_path)
+        """Restore runtime and compensate published or uncertain component writes."""
+        self.persistence_coordinator.rollback(
+            snapshot, committed_components, persist_lattice=lambda: self._persist_dml_state(),
+        )
 
     def _state_stamp(self) -> Optional[tuple[int, int]]:
         return self.lattice_persistence.stamp()
 
     @staticmethod
     def _path_stamp(path: Path) -> Optional[tuple[int, int]]:
-        try:
-            stat = path.stat()
-        except FileNotFoundError:
-            return None
-        return int(stat.st_mtime_ns), int(stat.st_size)
+        return PersistenceCoordinator.path_stamp(path)
 
     def refresh_if_changed(self) -> bool:
-        """Reload lattice state when another process has persisted a newer snapshot."""
-
+        """Reload component state through the coordinator and record reload timing."""
         started = time.perf_counter()
-        with self._refresh_lock:
-            changed = False
-            current = self._state_stamp()
-            if current is None and self._last_observed_state is not None:
-                raise FileNotFoundError("Previously initialized DML state is missing")
-            if current is not None and current != self._last_observed_state:
-                payload = self.lattice_persistence.load()
-                if self._journal:
-                    current = (self._journal.revision, current[1])
-                self.store.import_state(payload)
-                with self._query_embedding_cache_lock:
-                    self.query_cache.clear()
-                self._last_observed_state = current
-                with self._persist_lock:
-                    self._clear_durability_failure_locked("receipt_runtime")
-                changed = True
-
-            rag_stamp = self._path_stamp(self.rag_state_path)
-            if rag_stamp is not None and rag_stamp != self._last_observed_rag_state:
-                self.rag_store.import_state(
-                    json.loads(self.rag_state_path.read_text(encoding="utf-8"))
-                )
-                self._last_observed_rag_state = rag_stamp
-                changed = True
-
-            if self.persistent_rag_store is not None:
-                persistent_stamp = self._path_stamp(self.persistent_rag_store.manifest_path)
-                if (
-                    persistent_stamp is not None
-                    and persistent_stamp != self._last_observed_persistent_rag
-                    and self.persistent_rag_store.load()
-                ):
-                    self._last_observed_persistent_rag = persistent_stamp
-                    changed = True
-            if not changed:
-                return False
+        if not self.persistence_coordinator.refresh(state_stamp=lambda: self._state_stamp()):
+            return False
         latency_ms = (time.perf_counter() - started) * 1000.0
         LOGGER.info(
             "Reloaded externally changed DML state path=%s latency_ms=%.2f",
-            self._active_state_path(),
-            latency_ms,
+            self._active_state_path(), latency_ms,
         )
         if self.metrics_enabled:
             record_operation("state_reload", latency_ms=latency_ms)
@@ -1597,8 +1470,10 @@ class DMLAdapter:
             self.rag_store.import_state(data)
 
     def _persist_all(self) -> None:
-        self._persist_dml_state()
-        self._persist_rag_state()
+        self.persistence_coordinator.persist_all(
+            persist_lattice=lambda: self._persist_dml_state(),
+            persist_rag=lambda: self._persist_rag_state(),
+        )
 
     def _start_persistence_loop(self) -> None:
         if self._persistence_thread and self._persistence_thread.is_alive():
@@ -1661,69 +1536,24 @@ class DMLAdapter:
             validate_embedding_contract(payload, current_identity, vector)
 
     def _persist_dml_state(self) -> None:
-        self._require_legacy_mutations()
-        with self._persist_lock:
-            try:
-                jsonl = self._persistence_enabled and self._journal is None
-                stamp = self.lattice_persistence.commit(
-                    payload=None if jsonl else self.store.export_state(),
-                    items=self.store.items() if jsonl else None,
-                    expected_revision=self._last_observed_state[0] if self._journal and self._last_observed_state else 0,
-                    operation=getattr(self._mutation_local, "operation", "persist"),
-                )
-                self._mark_committed_component("dml")
-                self._last_observed_state = stamp
-            except Exception as exc:
-                self._record_durability_failure_locked("dml", exc)
-                raise PersistenceCommitError("DML state persistence failed") from exc
-            self._clear_durability_failure_locked("dml")
+        self.persistence_coordinator.persist_lattice()
 
     def _persist_rag_state(self) -> None:
-        with self._persist_lock:
-            try:
-                if self.persistent_rag_store is not None:
-                    self.persistent_rag_store.persist()
-                    self._last_observed_persistent_rag = self._path_stamp(
-                        self.persistent_rag_store.manifest_path
-                    )
-                    self._mark_committed_component("persistent_rag")
-                data = self.rag_store.export_state()
-                self.rag_state_path.parent.mkdir(parents=True, exist_ok=True)
-                atomic_write_text(self.rag_state_path, json.dumps(data, indent=2))
-                self._last_observed_rag_state = self._path_stamp(self.rag_state_path)
-                self._mark_committed_component("rag")
-            except Exception as exc:
-                self._record_durability_failure_locked("rag", exc)
-                LOGGER.exception("Failed to persist RAG state to %s", self.rag_state_path)
-                raise PersistenceCommitError(
-                    f"RAG state persistence failed: {self.rag_state_path}"
-                ) from exc
-            self._clear_durability_failure_locked("rag")
+        self.persistence_coordinator.persist_rag()
 
     def _mark_committed_component(self, component: str) -> None:
-        committed = getattr(self._mutation_local, "committed_components", None)
-        if committed is not None:
-            committed.add(component)
+        self.transaction_coordinator.mark_committed(component)
 
-    def _record_durability_failure_locked(self, component: str, exc: Exception) -> None:
-        """Record a component failure while the caller owns ``_persist_lock``."""
-
-        self._durability_failures[component] = f"{type(exc).__name__}: {exc}"
+    def _record_durability_failure_locked(self, component: str, exc: BaseException) -> None:
+        """Record failure through the service's shared reentrant persist lock."""
+        self.persistence_coordinator.record_failure(component, exc)
 
     def _clear_durability_failure_locked(self, component: str) -> None:
-        """Clear a component failure while the caller owns ``_persist_lock``."""
-
-        self._durability_failures.pop(component, None)
+        self.persistence_coordinator.clear_failure(component)
 
     def durability_status(self) -> Dict[str, Any]:
-        """Return a thread-safe summary of failed durability writes."""
-
-        with self._persist_lock:
-            failures = dict(self._durability_failures)
-        return {
-            "status": "degraded" if failures else "ok",
-            "failures": failures,
-        }
+        """Return a detached summary of failed durability writes."""
+        return self.persistence_coordinator.durability_status()
 
     def _embedding_compatibility_report_path(self) -> Path:
         return self.storage_dir / "embedding_compatibility_report.json"

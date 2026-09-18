@@ -126,6 +126,11 @@ jobs:
           dml_core/tests/test_context_service.py
           dml_core/tests/test_retrieval_context_integration.py
           dml_core/tests/test_retrieval_context_adversarial.py
+          dml_core/tests/test_transaction_service.py
+          dml_core/tests/test_persistence_service.py
+          dml_core/tests/test_transaction_integration.py
+          dml_core/tests/test_transaction_recovery.py
+          dml_core/tests/test_transaction_adversarial.py
           dml_core/tests/test_adversarial_memory.py
           dml_core/tests/test_outcome_metrics.py
           dml_core/tests/test_fail_closed_persistence.py
@@ -194,10 +199,16 @@ jobs:
         env:
           DML_STRESS_CLIENTS: "256"
         run: python -m pytest dml_core/tests/test_retention_recovery.py::test_simultaneous_retention_readers_leave_authority_unchanged --junitxml=production-artifacts/retention-concurrency.xml
+      - name: Stress 256 mixed transaction clients
+        env:
+          DML_TRANSACTION_CLIENTS: "256"
+        run: python -m pytest dml_core/tests/test_transaction_recovery.py::test_mixed_adapter_clients_preserve_independent_committed_history --junitxml=production-artifacts/transaction-concurrency.xml
       - name: Record serial recovery harness outcomes
         run: python -m pytest dml_core/tests/test_journal_hardening.py dml_core/tests/test_checkpoint_hardening.py dml_core/tests/test_receipt_ingestion.py dml_core/tests/test_receipt_adapter.py dml_core/tests/test_receipt_embedding_contract.py dml_core/tests/test_projection.py dml_core/tests/test_projection_queries.py dml_core/tests/test_projection_delta.py dml_core/tests/test_projection_delta_integration.py dml_core/tests/test_projection_worker.py dml_core/tests/test_projection_worker_integration.py dml_core/tests/test_projection_worker_recovery.py dml_core/tests/test_projection_worker_adversarial.py dml_core/tests/test_journal_outbox.py dml_core/tests/test_outbox_delivery.py dml_core/tests/test_outbox_integration.py dml_core/tests/test_outbox_recovery.py dml_core/tests/test_outbox_adversarial.py dml_core/tests/test_outbox_migration.py dml_core/tests/test_migrated_outbox_delivery.py dml_core/tests/test_outbox_migration_integration.py dml_core/tests/test_outbox_migration_recovery.py dml_core/tests/test_migration_adversarial.py dml_core/tests/test_receipt_retirement.py dml_core/tests/test_retirement_integration.py dml_core/tests/test_retirement_recovery.py dml_core/tests/test_retirement_adversarial.py dml_core/tests/test_receipt_supersession.py dml_core/tests/test_supersession_integration.py dml_core/tests/test_supersession_recovery.py dml_core/tests/test_supersession_adversarial.py dml_core/tests/test_receipt_update.py dml_core/tests/test_content_update_integration.py dml_core/tests/test_content_update_recovery.py dml_core/tests/test_content_update_adversarial.py dml_core/tests/test_receipt_promotion.py dml_core/tests/test_promotion_integration.py dml_core/tests/test_promotion_recovery.py dml_core/tests/test_promotion_adversarial.py dml_core/tests/test_retention.py dml_core/tests/test_retention_integration.py dml_core/tests/test_retention_recovery.py dml_core/tests/test_retention_adversarial.py --junitxml=production-artifacts/recovery.xml
       - name: Verify scoped retrieval and context boundary
         run: python -m pytest dml_core/tests/test_retrieval_service.py dml_core/tests/test_context_service.py dml_core/tests/test_retrieval_context_integration.py dml_core/tests/test_retrieval_context_adversarial.py --junitxml=production-artifacts/retrieval-context.xml
+      - name: Verify transaction and persistence coordination
+        run: python -m pytest dml_core/tests/test_transaction_service.py dml_core/tests/test_persistence_service.py dml_core/tests/test_transaction_integration.py dml_core/tests/test_transaction_recovery.py dml_core/tests/test_transaction_adversarial.py --junitxml=production-artifacts/transaction-coordinator.xml
       - name: Compare independent baseline on 1000 offline turns
         run: python -m scripts.production_baseline --turns 1000 --output production-artifacts/baseline.json
       - name: Measure journal history validation cost
