@@ -5,9 +5,9 @@ The repository remains alpha. The [production contract](contracts/production-v1.
 defines implemented behavior, migration and remaining release gates.
 The current [finite remaining-work ledger](production-remaining-work-2026-09-18.md)
 contains eleven first-release milestones and two deferred broader milestones;
-**five milestones are closed as reconciled on 2026-09-19**, leaving **six unclosed
-first-release gates and two deferred gates**. These are acceptance obligations, not
-six unstarted implementation projects. Milestone 5 is closed by reconciliation of
+**six milestones are closed**, leaving **five unclosed first-release gates and
+two deferred gates**. These are acceptance obligations, not five unstarted
+implementation projects. Milestone 5 is closed by reconciliation of
 previously accepted migration/versioning evidence, not by a new implementation.
 
 The table summarizes the foundations and subsequent serial gates. Historical
@@ -23,7 +23,7 @@ sections below retain the evidence and scope recorded when each gate was built.
 | 6. Agent outcomes | Outcome reducer, failure-inclusive costs, quality/latency/recovery distributions, CI offline baseline and journal-history cost evidence | Wire real agent harnesses; continuous 1k/10k and 100k-turn release campaigns |
 | 7. Stability boundaries | Provider contract inventory, reviewed supported-profile boundary and exact model/tokenizer input companion; native KV remains experimental | Release qualification; native-KV restore identity audit and hardware canaries are deferred |
 | 8. Version migration | Explicit side-by-side schema 0/1/2/4 paths, schema-3 fresh authorities, preserved historical receipts and commit-pinned compatibility fixtures | Milestone 5 closed by reconciliation of the admitted-profile coverage; preserve compatibility as versions evolve, with accurately labeled commit-pinned fixtures |
-| 9. Concurrency | Journal CAS/pinned reads, targeted lifecycle/process tests, mixed selected-profile thread/process/HTTP campaigns, lifetime fencing and snapshot/revision race repair | Milestone 6 remains open after CI 323 failed two Linux bounds; correction source accepted at 9.6/10, renewed exact-source CI pending |
+| 9. Concurrency | Journal CAS/pinned reads, targeted lifecycle/process tests, mixed selected-profile thread/process/HTTP campaigns, lifetime fencing and snapshot/revision race repair | Milestone 6 closed at 9.6/10 after CI 324 passed all 20 jobs and the 48/24/24 platform histories were verified; growing-store/live-agent qualification remains separate |
 | 10. Observability | Durable mutation decisions/source proofs, response retrieval traces, degradation status and scoped retention inspection | Durable full request/context replay, complete decision coverage and bounded audit retention/export |
 
 ## Current completion reconciliation — 2026-09-19
@@ -67,6 +67,7 @@ Grades apply to the bounded feature reviewed, not whole-platform production read
 | 16 | [Supported-profile freeze](production-profile-hardening-2026-09-18.md) | 9.6 |
 | 17 | [Exact model-input/tokenizer binding](model-input-hardening-2026-09-18.md) | 9.6 |
 | 18 | [Supported-profile crash qualification and verified backup/restore](profile-recovery-hardening-2026-09-18.md) | 9.6 |
+| 19 | [Supported-profile mixed-operation concurrency](production-concurrency-2026-09-19.md) and [exact-source qualification](artifacts/profile-concurrency-qualification-2026-09-19.json) | 9.6 |
 
 Milestone 5 **closed by reconciliation of previously completed work on 2026-09-19**.
 The initial version guards and schema-0→1 path, gate 3's schema-1→2 migration,
@@ -76,14 +77,18 @@ The [seven-criterion closure mapping](production-remaining-work-2026-09-18.md#mi
 credits the existing component inventory, commit-pinned fixtures, version rejection,
 interruption, export/restore and rollback evidence. This accounting correction
 claims no new implementation or test run and does not add a nineteenth serial gate.
-Milestones 6–11 and the two deferred milestones remain open within their stated scope.
+Milestones 7–11 and the two deferred milestones remain open within their stated scope.
 
-### Current implementation: serial gate 19 / milestone 6
+### Completed implementation: serial gate 19 / milestone 6
 
 [Supported-profile mixed-operation concurrency](production-concurrency-2026-09-19.md)
-**remains open after CI 323 qualification was rejected**. Earlier source
-snapshots retain their independent reviews; final correction source is now
-accepted at **9.6/10** for publication and renewed exact-source CI.
+**is closed at 9.6/10** after source `6647a0d` passed all **20 jobs** in
+[CI 324](https://github.com/mmckeen-nv/DML/actions/runs/35470900431). The
+[qualification manifest](artifacts/profile-concurrency-qualification-2026-09-19.json)
+binds the reviewed tree, tested merge, archive/JUnit digests and all **96 raw
+histories**, independently verified twice. Linux passed **359 cases / 48 cells**;
+macOS passed **335 / 24**; Windows passed **334 / 24**, with one declared fork
+skip. Both full-suite jobs passed **4,343 tests with 75 skips each**.
 The frozen matrix covers schemas 2/3/4 and
 1/16/64/256 actual ready/in-flight clients through threads, spawned-process
 callers and real HTTP/provider routes. Independent history checks, uncertain
@@ -111,9 +116,9 @@ campaign exceeded its 90-second deadline, and HTTP schema-4/256 exceeded the
 10-second first-progress bound; its exact timing is unavailable. The
 [concurrency record](production-concurrency-2026-09-19.md#rejected-ci-attempts-and-current-repair)
 preserves CI 322's earlier rejection, follow-up review and exact source/tree
-identities. Runtime work now targets duplicate scans/serialization while
-preserving validation, with better diagnostics for rejected campaigns. The
-original bounds remain unchanged.
+identities. The subsequent correction removed duplicate scans/serialization while
+preserving validation and added better rejected-campaign diagnostics. The
+original bounds remained unchanged.
 
 Focused correction evidence now records one removed duplicate refresh scan,
 unchanged semantic validation counts, and three passing contention cells on a
@@ -122,15 +127,17 @@ snapshot with **336 unchanged source-file hashes**. The
 remain limited evidence. The later cleanup-budget adjustment and final correction
 source received **9.6/10** in the new
 [contention review](artifacts/profile-concurrency-contention-review-2026-09-19.json),
-which independently replayed all three histories. Expected renewed-CI collection
-is 359 full / 335 bounded cases, with only the declared Windows fork skip allowed.
-Exact-source qualification and milestone 6 closure remain pending.
+which independently replayed all three histories. These earlier source-review
+measurements retain their attribution; final-tree qualification and milestone 6
+closure come from CI 324 and its verified artifacts above.
 
 This is the nineteenth serial implementation gate, not a new release milestone.
-It does not change the five closed / six unclosed first-release count. The
-completed index above will gain gate 19 only after independent acceptance at
-least 9.5/10, required validation and exact-source CI pass. PR #118 remains
-unmerged and `production_ready` remains false.
+Gate 19 is now in the completed index: **six first-release milestones closed,
+five first-release milestones open and two deferred**. Next is milestone 7's
+live-agent episode/event producer and independent task verifiers, as clarified
+in the [finite plan](production-remaining-work-2026-09-18.md#next-milestone-7).
+That implementation has not started. PR #118 remains unmerged and
+`production_ready` remains false.
 
 ## Validation commands
 

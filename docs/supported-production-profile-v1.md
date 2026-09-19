@@ -53,9 +53,9 @@ reports degraded status when durability inspection encounters a closing or
 closed selected adapter. Informational `production_profile_status` does not
 certify that such an adapter can accept work. Milestone 6's
 [qualification record](production-concurrency-2026-09-19.md) tracks this behavior
-and its earlier source snapshots accepted independently at **9.6/10**.
-CI 323 rejected the Linux qualification lane. Final correction source is now
-accepted at **9.6/10** for publication and renewed CI; milestone 6 remains open.
+and its **closed milestone-6 qualification**: source review at **9.6/10**,
+all 20 jobs passing in CI 324 and independently verified platform histories.
+Earlier rejected attempts and immutable reviews retain their own attribution.
 Unselected legacy behavior is unchanged.
 
 `production_profile_status()` reports `profile_id`, `status`,
@@ -157,7 +157,7 @@ recovery boundary and offline operator commands are defined in the
 results tracked in its [hardening record](profile-recovery-hardening-2026-09-18.md).
 Milestones 4 and 5 are closed, with their evidence credited in the
 [current release ledger](production-remaining-work-2026-09-18.md); mixed-operation
-concurrency is in progress as milestone 6 and final release support remains
+concurrency is closed as milestone 6 and final release support remains
 milestone 11. A backup captures one revision only; independent
 client receipts are required to detect a consistent rollback or acknowledged WAL
 loss that internal checksums cannot establish.
@@ -377,24 +377,19 @@ unchanged.
 
 Milestone 1 freezes this admitted product boundary and verifies its enforcement.
 The [current release ledger](production-remaining-work-2026-09-18.md) credits
-milestones **1–5 as closed** and tracks **six unclosed first-release gates**.
-Milestone 6, mixed-operation concurrency, remains open after
-[CI 323](https://github.com/mmckeen-nv/DML/actions/runs/35468625699) finished
-19/20 jobs passed and failed two Linux qualification bounds on source `2cc3a3a`.
-macOS and Windows each qualified their bounded 24-cell selection; both
-full-suite jobs passed 4,308 tests with 75 skips each. These results do not
-substitute for complete qualification. The
+milestones **1–6 as closed** and tracks **five unclosed first-release gates**.
+Milestone 6 closed after source `6647a0d` passed all 20 jobs in
+[CI 324](https://github.com/mmckeen-nv/DML/actions/runs/35470900431), with source
+review at **9.6/10**. Linux passed **359 cases / 48 histories**; macOS passed
+**335 / 24**; Windows passed **334 / 24**, with one declared POSIX-fork skip.
+Both full-suite jobs passed **4,343 tests with 75 skips each**. The
+[qualification manifest](artifacts/profile-concurrency-qualification-2026-09-19.json)
+binds exact source/tree, tested merge, artifact/JUnit digests and all 96 histories,
+independently verified twice. The
 [concurrency record](production-concurrency-2026-09-19.md#rejected-ci-attempts-and-current-repair)
-preserves exact source identity, failures and immutable prior reviews. Runtime
-correction source is now accepted at **9.6/10**, with renewed exact-source CI
-pending and the original bounds intact.
-The [focused correction evidence](production-concurrency-2026-09-19.md#correction-evidence-before-final-review)
-records less duplicate work with unchanged semantic validation counts and three
-passing contention cells. The later cleanup-budget adjustment is reviewed in the
-new [contention correction review](artifacts/profile-concurrency-contention-review-2026-09-19.json).
-Renewed CI expects 359 full / 335 bounded cases, with only the declared Windows
-fork skip allowed. These observations do not qualify the final tree or establish
-supported capacity.
+preserves rejected CI attempts and historical reviews. Qualification retains the
+original bounds and finite corpus/platform limits; it does not establish general
+service capacity or change `production_ready: false`.
 Live-agent semantics,
 fair baseline value, continuous workloads, replay/retention and final release
 support remain milestones 7–11. Remaining legacy orchestration extraction and native-KV

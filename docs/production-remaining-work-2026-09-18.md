@@ -2,15 +2,15 @@
 
 Originally recorded 2026-09-18; current status reconciled **2026-09-19** against
 review artifacts and the published PR/CI record. The [original ten areas](productionization-plan-2026-09-12.md)
-remain workstreams. Eighteen completed serial hardening gates, plus the initial
+remain workstreams. Nineteen completed serial hardening gates, plus the initial
 foundations tranche, supply implementation and evidence toward the release gates
-below; they are not eighteen additional release milestones.
+below; they are not nineteen additional release milestones.
 
 ## Current completion tab — 2026-09-19
 
 The finite scope remains **13 release milestones: 11 first-release and 2 deferred**.
-Milestones **1–5 are closed**, leaving **6 unclosed first-release gates and 2 deferred**.
-These are remaining acceptance obligations, **not six untouched implementation
+Milestones **1–6 are closed**, leaving **5 unclosed first-release gates and 2 deferred**.
+These are remaining acceptance obligations, **not five untouched implementation
 projects**. Existing implementations and evidence must be credited before assigning
 new work. DML remains alpha and the supported profile remains a candidate.
 
@@ -46,14 +46,20 @@ The implementation evidence retains its original attribution: migration gate 8 w
 accepted at **9.5/10** with **139 focused passes** and **1,601 full-suite passes**;
 recovery gate 18 was accepted at **9.6/10** and subsequently passed CI 320 as recorded
 above. These results overlap other selections and are not new tests run for this
-reconciliation. Milestones 6–11 retain their distinct, unmet release criteria.
+reconciliation. Milestone 6 closes separately below; milestones 7–11 retain their
+distinct, unmet release criteria.
 
-### Active implementation: milestone 6
+### Completed milestone 6 / serial gate 19
 
-**Milestone 6 remains open as serial hardening gate 19: CI 323 rejected the
-Linux qualification lane.** Earlier source snapshots received independent
-9.6/10 reviews; final correction source is now independently accepted at
-**9.6/10 for publication and renewed CI**, with milestone closure pending. Its
+**Milestone 6 is closed**, with independent source acceptance at **9.6/10** and
+all **20 jobs** passing in [CI 324](https://github.com/mmckeen-nv/DML/actions/runs/35470900431)
+on source `6647a0d`. The
+[qualification manifest](artifacts/profile-concurrency-qualification-2026-09-19.json)
+binds exact source/tree, tested merge and archive/JUnit digests. All **96 retained
+histories** were independently verified twice: **48 Linux, 24 macOS and 24 Windows**.
+Linux passed 359 cases with zero skips; macOS passed 335 with zero skips; Windows
+passed 334 with one declared fork skip. Both full-suite jobs passed **4,343 tests
+with 75 skips each**. Its
 [predeclared qualification contract](production-concurrency-2026-09-19.md)
 credits existing CAS, lifecycle and process tests, then fixes the remaining
 mixed-operation matrix: schemas 2/3/4, actual 1/16/64/256 ready/in-flight callers,
@@ -76,12 +82,10 @@ qualified 24 with **299 passes and one declared fork skip**. Both full-suite job
 passed **4,308 tests with 75 skips each**. Linux reported **322 passes and two
 failures**: the separate-adapter schema-3/256 campaign expired its 90-second
 deadline, and HTTP schema-4/256 exceeded the 10-second first-progress bound
-(exact latter timing unavailable). Runtime repairs target duplicate validated
-scans/serialization without weakening checks; rejected-campaign diagnostics are
-being added. The [source-pinned chronology](production-concurrency-2026-09-19.md#rejected-ci-attempts-and-current-repair)
-retains the rejected results. The original bounds remain unchanged. This does
-not close the milestone or change the **six first-release gates and two deferred
-gates** still open.
+(exact latter timing unavailable). The subsequent repair removed duplicate validated
+scans/serialization without weakening checks and added rejected-campaign diagnostics. The [source-pinned chronology](production-concurrency-2026-09-19.md#rejected-ci-attempts-and-current-repair)
+retains those rejected results. They were not waived or counted as closure;
+the successful CI 324 qualification above met the original unchanged bounds.
 
 The [focused correction record](production-concurrency-2026-09-19.md#correction-evidence-before-final-review)
 now credits reduced duplicate scans/serialization without reduced validation,
@@ -91,8 +95,19 @@ adjustment has been reviewed. The new
 [contention correction review](artifacts/profile-concurrency-contention-review-2026-09-19.json)
 accepts final source at **9.6/10**, with three independently replayed histories
 (1,320 events / one typed rejection). These are not final-tree qualification
-results. Renewed CI expects 359 full / 335 bounded cases, permitting only the
-declared Windows fork skip; milestone 6 remains open.
+results. Final qualification comes from CI 324 and its verified artifacts above.
+The plan now has **six first-release gates closed, five first-release gates open
+and two deferred gates**; DML remains alpha and `production_ready` remains false.
+
+### Next: milestone 7
+
+The next action is to build the live episode/event producer and independent task
+verifiers around the existing outcome reducer, receipt APIs and exact-input
+consumer. Reuse the eight scenario intents with the current explicit receipt
+and lifecycle behavior, rather than legacy implicit-merge expectations. Live
+qualification requires a pinned **trained execution model**; random tiny model
+fixtures establish plumbing only. This clarifies existing milestone 7 acceptance,
+adds no milestone or product scope, and does not mark its implementation started.
 
 ### Numbering legend
 
@@ -109,7 +124,7 @@ supersedes those statements only for present completion accounting; it does not
 rewrite historical evidence or review hashes. The [foundations running record](production-foundations-2026-09-12.md)
 contains the completed serial-gate index.
 
-## First production release: 6 unclosed gates of 11 milestones
+## First production release: 5 unclosed gates of 11 milestones
 
 | # | Milestone | Status | Closure criteria | Original areas |
 | --- | --- | --- | --- | --- |
@@ -118,7 +133,7 @@ contains the completed serial-gate index.
 | 3 | Bind exact model input and tokenizer budgets | Closed at reviewed-source gate: serial gate 17 | The Python-only [local Transformers companion](model-input-contract-v1.md) pins model/tokenizer/template identities, counts complete messages/tools/framing plus reserved output, rejects overflow and dispatches the immutable token IDs. The memory profile retains its nine-route/no-generation boundary. Independent review **9.6/10**, **256 focused passes with 0 skips**, and **3,598 full-suite passes with 9 skips**. [Evidence and limits](model-input-hardening-2026-09-18.md); subsequent corrected source `49368a9` passed all ten CI jobs in run 317. | 1, 2, 7 |
 | 4 | Qualify crash recovery and supported filesystems | Closed: serial gate 18, 9.6/10; source `3763303`, CI 320 all 17 jobs passed; six measured environments and 15 real ENOSPC cases verified | Finish the supported-profile mutation/component inventory and deterministic plus seeded fault matrix; account for acknowledged, rejected and uncertain operations on restart; qualify the advertised filesystem/platform failure guarantees and publish a tested recovery runbook. Keep process-kill and power-loss evidence distinct. | 3, 9 |
 | 5 | Complete persisted-format and migration coverage | Closed by reconciliation on 2026-09-19: previously accepted foundations and serial gates 3, 8 and 18; mapping above | Inventory every persisted family admitted by the supported profile; enforce supported versions and compatibility; pass source-version, future-version, interrupted migration, export and restore cases using accurately labeled release or commit-pinned fixtures. Document excluded families and rollback limitations. | 3, 8 |
-| 6 | Qualify mixed-operation concurrency | Open: **CI 323 rejected**, 19/20 jobs passed; two Linux bounds failed. Correction source accepted at **9.6/10** for publication; renewed exact-source CI pending. [Evidence and fixed criteria](production-concurrency-2026-09-19.md) | Exercise supported reads, writes, lifecycle operations and journal checkpoint/recovery behavior through threads, processes and HTTP/provider callers at 1/16/64/256-client levels with an independent history checker. Show zero lost updates, dirty reads, deadlocks or scope leakage in the qualified histories and satisfy the predeclared cancellation, timeout, finite progress and OS ownership-wait requirements. | 3, 9 |
+| 6 | Qualify mixed-operation concurrency | Closed: serial gate 19, **9.6/10**, source `6647a0d`, **CI 324 all 20 jobs passed**, 48/24/24 platform histories independently verified twice. [Qualification evidence](artifacts/profile-concurrency-qualification-2026-09-19.json) | Exercise supported reads, writes, lifecycle operations and journal checkpoint/recovery behavior through threads, processes and HTTP/provider callers at 1/16/64/256-client levels with an independent history checker. Show zero lost updates, dirty reads, deadlocks or scope leakage in the qualified histories and satisfy the predeclared cancellation, timeout, finite progress and OS ownership-wait requirements. | 3, 9 |
 | 7 | Wire the live-agent semantic and outcome harness | Deterministic adversarial corpus and outcome reducer implemented; live-agent evidence pending | Run pinned tool-driven agent episodes with task verifiers, raw events and failure-inclusive cost/quality metrics; cover the adversarial semantic cases and incorrect-retrieval feedback loops. Distinguish live outcomes from deterministic state checks and offline retrieval smoke. | 4, 6 |
 | 8 | Demonstrate fair baseline value | Independent durable baseline implemented; fair held-out live comparison pending | Freeze a fairness manifest and acceptance thresholds before held-out evaluation; compare no memory, the independent durable baseline and the supported DML profile with equal models, embeddings, budgets, tools and compaction. Meet the predeclared value, quality and latency gates with paired episodes and confidence intervals. | 5, 6 |
 | 9 | Run continuous 1k/10k lanes and the 100k campaign | Offline runner implemented; recurring live lanes and completed 100k campaign pending | Provision recurring 1k/10k live workload lanes and a completed 100k-turn release campaign with growing-store measurements, recovery checks, raw events, seeds, configuration/runtime identities and quality/latency distributions. Report turns and record counts separately; skips and offline simulations cannot close this milestone. | 3, 5, 6, 9 |
