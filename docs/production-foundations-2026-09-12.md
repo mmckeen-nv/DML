@@ -5,8 +5,10 @@ The repository remains alpha. The [production contract](contracts/production-v1.
 defines implemented behavior, migration and remaining release gates.
 The current [finite remaining-work ledger](production-remaining-work-2026-09-18.md)
 contains eleven first-release milestones and two deferred broader milestones;
-three milestones have reviewed-source acceptance, leaving eight first-release milestones
-and two deferred milestones.
+**five milestones are closed as reconciled on 2026-09-19**, leaving **six unclosed
+first-release gates and two deferred gates**. These are acceptance obligations, not
+six unstarted implementation projects. Milestone 5 is closed by reconciliation of
+previously accepted migration/versioning evidence, not by a new implementation.
 
 The table summarizes the foundations and subsequent serial gates. Historical
 sections below retain the evidence and scope recorded when each gate was built.
@@ -15,14 +17,66 @@ sections below retain the evidence and scope recorded when each gate was built.
 | --- | --- | --- |
 | 1. Production contract | Explicit target, maturity/health, durable receipt APIs and revision-pinned scoped retrieval/context integration; reviewed supported-profile freeze and exact-input companion | Complete broader release qualification |
 | 2. Adapter decomposition | Narrow persistence, cache, scoped selection, context/report, lifecycle, receipt, projection, delivery and retention-inspection services; reviewed transaction coordination extraction | Remaining legacy retrieval/lifecycle extraction is deferred beyond the first release |
-| 3. Crash consistency | Verified journals/checkpoints, atomic receipts/outbox, explicit migrations, real process-kill, quota, corruption and serialization cases | Remaining mutation/component inventory, supported filesystem/power-loss qualification and recovery runbook |
+| 3. Crash consistency | Verified journals/checkpoints, atomic receipts/outbox, explicit migrations, real process-kill, quota, corruption and serialization cases | Completed supported-profile process/storage-failure qualification and runbook are recorded below; physical power loss remains unclaimed |
 | 4. Adversarial memory | Eight-case corpus plus lifecycle-specific conflict, scope, authority, provenance and historical-replay regressions | Real-agent semantic outcomes and long-running incorrect-retrieval feedback cases |
 | 5. Baseline | Independent durable SQLite + embeddings + recency + top-k + compaction implementation and runner | Held-out live episodes, equalized compaction and statistically supported value gate |
 | 6. Agent outcomes | Outcome reducer, failure-inclusive costs, quality/latency/recovery distributions, CI offline baseline and journal-history cost evidence | Wire real agent harnesses; continuous 1k/10k and 100k-turn release campaigns |
 | 7. Stability boundaries | Provider contract inventory, reviewed supported-profile boundary and exact model/tokenizer input companion; native KV remains experimental | Release qualification; native-KV restore identity audit and hardware canaries are deferred |
-| 8. Version migration | Explicit side-by-side schema 0/1/2/4 paths, schema-3 fresh authorities, preserved historical receipts and commit-pinned compatibility fixtures | More released-version fixtures and coverage of all persistent artifact families |
+| 8. Version migration | Explicit side-by-side schema 0/1/2/4 paths, schema-3 fresh authorities, preserved historical receipts and commit-pinned compatibility fixtures | Milestone 5 closed by reconciliation of the admitted-profile coverage; preserve compatibility as versions evolve, with accurately labeled commit-pinned fixtures |
 | 9. Concurrency | Journal CAS/pinned reads, 256-client receipt/lifecycle/delivery tests, competing processes and deterministic race regressions | Mixed-operation HTTP/provider campaigns, cancellation/starvation checks and lock-latency SLOs |
 | 10. Observability | Durable mutation decisions/source proofs, response retrieval traces, degradation status and scoped retention inspection | Durable full request/context replay, complete decision coverage and bounded audit retention/export |
+
+## Current completion reconciliation — 2026-09-19
+
+Published source [`3763303`](https://github.com/mmckeen-nv/DML/commit/3763303)
+passed all **17 jobs** in [CI 320](https://github.com/mmckeen-nv/DML/actions/runs/35359517124),
+including six measured recovery environments and **15 real ext4 ENOSPC cases**.
+With independent review at **9.6/10**, this closes release milestone 4.
+[PR #118](https://github.com/mmckeen-nv/DML/pull/118) remains open and unmerged.
+The candidate/alpha classification and absence of physical power-loss claims remain.
+
+The historical sections below retain their original source-snapshot accounting and
+pending-CI language. This dated tab and the [finite release ledger](production-remaining-work-2026-09-18.md)
+provide current status; accepted historical review artifacts are not rewritten.
+Original area 5 is the baseline, original P05 is crash recovery, serial gate 5 is
+projection deltas, and release milestone 5 is persisted-format coverage. These
+numbering systems are not interchangeable.
+
+### Completed implementation index
+
+Grades apply to the bounded feature reviewed, not whole-platform production readiness.
+
+| Gate | Completed implementation and evidence | Accepted grade |
+| --- | --- | --- |
+| Foundations | Contract, version validation, schema-0→1 upgrade, adversarial corpus, service seams, independent baseline/outcome scaffold and CAS stress; [initial evidence](#recorded-local-evidence-2026-09-12) | Foundational evidence; no separate grade asserted here |
+| 1 | [Journal initialization, integrity and recovery](journal-hardening-2026-09-12.md) | 9.5 |
+| 2 | [Semantic checkpoint publication, retention and shutdown](checkpoint-hardening-2026-09-12.md) | 9.5 |
+| 3 | [Append-only ingestion receipts and schema-1→2 migration](receipt-hardening-2026-09-12.md) | 9.5 |
+| 4 | [Disposable SQLite snapshot projection](projection-hardening-2026-09-14.md) | 9.5 |
+| 5 | [Coalesced projection deltas](projection-delta-hardening-2026-09-14.md) | 9.5 |
+| 6 | [Bounded projection worker, retries and shutdown](projection-worker-hardening-2026-09-14.md) | 9.5 |
+| 7 | [Transactional outbox and ordered delivery](outbox-hardening-2026-09-14.md) | 9.5 |
+| 8 | [Explicit schema-2→4 migration and historical compatibility](outbox-migration-hardening-2026-09-14.md) | 9.5 |
+| 9 | [Receipted retirement](retirement-hardening-2026-09-14.md) | 9.6 |
+| 10 | [Receipted supersession](supersession-hardening-2026-09-14.md) | 9.6 |
+| 11 | [Receipted content correction](content-update-hardening-2026-09-16.md) | 9.6 |
+| 12 | [Receipted first-level promotion/merge](promotion-hardening-2026-09-17.md) | 9.6 |
+| 13 | [Verified retention inspection](retention-inspection-hardening-2026-09-17.md) | 9.6 |
+| 14 | [Scoped retrieval/context services](retrieval-context-hardening-2026-09-17.md) | 9.8 |
+| 15 | [Persistence/transaction coordinator](transaction-coordinator-hardening-2026-09-18.md) | 9.6 |
+| 16 | [Supported-profile freeze](production-profile-hardening-2026-09-18.md) | 9.6 |
+| 17 | [Exact model-input/tokenizer binding](model-input-hardening-2026-09-18.md) | 9.6 |
+| 18 | [Supported-profile crash qualification and verified backup/restore](profile-recovery-hardening-2026-09-18.md) | 9.6 |
+
+Milestone 5 **closed by reconciliation of previously completed work on 2026-09-19**.
+The initial version guards and schema-0→1 path, gate 3's schema-1→2 migration,
+gate 8's schema-2→4 path with preserved history and seven process-kill boundaries,
+and gate 18's verified schema-2/3/4 backup/restore satisfy the existing criteria.
+The [seven-criterion closure mapping](production-remaining-work-2026-09-18.md#milestone-5-closure-mapping)
+credits the existing component inventory, commit-pinned fixtures, version rejection,
+interruption, export/restore and rollback evidence. This accounting correction
+claims no new implementation or test run and does not add a nineteenth serial gate.
+Milestones 6–11 and the two deferred milestones remain open within their stated scope.
 
 ## Validation commands
 
