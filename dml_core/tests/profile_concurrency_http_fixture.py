@@ -113,10 +113,10 @@ class LoopbackProvider:
             if time.monotonic() > deadline:
                 raise AssertionError(f"Provider control deadline waiting for {event}")
 
-    def command(self, command, **arguments):
+    def command(self, command, *, timeout=PROGRESS_DEADLINE, **arguments):
         self.process.stdin.write(json.dumps({"command": command, **arguments}) + "\n")
         self.process.stdin.flush()
-        return self.receive(command)
+        return self.receive(command, timeout=timeout)
 
     @contextmanager
     def client(self, *, timeout=PROGRESS_DEADLINE):
@@ -191,39 +191,81 @@ async def invoke_http(client, request, *, deadline):
 
 
 async def http_history(provider, before, clients):
-    from profile_concurrency_fixture import full_client_plan
+    from profile_concurrency_fixture import full_client_plan, write_rejected_history
 
     events = []
-    provider.command("arrival", clients=clients)
-    deadline = time.monotonic() + DEADLINE
-    limits = httpx.Limits(max_connections=clients, max_keepalive_connections=clients,
-                         keepalive_expiry=CLIENT_KEEPALIVE_SECONDS)
-    async with httpx.AsyncClient(base_url=provider.url, headers=HEADERS, limits=limits,
-                                 timeout=DEADLINE, trust_env=False) as client:
-        async def caller(index):
-            for sequence, request in enumerate(full_client_plan(before, index, clients)):
-                event = await invoke_http(client, request, deadline=deadline)
-                events.append({"client": index, "sequence": sequence, **event})
+    diagnostics = {"failure_stage": "arrival"}
+    try:
+        provider.command("arrival", clients=clients)
+        deadline = time.monotonic() + DEADLINE
+        diagnostics["campaign_deadline_ns"] = int(deadline * 1e9)
+        diagnostics["failure_stage"] = "campaign"
+        limits = httpx.Limits(max_connections=clients, max_keepalive_connections=clients,
+                             keepalive_expiry=CLIENT_KEEPALIVE_SECONDS)
+        async with httpx.AsyncClient(base_url=provider.url, headers=HEADERS, limits=limits,
+                                     timeout=DEADLINE, trust_env=False) as client:
+            async def caller(index):
+                for sequence, request in enumerate(full_client_plan(before, index, clients)):
+                    event = await invoke_http(client, request, deadline=deadline)
+                    events.append({"client": index, "sequence": sequence, **event})
 
-        callers = [asyncio.create_task(caller(index)) for index in range(clients)]
+            callers = [asyncio.create_task(caller(index)) for index in range(clients)]
+            try:
+                await asyncio.wait_for(asyncio.gather(*callers), max(0, deadline - time.monotonic()))
+            except BaseException:
+                diagnostics["failure_observed_ns"] = time.monotonic_ns()
+                diagnostics["failure_observed_phase"] = "before-sibling-drain"
+                # gather propagates a first error without cancelling its siblings.
+                # Drain them while the client remains open, retaining the original
+                # failure rather than manufacturing client-closed transport errors.
+                for task in callers:
+                    task.cancel()
+                await asyncio.gather(*callers, return_exceptions=True)
+                raise
+        diagnostics["failure_stage"] = "transport-observation"
+        released_ns = provider.receive("arrivals_released")["released_ns"]
+        diagnostics["released_ns"] = released_ns
+        first_response_ns = min(event["finished_ns"] for event in events)
+        first_progress = (first_response_ns - released_ns) / 1e9
+        diagnostics.update(first_response_ns=first_response_ns, first_progress_seconds=first_progress,
+                           failure_stage="first-progress")
+        assert 0 <= first_progress <= PROGRESS_DEADLINE, (
+            f"HTTP first progress {first_progress:.9f}s is outside [0, {PROGRESS_DEADLINE}]s; "
+            f"released_ns={released_ns}, first_response_ns={first_response_ns}, completed_events={len(events)}"
+        )
+        # Logical operation timing includes pre-release HTTP arrival waiting; this
+        # shorter release-to-completion metric must not bound max_operation_seconds.
+        # The original absolute campaign deadline bounds both timing domains.
+        diagnostics["failure_stage"] = "transport-observation"
+        return events, {**provider.command("metrics"), "first_progress_seconds": first_progress,
+                        "duration_seconds": (max(event["finished_ns"] for event in events) - released_ns) / 1e9}
+    except BaseException as error:
+        diagnostics.setdefault("failure_observed_ns", time.monotonic_ns())
+        diagnostics.setdefault("failure_observed_phase", "outside-active-callers")
+        # Diagnostics are rejected evidence. Capture happens after sibling drain,
+        # outside the campaign deadline, and may never replace its original error.
         try:
-            await asyncio.wait_for(asyncio.gather(*callers), max(0, deadline - time.monotonic()))
-        except BaseException:
-            # gather propagates a first error without cancelling its siblings.
-            # Drain them while the client remains open, retaining the original
-            # failure rather than manufacturing client-closed transport errors.
-            for task in callers:
-                task.cancel()
-            await asyncio.gather(*callers, return_exceptions=True)
-            raise
-    released_ns = provider.receive("arrivals_released")["released_ns"]
-    first_progress = (min(event["finished_ns"] for event in events) - released_ns) / 1e9
-    assert 0 <= first_progress <= PROGRESS_DEADLINE
-    # Logical operation timing includes pre-release HTTP arrival waiting; this
-    # shorter release-to-completion metric must not bound max_operation_seconds.
-    # The original absolute campaign deadline bounds both timing domains.
-    return events, {**provider.command("metrics"), "first_progress_seconds": first_progress,
-                    "duration_seconds": (max(event["finished_ns"] for event in events) - released_ns) / 1e9}
+            counters = provider.command("metrics", timeout=1)
+            diagnostics["transport_counters"] = counters
+            if counters.get("released_ns") is not None:
+                diagnostics["released_ns"] = counters["released_ns"]
+        except Exception as capture_error:
+            diagnostics["counter_capture_error"] = f"{type(capture_error).__name__}: {capture_error}"[:2000]
+        if events:
+            diagnostics["first_response_ns"] = min(event["finished_ns"] for event in events)
+            if "released_ns" in diagnostics:
+                diagnostics["first_progress_seconds"] = (
+                    diagnostics["first_response_ns"] - diagnostics["released_ns"]
+                ) / 1e9
+        try:
+            written = write_rejected_history(before, events, clients=clients, transport="http", error=error,
+                                             diagnostics=diagnostics)
+            if written:
+                print(f"Rejected HTTP campaign diagnostic: {json.dumps(written, sort_keys=True)}", file=sys.stderr)
+        except Exception as capture_error:
+            print(f"Rejected HTTP diagnostic capture failed: {type(capture_error).__name__}: {capture_error}",
+                  file=sys.stderr)
+        raise
 
 
 def worker(directory, schema):
@@ -245,7 +287,8 @@ def worker(directory, schema):
     barrier = {"point": None, "embedding_text": None}
     counters = {"active_workers": 0, "max_active_workers": 0, "worker_threads": set(),
                 "active_http": 0, "max_active_http": 0, "arrivals": 0, "target_clients": 0,
-                "http_requests": 0, "response_status_counts": {}}
+                "http_requests": 0, "response_status_counts": {},
+                "released_ns": None, "first_response_started_ns": None}
 
     def publish(event, **data):
         with output_lock:
@@ -306,7 +349,8 @@ def worker(directory, schema):
             self.gate = asyncio.Event()
             with counters_lock:
                 counters.update(arrivals=0, target_clients=clients, max_active_http=0,
-                                max_active_workers=0, http_requests=0, response_status_counts={})
+                                max_active_workers=0, http_requests=0, response_status_counts={},
+                                released_ns=None, first_response_started_ns=None)
                 counters["worker_threads"].clear()
 
         async def __call__(self, scope, receive, send):
@@ -327,7 +371,10 @@ def worker(directory, schema):
                         counters["arrivals"] += 1
                         all_arrived = counters["arrivals"] == self.target
                     if all_arrived:
-                        publish("arrivals_released", released_ns=time.monotonic_ns())
+                        released_ns = time.monotonic_ns()
+                        with counters_lock:
+                            counters["released_ns"] = released_ns
+                        publish("arrivals_released", released_ns=released_ns)
                         self.gate.set()
                     await asyncio.wait_for(self.gate.wait(), DEADLINE)
                 async def counted_send(message):
@@ -336,6 +383,8 @@ def worker(directory, schema):
                             counts = counters["response_status_counts"]
                             code = str(message["status"])
                             counts[code] = counts.get(code, 0) + 1
+                            if counters["first_response_started_ns"] is None:
+                                counters["first_response_started_ns"] = time.monotonic_ns()
                     await send(message)
                 await self.application(scope, receive, counted_send)
             finally:

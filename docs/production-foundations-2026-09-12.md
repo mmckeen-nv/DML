@@ -23,7 +23,7 @@ sections below retain the evidence and scope recorded when each gate was built.
 | 6. Agent outcomes | Outcome reducer, failure-inclusive costs, quality/latency/recovery distributions, CI offline baseline and journal-history cost evidence | Wire real agent harnesses; continuous 1k/10k and 100k-turn release campaigns |
 | 7. Stability boundaries | Provider contract inventory, reviewed supported-profile boundary and exact model/tokenizer input companion; native KV remains experimental | Release qualification; native-KV restore identity audit and hardware canaries are deferred |
 | 8. Version migration | Explicit side-by-side schema 0/1/2/4 paths, schema-3 fresh authorities, preserved historical receipts and commit-pinned compatibility fixtures | Milestone 5 closed by reconciliation of the admitted-profile coverage; preserve compatibility as versions evolve, with accurately labeled commit-pinned fixtures |
-| 9. Concurrency | Journal CAS/pinned reads, targeted lifecycle/process tests, mixed selected-profile thread/process/HTTP campaigns, lifetime fencing and snapshot/revision race repair | Milestone 6 source accepted at 9.6/10 with local checks complete; exact-source CI and milestone closure remain pending |
+| 9. Concurrency | Journal CAS/pinned reads, targeted lifecycle/process tests, mixed selected-profile thread/process/HTTP campaigns, lifetime fencing and snapshot/revision race repair | Milestone 6 remains open after CI 323 failed two Linux bounds; correction source accepted at 9.6/10, renewed exact-source CI pending |
 | 10. Observability | Durable mutation decisions/source proofs, response retrieval traces, degradation status and scoped retention inspection | Durable full request/context replay, complete decision coverage and bounded audit retention/export |
 
 ## Current completion reconciliation — 2026-09-19
@@ -81,8 +81,9 @@ Milestones 6–11 and the two deferred milestones remain open within their state
 ### Current implementation: serial gate 19 / milestone 6
 
 [Supported-profile mixed-operation concurrency](production-concurrency-2026-09-19.md)
-has **completed implementation and passed local checks**; milestone 6 remains
-open pending exact-source CI after independent acceptance at **9.6/10**.
+**remains open after CI 323 qualification was rejected**. Earlier source
+snapshots retain their independent reviews; final correction source is now
+accepted at **9.6/10** for publication and renewed exact-source CI.
 The frozen matrix covers schemas 2/3/4 and
 1/16/64/256 actual ready/in-flight clients through threads, spawned-process
 callers and real HTTP/provider routes. Independent history checks, uncertain
@@ -90,7 +91,7 @@ HTTP acknowledgements, bounded progress and selected-profile close/fork behavior
 are required. The contract distinguishes OS ownership acquisition from complete
 request latency and records finite qualification limits.
 
-The final local selection passed **318 tests with zero failures or skips** in
+The original reviewed local selection passed **318 tests with zero failures or skips** in
 **572.87 seconds**, including all **48 matrix cells**. All 23 frozen file hashes
 matched before and after the run. Maintained/static checks passed; the
 independent grader replayed all 48 histories and accepted the bounded source at
@@ -99,7 +100,31 @@ Local environment qualification
 correctly remains unaccepted because the tree is unpublished and dirty and the
 filesystem is an overlay with `fsync=volatile`. The separately recorded earlier
 4,058-pass / 24-skip integration run predates the final paired-revision and
-typed-timeout fixes; final-source full integration remains for CI.
+typed-timeout fixes. Published corrected source `2cc3a3a` subsequently passed
+both full-suite jobs with **4,308 passes and 75 skips each** in
+[CI 323](https://github.com/mmckeen-nv/DML/actions/runs/35468625699).
+
+CI 323 finished **19/20 jobs passed**. macOS qualified 24 bounded cells with
+300 passes; Windows qualified 24 with 299 passes and one declared fork skip.
+Linux had **322 passes and two failures**: the separate-adapter schema-3/256
+campaign exceeded its 90-second deadline, and HTTP schema-4/256 exceeded the
+10-second first-progress bound; its exact timing is unavailable. The
+[concurrency record](production-concurrency-2026-09-19.md#rejected-ci-attempts-and-current-repair)
+preserves CI 322's earlier rejection, follow-up review and exact source/tree
+identities. Runtime work now targets duplicate scans/serialization while
+preserving validation, with better diagnostics for rejected campaigns. The
+original bounds remain unchanged.
+
+Focused correction evidence now records one removed duplicate refresh scan,
+unchanged semantic validation counts, and three passing contention cells on a
+snapshot with **336 unchanged source-file hashes**. The
+[diagnostic profile and cell measurements](production-concurrency-2026-09-19.md#correction-evidence-before-final-review)
+remain limited evidence. The later cleanup-budget adjustment and final correction
+source received **9.6/10** in the new
+[contention review](artifacts/profile-concurrency-contention-review-2026-09-19.json),
+which independently replayed all three histories. Expected renewed-CI collection
+is 359 full / 335 bounded cases, with only the declared Windows fork skip allowed.
+Exact-source qualification and milestone 6 closure remain pending.
 
 This is the nineteenth serial implementation gate, not a new release milestone.
 It does not change the five closed / six unclosed first-release count. The

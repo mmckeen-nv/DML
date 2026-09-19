@@ -2,18 +2,19 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from copy import deepcopy
 import importlib
 import json
 import multiprocessing
 import os
+import sqlite3
 from threading import Event, get_ident, local
 from time import monotonic
 
 import pytest
 
-from daystrom_dml.journal import IdempotencyConflict
+from daystrom_dml.journal import IdempotencyConflict, JournalIntegrityError
 from daystrom_dml.services.receipt_lifecycle import ReceiptLifecycleConflict
 from daystrom_dml.store_lock import StoreLockTimeout, store_write_lock
 from profile_crash_fixture import (
@@ -343,6 +344,70 @@ def test_shared_stale_read_cannot_relabel_newly_loaded_context_revision(tmp_path
     finally:
         reader.close()
         writer.close()
+
+
+@pytest.mark.parametrize("schema", [2, 3, 4])
+def test_owned_profile_refresh_validates_one_snapshot_even_when_unchanged(tmp_path, monkeypatch, schema):
+    scenario = prepare(tmp_path / "authority", schema)
+    adapter = make_adapter(scenario.directory, schema)
+    peer = make_adapter(scenario.directory, schema)
+    original = adapter._journal._read_snapshot
+    reads = []
+
+    def checked_read(connection):
+        result = original(connection)
+        reads.append(result[0])
+        return result
+
+    monkeypatch.setattr(adapter._journal, "_read_snapshot", checked_read)
+    try:
+        revision = scenario.before["revision"]
+        for iteration in range(3):
+            if iteration == 1:
+                receipt = peer.ingest_memory_receipted("New independently committed snapshot",
+                    idempotency_key="refresh-once", **SCOPE)
+                revision = receipt["revision"]
+            previous_reads = len(reads)
+            # This is the same refresh/ownership boundary entered by recall.
+            with adapter._mutation_transaction("qualify-single-snapshot-refresh"):
+                assert adapter._last_observed_state[0] == revision
+            assert reads[previous_reads:] == [revision]
+            assert [item.id for item in adapter.store.items()] == [
+                item["id"] for item in sql_observation(scenario.directory)["state"]["items"]]
+        assert len(reads) == 3, "Unchanged calls must perform fresh full validation"
+    finally:
+        peer.close()
+        adapter.close()
+
+
+@pytest.mark.parametrize("schema,table", [(2, "records"), (3, "records"), (4, "records"),
+                                         (3, "outbox"), (4, "outbox")])
+def test_owned_refresh_detects_corruption_without_head_or_mtime_change(tmp_path, schema, table):
+    scenario = prepare(tmp_path / "authority", schema)
+    adapter = make_adapter(scenario.directory, schema)
+    try:
+        with adapter._mutation_transaction("before-hidden-corruption"):
+            pass
+        observed = adapter._last_observed_state
+        adapter.query_cache.get("must-remain-on-failed-import", lambda _text: [1., 0., 0., 0.])
+        path = adapter._journal.path
+        stamp = path.stat()
+        with closing(sqlite3.connect(path)) as connection:
+            with connection:
+                # Table names are the fixed local parameter inventory above.
+                connection.execute(f"UPDATE {table} SET checksum=? WHERE rowid=(SELECT MIN(rowid) FROM {table})",
+                                   ("0" * 64,))
+            assert connection.execute("SELECT revision FROM state WHERE id=1").fetchone()[0] == observed[0]
+        os.utime(path, ns=(stamp.st_atime_ns, stamp.st_mtime_ns))
+        assert path.stat().st_mtime_ns == observed[1]
+        for _ in range(2):
+            with pytest.raises(JournalIntegrityError, match="checksum"):
+                with adapter._mutation_transaction("after-hidden-corruption"):
+                    pytest.fail("Corrupt unchanged authority reached the operation body")
+        assert adapter._last_observed_state == observed
+        assert "must-remain-on-failed-import" in adapter.query_cache.values
+    finally:
+        adapter.close()
 
 
 @pytest.mark.parametrize("operation", ["recall", "retention"])

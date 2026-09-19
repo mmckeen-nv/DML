@@ -1547,7 +1547,8 @@ class DMLAdapter:
         """Reload component state through the coordinator and record reload timing."""
         started = time.perf_counter()
         if not self.persistence_coordinator.refresh(
-                state_stamp=lambda: self._state_stamp(), include_auxiliary=self._production_profile is None):
+                state_stamp=(lambda: self._state_stamp()) if self._production_profile is None else None,
+                include_auxiliary=self._production_profile is None):
             return False
         latency_ms = (time.perf_counter() - started) * 1000.0
         LOGGER.info(

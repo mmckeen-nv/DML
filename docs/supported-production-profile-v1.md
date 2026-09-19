@@ -53,9 +53,10 @@ reports degraded status when durability inspection encounters a closing or
 closed selected adapter. Informational `production_profile_status` does not
 certify that such an adapter can accept work. Milestone 6's
 [qualification record](production-concurrency-2026-09-19.md) tracks this behavior
-and its completed implementation/local checks, accepted independently at
-**9.6/10** for the finite source scope. Exact-source CI remains pending;
-unselected legacy behavior is unchanged.
+and its earlier source snapshots accepted independently at **9.6/10**.
+CI 323 rejected the Linux qualification lane. Final correction source is now
+accepted at **9.6/10** for publication and renewed CI; milestone 6 remains open.
+Unselected legacy behavior is unchanged.
 
 `production_profile_status()` reports `profile_id`, `status`,
 `production_ready`, `validated`, `authority` (`journal_schema_version` and
@@ -377,9 +378,23 @@ unchanged.
 Milestone 1 freezes this admitted product boundary and verifies its enforcement.
 The [current release ledger](production-remaining-work-2026-09-18.md) credits
 milestones **1–5 as closed** and tracks **six unclosed first-release gates**.
-Milestone 6, mixed-operation concurrency, has completed implementation and local
-checks with independent acceptance at **9.6/10**, but remains open pending
-exact-source CI.
+Milestone 6, mixed-operation concurrency, remains open after
+[CI 323](https://github.com/mmckeen-nv/DML/actions/runs/35468625699) finished
+19/20 jobs passed and failed two Linux qualification bounds on source `2cc3a3a`.
+macOS and Windows each qualified their bounded 24-cell selection; both
+full-suite jobs passed 4,308 tests with 75 skips each. These results do not
+substitute for complete qualification. The
+[concurrency record](production-concurrency-2026-09-19.md#rejected-ci-attempts-and-current-repair)
+preserves exact source identity, failures and immutable prior reviews. Runtime
+correction source is now accepted at **9.6/10**, with renewed exact-source CI
+pending and the original bounds intact.
+The [focused correction evidence](production-concurrency-2026-09-19.md#correction-evidence-before-final-review)
+records less duplicate work with unchanged semantic validation counts and three
+passing contention cells. The later cleanup-budget adjustment is reviewed in the
+new [contention correction review](artifacts/profile-concurrency-contention-review-2026-09-19.json).
+Renewed CI expects 359 full / 335 bounded cases, with only the declared Windows
+fork skip allowed. These observations do not qualify the final tree or establish
+supported capacity.
 Live-agent semantics,
 fair baseline value, continuous workloads, replay/retention and final release
 support remain milestones 7–11. Remaining legacy orchestration extraction and native-KV

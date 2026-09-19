@@ -35,6 +35,15 @@ def validate_outbox_event(value: dict) -> dict:
         event = _decode(_encode(value))
     except (TypeError, ValueError, OverflowError, RecursionError) as exc:
         raise JournalIntegrityError("Invalid outbox event serialization") from exc
+    return _validate_owned_outbox_event(event)
+
+
+def _validate_owned_outbox_event(event: dict) -> dict:
+    """Validate one call's private strict-JSON event without copying it again.
+
+    Only the defensive public wrapper or a freshly ``_checked`` SQL decode may
+    use this path. No object or validation result is retained between calls.
+    """
     fields = {"schema_version", "event_format", "source_store_id", "source_revision",
               "source_digest", "operation", "receipt", "state", "decision_digest", "checksum"}
     if isinstance(event, dict) and type(event.get("schema_version")) is int and event["schema_version"] == 2:
@@ -61,7 +70,8 @@ def validate_outbox_event(value: dict) -> dict:
     if event["checksum"] != _digest(_encode({key: value for key, value in event.items() if key != "checksum"})):
         raise JournalIntegrityError("Outbox event checksum mismatch")
     state = _normalized(event["state"])
-    if _encode(state) != _encode(event["state"]) or _digest(_encode(state)) != event["source_digest"]:
+    encoded_state = _encode(state)
+    if encoded_state != _encode(event["state"]) or _digest(encoded_state) != event["source_digest"]:
         raise JournalIntegrityError("Outbox state digest mismatch")
     binding = event["receipt"]
     if binding is not None:

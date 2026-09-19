@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import gzip
 import json
+import logging
 import multiprocessing
 import os
 from pathlib import Path
@@ -16,9 +18,11 @@ import pytest
 from profile_concurrency_fixture import (
     PROGRESS_SECONDS, WAIT_SECONDS, _assert_recorded_causality, _assert_retention, _assert_retrieval,
     call_event, check_history, client_plan, digest, fixed_clock,
-    full_client_plan, prepare_history, requested_scales, write_evidence, write_history,
+    full_client_plan, prepare_history, requested_scales, write_evidence, write_history, write_rejected_history,
 )
 from profile_crash_fixture import Request, assert_transition, make_adapter, sql_observation
+
+LOGGER = logging.getLogger(__name__)
 
 
 @pytest.fixture(autouse=True, scope="module")
@@ -37,14 +41,12 @@ def _client(adapter, before, client, clients, ready, release, results, stop, dea
         ready.put(client)
         if not release.wait(WAIT_SECONDS):
             raise AssertionError("Caller release gate timed out")
-        events = []
         for sequence, request in enumerate(full_client_plan(before, client, clients)):
             if stop.is_set():
                 return
             event = call_event(adapter, request, client=client, sequence=sequence, deadline_ns=deadline.value)
-            events.append(event)
-            results.put({"kind": "progress", "finished_ns": event["finished_ns"]})
-        results.put({"kind": "done", "client": client, "events": events, "pid": os.getpid()})
+            results.put({"kind": "progress", "event": event})
+        results.put({"kind": "done", "client": client, "pid": os.getpid()})
     except BaseException as exc:
         results.put({"kind": "error", "client": client, "error": f"{type(exc).__name__}: {exc}"})
 
@@ -94,14 +96,18 @@ def run_campaign(directory, schema, clients, transport):
             workers.append(threading.Thread(target=_client, args=(adapter, before, client, clients,
                            ready, release, results, stop, operation_deadline), daemon=True, name=f"profile-client-{client}"))
     events = []
+    event_keys = set()
     pids = set()
     first_progress = None
+    arrived, completed = set(), set()
+    released_ns = None
+    primary_error = None
+    failure_stage = "caller_startup"
     with fixed_clock():
         try:
             for worker in [*processes, *workers]:
                 worker.start()
             startup_deadline = monotonic() + WAIT_SECONDS
-            arrived = set()
             while len(arrived) < clients:
                 remaining = startup_deadline - monotonic()
                 assert remaining > 0, "Caller startup exceeded its bounded deadline"
@@ -113,44 +119,83 @@ def run_campaign(directory, schema, clients, transport):
             operation_deadline.value = released_ns + WAIT_SECONDS * 1_000_000_000
             release.set()
             deadline = monotonic() + WAIT_SECONDS
-            completed = set()
+            failure_stage = "caller_execution"
             while len(completed) < clients:
                 remaining = deadline - monotonic()
                 assert remaining > 0, "Campaign exceeded its 90 second bound"
                 message = results.get(timeout=min(remaining, PROGRESS_SECONDS) if first_progress is None else remaining)
                 assert message["kind"] != "error", message.get("error")
                 if message["kind"] == "progress":
-                    progress = (message["finished_ns"] - released_ns) / 1e9
+                    event = message["event"]
+                    key = (event["client"], event["sequence"])
+                    assert key not in event_keys, "A completed operation was reported twice"
+                    event_keys.add(key)
+                    events.append(event)
+                    progress = (event["finished_ns"] - released_ns) / 1e9
                     first_progress = progress if first_progress is None else min(first_progress, progress)
                 elif message["kind"] == "done":
                     assert message["client"] not in completed
                     completed.add(message["client"])
                     pids.add(message["pid"])
-                    events.extend(message["events"])
             duration = (monotonic_ns() - released_ns) / 1e9
             assert first_progress is not None and first_progress <= PROGRESS_SECONDS
             assert duration <= WAIT_SECONDS
+        except BaseException as error:
+            primary_error = error
+            failed_ns = monotonic_ns()
+            stop.set()
+            try:
+                write_rejected_history(before, events, clients=clients, transport=transport, error=error,
+                    diagnostics={"failure_stage": failure_stage, "released_ns": released_ns,
+                        "deadline_ns": operation_deadline.value, "failed_ns": failed_ns,
+                        "elapsed_seconds": (failed_ns - released_ns) / 1e9 if released_ns is not None else None,
+                        "first_progress_seconds": first_progress, "ready_clients": sorted(arrived),
+                        "completed_clients": sorted(completed), "completed_operations": len(events),
+                        "expected_operations": sum(len(full_client_plan(before, client, clients)) for client in range(clients)),
+                        "completed_process_ids": sorted(pids), "capture_phase": "at_failure_before_cleanup"})
+            except BaseException as diagnostic_error:
+                LOGGER.warning("Could not save rejected concurrency diagnostics: %s", type(diagnostic_error).__name__)
+            raise
         finally:
             stop.set()
             release.set()
             cleanup_deadline = monotonic() + 35
+            cleanup_errors = []
             for worker in workers:
-                if worker.ident is not None:
-                    worker.join(max(0, cleanup_deadline - monotonic()))
+                try:
+                    if worker.ident is not None:
+                        worker.join(max(0, cleanup_deadline - monotonic()))
+                except BaseException as error:
+                    cleanup_errors.append(error)
             for process in processes:
-                if process.pid is None:
-                    continue
-                process.join(max(0, cleanup_deadline - monotonic()))
-                if process.is_alive():
-                    process.kill()
-                    process.join(5)
-            assert not any(worker.is_alive() for worker in workers), "Caller failed to release ownership"
+                try:
+                    if process.pid is None:
+                        continue
+                    process.join(max(0, cleanup_deadline - monotonic()))
+                    if process.is_alive():
+                        process.kill()
+                        process.join(5)
+                except BaseException as error:
+                    cleanup_errors.append(error)
+            if any(worker.is_alive() for worker in workers):
+                cleanup_errors.append(AssertionError("Caller failed to release ownership"))
             for adapter in adapters:
-                adapter.close()
+                try:
+                    adapter.close(projection_timeout=max(0, min(5, cleanup_deadline - monotonic())))
+                except BaseException as error:
+                    cleanup_errors.append(error)
             if transport == "processes":
                 for channel in (ready, results):
-                    channel.close()
-                    channel.join_thread()
+                    try:
+                        channel.close()
+                        channel.join_thread()
+                    except BaseException as error:
+                        cleanup_errors.append(error)
+            if cleanup_errors:
+                if primary_error is None:
+                    raise cleanup_errors[0]
+                LOGGER.warning("Cleanup after failed concurrency campaign also failed: %s",
+                               ", ".join(type(error).__name__ for error in cleanup_errors))
     assert all(process.exitcode == 0 for process in processes)
     assert len(pids) == (min(clients, 4) if processes else 1)
     after = sql_observation(directory)
@@ -184,6 +229,137 @@ def test_profile_mixed_history(tmp_path, record_property, schema, clients, trans
 @pytest.fixture(scope="module")
 def accepted_history(tmp_path_factory):
     return run_campaign(tmp_path_factory.mktemp("oracle") / "authority", 3, 1, "threads-shared")
+
+
+def _inject_second_operation_failure(monkeypatch):
+    actual = call_event
+
+    def fail(adapter, request, *, client, sequence, deadline_ns=None):
+        if sequence == 1:
+            raise RuntimeError("injected worker failure after one completed operation")
+        return actual(adapter, request, client=client, sequence=sequence, deadline_ns=deadline_ns)
+
+    monkeypatch.setitem(globals(), "call_event", fail)
+
+
+def test_failed_campaign_retains_completed_operation_without_qualifying(tmp_path, monkeypatch):
+    import profile_concurrency_fixture as fixture
+
+    artifact_root = tmp_path / "artifacts"
+    monkeypatch.setattr(fixture, "HISTORY_DIRECTORY", artifact_root / "histories")
+    _inject_second_operation_failure(monkeypatch)
+    with pytest.raises(AssertionError, match="RuntimeError: injected worker failure"):
+        run_campaign(tmp_path / "authority", 3, 1, "threads-shared")
+    paths = list((artifact_root / "diagnostics").iterdir())
+    assert len(paths) == 1
+    report = json.loads(gzip.decompress(paths[0].read_bytes()))
+    assert report["schema_version"] == "dml-concurrency-rejected-diagnostic-v1"
+    assert report["accepted"] is False and report["after"] is None
+    assert report["failure_type"] == "AssertionError"
+    assert "injected worker failure" in report["failure_message"]
+    assert len(report["events"]) == 1
+    event = report["events"][0]
+    assert (event["client"], event["sequence"]) == (0, 0)
+    observed = report["diagnostics"]
+    assert observed["capture_phase"] == "at_failure_before_cleanup"
+    assert observed["ready_clients"] == [0] and observed["completed_clients"] == []
+    assert observed["completed_operations"] == 1 and observed["expected_operations"] == 20
+    assert observed["released_ns"] <= event["started_ns"] <= event["finished_ns"] <= observed["failed_ns"]
+    assert observed["deadline_ns"] - observed["released_ns"] == WAIT_SECONDS * 1_000_000_000
+    assert not (artifact_root / "histories").exists()
+    with pytest.raises(AssertionError, match="Missing or duplicated acknowledgement"):
+        check_history(report["before"], report["events"], sql_observation(tmp_path / "authority"), clients=1)
+
+
+@pytest.mark.parametrize("secondary_failure", ["diagnostic", "cleanup"])
+def test_failed_campaign_preserves_original_error_when_diagnostics_or_cleanup_fail(tmp_path, monkeypatch, caplog,
+                                                                                secondary_failure):
+    _inject_second_operation_failure(monkeypatch)
+    if secondary_failure == "diagnostic":
+        def cannot_write(*_args, **_kwargs):
+            raise OSError("diagnostic write failed")
+        monkeypatch.setitem(globals(), "write_rejected_history", cannot_write)
+    else:
+        actual = make_adapter
+
+        def failing_close(*args, **kwargs):
+            adapter = actual(*args, **kwargs)
+            close = adapter.close
+
+            def fail(*args, **kwargs):
+                close(*args, **kwargs)
+                raise OSError("cleanup failed after close")
+
+            adapter.close = fail
+            return adapter
+
+        monkeypatch.setitem(globals(), "make_adapter", failing_close)
+    with pytest.raises(AssertionError, match="RuntimeError: injected worker failure"):
+        run_campaign(tmp_path / "authority", 3, 1, "threads-shared")
+    assert "OSError" in caplog.text
+
+
+def test_failed_campaign_adapter_drains_share_the_remaining_cleanup_budget(tmp_path, monkeypatch):
+    elapsed = [0]
+    timeouts = []
+
+    class StrandedAdapter:
+        def close(self, *, projection_timeout):
+            timeouts.append(projection_timeout)
+            # Account for elapsed cleanup time without a platform-dependent wait.
+            elapsed[0] += 7
+            raise OSError("injected stranded adapter")
+
+    def fail_client(adapter, before, client, clients, ready, release, results, stop, deadline):
+        ready.put(client)
+        assert release.wait(WAIT_SECONDS)
+        results.put({"kind": "error", "error": "injected campaign failure"})
+
+    monkeypatch.setitem(globals(), "monotonic", lambda: elapsed[0])
+    monkeypatch.setitem(globals(), "prepare_history", lambda *_args: {"schema": 3})
+    monkeypatch.setitem(globals(), "make_adapter", lambda *_args: StrandedAdapter())
+    monkeypatch.setitem(globals(), "_client", fail_client)
+    monkeypatch.setitem(globals(), "write_rejected_history", lambda *_args, **_kwargs: {})
+    monkeypatch.setitem(globals(), "full_client_plan", lambda *_args: [])
+    with pytest.raises(AssertionError, match="injected campaign failure"):
+        run_campaign(tmp_path / "authority", 3, 16, "threads-separate")
+    assert timeouts == [5] * 5 + [0] * 11
+
+
+@pytest.mark.parametrize("invalid", ["transport", "clients", "schema", "raw-size", "compressed-size"])
+def test_rejected_diagnostic_identity_and_size_are_bounded(tmp_path, monkeypatch, invalid):
+    import profile_concurrency_fixture as fixture
+
+    artifact_root = tmp_path / "artifacts"
+    monkeypatch.setattr(fixture, "HISTORY_DIRECTORY", artifact_root / "histories")
+    before, clients, transport = {"schema": 3}, 1, "threads-shared"
+    if invalid == "transport":
+        transport = "../../escape"
+    elif invalid == "clients":
+        clients = True
+    elif invalid == "schema":
+        before["schema"] = "3"
+    elif invalid == "raw-size":
+        before["oversized"] = "x" * (32 * 1024 * 1024)
+    else:
+        monkeypatch.setattr(fixture.gzip, "compress", lambda *_args, **_kwargs: b"x" * (8 * 1024 * 1024 + 1))
+    with pytest.raises(ValueError):
+        write_rejected_history(before, [], clients=clients, transport=transport, error=RuntimeError("failed"), diagnostics={})
+    assert not artifact_root.exists()
+
+
+def test_rejected_diagnostic_never_overwrites_an_existing_artifact(tmp_path, monkeypatch):
+    import profile_concurrency_fixture as fixture
+
+    monkeypatch.setattr(fixture, "HISTORY_DIRECTORY", tmp_path / "histories")
+    arguments = {"clients": 1, "transport": "threads-shared", "error": RuntimeError("x" * 3000), "diagnostics": {}}
+    result = write_rejected_history({"schema": 3}, [], **arguments)
+    path = tmp_path / result["diagnostic_file"]
+    original = path.read_bytes()
+    assert len(json.loads(gzip.decompress(original))["failure_message"]) == 2000
+    with pytest.raises(FileExistsError):
+        write_rejected_history({"schema": 3}, [], **arguments)
+    assert path.read_bytes() == original
 
 
 @pytest.mark.parametrize("corruption", ["missing", "duplicate", "receipt", "revision", "dirty-read",

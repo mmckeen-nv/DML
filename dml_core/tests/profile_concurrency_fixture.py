@@ -440,3 +440,41 @@ def write_history(before, events, after, *, clients, transport):
     path = directory / filename
     path.write_bytes(compressed)
     return {"history_file": filename, "history_sha256": hashlib.sha256(compressed).hexdigest()}
+
+
+def write_rejected_history(before, events, *, clients, transport, error, diagnostics, after=None):
+    """Preserve bounded failure observations without producing acceptance evidence.
+
+    Callers retain and re-raise the primary failure even if this best-effort
+    writer fails. Existing files are never overwritten or followed as symlinks.
+    """
+    if HISTORY_DIRECTORY is None:
+        return {}
+    if (transport not in {"threads-shared", "threads-separate", "processes", "http"}
+            or type(clients) is not int or clients not in (1, 16, 64, 256)
+            or type(before.get("schema")) is not int or before["schema"] not in (2, 3, 4)):
+        raise ValueError("Invalid rejected diagnostic identity")
+    if not isinstance(error, BaseException) or type(diagnostics) is not dict:
+        raise ValueError("Rejected diagnostics require a failure and observed fields")
+    envelope = {"schema_version": "dml-concurrency-rejected-diagnostic-v1", "accepted": False,
+                "clients": clients, "transport": transport, "before": before, "events": events,
+                "after": after, "failure_type": type(error).__name__, "failure_message": str(error)[:2000],
+                "diagnostics": diagnostics}
+    raw = encoded(envelope).encode("utf-8")
+    if len(raw) > 32 * 1024 * 1024:
+        raise ValueError("Rejected history exceeds the 32 MiB raw bound")
+    compressed = gzip.compress(raw, mtime=0)
+    if len(compressed) > 8 * 1024 * 1024:
+        raise ValueError("Rejected history exceeds the 8 MiB compressed bound")
+    root = Path(HISTORY_DIRECTORY).parent.resolve()
+    directory = root / "diagnostics"
+    if directory.is_symlink():
+        raise ValueError("Rejected diagnostic directory must not be a symlink")
+    directory.mkdir(parents=True, exist_ok=True)
+    if directory.resolve().parent != root:
+        raise ValueError("Rejected diagnostic path escapes its artifact directory")
+    filename = f"schema{before['schema']}-{transport}-{clients}.rejected.json.gz"
+    with (directory / filename).open("xb") as output:
+        output.write(compressed)
+    return {"diagnostic_file": f"diagnostics/{filename}",
+            "diagnostic_sha256": hashlib.sha256(compressed).hexdigest()}

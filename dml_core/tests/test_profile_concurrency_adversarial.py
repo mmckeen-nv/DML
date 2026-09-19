@@ -7,7 +7,7 @@ finished hydration; an ordinary context read must still obey store ownership.
 from __future__ import annotations
 
 from concurrent.futures import Future
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from copy import deepcopy
 import os
 from threading import Event, Lock, Thread, current_thread
@@ -428,3 +428,71 @@ def test_history_checker_rejects_stale_read_at_recorded_windows_clock_boundary(t
             check_history(before, events, after, clients=1)
     finally:
         adapter.close()
+
+
+@pytest.mark.parametrize("schema", (3, 4))
+def test_public_outbox_validation_keeps_nested_ownership_detached(tmp_path, schema):
+    from daystrom_dml.services.journal_outbox import validate_outbox_event
+
+    scenario = prepare(tmp_path / "authority", schema)
+    submitted = deepcopy(scenario.before["outbox"][-1])
+    submitted["state"]["items"][0]["meta"]["nested_probe"] = {"values": ["original"]}
+    submitted["source_digest"] = digest(submitted["state"])
+    submitted["checksum"] = digest({key: value for key, value in submitted.items() if key != "checksum"})
+    retained = deepcopy(submitted)
+    validated = validate_outbox_event(submitted)
+    assert validated == submitted == retained
+    submitted["state"]["items"][0]["meta"]["nested_probe"]["values"].append("input mutation")
+    assert validated == retained
+    validated["state"]["items"][0]["meta"]["nested_probe"]["values"].append("output mutation")
+    assert submitted["state"]["items"][0]["meta"]["nested_probe"]["values"] == ["original", "input mutation"]
+    assert sql_observation(scenario.directory) == scenario.before
+
+
+@pytest.mark.parametrize("schema, corruption", [
+    (schema, corruption) for schema in (3, 4)
+    for corruption in ("missing_bucket", "duplicate_record", "state_digest", "extra_envelope", "receipt_scope")
+] + [(4, "origin_revision")])
+def test_owned_outbox_validation_retains_checks_on_fresh_sql_objects(tmp_path, schema, corruption):
+    import sqlite3
+
+    from daystrom_dml.journal import JournalIntegrityError
+    from profile_crash_fixture import encoded
+
+    scenario = prepare(tmp_path / "authority", schema)
+    adapter = make_adapter(scenario.directory, schema)
+    event = deepcopy(scenario.before["outbox"][-1])
+    messages = {
+        "missing_bucket": "Outbox state digest mismatch",
+        "duplicate_record": "Duplicate journal record id",
+        "state_digest": "Outbox state digest mismatch",
+        "extra_envelope": "Invalid outbox event fields",
+        "receipt_scope": "Invalid outbox receipt identity",
+        "origin_revision": "Invalid migration source revision",
+    }
+    try:
+        if corruption == "missing_bucket":
+            del event["state"]["lineage"]
+        elif corruption == "duplicate_record":
+            event["state"]["items"].append(deepcopy(event["state"]["items"][0]))
+        elif corruption == "state_digest":
+            event["state"]["items"][0]["text"] = "Independently forged outbox fact"
+        elif corruption == "extra_envelope":
+            event["unexpected"] = None
+        elif corruption == "receipt_scope":
+            event["receipt"]["scope"]["tenant_id"] = " "
+        else:
+            event["origin"]["source_revision"] = True
+        if corruption != "state_digest":
+            event["source_digest"] = digest(event["state"])
+        event["checksum"] = digest({key: value for key, value in event.items() if key != "checksum"})
+        # Keep the SQL row checksum valid so the fresh decoder reaches the
+        # intended envelope/normalization check, not an earlier byte checksum.
+        with closing(sqlite3.connect(scenario.directory / "dml_state.sqlite3")) as connection:
+            with connection:
+                connection.execute("UPDATE outbox SET payload=?,checksum=? WHERE revision=?",
+                                   (encoded(event), digest(event), event["source_revision"]))
+        with pytest.raises(JournalIntegrityError, match=messages[corruption]):
+            adapter._journal.read_snapshot()
+    finally:
+        adapter.close(persist=False)

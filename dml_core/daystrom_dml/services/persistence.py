@@ -239,15 +239,25 @@ class PersistenceCoordinator:
         persistent = self._persistent_rag()
         with self.state.refresh_lock:
             changed = False
-            current = (state_stamp or self.lattice.stamp)()
+            current: Stamp
+            paired_read = self.lattice.journal is not None and state_stamp is None
+            if paired_read:
+                # Read and validate even when the revision has not changed. A
+                # stamp-only probe would discard this same verified payload and
+                # require a second full history scan when import is necessary.
+                payload, loaded_revision = self.lattice.load_with_revision()
+                assert loaded_revision is not None
+                current = (loaded_revision, self.lattice.path.stat().st_mtime_ns)
+            else:
+                current = (state_stamp or self.lattice.stamp)()
             if current is None and self.state.observed_lattice is not None:
                 raise FileNotFoundError("Previously initialized DML state is missing")
             if current is not None and current != self.state.observed_lattice:
-                if self.lattice.journal:
+                if self.lattice.journal and not paired_read:
                     payload, loaded_revision = self.lattice.load_with_revision()
                     assert loaded_revision is not None
                     current = (loaded_revision, current[1])
-                else:
+                elif not paired_read:
                     payload = self.lattice.load()
                 self.runtime.import_state(payload)
                 self._invalidate_cache()

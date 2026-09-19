@@ -612,7 +612,7 @@ class JournalStateStore:
         return revision, payload, encoded
 
     def _validate_outbox(self, connection, revision, decisions):
-        from .services.journal_outbox import validate_outbox_event
+        from .services.journal_outbox import _validate_owned_outbox_event
 
         rows = connection.execute("SELECT revision,payload,checksum FROM outbox ORDER BY revision").fetchall()
         origin = self._migration_origin(connection) if self._schema_version == MIGRATED_OUTBOX_JOURNAL_SCHEMA_VERSION else None
@@ -628,7 +628,7 @@ class JournalStateStore:
             raise JournalIntegrityError("Journal outbox history is incomplete")
         previous = {}
         for expected_revision, (sql_revision, raw, checksum) in enumerate(rows, boundary + 1):
-            event = validate_outbox_event(_checked(raw, checksum))
+            event = _validate_owned_outbox_event(_checked(raw, checksum))
             if origin is None:
                 if event["schema_version"] != 1:
                     raise JournalSchemaError("Schema-3 outbox requires version-1 events")

@@ -429,3 +429,31 @@ def test_missing_http_library_cannot_receive_qualification_identity(monkeypatch)
     monkeypatch.setattr(evidence.importlib.metadata, "version", missing)
     with pytest.raises(ValueError, match="missing"):
         evidence.http_library_identity()
+
+
+def test_rejected_diagnostic_property_cannot_replace_an_accepted_matrix_cell():
+    root = junit()
+    prop = root.find(".//property[@name='concurrency_evidence']")
+    value = json.loads(prop.get("value"))
+    prop.set("name", "concurrency_rejected_diagnostic")
+    prop.set("value", json.dumps({"schema_version": "dml-concurrency-rejected-diagnostic-v1",
+                                  "accepted": False, "clients": value["clients"],
+                                  "transport": value["transport"], "diagnostic_file": "diagnostics/rejected.json.gz"}))
+    result = validate(root)
+    assert "Missing or unexpected concurrency matrix cells" in result["errors"]
+    assert len(result["campaigns"]) == 23
+
+
+def test_rehashed_rejected_diagnostic_cannot_masquerade_as_accepted_history(raw_history):
+    item, path, envelope, _checked = raw_history
+    diagnostic = {"schema_version": "dml-concurrency-rejected-diagnostic-v1",
+                  "accepted": False, "clients": envelope["clients"], "transport": item["transport"],
+                  "before": envelope["before"], "events": envelope["events"], "after": envelope["after"],
+                  "failure_type": "TimeoutError", "diagnostics": {"completed_events": 1}}
+    # Even copying diagnostic bytes to an accepted basename and refreshing its
+    # digest cannot change the exact accepted-history envelope contract.
+    payload = gzip.compress(json.dumps(diagnostic).encode(), mtime=0)
+    path.write_bytes(payload)
+    item["history_sha256"] = hashlib.sha256(payload).hexdigest()
+    with pytest.raises(ValueError, match="History envelope"):
+        evidence.validate_history(item, path.parent)

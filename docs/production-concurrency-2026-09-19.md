@@ -2,9 +2,11 @@
 
 This is **serial hardening gate 19 and release milestone 6** of the
 [finite production plan](production-remaining-work-2026-09-18.md).
-**Implementation and local checks are complete, with independent acceptance
-at 9.6/10; exact-source CI remains pending.** The requirements below were fixed before
-the final qualification run; executed evidence is recorded separately below.
+**Milestone 6 remains open: CI 323 failed the Linux qualification lane.** Earlier
+source reviews retain their bounded snapshots. The final correction source is
+now accepted at **9.6/10 for publication and renewed CI**, with exact-source
+qualification still pending. The requirements below remain unchanged;
+executed evidence and rejected qualification attempts are recorded separately.
 Milestones 1–5 remain closed. The plan still contains eleven first-release
 milestones and two deferred milestones, with six first-release gates open.
 
@@ -302,14 +304,84 @@ Linux qualification.
 
 | Gate | Current status |
 | --- | --- |
-| Source and regression implementation | Complete. Runtime, history, HTTP and evidence builders supplied separate changes, followed by a coordinated source freeze. All **23 frozen file hashes matched before and after** the final local run. |
-| Complete campaign matrix and failure cases | Root's final local selection passed **318 tests, 0 failures, 0 skips**, in **572.87 seconds**, including all **48 Linux matrix cells**. This is local test evidence; the recorder's environment/source qualification remains unaccepted as explained below. |
-| Independent review | An earlier combined-source review scored **9.2/10 and was rejected**. After repairs, independent source review and replay of all 48 histories accepted **9.6/10** for the declared finite candidate scope; [review and source hashes](artifacts/profile-concurrency-review-2026-09-19.json). Whole-platform production readiness and CI qualification are not implied. |
-| Full integration and maintained static checks | Maintained Ruff, strict Ruff over the eight new Python files, mypy over **67 source files**, and Hermes hygiene smoke passed on frozen source. Full integration against the final source remains for CI. A separate earlier **4,058-pass / 24-skip** run preceded the paired-revision and typed-timeout fixes and does not establish final-source full-suite success. |
-| Exact-source CI and retained artifacts | Pending publication to [PR #118](https://github.com/mmckeen-nv/DML/pull/118); no merge is authorized. |
+| Source and regression implementation | The correction removes duplicate validated scans/serialization while preserving checks and adds rejected-campaign diagnostics. Final correction source, including the cleanup shared-budget cap, is independently accepted at **9.6/10** for publication and renewed CI. |
+| Complete campaign matrix and failure cases | The original reviewed local selection passed **318 tests, 0 failures, 0 skips**, in **572.87 seconds**, including all **48 Linux matrix cells**, with **23 unchanged before/after file hashes**. CI 323 subsequently passed the two bounded platform selections but failed two Linux qualification cases; local success does not replace that result. |
+| Independent review | Initial **9.2/10** and follow-up **9.3/10** results were rejected. Their repaired snapshots each received **9.6/10**, recorded in the immutable [original review](artifacts/profile-concurrency-review-2026-09-19.json) and [follow-up review](artifacts/profile-concurrency-followup-review-2026-09-19.json). The new [contention correction review](artifacts/profile-concurrency-contention-review-2026-09-19.json) accepts final correction source at **9.6/10**; exact-source CI and milestone closure remain pending. |
+| Full integration and maintained static checks | Both full-suite jobs in CI 323 passed **4,308 tests with 75 skips each** on source `2cc3a3a`. The correction passed focused selections, maintained Ruff, changed-test/benchmark Ruff, mypy over **67 source files**, and Hermes smoke. These do not substitute for final-source full integration and dedicated qualification in renewed CI. |
+| Exact-source CI and retained artifacts | [CI 323](https://github.com/mmckeen-nv/DML/actions/runs/35468625699) finished **19/20 jobs passed** on source `2cc3a3a`; qualification was rejected. [PR #118](https://github.com/mmckeen-nv/DML/pull/118) remains open and unmerged. |
 | Ledger closure | Pending all required evidence. Record source identity, actual matrix coverage, test counts, review grade and CI links before closing milestone 6. |
 
-The final local run used Linux, CPython **3.12.14** and linked SQLite **3.53.1**.
+### Rejected CI attempts and current repair
+
+The initial published source `cbb8fb9` finished
+[CI 322](https://github.com/mmckeen-nv/DML/actions/runs/35467434181) with **19/20
+jobs passed**. Windows negative controls failed. Follow-up review also identified
+a same-client causal-order gap when timestamps tied and rejected that snapshot
+at **9.3/10**. The corrected checker and negative controls subsequently received
+**9.6/10**, with **167 focused passes and 144 retained-history replays** attributed
+to that follow-up review.
+
+Corrected source
+[`2cc3a3a47c10d99aae12e186e9913c52621cda4b`](https://github.com/mmckeen-nv/DML/commit/2cc3a3a47c10d99aae12e186e9913c52621cda4b),
+tree `e4951b20ef071d003058513488b9545bbdf4813a`, then finished
+[CI 323](https://github.com/mmckeen-nv/DML/actions/runs/35468625699) with **19/20
+jobs passed**. macOS qualified all **24 bounded cells** with **300 passes**;
+Windows qualified all **24 bounded cells** with **299 passes and one declared
+POSIX-fork skip**. Their retained artifacts were verified. These results do not
+qualify the larger Linux matrix.
+
+Linux reported **322 passes and two failures**: the 256-client, schema-3,
+separate-adapter thread campaign expired its original **90-second** deadline,
+and the 256-client, schema-4 HTTP campaign exceeded the **10-second** first-progress
+bound. The exact latter timing was not retained in the available failure
+diagnostic and is not invented here. Both full-suite jobs passing does not waive
+either failure. The next repair targets duplicate validated scans/serialization
+without weakening validation and adds rejected-campaign diagnostics. The original
+workload, deadlines and retry limits remain in force. The correction review below
+accepts the subsequent source; milestone closure still requires renewed CI.
+
+### Correction evidence before final review
+
+The runtime correction removes one duplicate owned refresh scan: the measured
+changed-authority path goes from **five validated scans to four**, while the
+unchanged-authority path remains at four. Private SQL outbox validation avoids a
+redundant clone while retaining the same **3,850 checked objects and 950 semantic
+validations**. The reproducible
+[diagnostic provenance](artifacts/m6-validation-profile-provenance.json) and
+[profiling script](artifacts/m6-validation-profile.py) record a local single-client
+observation of **1.113 → 0.877 seconds**. This is diagnostic evidence, not a
+capacity claim or qualification result.
+
+A focused three-cell run preserved all **336 source-file hashes** before/after:
+
+| Campaign | Burst seconds | First progress seconds | Logical events / unique commits | Typed retries |
+| --- | --- | --- | --- | --- |
+| Native callers, schema 3, 256 clients | 31.410857234 | 2.232992435 | 640 / 37 | 0 |
+| HTTP, schema 4, 256 clients | 40.206062539 | 5.22891469 | 640 / 37 | 1 |
+| Four spawned processes, schema 3, 16 clients | 0.597604161 | 0.04367761 | 40 / 7 | 0 |
+
+These cells met the existing bounds on that frozen snapshot. The grader
+independently replayed all three histories: **1,320 logical events and one typed
+HTTP rejection**. A later cleanup-only shared-budget correction has also been
+reviewed; the earlier cell measurements do not qualify that final source tree. The
+[contention correction review](artifacts/profile-concurrency-contention-review-2026-09-19.json)
+accepts final correction source at **9.6/10** for publication and renewed CI.
+Milestone 6 remains open, with
+the original workload, validation requirements, deadlines and retry limits intact.
+
+The correction adds **35 focused controls**: 10 native, 2 HTTP, 8 runtime,
+13 independent and 2 evidence cases. Reported passing selections are **44 native**,
+**28 HTTP plus one real-network smoke**, **146 existing runtime/persistence plus
+8 new runtime**, **39 independent**, and **109 evidence** cases. These selections
+overlap and are not summed into one full-suite result. Root maintained Ruff,
+changed-test/benchmark Ruff, mypy over 67 source files and Hermes smoke passed.
+Expected renewed-CI collection is **359 cases for the full mode and 335 for the
+bounded mode**; only Windows' declared POSIX-fork skip is permitted. These are
+expected collections, not completed CI results.
+
+### Original local source-review evidence
+
+The original reviewed local run used Linux, CPython **3.12.14** and linked SQLite **3.53.1**.
 Its 48 checked histories contained **10,320 logical events** and **107 explicitly
 recorded ownership rejections**; every logical intent completed, with at most
 **two attempts** used. The slowest campaign took **50.558 seconds**, the slowest
@@ -319,15 +391,15 @@ timeouts measured **30.043–30.065 seconds**; release-to-progress measured
 **0.009815 seconds**. These measurements satisfy the declared local test bounds
 and do not establish production capacity or an SLO.
 
-The evidence recorder correctly retained `accepted: false`. Its only reported
+That local evidence recorder correctly retained `accepted: false`. Its only reported
 qualification errors were the unpublished dirty working tree and the local
 overlay filesystem with `fsync=volatile`. The separate 23-file before/after hash
 comparison established that the tested files did not change during the run;
 it does not turn an unpublished tree or unqualified filesystem into accepted
 exact-source platform evidence. The grader independently replayed all 48
 retained histories and verified the exact 318 passing cases before accepting
-the source at 9.6/10. CI must still qualify the published
-source and measured target environments.
+that snapshot at 9.6/10. Subsequent CI rejections above retain their separate
+attribution; a corrected source must still pass the complete qualification.
 
 The [independent review](artifacts/profile-concurrency-review-2026-09-19.json)
 retains reviewed-source hashes and separately attributed evidence. Preliminary development selections

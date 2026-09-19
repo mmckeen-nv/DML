@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
+import gzip
 import json
 import os
 import socket
@@ -291,12 +292,21 @@ def test_http_retry_does_not_apply_receipt_rejection_to_read_routes(operation):
     assert len(client.sent) == 1
 
 
-def test_http_campaign_cancels_and_drains_siblings_before_client_close(monkeypatch):
+@pytest.mark.parametrize("diagnostic_failure", [False, True])
+def test_http_campaign_cancels_and_drains_siblings_before_client_close(monkeypatch, diagnostic_failure):
     import profile_concurrency_fixture
     import profile_concurrency_http_fixture
 
     original_error = httpx.ReadError("synthetic first caller failure")
     state = {"sibling_drained": False, "client_closed": False}
+    captures = []
+
+    def rejected_history(before, events, **arguments):
+        assert state == {"sibling_drained": True, "client_closed": True}
+        captures.append({"before": before, "events": events, **arguments})
+        if diagnostic_failure:
+            raise OSError("synthetic diagnostic storage failure")
+        return {}
 
     class FailingAndBlockedClient:
         def __init__(self, **_kwargs):
@@ -328,11 +338,80 @@ def test_http_campaign_cancels_and_drains_siblings_before_client_close(monkeypat
 
     monkeypatch.setattr(profile_concurrency_fixture, "full_client_plan",
                         lambda _before, client, _clients: [append_request(f"caller-{client}")])
+    monkeypatch.setattr(profile_concurrency_fixture, "write_rejected_history", rejected_history)
     monkeypatch.setattr(profile_concurrency_http_fixture.httpx, "AsyncClient", FailingAndBlockedClient)
     with pytest.raises(httpx.ReadError) as caught:
         asyncio.run(http_history(ControlledProvider(), {}, 2))
     assert caught.value is original_error
     assert state == {"sibling_drained": True, "client_closed": True}
+    assert len(captures) == 1 and captures[0]["error"] is original_error
+    assert captures[0]["diagnostics"]["failure_stage"] == "campaign"
+    assert "counter_capture_error" in captures[0]["diagnostics"]
+    assert captures[0]["diagnostics"]["failure_observed_phase"] == "before-sibling-drain"
+    assert captures[0]["diagnostics"]["failure_observed_ns"] < captures[0]["diagnostics"]["campaign_deadline_ns"]
+
+
+def test_http_progress_failure_retains_completed_history_and_exact_observations(monkeypatch, tmp_path):
+    import profile_concurrency_fixture
+    import profile_concurrency_http_fixture
+
+    released_ns = 1_000_000_000_000
+    first_response_ns = released_ns + 11_250_000_000
+    counters = {"released_ns": released_ns, "first_response_started_ns": first_response_ns - 1_000_000,
+                "arrivals": 1, "active_workers": 0, "http_requests": 2, "response_status_counts": {"200": 2}}
+    requests = [append_request(f"captured-{index}") for index in range(2)]
+
+    class UnusedClient:
+        def __init__(self, **_arguments):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_arguments):
+            pass
+
+    class ObservedProvider:
+        url = "http://synthetic-no-network"
+
+        def command(self, name, **arguments):
+            if name == "arrival":
+                assert arguments == {"clients": 1}
+                return {}
+            assert name == "metrics" and arguments == {"timeout": 1}
+            return dict(counters)
+
+        def receive(self, name):
+            assert name == "arrivals_released"
+            return {"released_ns": released_ns}
+
+    async def completed_call(_client, request, *, deadline):
+        assert deadline > time.monotonic()
+        index = requests.index(request)
+        return {"request": request, "started_ns": released_ns - 10_000_000,
+                "finished_ns": first_response_ns + index * 1_000_000, "result": {"synthetic": index}}
+
+    monkeypatch.setattr(profile_concurrency_fixture, "HISTORY_DIRECTORY", tmp_path / "histories")
+    monkeypatch.setattr(profile_concurrency_fixture, "full_client_plan",
+                        lambda _before, _client, _clients: requests)
+    monkeypatch.setattr(profile_concurrency_http_fixture.httpx, "AsyncClient", UnusedClient)
+    monkeypatch.setattr(profile_concurrency_http_fixture, "invoke_http", completed_call)
+    with pytest.raises(AssertionError, match=r"11\.250000000s.*\[0, 10\]s.*completed_events=2"):
+        asyncio.run(http_history(ObservedProvider(), {"schema": 4}, 1))
+    paths = list((tmp_path / "diagnostics").glob("*.rejected.json.gz"))
+    assert len(paths) == 1
+    diagnostic = json.loads(gzip.decompress(paths[0].read_bytes()))
+    assert diagnostic["schema_version"] == "dml-concurrency-rejected-diagnostic-v1"
+    assert diagnostic["accepted"] is False
+    assert len(diagnostic["events"]) == 2
+    assert [event["request"] for event in diagnostic["events"]] == requests
+    observed = diagnostic["diagnostics"]
+    assert observed.pop("failure_observed_ns") < observed.pop("campaign_deadline_ns")
+    assert observed.pop("failure_observed_phase") == "outside-active-callers"
+    assert observed == {"failure_stage": "first-progress", "released_ns": released_ns,
+                        "first_response_ns": first_response_ns, "first_progress_seconds": 11.25,
+                        "transport_counters": counters}
+    assert not (tmp_path / "histories").exists()
 
 
 def test_http_retry_allows_only_positively_typed_read_ownership_rejection():
