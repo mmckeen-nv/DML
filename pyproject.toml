@@ -14,6 +14,7 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools]
 packages = [
     "daystrom_dml",
+    "daystrom_dml.services",
     "daystrom_dml.llm_backends",
     "daystrom_dml.provider_web",
     "daystrom_dml.stm",
@@ -70,6 +71,13 @@ server = [
     "websockets>=11.0",
 ]
 tokenizer = ["tiktoken>=0.4"]
+model-input = [
+    "torch==2.8.0",
+    "transformers==4.56.2",
+    "tokenizers==0.22.0",
+    "safetensors==0.6.2",
+    "Jinja2==3.1.6",
+]
 embeddings = ["sentence-transformers>=2.2"]
 faiss = ["faiss-cpu>=1.7"]
 multiplex_rag = [
@@ -101,6 +109,8 @@ dcm-model-probe = "scripts.dcm_model_probe:main"
 dcm-workload-benchmark = "scripts.dcm_workload_benchmark:main"
 dcm-kv-probe = "scripts.dcm_kv_probe:main"
 dml-journal = "scripts.dml_journal:main"
+dml-projection = "scripts.dml_projection:main"
+dml-outbox = "scripts.dml_outbox:main"
 
 [tool.pytest.ini_options]
 addopts = "-q"

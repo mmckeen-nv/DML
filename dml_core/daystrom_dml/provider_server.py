@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import sqlite3
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -11,9 +12,11 @@ from pathlib import Path
 from typing import Any, AsyncIterator, Callable, Optional
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse, PlainTextResponse, StreamingResponse
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, StrictInt, StrictStr
 
 from .api_contracts import DaystromScope
 from .api_contracts import ContractError
@@ -25,6 +28,14 @@ from .cognition.learning import ProceduralLearningPolicy
 from .cognition.policy import DeterministicCognitionPolicy
 from .cognition.schema import CognitionConstraints, CognitionEvent, CognitionFeedback
 from .dml_adapter import DMLAdapter
+from .config import load_config
+from .settings import DMLSettings
+from .contracts.production import production_status
+from .contracts.retention import retention_contract
+from .journal import IdempotencyConflict, JournalIntegrityError, RevisionConflict
+from .services.receipt_ingestion import ReceiptCapacityError, ReceiptCommitRejected, ReceiptCommitUncertain, ReceiptEmbeddingError
+from .services.receipt_lifecycle import ReceiptLifecycleConflict, ReceiptMemoryNotFound
+from .services.retention import RetentionInspectionUnsupported
 from .frontier_pipeline import FrontierCompressionPipeline, FrontierPipelineConfig
 
 
@@ -50,9 +61,62 @@ class RecallRequest(BaseModel):
     top_k: int = 6
 
 
+class RememberReceiptRequest(RememberRequest):
+    model_config = ConfigDict(extra="forbid")
+    idempotency_key: StrictStr = Field(min_length=1, max_length=256)
+
+
 class RememberBatchRequest(BaseModel):
     records: list[RememberRequest] = Field(min_length=1, max_length=256)
     batch_size: int = Field(64, ge=1, le=256)
+
+
+class RetireReceiptRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    memory_id: StrictInt = Field(ge=0)
+    expected_memory_digest: StrictStr = Field(pattern=r"^[0-9a-f]{64}$")
+    reason: StrictStr = Field(min_length=1, max_length=1024)
+    idempotency_key: StrictStr = Field(min_length=1, max_length=256)
+    tenant_id: StrictStr = Field(min_length=1, max_length=256)
+    client_id: Optional[StrictStr] = Field(default=None, min_length=1, max_length=256)
+    session_id: Optional[StrictStr] = Field(default=None, min_length=1, max_length=256)
+    instance_id: Optional[StrictStr] = Field(default=None, min_length=1, max_length=256)
+
+
+class RetentionInspectionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    memory_id: StrictInt = Field(ge=0)
+    tenant_id: StrictStr = Field(min_length=1, max_length=256)
+    client_id: Optional[StrictStr] = Field(default=None, min_length=1, max_length=256)
+    session_id: Optional[StrictStr] = Field(default=None, min_length=1, max_length=256)
+    instance_id: Optional[StrictStr] = Field(default=None, min_length=1, max_length=256)
+
+
+class SupersedeReceiptRequest(RetireReceiptRequest):
+    replacement_memory_id: StrictInt = Field(ge=0)
+    expected_replacement_digest: StrictStr = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class UpdateReceiptRequest(RetireReceiptRequest):
+    text: StrictStr = Field(min_length=1, max_length=1024 * 1024)
+
+
+class PromotionSourceRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    memory_id: StrictInt = Field(ge=0)
+    expected_memory_digest: StrictStr = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class PromoteReceiptRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    sources: list[PromotionSourceRequest] = Field(min_length=1, max_length=32)
+    text: StrictStr = Field(min_length=1, max_length=1024 * 1024)
+    reason: StrictStr = Field(min_length=1, max_length=1024)
+    idempotency_key: StrictStr = Field(min_length=1, max_length=256)
+    tenant_id: StrictStr = Field(min_length=1, max_length=256)
+    client_id: Optional[StrictStr] = Field(default=None, min_length=1, max_length=256)
+    session_id: Optional[StrictStr] = Field(default=None, min_length=1, max_length=256)
+    instance_id: Optional[StrictStr] = Field(default=None, min_length=1, max_length=256)
 
 
 class ResumeRequest(BaseModel):
@@ -103,7 +167,11 @@ class DCNModePromotionRequest(BaseModel):
     reason: str = ""
 
 
-def _build_adapter(config_path: str | None, storage_dir: str | None) -> DMLAdapter:
+def _build_adapter(
+    config_path: str | None, storage_dir: str | None, *, settings: DMLSettings | None = None,
+) -> DMLAdapter:
+    if settings is not None:
+        return DMLAdapter(_validated_settings=settings, start_aging_loop=False)
     overrides: dict[str, Any] = {}
     if storage_dir:
         overrides["storage_dir"] = storage_dir
@@ -210,8 +278,30 @@ def create_app(
     adapter_factory: Callable[[], DMLAdapter] | None = None,
     config_path: str | None = None,
     storage_dir: str | None = None,
+    production_profile: str | None = None,
 ) -> FastAPI:
-    adapter = adapter_factory() if adapter_factory else _build_adapter(config_path, storage_dir)
+    overrides: dict[str, Any] = {}
+    if storage_dir:
+        overrides["storage_dir"] = storage_dir
+    if production_profile is not None:
+        overrides["production_profile"] = production_profile
+    # Resolve once: validation and construction consume the same settings snapshot.
+    settings = load_config(config_path, overrides=overrides or None)
+    selected_profile = getattr(settings, "production_profile", None)
+    if selected_profile is not None:
+        from .services.profile_http import build_profile_app, profile_credentials
+
+        tokens = profile_credentials()
+        adapter = adapter_factory() if adapter_factory else _build_adapter(None, None, settings=settings)
+        try:
+            return build_profile_app(adapter, tokens=tokens, expected_settings=settings)
+        except Exception:
+            if adapter_factory is None:
+                adapter.close()
+            raise
+    adapter = adapter_factory() if adapter_factory else _build_adapter(None, None, settings=settings)
+    if getattr(adapter, "production_profile_id", None) is not None:
+        raise ValueError("A selected production profile requires matching provider configuration")
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
@@ -222,6 +312,15 @@ def create_app(
 
     app = FastAPI(title="Daystrom DML Provider", lifespan=lifespan)
     app.add_middleware(BearerAuthMiddleware)
+
+    @app.exception_handler(RequestValidationError)
+    async def validation_error(request: Request, exc: RequestValidationError):
+        if request.url.path == "/api/memory/retention/inspect":
+            # Unknown fields may themselves contain memory text or credentials.
+            # Do not echo Pydantic's input values from this read-only surface.
+            return JSONResponse(status_code=422, content={"detail": {"code": "retention_validation_failed"}})
+        return await request_validation_exception_handler(request, exc)
+
     app.state.adapter = adapter
     app.state.dcn_learning = ProceduralLearningPolicy()
     app.state.dcn_controller = CognitionController(
@@ -269,12 +368,23 @@ def create_app(
     def health() -> dict[str, Any]:
         adapter = app.state.adapter
         stats = adapter.stats()
+        durability = adapter.durability_status() if hasattr(adapter, "durability_status") else {"status": "unknown"}
+        checkpoint = getattr(adapter, "checkpoint_manager", None)
+        checkpoint_status = checkpoint.status() if checkpoint is not None else {"status": "disabled"}
+        degraded = durability["status"] == "degraded" or checkpoint_status["status"] == "degraded"
         return {
-            "status": "ok",
+            "status": "degraded" if degraded else "ok",
+            "durability": durability,
+            "checkpoint": checkpoint_status,
+            "production": production_status(),
             "provider": "daystrom-dml",
             "uptime_seconds": round(time.time() - app.state.started_at, 2),
             "stats": stats,
         }
+
+    @app.get("/api/contracts")
+    def contracts() -> dict[str, Any]:
+        return {**production_status(), "retention": retention_contract()}
 
     @app.get("/api/stats")
     def stats() -> dict[str, Any]:
@@ -522,6 +632,128 @@ def create_app(
             top_k=payload.top_k,
         )
 
+    @app.post("/api/remember/receipt")
+    def remember_receipted(payload: RememberReceiptRequest) -> dict[str, Any]:
+        try:
+            return app.state.adapter.ingest_memory_receipted(**payload.model_dump())
+        except IdempotencyConflict as exc:
+            raise HTTPException(status_code=409, detail={"code": "idempotency_conflict"}) from exc
+        except RevisionConflict as exc:
+            raise HTTPException(status_code=409, detail={"code": "revision_conflict", "retry_same_key": True}) from exc
+        except TimeoutError as exc:
+            raise HTTPException(status_code=503, detail={"code": "receipt_ownership_unavailable", "retry_same_key": True}) from exc
+        except (ReceiptCommitUncertain, JournalIntegrityError) as exc:
+            raise HTTPException(status_code=503, detail={"code": "receipt_outcome_unavailable", "retry_same_key": True}) from exc
+        except ReceiptCommitRejected as exc:
+            raise HTTPException(status_code=503, detail={"code": "receipt_not_committed", "retry_same_key": True}) from exc
+        except ReceiptEmbeddingError as exc:
+            raise HTTPException(status_code=503, detail={"code": "embedding_unavailable", "retry_same_key": True}) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail={"code": "invalid_or_unsupported_receipt_request"}) from exc
+
+    @app.post("/api/memory/retention/inspect")
+    def inspect_memory_retention(payload: RetentionInspectionRequest) -> dict[str, Any]:
+        try:
+            return app.state.adapter.inspect_memory_retention(**payload.model_dump())
+        except ReceiptMemoryNotFound as exc:
+            raise HTTPException(status_code=404, detail={"code": "receipt_memory_not_found"}) from exc
+        except RetentionInspectionUnsupported as exc:
+            raise HTTPException(status_code=409, detail={"code": "retention_inspection_unsupported"}) from exc
+        except (JournalIntegrityError, OSError, sqlite3.Error) as exc:
+            raise HTTPException(status_code=503, detail={"code": "retention_outcome_unavailable"}) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail={"code": "invalid_or_unsupported_retention_request"}) from exc
+
+    @app.post("/api/memory/retire/receipt")
+    def retire_memory_receipted(payload: RetireReceiptRequest) -> dict[str, Any]:
+        try:
+            return app.state.adapter.retire_memory_receipted(**payload.model_dump())
+        except ReceiptMemoryNotFound as exc:
+            raise HTTPException(status_code=404, detail={"code": "receipt_memory_not_found"}) from exc
+        except ReceiptLifecycleConflict as exc:
+            raise HTTPException(status_code=409, detail={"code": "receipt_lifecycle_conflict"}) from exc
+        except IdempotencyConflict as exc:
+            raise HTTPException(status_code=409, detail={"code": "idempotency_conflict"}) from exc
+        except RevisionConflict as exc:
+            raise HTTPException(status_code=409, detail={"code": "revision_conflict", "retry_same_key": True}) from exc
+        except TimeoutError as exc:
+            raise HTTPException(status_code=503, detail={"code": "receipt_ownership_unavailable", "retry_same_key": True}) from exc
+        except (ReceiptCommitUncertain, JournalIntegrityError) as exc:
+            raise HTTPException(status_code=503, detail={"code": "receipt_outcome_unavailable", "retry_same_key": True}) from exc
+        except ReceiptCommitRejected as exc:
+            raise HTTPException(status_code=503, detail={"code": "receipt_not_committed", "retry_same_key": True}) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail={"code": "invalid_or_unsupported_receipt_request"}) from exc
+
+    @app.post("/api/memory/supersede/receipt")
+    def supersede_memory_receipted(payload: SupersedeReceiptRequest) -> dict[str, Any]:
+        try:
+            return app.state.adapter.supersede_memory_receipted(**payload.model_dump())
+        except ReceiptMemoryNotFound as exc:
+            raise HTTPException(status_code=404, detail={"code": "receipt_memory_not_found"}) from exc
+        except ReceiptLifecycleConflict as exc:
+            raise HTTPException(status_code=409, detail={"code": "receipt_lifecycle_conflict"}) from exc
+        except IdempotencyConflict as exc:
+            raise HTTPException(status_code=409, detail={"code": "idempotency_conflict"}) from exc
+        except RevisionConflict as exc:
+            raise HTTPException(status_code=409, detail={"code": "revision_conflict", "retry_same_key": True}) from exc
+        except TimeoutError as exc:
+            raise HTTPException(status_code=503, detail={"code": "receipt_ownership_unavailable", "retry_same_key": True}) from exc
+        except (ReceiptCommitUncertain, JournalIntegrityError) as exc:
+            raise HTTPException(status_code=503, detail={"code": "receipt_outcome_unavailable", "retry_same_key": True}) from exc
+        except ReceiptCommitRejected as exc:
+            raise HTTPException(status_code=503, detail={"code": "receipt_not_committed", "retry_same_key": True}) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail={"code": "invalid_or_unsupported_receipt_request"}) from exc
+
+    @app.post("/api/memory/update/receipt")
+    def update_memory_receipted(payload: UpdateReceiptRequest) -> dict[str, Any]:
+        try:
+            return app.state.adapter.update_memory_receipted(**payload.model_dump())
+        except ReceiptMemoryNotFound as exc:
+            raise HTTPException(status_code=404, detail={"code": "receipt_memory_not_found"}) from exc
+        except ReceiptLifecycleConflict as exc:
+            raise HTTPException(status_code=409, detail={"code": "receipt_lifecycle_conflict"}) from exc
+        except IdempotencyConflict as exc:
+            raise HTTPException(status_code=409, detail={"code": "idempotency_conflict"}) from exc
+        except RevisionConflict as exc:
+            raise HTTPException(status_code=409, detail={"code": "revision_conflict", "retry_same_key": True}) from exc
+        except TimeoutError as exc:
+            raise HTTPException(status_code=503, detail={"code": "receipt_ownership_unavailable", "retry_same_key": True}) from exc
+        except (ReceiptCommitUncertain, JournalIntegrityError) as exc:
+            raise HTTPException(status_code=503, detail={"code": "receipt_outcome_unavailable", "retry_same_key": True}) from exc
+        except ReceiptCommitRejected as exc:
+            raise HTTPException(status_code=503, detail={"code": "receipt_not_committed", "retry_same_key": True}) from exc
+        except ReceiptEmbeddingError as exc:
+            raise HTTPException(status_code=503, detail={"code": "embedding_unavailable", "retry_same_key": True}) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail={"code": "invalid_or_unsupported_receipt_request"}) from exc
+
+    @app.post("/api/memory/promote/receipt")
+    def promote_memories_receipted(payload: PromoteReceiptRequest) -> dict[str, Any]:
+        try:
+            return app.state.adapter.promote_memories_receipted(**payload.model_dump())
+        except ReceiptMemoryNotFound as exc:
+            raise HTTPException(status_code=404, detail={"code": "receipt_memory_not_found"}) from exc
+        except ReceiptLifecycleConflict as exc:
+            raise HTTPException(status_code=409, detail={"code": "receipt_lifecycle_conflict"}) from exc
+        except ReceiptCapacityError as exc:
+            raise HTTPException(status_code=409, detail={"code": "receipt_capacity_exceeded"}) from exc
+        except IdempotencyConflict as exc:
+            raise HTTPException(status_code=409, detail={"code": "idempotency_conflict"}) from exc
+        except RevisionConflict as exc:
+            raise HTTPException(status_code=409, detail={"code": "revision_conflict", "retry_same_key": True}) from exc
+        except TimeoutError as exc:
+            raise HTTPException(status_code=503, detail={"code": "receipt_ownership_unavailable", "retry_same_key": True}) from exc
+        except (ReceiptCommitUncertain, JournalIntegrityError) as exc:
+            raise HTTPException(status_code=503, detail={"code": "receipt_outcome_unavailable", "retry_same_key": True}) from exc
+        except ReceiptCommitRejected as exc:
+            raise HTTPException(status_code=503, detail={"code": "receipt_not_committed", "retry_same_key": True}) from exc
+        except ReceiptEmbeddingError as exc:
+            raise HTTPException(status_code=503, detail={"code": "embedding_unavailable", "retry_same_key": True}) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail={"code": "invalid_or_unsupported_receipt_request"}) from exc
+
     @app.post("/api/remember/batch")
     def remember_batch(payload: RememberBatchRequest) -> dict[str, Any]:
         if sum(len(record.text.encode("utf-8")) for record in payload.records) > 1024 * 1024:
@@ -698,11 +930,13 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--config-path")
     parser.add_argument("--storage-dir")
+    parser.add_argument("--production-profile", help="Explicit supported production candidate profile ID")
     args = parser.parse_args(argv)
 
     import uvicorn
 
-    app = create_app(config_path=args.config_path, storage_dir=args.storage_dir)
+    app = create_app(config_path=args.config_path, storage_dir=args.storage_dir,
+                     production_profile=args.production_profile)
     uvicorn.run(app, host=args.host, port=args.port)
 
 

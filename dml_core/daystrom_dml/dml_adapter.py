@@ -3,15 +3,13 @@ from __future__ import annotations
 
 import contextlib
 import copy
-import heapq
-from concurrent.futures import Future
 import json
 import logging
+import math
 import os
 import re
 import threading
 import time
-from collections import OrderedDict
 from functools import wraps
 from datetime import datetime, timezone
 from pathlib import Path
@@ -20,10 +18,16 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 from .config import load_config
+from .settings import DMLSettings
+from .contracts.profile import (
+    ProductionProfileError, validate_profile_config, validate_profile_embedding,
+    validate_profile_authority, validate_profile_platform,
+)
 from .checkpoint import CheckpointManager
 from .embeddings import Embedder, create_embedder, embed_texts
 from .gpt_runner import GPTRunner
 from .memory_store import MemoryItem, MemoryStore
+from .vector_backend import NumpyVectorBackend
 from .metrics import (
     record_operation,
     record_retrieval,
@@ -31,6 +35,7 @@ from .metrics import (
     update_memory_gauge,
 )
 from .multi_rag import MultiRAGStore, RAGBackendDescriptor
+from .persistence import validate_snapshot
 from .persistence import load_state as load_persisted_memories
 from .persistence import save_state as save_persisted_memories
 from .personality_matrix import PersonalityMatrix, overlay_token_count
@@ -41,6 +46,30 @@ from .rag_store import PersistentRAGStore
 from .store_lock import store_write_lock
 from .atomic_io import atomic_write_text
 from .journal import JournalStateStore
+from .services.retrieval import QueryEmbeddingCache
+from .services.persistence import LatticePersistence, PersistenceCoordinator, PersistenceState
+from .services.profile_runtime import (
+    outside_production_profile, preflight_profile_authority, validate_profile_retrieval,
+)
+from .services.transactions import (
+    PersistenceCommitError,
+    PersistenceRollbackError,
+    TransactionCoordinator,
+)
+from .services.receipt_ingestion import append_receipted, canonical_request, embedding_identity, validate_embedding_contract, ReceiptEmbeddingCompatibilityError
+from .services.receipt_lifecycle import canonical_retirement_request, retire_receipted
+from .services.receipt_supersession import canonical_supersession_request, supersede_receipted
+from .services.receipt_promotion import canonical_promotion_request, promote_receipted
+from .services.receipt_update import canonical_update_request, update_receipted
+from .services.context import build_context_report, compact_context
+from .services.lifecycle import suppression_reason
+from .services.scoped_retrieval import (
+    ScopedRetrievalRequest,
+    recent_context_items,
+    select_scoped_context,
+    suppressed_context_items,
+    survival_ledger_for_scope,
+)
 from .stm.controller import STMController
 from .stm.policy import LTMWritePolicy, MemoryWrite
 from .stm.schema import STMState
@@ -52,61 +81,17 @@ from .policy_router import PolicyRouter, TaskType, RouterDecision
 LOGGER = logging.getLogger(__name__)
 
 
-class PersistenceCommitError(RuntimeError):
-    """Raised when a configured durability write does not commit."""
-
-
-class PersistenceRollbackError(RuntimeError):
-    """Raised when a failed mutation cannot restore its pre-mutation state."""
-
-    def __init__(self, original_error: Exception, rollback_error: Exception) -> None:
-        super().__init__(
-            f"Persistence failed and rollback also failed: {type(rollback_error).__name__}"
-        )
-        self.original_error = original_error
-        self.rollback_error = rollback_error
-
-
 def _serialized_mutation(method):
     """Run a public mutation as a rollback-capable durable transaction."""
 
     @wraps(method)
     def wrapped(self, *args, **kwargs):
-        with self._mutation_transaction(method.__name__):
-            snapshot = self._capture_mutation_snapshot()
-            previous_commits = getattr(
-                self._mutation_local, "committed_components", None
-            )
-            committed_components: set[str] = set()
-            self._mutation_local.committed_components = committed_components
-            succeeded = False
-            try:
-                result = method(self, *args, **kwargs)
-                succeeded = True
-                return result
-            except Exception as original_error:
-                self._mutation_local.committed_components = None
-                try:
-                    self._rollback_mutation(snapshot, committed_components)
-                except Exception as rollback_error:
-                    root_rollback_error = (
-                        rollback_error.__cause__
-                        if isinstance(rollback_error, PersistenceCommitError)
-                        and isinstance(rollback_error.__cause__, Exception)
-                        else rollback_error
-                    )
-                    with self._persist_lock:
-                        self._record_durability_failure_locked(
-                            "rollback", root_rollback_error
-                        )
-                    raise PersistenceRollbackError(
-                        original_error, root_rollback_error
-                    ) from original_error
-                raise
-            finally:
-                if succeeded and previous_commits is not None:
-                    previous_commits.update(committed_components)
-                self._mutation_local.committed_components = previous_commits
+        self._require_legacy_mutations()
+        with self.transaction_coordinator.mutation(
+            method.__name__,
+            ownership=lambda: self._mutation_transaction(method.__name__),
+        ):
+            return method(self, *args, **kwargs)
 
     return wrapped
 
@@ -157,10 +142,34 @@ class DMLAdapter:
         summarizer: Optional[Summarizer] = None,
         runner: Optional[GPTRunner] = None,
         start_aging_loop: bool = True,
+        _validated_settings: DMLSettings | None = None,
     ) -> None:
+        self._projection_lifecycle_lock = RLock()
+        self._projection_workers_closing = False
+        self._owned_projection_worker = None
+        self._owned_projection_backend = None
         overrides = dict(config_overrides or {})
-        self.settings = load_config(config_path, overrides=overrides)
+        if _validated_settings is not None:
+            if not isinstance(_validated_settings, DMLSettings) or config_path is not None or overrides:
+                raise ValueError("A settings snapshot cannot be combined with configuration inputs")
+            self.settings = copy.deepcopy(_validated_settings)
+        else:
+            self.settings = load_config(config_path, overrides=overrides)
         self.config = self.settings.as_dict()
+        self._production_profile = validate_profile_config(self.config)
+        self._profile_validation_complete = False
+        self._profile_embedding_identity = None
+        if self._production_profile is not None:
+            validate_profile_platform(self._production_profile)
+            if runner is not None or summarizer is not None:
+                raise ProductionProfileError("Profile generation and summarizer injection are unsupported")
+            preflight_profile_authority(
+                self._production_profile, self.settings.storage_dir,
+                outbox_enabled=self.settings.persistence.outbox,
+            )
+            if embedder is not None:
+                validate_profile_embedding(self._production_profile, embedder,
+                                           self.settings.persistence.receipt_embedding_identity)
         self.config.setdefault("dml_top_k", DEFAULT_DML_TOP_K)
         self.enable_workflow_cache = bool(
             self.config.get("enable_workflow_cache", False)
@@ -205,12 +214,17 @@ class DMLAdapter:
             device=self.config.get("embedding_device"),
             allow_random_fallback=not strict_embedding_required,
         )
-        self._query_embedding_cache: OrderedDict[str, np.ndarray] = OrderedDict()
-        self._query_embedding_cache_lock = RLock()
-        self._query_embedding_inflight: Dict[str, Future] = {}
-        self._query_embedding_cache_size = max(
-            0, int(self.config.get("query_embedding_cache_size", 64) or 0)
-        )
+        if self._production_profile is not None:
+            validate_profile_embedding(self._production_profile, self.embedder,
+                                       self.settings.persistence.receipt_embedding_identity)
+            self._profile_embedding_identity = embedding_identity(
+                self.embedder, self.settings.persistence.receipt_embedding_identity)
+        self.query_cache = QueryEmbeddingCache(int(self.config.get("query_embedding_cache_size", 64) or 0))
+        # Compatibility aliases for existing embedders/integration tests.
+        self._query_embedding_cache = self.query_cache.values
+        self._query_embedding_cache_lock = self.query_cache.lock
+        self._query_embedding_inflight = self.query_cache.pending
+        self._query_embedding_cache_size = self.query_cache.capacity
         if summarizer is not None:
             self.summarizer = summarizer
         elif self.runner.is_dummy:
@@ -219,7 +233,7 @@ class DMLAdapter:
             self.summarizer = LLMSummarizer(self.runner)
         self.storage_dir = self.settings.storage_dir.expanduser()
         self.storage_dir.mkdir(parents=True, exist_ok=True)
-        self.personality_matrix = PersonalityMatrix(
+        self.personality_matrix = None if self._production_profile is not None else PersonalityMatrix(
             getattr(self.settings, "dpm", None),
             storage_dir=self.storage_dir,
         )
@@ -232,7 +246,7 @@ class DMLAdapter:
         if not persistence_path.is_absolute():
             legacy_path = (self.storage_dir / persistence_path).resolve()
             persistence_path = self._resolve_storage_path(persistence_path).resolve()
-            if legacy_path != persistence_path and legacy_path.exists() and not persistence_path.exists():
+            if self._production_profile is None and legacy_path != persistence_path and legacy_path.exists() and not persistence_path.exists():
                 persistence_path.parent.mkdir(parents=True, exist_ok=True)
                 persistence_path.write_bytes(legacy_path.read_bytes())
                 LOGGER.info(
@@ -247,22 +261,57 @@ class DMLAdapter:
         except (TypeError, ValueError):
             self._persistence_interval = 0
         self._persistence_enabled = bool(persistence_settings and getattr(persistence_settings, "enable", False))
+        self._receipts_enabled = bool(persistence_settings and persistence_settings.receipts)
+        self._outbox_enabled = bool(persistence_settings and persistence_settings.outbox)
+        if self._outbox_enabled and not (self._receipts_enabled and persistence_settings and persistence_settings.journal):
+            raise ValueError("Transactional outbox requires persistence.journal=true and persistence.receipts=true")
+        self._receipt_embedding_identity = getattr(persistence_settings, "receipt_embedding_identity", None)
+        if self._receipts_enabled and (persistence_settings is None or not persistence_settings.journal):
+            raise ValueError("Receipt ingestion requires persistence.journal=true")
         self._journal = (
-            JournalStateStore(self.storage_dir / "dml_state.sqlite3", snapshot_interval=persistence_settings.snapshot_interval)
+            JournalStateStore(self.storage_dir / "dml_state.sqlite3", snapshot_interval=persistence_settings.snapshot_interval,
+                              receipt_mode=self._receipts_enabled, outbox_mode=self._outbox_enabled,
+                              require_wal=self._production_profile is not None,
+                              allowed_schema_versions=(
+                                  frozenset({3, 4} if self._outbox_enabled else {2})
+                                  if self._production_profile is not None else None))
             if persistence_settings and persistence_settings.journal else None
         )
+        if self._production_profile is not None:
+            validate_profile_authority(self._production_profile, self._journal.schema_version, self._outbox_enabled)
+        if self._journal is not None and self._journal.schema_version in (2, 3, 4):
+            # Receipt stores expose an append-only durable mutation boundary;
+            # retrieval must not apply unjournaled quality/lifecycle changes.
+            self.enable_quality_on_retrieval = False
         self._persistence_stop_event = Event()
         self._persistence_thread: Optional[threading.Thread] = None
         self.dml_state_path = self.storage_dir / "dml_store.json"
         self.rag_state_path = self.storage_dir / "rag_store.json"
         self.checkpoint_dir = self.storage_dir / "checkpoints"
-        self._persist_lock = RLock()
-        self._durability_failures: Dict[str, str] = {}
-        self._refresh_lock = RLock()
-        self._mutation_local = threading.local()
-        self._last_observed_state: Optional[tuple[int, int]] = None
-        self._last_observed_rag_state: Optional[tuple[int, int]] = None
-        self._last_observed_persistent_rag: Optional[tuple[int, int]] = None
+        self.lattice_persistence = LatticePersistence(
+            json_path=self.dml_state_path, jsonl_path=self._persistence_path,
+            use_jsonl=self._persistence_enabled, journal=self._journal,
+            read_jsonl=lambda path: load_persisted_memories(path),
+            write_jsonl=lambda items, path: save_persisted_memories(items, path),
+            write_text=lambda path, text: atomic_write_text(path, text),
+        )
+        self._persistence_state = PersistenceState()
+        # Compatibility aliases share the service's ownership and health state.
+        self._persist_lock = self._persistence_state.persist_lock
+        self._durability_failures = self._persistence_state.failures
+        self._refresh_lock = self._persistence_state.refresh_lock
+        self.transaction_coordinator = TransactionCoordinator(
+            acquire_ownership=lambda operation: store_write_lock(
+                self._active_state_path().expanduser().resolve().parent,
+                operation=operation, timeout_ms=30000,
+            ),
+            refresh=lambda: (self._refresh_if_changed() if self._production_profile is not None
+                             else self.refresh_if_changed()),
+            capture=lambda: self._capture_mutation_snapshot(),
+            rollback=lambda snapshot, components: self._rollback_mutation(snapshot, components),
+            record_rollback_failure=lambda error: self._record_durability_failure_locked("rollback", error),
+        )
+        self._mutation_local = self.transaction_coordinator.local
         literal_cfg = getattr(self.settings, "literal", None)
         literal_tokens = 160
         literal_snippets = 8
@@ -381,12 +430,14 @@ class DMLAdapter:
             theta_merge=float(self.config["theta_merge"]),
             K=int(self.config["K"]),
             capacity=int(self.config["capacity"]),
-            start_aging_loop=start_aging_loop,
+            start_aging_loop=False,
+            aging_callback=self._run_aging,
             enable_quality_on_retrieval=self.enable_quality_on_retrieval,
             similarity_threshold=float(self.config.get("similarity_threshold", 0.0)),
             ann_min_items=self.settings.ann_min_items,
             ann_candidate_multiplier=self.settings.ann_candidate_multiplier,
             scope_cache_bytes=self.settings.scope_cache_bytes,
+            vector_backend=NumpyVectorBackend() if self._production_profile is not None else None,
         )
         self.enable_stm_controller = bool(self.config.get("enable_stm_controller", False))
         self.stm_controller: Optional[STMController] = None
@@ -409,49 +460,105 @@ class DMLAdapter:
                 top_k=int(self.config.get("ltm_top_k", self.config.get("dml_top_k", DEFAULT_DML_TOP_K))),
                 extract_max_tokens=int(self.config.get("stm_extract_max_tokens", 256)),
             )
-        self.checkpoint_manager: Optional[CheckpointManager] = None
-        if int(self.settings.checkpoint_interval_seconds) > 0:
-            self.checkpoint_manager = CheckpointManager(
-                self.checkpoint_dir,
-                self._gather_checkpoint_state,
-                interval_seconds=int(self.settings.checkpoint_interval_seconds),
-                retention=int(self.settings.checkpoint_retention),
-            )
-        self._load_persisted_state()
-        self._last_observed_state = self._state_stamp()
+        self.persistence_coordinator = PersistenceCoordinator(
+            state=self._persistence_state, lattice=self.lattice_persistence,
+            runtime=self.store, rag=self.rag_store, rag_path=self.rag_state_path,
+            persistent_rag=lambda: self.persistent_rag_store,
+            invalidate_cache=lambda: self.query_cache.clear(),
+            write_text=lambda path, text: atomic_write_text(path, text),
+            mark_committed=lambda component: self._mark_committed_component(component),
+            require_legacy=lambda: self._require_legacy_mutations(),
+            operation=lambda: getattr(self._mutation_local, "operation", "persist"),
+        )
+        # Manual checkpoints share the same lifetime and drain boundary even
+        # when periodic checkpointing is disabled.
+        self.checkpoint_manager = None if self._production_profile is not None else CheckpointManager(
+            self.checkpoint_dir,
+            self._gather_checkpoint_state,
+            interval_seconds=int(self.settings.checkpoint_interval_seconds),
+            retention=int(self.settings.checkpoint_retention),
+            start=False,
+        )
+        try:
+            self._load_persisted_state()
+            observed_state = self._state_stamp()
+            if self._journal is not None and observed_state is not None:
+                # A peer can commit between load and stat. Pin the revision of
+                # the payload actually imported so the next mutation refreshes
+                # instead of treating stale memory as that peer's new revision.
+                observed_state = (self._journal.revision, observed_state[1])
+            self._last_observed_state = observed_state
+        except BaseException:
+            if self.checkpoint_manager:
+                self.checkpoint_manager.close()
+            self.store.close()
+            raise
         self._last_observed_rag_state = self._path_stamp(self.rag_state_path)
         if self.persistent_rag_store is not None:
             self._last_observed_persistent_rag = self._path_stamp(
                 self.persistent_rag_store.manifest_path
             )
-        if self._persistence_enabled and self._persistence_interval > 0:
+        receipt_store = self._journal is not None and self._journal.schema_version in (2, 3, 4)
+        if start_aging_loop and not receipt_store:
+            self.store.start_aging()
+        if self.checkpoint_manager and not receipt_store:
+            self.checkpoint_manager.start()
+        if self._persistence_enabled and self._persistence_interval > 0 and not receipt_store:
             self._start_persistence_loop()
         if self.metrics_enabled:
             update_memory_gauge(len(self.store.items()))
+        self._profile_validation_complete = self._production_profile is not None
         LOGGER.info("Daystrom Memory Lattice initialised with %d capacity", self.store.capacity)
 
     # ------------------------------------------------------------------
     # Lifecycle helpers
     # ------------------------------------------------------------------
-    def close(self, persist: bool = True) -> None:
-        """Stop background work and optionally persist an owned, current snapshot."""
+    @property
+    def production_profile_id(self) -> str | None:
+        return getattr(self, "_production_profile", None)
 
+    def production_profile_status(self) -> Dict[str, Any]:
+        """Describe startup admission, not continuous availability or graduation."""
+        return {
+            "profile_id": self.production_profile_id,
+            "status": "candidate" if self.production_profile_id is not None else "unselected",
+            "production_ready": False,
+            "validated": self._profile_validation_complete,
+            "validation_scope": "startup_configuration_and_authority",
+            "authority": {
+                "journal_schema_version": self._journal.schema_version if self._journal is not None else None,
+                "outbox_enabled": self._outbox_enabled,
+            },
+            "embedding_identity": copy.deepcopy(self._profile_embedding_identity),
+        }
+
+    def close(self, persist: bool = True, *, projection_timeout: float = 5.0) -> None:
+        """Drain owned workers before closing dependencies; retry after a timeout."""
+
+        if (type(projection_timeout) not in (int, float)
+                or projection_timeout > threading.TIMEOUT_MAX or projection_timeout < 0
+                or not math.isfinite(projection_timeout)):
+            raise ValueError("Projection close timeout must be finite and nonnegative")
+        with self._projection_lifecycle_lock:
+            self._projection_workers_closing = True
+            projection_worker = self._owned_projection_worker
+        # Never hold this lock while waiting: an admitted backend may call into
+        # adapter lifecycle methods. A blocked callback retains its dependencies.
+        if projection_worker is not None and not projection_worker.close(timeout=projection_timeout):
+            raise TimeoutError("Projection shutdown is incomplete; retry close after the backend drains")
         self._stop_persistence_loop()
+        # Checkpoint providers can own the memory transaction. Drain them before
+        # final persistence or closing their dependencies, and surface a timeout
+        # rather than claiming the adapter has shut down while a provider runs.
+        if self.checkpoint_manager and self.checkpoint_manager.close() is False:
+            raise TimeoutError("Checkpoint shutdown is incomplete; retry close after the provider drains")
         persistence_error: Optional[Exception] = None
-        if persist:
+        if persist and not (getattr(self, "_journal", None) is not None and self._journal.schema_version in (2, 3, 4)):
             try:
                 with self._mutation_transaction("close"):
                     self._persist_all()
             except Exception as exc:
                 persistence_error = exc
-        try:
-            if self.checkpoint_manager:
-                self.checkpoint_manager.close()
-        except Exception as exc:
-            if persistence_error is None:
-                persistence_error = exc
-            else:
-                LOGGER.warning("checkpoint close failed after persistence error: %s", exc)
         if self.metrics_enabled:
             with contextlib.suppress(Exception):
                 update_memory_gauge(len(self.store.items()))
@@ -461,7 +568,7 @@ class DMLAdapter:
             if persistence_error is None:
                 persistence_error = exc
             else:
-                LOGGER.warning("store close failed after persistence error: %s", exc)
+                LOGGER.warning("store close failed after persistence error (%s)", type(exc).__name__)
         if persistence_error is not None:
             raise persistence_error
 
@@ -469,6 +576,7 @@ class DMLAdapter:
     # Memory operations
     # ------------------------------------------------------------------
     @_serialized_mutation
+    @outside_production_profile
     def ingest(
         self,
         text: str,
@@ -504,8 +612,10 @@ class DMLAdapter:
         if self.metrics_enabled:
             update_memory_gauge(len(self.store.items()))
 
+    @outside_production_profile
     def ingest_fast(self, text: str, meta: Optional[Dict] = None) -> None:
         """Fast ingest - adds to RAG only, queues for background DML processing"""
+        self._require_legacy_mutations()
         if not text:
             return
         rag_meta: Dict[str, Any] = dict(meta or {})
@@ -518,6 +628,7 @@ class DMLAdapter:
             update_memory_gauge(len(self.store.items()))
 
     @_serialized_mutation
+    @outside_production_profile
     def ingest_agentic(
         self,
         text: str,
@@ -601,6 +712,7 @@ class DMLAdapter:
             record_operation("lattice_write")
             update_memory_gauge(len(self.store.items()))
 
+    @outside_production_profile
     def get_context(self, query: str, max_tokens: int = 1000) -> str:
         """Return formatted retrieval context, truncated to an approximate token cap."""
         report = self.retrieve_context(query)
@@ -610,6 +722,7 @@ class DMLAdapter:
             return raw_context[: max_tokens * 4]
         return raw_context
 
+    @outside_production_profile
     def memory_count(self) -> int:
         """Return the number of currently stored DML memories.
 
@@ -661,6 +774,7 @@ class DMLAdapter:
             if hasattr(self, '_background_timer'):
                 self._background_timer.cancel()
 
+    @outside_production_profile
     def build_preamble(self, prompt: str, top_k: Optional[int] = None) -> str:
         items = self._retrieve_items(prompt, top_k)
         _, preamble, _ = self._prepare_context(prompt, items)
@@ -671,6 +785,7 @@ class DMLAdapter:
                 preamble = f"{block}\n\n{preamble}" if preamble else block
         return preamble
 
+    @outside_production_profile
     def personality_overlay(
         self,
         *,
@@ -688,6 +803,7 @@ class DMLAdapter:
             relationship_id=relationship_id,
         )
 
+    @outside_production_profile
     def record_personality_preference(
         self,
         text: str,
@@ -707,11 +823,13 @@ class DMLAdapter:
             meta=meta,
         )
 
+    @outside_production_profile
     def personality_graph(self) -> Optional[Dict[str, Any]]:
         """Return the current DPM preference graph, if one exists."""
 
         return self.personality_matrix.graph()
 
+    @outside_production_profile
     def record_personality_interaction(
         self,
         prompt: str,
@@ -729,6 +847,7 @@ class DMLAdapter:
             meta=meta,
         )
 
+    @outside_production_profile
     def suppress_personality_preference(
         self, node_id: str, *, reason: str = "suppressed_by_user"
     ) -> Optional[Dict[str, Any]]:
@@ -736,12 +855,14 @@ class DMLAdapter:
 
         return self.personality_matrix.suppress_preference(node_id, reason=reason)
 
+    @outside_production_profile
     def delete_personality_preference(self, node_id: str) -> Optional[Dict[str, Any]]:
         """Delete a DPM preference node in active-write mode."""
 
         return self.personality_matrix.delete_preference(node_id)
 
     @_serialized_mutation
+    @outside_production_profile
     def reinforce(self, prompt: str, response: str, meta: Optional[Dict] = None) -> None:
         prompt_text = (prompt or "").strip()
         response_text = self._clean_context_fragment(response)
@@ -777,6 +898,7 @@ class DMLAdapter:
         if self.metrics_enabled:
             update_memory_gauge(len(self.store.items()))
 
+    @outside_production_profile
     def run_generation(
         self,
         prompt: str,
@@ -784,6 +906,7 @@ class DMLAdapter:
         max_new_tokens: int = 256,
         session_id: Optional[str] = None,
     ) -> str:
+        self._require_legacy_retrieval()
         if self.enable_stm_controller and self.stm_controller:
             result = self._run_generation_with_controller(
                 prompt,
@@ -797,6 +920,7 @@ class DMLAdapter:
         self.reinforce(prompt, response)
         return response
 
+    @outside_production_profile
     def generate_with_controller(
         self,
         prompt: str,
@@ -804,6 +928,7 @@ class DMLAdapter:
         max_new_tokens: int = 256,
         session_id: Optional[str] = None,
     ) -> Dict[str, Any]:
+        self._require_legacy_retrieval()
         if not (self.enable_stm_controller and self.stm_controller):
             return {
                 "response": self.run_generation(prompt, max_new_tokens=max_new_tokens),
@@ -816,6 +941,7 @@ class DMLAdapter:
             session_id=session_id,
         )
 
+    @outside_production_profile
     def get_stm_state(self, session_id: Optional[str] = None) -> STMState:
         if not self.enable_stm_controller:
             raise RuntimeError("STM controller is disabled.")
@@ -829,6 +955,7 @@ class DMLAdapter:
         max_new_tokens: int,
         session_id: Optional[str],
     ) -> Dict[str, Any]:
+        self._require_legacy_retrieval()
         session_key = (session_id or "default").strip() or "default"
         controller = self.stm_controller
         if controller is None:
@@ -879,6 +1006,7 @@ class DMLAdapter:
             "mode": retrieval_plan.mode,
         }
 
+    @outside_production_profile
     def retrieval_report(self, prompt: str, *, top_k: Optional[int] = None) -> Dict:
         start = time.perf_counter()
         items = self._retrieve_items(prompt, top_k)
@@ -894,6 +1022,7 @@ class DMLAdapter:
             "latency_ms": latency_ms,
         }
 
+    @outside_production_profile
     def compare_responses(
         self,
         prompt: str,
@@ -1104,6 +1233,7 @@ class DMLAdapter:
             "evaluations": evaluations,
         }
 
+    @outside_production_profile
     def knowledge_report(self) -> Dict:
         """Expose summaries of the RAG corpus and DML memory lattice."""
 
@@ -1319,257 +1449,122 @@ class DMLAdapter:
     # ------------------------------------------------------------------
     # Persistence helpers
     # ------------------------------------------------------------------
-    def _active_state_path(self) -> Path:
-        if self._journal is not None:
-            return self._journal.path
-        return self._persistence_path if self._persistence_enabled else self.dml_state_path
+    @property
+    def _last_observed_state(self) -> Optional[tuple[int, int]]:
+        return self._persistence_state.observed_lattice
 
+    @_last_observed_state.setter
+    def _last_observed_state(self, value: Optional[tuple[int, int]]) -> None:
+        self._persistence_state.observed_lattice = value
+
+    @property
+    def _last_observed_rag_state(self) -> Optional[tuple[int, int]]:
+        return self._persistence_state.observed_rag
+
+    @_last_observed_rag_state.setter
+    def _last_observed_rag_state(self, value: Optional[tuple[int, int]]) -> None:
+        self._persistence_state.observed_rag = value
+
+    @property
+    def _last_observed_persistent_rag(self) -> Optional[tuple[int, int]]:
+        return self._persistence_state.observed_persistent_rag
+
+    @_last_observed_persistent_rag.setter
+    def _last_observed_persistent_rag(self, value: Optional[tuple[int, int]]) -> None:
+        self._persistence_state.observed_persistent_rag = value
+
+    def _active_state_path(self) -> Path:
+        return self.lattice_persistence.path
+
+    @outside_production_profile
     def mutation_transaction(self, operation: str):
         """Expose one nestable durable transaction to trusted batch front ends."""
 
         return self._mutation_transaction(operation)
 
     @contextlib.contextmanager
+    @outside_production_profile
     def atomic_batch(self, operation: str):
-        """Run a trusted batch of mutations as one rollback-capable transaction.
+        """Run a trusted legacy batch with rollback and persistence on exit.
 
-        Mirrors ``_serialized_mutation``: captures a pre-batch snapshot, tracks
-        components committed by the inner ``_persist_all`` on successful exit,
-        and restores runtime state while compensating already-committed durable
-        components if the batch body or the final persist raises. Callers ingest
-        with ``persist=False`` inside this context and must not call
-        ``_persist_all`` themselves; persistence runs on successful exit.
+        Callers ingest with ``persist=False`` inside the context. The shared
+        coordinator owns the same recovery frame used by decorated mutations;
+        compensation is not a crash-atomic transaction across separate files.
         """
+        self._require_legacy_mutations()
+        with self.transaction_coordinator.mutation(
+            operation, ownership=lambda: self._mutation_transaction(operation),
+            persist=lambda: self._persist_all(),
+        ):
+            yield
 
-        with self._mutation_transaction(operation):
-            snapshot = self._capture_mutation_snapshot()
-            previous_commits = getattr(
-                self._mutation_local, "committed_components", None
-            )
-            committed_components: set[str] = set()
-            self._mutation_local.committed_components = committed_components
-            succeeded = False
-            try:
-                yield
-                self._persist_all()
-                succeeded = True
-            except Exception as original_error:
-                self._mutation_local.committed_components = None
-                try:
-                    self._rollback_mutation(snapshot, committed_components)
-                except Exception as rollback_error:
-                    root_rollback_error = (
-                        rollback_error.__cause__
-                        if isinstance(rollback_error, PersistenceCommitError)
-                        and isinstance(rollback_error.__cause__, Exception)
-                        else rollback_error
-                    )
-                    with self._persist_lock:
-                        self._record_durability_failure_locked(
-                            "rollback", root_rollback_error
-                        )
-                    raise PersistenceRollbackError(
-                        original_error, root_rollback_error
-                    ) from original_error
-                raise
-            finally:
-                if succeeded and previous_commits is not None:
-                    previous_commits.update(committed_components)
-                self._mutation_local.committed_components = previous_commits
-
-    @contextlib.contextmanager
     def _mutation_transaction(self, operation: str):
-        """Serialize and refresh a complete read-modify-persist transaction."""
-
-        depth = int(getattr(self._mutation_local, "depth", 0))
-        if depth:
-            self._mutation_local.depth = depth + 1
-            try:
-                yield
-            finally:
-                self._mutation_local.depth -= 1
-            return
-
-        lock_root = self._active_state_path().expanduser().resolve().parent
-        with store_write_lock(lock_root, operation=operation, timeout_ms=30000):
-            self._mutation_local.depth = 1
-            try:
-                self.refresh_if_changed()
-                yield
-            finally:
-                self._mutation_local.depth = 0
+        """Serialize and refresh through the shared ownership coordinator."""
+        return self.transaction_coordinator.transaction(operation)
 
     def _capture_mutation_snapshot(self) -> Dict[str, Any]:
-        """Capture rollback state while the cross-process mutation lock is held."""
-
-        persistent_rag = None
-        if self.persistent_rag_store is not None:
-            persistent_rag = self.persistent_rag_store.snapshot_state()
-        return {
-            "dml": self.store.snapshot_state(),
-            "rag": self.rag_store.snapshot_state(),
-            "persistent_rag": persistent_rag,
-        }
+        """Capture component rollback state under transaction ownership."""
+        return self.persistence_coordinator.capture_snapshot()
 
     def _rollback_mutation(
-        self,
-        snapshot: Dict[str, Any],
-        committed_components: set[str],
+        self, snapshot: Dict[str, Any], committed_components: set[str],
     ) -> None:
-        """Restore runtime state and compensate durable components already committed."""
-
-        self.store.import_state(copy.deepcopy(snapshot["dml"]))
-        self.rag_store.restore_state(snapshot["rag"])
-        persistent_snapshot = snapshot.get("persistent_rag")
-        if self.persistent_rag_store is not None and persistent_snapshot is not None:
-            self.persistent_rag_store.restore_state(persistent_snapshot)
-        with self._query_embedding_cache_lock:
-            self._query_embedding_cache.clear()
-
-        # The outer store lock remains held here, so no cooperating writer can
-        # commit between the failed write and these compensating replacements.
-        if "dml" in committed_components:
-            self._persist_dml_state()
-        if (
-            "persistent_rag" in committed_components
-            and self.persistent_rag_store is not None
-        ):
-            self.persistent_rag_store.persist()
-            self._last_observed_persistent_rag = self._path_stamp(
-                self.persistent_rag_store.manifest_path
-            )
-        if "rag" in committed_components:
-            legacy_payload = {
-                "documents": copy.deepcopy(snapshot["rag"].get("documents") or [])
-            }
-            atomic_write_text(
-                self.rag_state_path,
-                json.dumps(legacy_payload, indent=2),
-            )
-            self._last_observed_rag_state = self._path_stamp(self.rag_state_path)
+        """Restore runtime and compensate published or uncertain component writes."""
+        self.persistence_coordinator.rollback(
+            snapshot, committed_components, persist_lattice=lambda: self._persist_dml_state(),
+        )
 
     def _state_stamp(self) -> Optional[tuple[int, int]]:
-        if self._journal is not None:
-            return self._journal.stamp()
-        return self._path_stamp(self._active_state_path())
+        return self.lattice_persistence.stamp()
 
     @staticmethod
     def _path_stamp(path: Path) -> Optional[tuple[int, int]]:
-        try:
-            stat = path.stat()
-        except FileNotFoundError:
-            return None
-        return int(stat.st_mtime_ns), int(stat.st_size)
+        return PersistenceCoordinator.path_stamp(path)
 
+    @outside_production_profile
     def refresh_if_changed(self) -> bool:
-        """Reload lattice state when another process has persisted a newer snapshot."""
+        """Refresh the legacy public facade; selected profiles refresh internally."""
+        return self._refresh_if_changed()
 
+    def _refresh_if_changed(self) -> bool:
+        """Reload component state through the coordinator and record reload timing."""
         started = time.perf_counter()
-        with self._refresh_lock:
-            changed = False
-            current = self._state_stamp()
-            if current is not None and current != self._last_observed_state:
-                if self._journal is not None:
-                    payload = self._journal.load()
-                elif self._persistence_enabled:
-                    items = load_persisted_memories(self._persistence_path)
-                    payload = {"items": [item.to_dict() for item in items]}
-                else:
-                    payload = json.loads(self.dml_state_path.read_text(encoding="utf-8"))
-                self.store.import_state(payload)
-                with self._query_embedding_cache_lock:
-                    self._query_embedding_cache.clear()
-                self._last_observed_state = current
-                changed = True
-
-            rag_stamp = self._path_stamp(self.rag_state_path)
-            if rag_stamp is not None and rag_stamp != self._last_observed_rag_state:
-                self.rag_store.import_state(
-                    json.loads(self.rag_state_path.read_text(encoding="utf-8"))
-                )
-                self._last_observed_rag_state = rag_stamp
-                changed = True
-
-            if self.persistent_rag_store is not None:
-                persistent_stamp = self._path_stamp(self.persistent_rag_store.manifest_path)
-                if (
-                    persistent_stamp is not None
-                    and persistent_stamp != self._last_observed_persistent_rag
-                    and self.persistent_rag_store.load()
-                ):
-                    self._last_observed_persistent_rag = persistent_stamp
-                    changed = True
-            if not changed:
-                return False
+        if not self.persistence_coordinator.refresh(
+                state_stamp=lambda: self._state_stamp(), include_auxiliary=self._production_profile is None):
+            return False
         latency_ms = (time.perf_counter() - started) * 1000.0
         LOGGER.info(
             "Reloaded externally changed DML state path=%s latency_ms=%.2f",
-            self._active_state_path(),
-            latency_ms,
+            self._active_state_path(), latency_ms,
         )
         if self.metrics_enabled:
             record_operation("state_reload", latency_ms=latency_ms)
         return True
 
     def _load_persisted_state(self) -> None:
-        state_loaded = False
-        if self._journal is not None:
-            # Never silently replace existing JSON data with an empty journal.
-            if self._journal.stamp()[0] == 0 and (self.dml_state_path.exists() or self._persistence_path.exists()):
-                raise ValueError("Journal migration requires an explicit snapshot import")
-            payload = self._journal.load()
-            self._ensure_embedding_compatibility(payload)
+        """Load the selected authority or fail; corruption is never an empty store."""
+        payload = self.lattice_persistence.load(startup=True)
+        if payload is not None:
+            validate_snapshot(payload)
+            if self._journal is None or self._journal.schema_version == 1:
+                self._ensure_embedding_compatibility(payload)
+            if self._production_profile is not None:
+                validate_embedding_contract(payload, self._receipt_embedding_space())
             self.store.import_state(payload)
-            state_loaded = True
-        elif self._persistence_enabled:
-            try:
-                items = load_persisted_memories(self._persistence_path)
-            except FileNotFoundError:
-                pass
-            except Exception:
-                LOGGER.exception(
-                    "Failed to load durable DML state from %s", self._persistence_path
-                )
-            else:
-                payload = {"items": [item.to_dict() for item in items]}
-                report = self._ensure_embedding_compatibility(payload)
-                if report.get("status") in {"migrated", "partial"}:
-                    LOGGER.warning(
-                        "Loaded durable DML state from %s with embedding compatibility migration status=%s report=%s",
-                        self._persistence_path,
-                        report.get("status"),
-                        report.get("report_path"),
-                    )
-                self.store.import_state(payload)
-                state_loaded = True
-        if not state_loaded:
-            with contextlib.suppress(Exception):
-                if self.dml_state_path.exists():
-                    data = json.loads(self.dml_state_path.read_text(encoding="utf-8"))
-                    report = self._ensure_embedding_compatibility(data)
-                    if report.get("status") in {"migrated", "partial"}:
-                        LOGGER.warning(
-                            "Loaded JSON DML state from %s with embedding compatibility migration status=%s report=%s",
-                            self.dml_state_path,
-                            report.get("status"),
-                            report.get("report_path"),
-                        )
-                    self.store.import_state(data)
         if self._persistent_rag_loaded:
-            LOGGER.info(
-                "Skipping legacy RAG replay because durable persistent RAG is already loaded."
-            )
             if self.metrics_enabled:
                 record_operation("legacy_rag_replay_skipped")
-        elif not bool(self.config.get("skip_rag_state_import", False)):
-            with contextlib.suppress(Exception):
-                if self.rag_state_path.exists():
-                    data = json.loads(self.rag_state_path.read_text(encoding="utf-8"))
-                    self.rag_store.import_state(data)
+        elif not bool(self.config.get("skip_rag_state_import", False)) and self.rag_state_path.exists():
+            data = json.loads(self.rag_state_path.read_text(encoding="utf-8"))
+            if not isinstance(data, dict) or not isinstance(data.get("documents"), list):
+                raise ValueError("Invalid legacy RAG snapshot")
+            self.rag_store.import_state(data)
 
     def _persist_all(self) -> None:
-        self._persist_dml_state()
-        self._persist_rag_state()
+        self.persistence_coordinator.persist_all(
+            persist_lattice=lambda: self._persist_dml_state(),
+            persist_rag=lambda: self._persist_rag_state(),
+        )
 
     def _start_persistence_loop(self) -> None:
         if self._persistence_thread and self._persistence_thread.is_alive():
@@ -1600,105 +1595,58 @@ class DMLAdapter:
                 LOGGER.exception("Failed to persist DML state during background save.")
 
     def _gather_checkpoint_state(self) -> Dict[str, Any]:
-        """Collect a combined state payload for checkpointing."""
+        """Gather under the writer boundary so checkpoint readers see one state."""
+        if self._journal is not None and self._journal.schema_version in (2, 3, 4):
+            raise ValueError("Receipt journals require a full database backup; lattice-only checkpoints omit receipts")
+        with self._mutation_transaction("checkpoint-read"):
+            return {
+                "schema_version": 1,
+                "timestamp": time.time(),
+                "dml": self.store.export_state(),
+                "rag": self.rag_store.export_state(),
+                "stats": self.stats(),
+            }
 
-        return {
-            "timestamp": time.time(),
-            "dml": self.store.export_state(),
-            "rag": self.rag_store.export_state(),
-            "stats": self.stats(),
-        }
+    def _require_legacy_mutations(self) -> None:
+        if self._journal is not None and self._journal.schema_version in (2, 3, 4):
+            raise ValueError("Receipt-journal adapters support only receipted append, retirement, supersession, content update and promotion mutations; legacy writes and unqualified lifecycle changes are unavailable")
+
+    def _require_legacy_retrieval(self) -> None:
+        if self._journal is not None and self._journal.schema_version in (2, 3, 4):
+            raise ValueError("Receipt-journal adapters support only tenant-scoped retrieve_context; legacy retrieval and generation are unavailable")
+
+    def _receipt_embedding_space(self) -> dict:
+        if self._production_profile is not None:
+            validate_profile_embedding(self._production_profile, self.embedder, self._receipt_embedding_identity)
+        return embedding_identity(self.embedder, self._receipt_embedding_identity)
+
+    def _validate_receipt_query(self, vector=None, *, identity=None) -> None:
+        if self._journal is not None and self._journal.schema_version in (2, 3, 4):
+            current_identity = self._receipt_embedding_space()
+            if identity is not None and identity != current_identity:
+                raise ReceiptEmbeddingCompatibilityError("Embedding identity changed before retrieval ownership")
+            _, payload = self._journal.read_snapshot()
+            validate_embedding_contract(payload, current_identity, vector)
 
     def _persist_dml_state(self) -> None:
-        if self._journal is not None:
-            with self._persist_lock:
-                try:
-                    self._journal.save(self.store.export_state())
-                    self._mark_committed_component("dml")
-                    self._last_observed_state = self._state_stamp()
-                except Exception as exc:
-                    self._record_durability_failure_locked("dml", exc)
-                    raise PersistenceCommitError("DML journal commit failed") from exc
-                self._clear_durability_failure_locked("dml")
-            return
-        if self._persistence_enabled:
-            with self._persist_lock:
-                items = self.store.items()
-                try:
-                    save_persisted_memories(items, self._persistence_path)
-                    self._last_observed_state = self._state_stamp()
-                    self._mark_committed_component("dml")
-                except Exception as exc:
-                    self._record_durability_failure_locked("dml", exc)
-                    LOGGER.exception(
-                        "Failed to persist DML state to %s", self._persistence_path
-                    )
-                    raise PersistenceCommitError(
-                        f"DML state persistence failed: {self._persistence_path}"
-                    ) from exc
-                self._clear_durability_failure_locked("dml")
-            return
-        with self._persist_lock:
-            data = self.store.export_state()
-            try:
-                self.dml_state_path.parent.mkdir(parents=True, exist_ok=True)
-                atomic_write_text(self.dml_state_path, json.dumps(data, indent=2))
-                self._last_observed_state = self._state_stamp()
-                self._mark_committed_component("dml")
-            except Exception as exc:
-                self._record_durability_failure_locked("dml", exc)
-                LOGGER.exception("Failed to persist DML state to %s", self.dml_state_path)
-                raise PersistenceCommitError(
-                    f"DML state persistence failed: {self.dml_state_path}"
-                ) from exc
-            self._clear_durability_failure_locked("dml")
+        self.persistence_coordinator.persist_lattice()
 
     def _persist_rag_state(self) -> None:
-        with self._persist_lock:
-            try:
-                if self.persistent_rag_store is not None:
-                    self.persistent_rag_store.persist()
-                    self._last_observed_persistent_rag = self._path_stamp(
-                        self.persistent_rag_store.manifest_path
-                    )
-                    self._mark_committed_component("persistent_rag")
-                data = self.rag_store.export_state()
-                self.rag_state_path.parent.mkdir(parents=True, exist_ok=True)
-                atomic_write_text(self.rag_state_path, json.dumps(data, indent=2))
-                self._last_observed_rag_state = self._path_stamp(self.rag_state_path)
-                self._mark_committed_component("rag")
-            except Exception as exc:
-                self._record_durability_failure_locked("rag", exc)
-                LOGGER.exception("Failed to persist RAG state to %s", self.rag_state_path)
-                raise PersistenceCommitError(
-                    f"RAG state persistence failed: {self.rag_state_path}"
-                ) from exc
-            self._clear_durability_failure_locked("rag")
+        self.persistence_coordinator.persist_rag()
 
     def _mark_committed_component(self, component: str) -> None:
-        committed = getattr(self._mutation_local, "committed_components", None)
-        if committed is not None:
-            committed.add(component)
+        self.transaction_coordinator.mark_committed(component)
 
-    def _record_durability_failure_locked(self, component: str, exc: Exception) -> None:
-        """Record a component failure while the caller owns ``_persist_lock``."""
-
-        self._durability_failures[component] = f"{type(exc).__name__}: {exc}"
+    def _record_durability_failure_locked(self, component: str, exc: BaseException) -> None:
+        """Record failure through the service's shared reentrant persist lock."""
+        self.persistence_coordinator.record_failure(component, exc)
 
     def _clear_durability_failure_locked(self, component: str) -> None:
-        """Clear a component failure while the caller owns ``_persist_lock``."""
-
-        self._durability_failures.pop(component, None)
+        self.persistence_coordinator.clear_failure(component)
 
     def durability_status(self) -> Dict[str, Any]:
-        """Return a thread-safe summary of failed durability writes."""
-
-        with self._persist_lock:
-            failures = dict(self._durability_failures)
-        return {
-            "status": "degraded" if failures else "ok",
-            "failures": failures,
-        }
+        """Return a detached summary of failed durability writes."""
+        return self.persistence_coordinator.durability_status()
 
     def _embedding_compatibility_report_path(self) -> Path:
         return self.storage_dir / "embedding_compatibility_report.json"
@@ -1970,9 +1918,11 @@ class DMLAdapter:
             )
         return report
 
+    @outside_production_profile
     def query_database(self, prompt: str, mode: str = "auto") -> Dict:
         """Retrieve context-aware snippets from the external corpus."""
 
+        self._require_legacy_retrieval()
         if mode not in {"semantic", "literal", "hybrid", "auto"}:
             raise ValueError(f"Unsupported mode: {mode}")
         selected_mode = mode if mode != "auto" else decide_mode(prompt)
@@ -2033,24 +1983,12 @@ class DMLAdapter:
             "latency_ms": int(latency_ms),
         }
 
+    @outside_production_profile
     def create_checkpoint(self) -> Path:
         """Persist a combined snapshot of the lattice and RAG stores."""
+        return self.checkpoint_manager.checkpoint()
 
-        if self.checkpoint_manager:
-            return self.checkpoint_manager.checkpoint()
-        self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
-        manager = CheckpointManager(
-            self.checkpoint_dir,
-            self._gather_checkpoint_state,
-            interval_seconds=0,
-            retention=int(self.settings.checkpoint_retention),
-            start=False,
-        )
-        try:
-            return manager.checkpoint()
-        finally:
-            manager.close()
-
+    @outside_production_profile
     def stats(self) -> Dict:
         items = self.store.items()
         return {
@@ -2059,15 +1997,308 @@ class DMLAdapter:
             "avg_fidelity": float(np.mean([it.fidelity for it in items]) if items else 0.0),
         }
 
+    @_serialized_mutation
+    def _run_aging(self) -> None:
+        self.store.decay_step()
+        self._persist_dml_state()
+
+    @outside_production_profile
     def run_maintenance(self, sample_ratio: float = 0.1) -> None:
         """Run a maintenance pass to assess quality without slowing retrieval."""
 
+        self._require_legacy_mutations()
         self.store.maintenance_pass(sample_ratio=sample_ratio)
 
     # ------------------------------------------------------------------
     # Multi-tenant helpers used by the DML memory service
     # ------------------------------------------------------------------
+    def inspect_memory_retention(self, memory_id: int, *, tenant_id: str,
+                                 client_id: Optional[str] = None,
+                                 session_id: Optional[str] = None,
+                                 instance_id: Optional[str] = None) -> Dict[str, Any]:
+        """Count known scoped references at one journal revision without mutation.
+
+        This does not inspect external copies or establish physical erasure. It
+        neither embeds nor hydrates runtime memory, and takes no writer lock.
+        """
+        from .services.retention import canonical_retention_request, inspect_memory_retention
+
+        if not self._receipts_enabled or self._journal is None or self._journal.schema_version not in (2, 3, 4):
+            raise ValueError("Retention inspection requires a configured receipt journal")
+        request = canonical_retention_request(memory_id, tenant_id=tenant_id,
+            client_id=client_id, session_id=session_id, instance_id=instance_id)
+        return inspect_memory_retention(self._journal, request=request)
+
+    def _require_projection_source(self) -> None:
+        if not self._receipts_enabled or self._journal is None or self._journal.schema_version not in (2, 3, 4):
+            raise ValueError("Projection integration requires an opt-in receipt journal")
+        if int(getattr(self._mutation_local, "depth", 0)):
+            raise ValueError("Projection backend I/O cannot run inside source ownership")
+
+    @outside_production_profile
+    def deliver_outbox(self, consumer, *, limit: int = 100) -> Dict[str, Any]:
+        """Explicitly deliver a bounded batch; ingestion never calls consumers.
+
+        Consumers must durably deduplicate events. A lost acknowledgement may
+        cause redelivery; no source ownership is held during consumer I/O.
+        """
+        if not self._outbox_enabled or self._journal is None or self._journal.schema_version not in (3, 4):
+            raise ValueError("Outbox delivery requires an opt-in schema-3/4 outbox journal")
+        if int(getattr(self._mutation_local, "depth", 0)):
+            raise ValueError("Outbox consumer I/O cannot run inside source ownership")
+        from .services.outbox_delivery import deliver_outbox
+        return deliver_outbox(self._journal, consumer, limit=limit)
+
+    @outside_production_profile
+    def sync_projection(self, backend) -> Dict[str, Any]:
+        """Explicitly deliver a coalesced delta; receipt ingestion never calls this."""
+        from .services.projection_delta import reconcile_incremental
+        self._require_projection_source()
+        return reconcile_incremental(self._journal, backend)
+
+    @outside_production_profile
+    def start_projection_worker(self, backend, *, poll_interval: float = 1.0,
+                                retry_initial: float = 0.1, retry_max: float = 30.0):
+        """Start one opt-in owned worker; repeated starts retain its first settings.
+
+        Backend identity is fixed for this adapter lifetime. Close the adapter
+        and create a new one to change backends or restart a terminal worker.
+        Receipt ingestion remains independent of this worker and its backend.
+        """
+        from .services.projection_worker import ProjectionWorker
+        self._require_projection_source()
+        with self._projection_lifecycle_lock:
+            if self._projection_workers_closing:
+                raise RuntimeError("Cannot start a projection worker after adapter shutdown begins")
+            if self._owned_projection_worker is not None:
+                if backend is not self._owned_projection_backend:
+                    raise ValueError("An adapter can own only one projection backend")
+                self._owned_projection_worker.start()
+                return self._owned_projection_worker
+            worker = ProjectionWorker(self._journal, backend, poll_interval=poll_interval,
+                                      retry_initial=retry_initial, retry_max=retry_max)
+            worker.start()
+            self._owned_projection_worker = worker
+            self._owned_projection_backend = backend
+            return worker
+
+    @outside_production_profile
+    def projection_status(self, backend) -> Dict[str, Any]:
+        """Compare backend state against a pinned authoritative snapshot."""
+        from .services.projection import projection_status
+        self._require_projection_source()
+        return projection_status(self._journal, backend)
+
+    @outside_production_profile
+    def query_projection(self, prompt: str, *, backend, tenant_id: str,
+                         client_id: Optional[str] = None, session_id: Optional[str] = None,
+                         instance_id: Optional[str] = None, top_k: int = 10,
+                         as_of: float) -> Dict[str, Any]:
+        """Query a matching disposable projection under an explicit scope and clock."""
+        from .services.projection import query_projection
+        self._require_projection_source()
+        identity = self._receipt_embedding_space()
+        vector = self._embed_query(prompt)
+        if self._receipt_embedding_space() != identity:
+            raise ReceiptEmbeddingCompatibilityError("Embedding identity changed during projected query preparation")
+        return query_projection(self._journal, backend, vector=vector, embedding_identity=identity,
+            scope={"tenant_id": tenant_id, "client_id": client_id, "session_id": session_id,
+                   "instance_id": instance_id}, top_k=top_k, as_of=as_of)
+
+    def ingest_memory_receipted(self, text: str, *, idempotency_key: str, tenant_id: str,
+                               client_id: Optional[str] = None, session_id: Optional[str] = None,
+                               instance_id: Optional[str] = None, kind: Optional[str] = None,
+                               meta: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Append one journal-only memory and return its immutable historical receipt.
+
+        Opt-in API: no merge, promotion, survival ledger or external projection.
+        Retrying the same scoped key/request returns the original receipt.
+        """
+        if int(getattr(self._mutation_local, "depth", 0)):
+            raise ValueError("Receipt ingestion cannot be nested in a compensating transaction")
+        if not self._receipts_enabled or self._journal is None:
+            raise ValueError("Receipt ingestion requires persistence.journal and persistence.receipts")
+        if self.mirror_agentic_memory_to_rag:
+            raise ValueError("Receipt ingestion does not support external RAG mirroring")
+        request, digest = canonical_request(text, tenant_id=tenant_id, client_id=client_id,
+            session_id=session_id, instance_id=instance_id, kind=kind, meta=meta)
+        def hydrate(revision, payload):
+            validate_snapshot(payload)
+            self.store.import_state(payload)
+            self.query_cache.clear()
+            self._last_observed_state = (revision, self._journal.path.stat().st_mtime_ns)
+            with self._persist_lock:
+                self._clear_durability_failure_locked("receipt_runtime")
+        def degraded(exc):
+            self._last_observed_state = None
+            with self._persist_lock:
+                self._durability_failures["receipt_runtime"] = type(exc).__name__
+        return append_receipted(self._journal, request=request, request_digest=digest,
+            key=idempotency_key, embed=self.embedder.embed, capacity=self.store.capacity,
+            embedding_space=self._receipt_embedding_space, hydrate=hydrate, degraded=degraded)
+
+    def retire_memory_receipted(self, memory_id: int, *, expected_memory_digest: str,
+                               reason: str, idempotency_key: str, tenant_id: str,
+                               client_id: Optional[str] = None, session_id: Optional[str] = None,
+                               instance_id: Optional[str] = None) -> Dict[str, Any]:
+        """Retire one scoped memory with an immutable, safely retryable receipt.
+
+        Retirement retains the stored record and embedding as a tombstone. The
+        expected digest binds the caller's decision to the exact current record.
+        """
+        if int(getattr(self._mutation_local, "depth", 0)):
+            raise ValueError("Receipt retirement cannot be nested in a compensating transaction")
+        if not self._receipts_enabled or self._journal is None or self._journal.schema_version not in (2, 3, 4):
+            raise ValueError("Receipt retirement requires persistence.journal and persistence.receipts")
+        if self.mirror_agentic_memory_to_rag:
+            raise ValueError("Receipt retirement does not support external RAG mirroring")
+        request, digest = canonical_retirement_request(memory_id,
+            expected_memory_digest=expected_memory_digest, reason=reason,
+            tenant_id=tenant_id, client_id=client_id, session_id=session_id,
+            instance_id=instance_id)
+
+        def hydrate(revision, payload):
+            validate_snapshot(payload)
+            self.store.import_state(payload)
+            self.query_cache.clear()
+            self._last_observed_state = (revision, self._journal.path.stat().st_mtime_ns)
+            with self._persist_lock:
+                self._clear_durability_failure_locked("receipt_runtime")
+
+        def degraded(exc):
+            self._last_observed_state = None
+            with self._persist_lock:
+                self._durability_failures["receipt_runtime"] = type(exc).__name__
+
+        return retire_receipted(self._journal, request=request, request_digest=digest,
+            key=idempotency_key, hydrate=hydrate, degraded=degraded)
+
+    def supersede_memory_receipted(self, memory_id: int, *, replacement_memory_id: int,
+                                  expected_memory_digest: str, expected_replacement_digest: str,
+                                  reason: str, idempotency_key: str, tenant_id: str,
+                                  client_id: Optional[str] = None, session_id: Optional[str] = None,
+                                  instance_id: Optional[str] = None) -> Dict[str, Any]:
+        """Supersede a scoped memory with a current, independently ingested record.
+
+        Both digests bind the decision to the exact records. The source remains
+        available as history; the replacement is unchanged by this operation.
+        """
+        if int(getattr(self._mutation_local, "depth", 0)):
+            raise ValueError("Receipt supersession cannot be nested in a compensating transaction")
+        if not self._receipts_enabled or self._journal is None or self._journal.schema_version not in (2, 3, 4):
+            raise ValueError("Receipt supersession requires persistence.journal and persistence.receipts")
+        if self.mirror_agentic_memory_to_rag:
+            raise ValueError("Receipt supersession does not support external RAG mirroring")
+        request, digest = canonical_supersession_request(memory_id,
+            replacement_memory_id=replacement_memory_id,
+            expected_memory_digest=expected_memory_digest,
+            expected_replacement_digest=expected_replacement_digest, reason=reason,
+            tenant_id=tenant_id, client_id=client_id, session_id=session_id,
+            instance_id=instance_id)
+
+        def hydrate(revision, payload):
+            validate_snapshot(payload)
+            self.store.import_state(payload)
+            self.query_cache.clear()
+            self._last_observed_state = (revision, self._journal.path.stat().st_mtime_ns)
+            with self._persist_lock:
+                self._clear_durability_failure_locked("receipt_runtime")
+
+        def degraded(exc):
+            self._last_observed_state = None
+            with self._persist_lock:
+                self._durability_failures["receipt_runtime"] = type(exc).__name__
+
+        return supersede_receipted(self._journal, request=request, request_digest=digest,
+            key=idempotency_key, hydrate=hydrate, degraded=degraded)
+
+    def update_memory_receipted(self, memory_id: int, *, text: str,
+                               expected_memory_digest: str, reason: str,
+                               idempotency_key: str, tenant_id: str,
+                               client_id: Optional[str] = None, session_id: Optional[str] = None,
+                               instance_id: Optional[str] = None) -> Dict[str, Any]:
+        """Replace one scoped memory's text and compatible vector with a receipt.
+
+        The expected digest binds this edit to the exact current record. Vector
+        preparation happens outside mutation ownership, and an identical retry
+        returns its historical receipt without contacting the embedding backend.
+        """
+        if int(getattr(self._mutation_local, "depth", 0)):
+            raise ValueError("Receipt content update cannot be nested in a compensating transaction")
+        if not self._receipts_enabled or self._journal is None or self._journal.schema_version not in (2, 3, 4):
+            raise ValueError("Receipt content update requires persistence.journal and persistence.receipts")
+        if self.mirror_agentic_memory_to_rag:
+            raise ValueError("Receipt content update does not support external RAG mirroring")
+        request, digest = canonical_update_request(memory_id, text=text,
+            expected_memory_digest=expected_memory_digest, reason=reason,
+            tenant_id=tenant_id, client_id=client_id, session_id=session_id,
+            instance_id=instance_id)
+
+        def embed(value):
+            # Delay even a custom embed property's resolution until the service
+            # has checked whether this request already has a durable receipt.
+            return self.embedder.embed(value)
+
+        def hydrate(revision, payload):
+            validate_snapshot(payload)
+            self.store.import_state(payload)
+            self.query_cache.clear()
+            self._last_observed_state = (revision, self._journal.path.stat().st_mtime_ns)
+            with self._persist_lock:
+                self._clear_durability_failure_locked("receipt_runtime")
+
+        def degraded(exc):
+            self._last_observed_state = None
+            with self._persist_lock:
+                self._durability_failures["receipt_runtime"] = type(exc).__name__
+
+        return update_receipted(self._journal, request=request, request_digest=digest,
+            key=idempotency_key, embed=embed, embedding_space=self._receipt_embedding_space,
+            hydrate=hydrate, degraded=degraded)
+
+    def promote_memories_receipted(self, sources: List[Dict[str, Any]], *, text: str,
+                                  reason: str, idempotency_key: str, tenant_id: str,
+                                  client_id: Optional[str] = None,
+                                  session_id: Optional[str] = None,
+                                  instance_id: Optional[str] = None) -> Dict[str, Any]:
+        """Derive one level-one memory with exact, immutable source lineage.
+
+        Source digests bind an explicit decision to its original records. The
+        source records remain unchanged, and historical retries return before
+        contacting the embedding backend or checking current source eligibility.
+        """
+        if int(getattr(self._mutation_local, "depth", 0)):
+            raise ValueError("Receipt promotion cannot be nested in a compensating transaction")
+        if not self._receipts_enabled or self._journal is None or self._journal.schema_version not in (2, 3, 4):
+            raise ValueError("Receipt promotion requires persistence.journal and persistence.receipts")
+        if self.mirror_agentic_memory_to_rag:
+            raise ValueError("Receipt promotion does not support external RAG mirroring")
+        request, digest = canonical_promotion_request(sources, text=text, reason=reason,
+            tenant_id=tenant_id, client_id=client_id, session_id=session_id,
+            instance_id=instance_id)
+
+        def embed(value):
+            return self.embedder.embed(value)
+
+        def hydrate(revision, payload):
+            validate_snapshot(payload)
+            self.store.import_state(payload)
+            self.query_cache.clear()
+            self._last_observed_state = (revision, self._journal.path.stat().st_mtime_ns)
+            with self._persist_lock:
+                self._clear_durability_failure_locked("receipt_runtime")
+
+        def degraded(exc):
+            self._last_observed_state = None
+            with self._persist_lock:
+                self._durability_failures["receipt_runtime"] = type(exc).__name__
+
+        return promote_receipted(self._journal, request=request, request_digest=digest,
+            key=idempotency_key, embed=embed, embedding_space=self._receipt_embedding_space,
+            capacity=self.store.capacity, hydrate=hydrate, degraded=degraded)
+
     @_serialized_mutation
+    @outside_production_profile
     def ingest_memory(
         self,
         text: str,
@@ -2088,6 +2319,7 @@ class DMLAdapter:
         return item
 
     @_serialized_mutation
+    @outside_production_profile
     def ingest_memory_batch(self, records: List[Dict[str, Any]], *, batch_size: int = 64) -> List[MemoryItem]:
         """Embed and commit a bounded batch under one rollback-capable transaction."""
         if not records:
@@ -2127,6 +2359,7 @@ class DMLAdapter:
             update_memory_gauge(len(self.store.items()))
         return item
 
+    @outside_production_profile
     def collect_instance_scratch(
         self,
         tenant_id: str,
@@ -2141,11 +2374,13 @@ class DMLAdapter:
             instance_id=instance_id,
         )
 
+    @outside_production_profile
     def record_agent_workflow(
         self, task_description: str, steps: List[str], outcome: str
     ) -> Optional[str]:
         """Optionally store a successful agent workflow as a reusable template."""
 
+        self._require_legacy_mutations()
         if not self.enable_workflow_cache:
             return None
 
@@ -2163,11 +2398,13 @@ class DMLAdapter:
         )
         return str(item.id)
 
+    @outside_production_profile
     def suggest_workflows_for_task(
         self, task_description: str, top_k: int = 3
     ) -> List[Dict[str, Any]]:
         """Retrieve reusable workflow templates related to a new task."""
 
+        self._require_legacy_retrieval()
         if not self.enable_workflow_cache:
             return []
         try:
@@ -2175,7 +2412,7 @@ class DMLAdapter:
         except (TypeError, ValueError):
             limit = 3
 
-        query_embedding = self.embedder.embed(task_description)
+        query_embedding = self._embed_query(task_description)
         candidates = self.store.retrieve_by_kind(
             query_embedding=query_embedding, kind="workflow", top_k=limit
         )
@@ -2209,6 +2446,7 @@ class DMLAdapter:
             return state
 
     def _retrieve_ltm_items(self, prompt: str, top_k: int) -> List[MemoryStore.MemoryItem]:
+        self._require_legacy_retrieval()
         items = self._retrieve_items(prompt, top_k)
         filtered: List[MemoryStore.MemoryItem] = []
         for item in items:
@@ -2233,6 +2471,53 @@ class DMLAdapter:
         dpm_project_id: Optional[str] = None,
         dpm_relationship_id: Optional[str] = None,
         include_quarantined: bool = False,
+        as_of: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        if self._production_profile is not None:
+            validate_profile_retrieval(
+                prompt, scope=(tenant_id, client_id, session_id, instance_id), top_k=top_k,
+                kinds=kinds, phase=phase.value if isinstance(phase, MemoryPhase) else phase,
+                include_quarantined=include_quarantined, as_of=as_of,
+                dpm_identifiers=(dpm_thread_id, dpm_project_id, dpm_relationship_id),
+            )
+        if self._journal is not None and self._journal.schema_version in (2, 3, 4) and (type(tenant_id) is not str or not tenant_id.strip()):
+            raise ValueError("Receipt-journal retrieval requires an explicit nonempty tenant_id")
+        # Embedding/provider I/O happens before acquiring the store ownership.
+        identity = self._receipt_embedding_space() if self._journal is not None and self._journal.schema_version in (2, 3, 4) else None
+        query_embedding = self._embed_query(prompt)
+        with self._mutation_transaction("retrieve-context"):
+            self._validate_receipt_query(query_embedding, identity=identity)
+            return self._retrieve_context_owned(prompt, query_embedding=query_embedding,
+                tenant_id=tenant_id,
+                client_id=client_id,
+                session_id=session_id,
+                instance_id=instance_id,
+                kinds=kinds,
+                top_k=top_k,
+                phase=phase,
+                dpm_thread_id=dpm_thread_id,
+                dpm_project_id=dpm_project_id,
+                dpm_relationship_id=dpm_relationship_id,
+                include_quarantined=include_quarantined,
+                as_of=as_of,
+            )
+
+    def _retrieve_context_owned(
+        self,
+        prompt: str,
+        tenant_id: Optional[str] = None,
+        client_id: Optional[str] = None,
+        session_id: Optional[str] = None,
+        instance_id: Optional[str] = None,
+        kinds: Optional[List[str]] = None,
+        top_k: Optional[int] = None,
+        phase: Optional[str | MemoryPhase] = None,
+        dpm_thread_id: Optional[str] = None,
+        dpm_project_id: Optional[str] = None,
+        dpm_relationship_id: Optional[str] = None,
+        include_quarantined: bool = False,
+        as_of: Optional[float] = None,
+        query_embedding: Optional[np.ndarray] = None,
     ) -> Dict[str, Any]:
         """
         Retrieve context with agentic-aware routing.
@@ -2240,6 +2525,9 @@ class DMLAdapter:
         Returns retrieval report with selected kinds, scores, and tokens.
         """
         start = time.perf_counter()
+        effective_time = time.time() if as_of is None else float(as_of)
+        if not np.isfinite(effective_time):
+            raise ValueError("as_of must be finite")
         decision: Optional[RouterDecision] = None
         phase_enum = self._coerce_memory_phase(phase)
         if self.agentic_mode_enabled and self.agentic_router:
@@ -2265,37 +2553,30 @@ class DMLAdapter:
         if final_kinds is None and phase_enum in {MemoryPhase.EXECUTE, MemoryPhase.DEBUG}:
             final_kinds = ["action", "observation", "error"]
 
-        query_embedding = self._embed_query(prompt)
-        scoped = any(value is not None for value in (tenant_id, client_id, session_id, instance_id))
+        request = ScopedRetrievalRequest(
+            scope=(tenant_id, client_id, session_id, instance_id),
+            kinds=tuple(final_kinds) if final_kinds is not None else None,
+            phase=phase_enum.value if phase_enum else None,
+            top_k=final_top_k,
+            as_of=effective_time,
+            include_quarantined=include_quarantined,
+        )
+        if query_embedding is None:
+            query_embedding = self._embed_query(prompt)
+        scoped = any(value is not None for value in request.scope)
         if scoped:
-            items = self.store.retrieve_filtered(
-                query_embedding,
-                tenant_id=tenant_id,
-                client_id=client_id,
-                session_id=session_id,
-                instance_id=instance_id,
-                kinds=final_kinds,
-                top_k=final_top_k,
-                strict_scope=True,
+            items = select_scoped_context(
+                retrieve_filtered=self.store.retrieve_filtered,
+                recent_candidates=self.store.items,
+                query_embedding=query_embedding,
+                request=request,
             )
-            items = self._filter_retrievable_items(items, include_quarantined=include_quarantined)
-            if not items:
-                items = self._recent_context_items(
-                    tenant_id=tenant_id,
-                    client_id=client_id,
-                    session_id=session_id,
-                    instance_id=instance_id,
-                    kinds=final_kinds,
-                    phase=phase_enum,
-                    top_k=final_top_k,
-                    include_quarantined=include_quarantined,
-                )
         else:
             items = self._retrieve_items(
                 prompt,
                 final_top_k,
-                phase=phase_enum.value if phase_enum else None,
-                kinds=final_kinds,
+                phase=request.phase,
+                kinds=list(request.kinds) if request.kinds is not None else None,
                 include_quarantined=include_quarantined,
             )
             if not items:
@@ -2304,10 +2585,11 @@ class DMLAdapter:
                     client_id=None,
                     session_id=None,
                     instance_id=None,
-                    kinds=final_kinds,
+                    kinds=list(request.kinds) if request.kinds is not None else None,
                     phase=phase_enum,
                     top_k=final_top_k,
                     include_quarantined=include_quarantined,
+                    as_of=effective_time,
                 )
 
         ledger_item = self._survival_ledger_for_scope(
@@ -2317,12 +2599,12 @@ class DMLAdapter:
             instance_id=instance_id,
         )
         ledger_included = False
-        if ledger_item is not None:
+        if ledger_item is not None and suppression_reason(ledger_item.meta or {}, now=effective_time, include_quarantined=include_quarantined) is None:
             items = [ledger_item] + [item for item in items if item.id != ledger_item.id]
             ledger_included = True
 
-        entries, context, tokens_used = self._compact_context_items(items)
         personality_overlay = None
+        personality_block = ""
         if getattr(self.settings.dpm, "include_in_context", True):
             personality_overlay = self.personality_overlay(
                 prompt=prompt,
@@ -2335,23 +2617,22 @@ class DMLAdapter:
                 if personality_overlay
                 else ""
             )
-            if personality_block:
-                context = f"{personality_block}\n\n{context}" if context else personality_block
-                tokens_used += overlay_token_count(personality_overlay)
+        entries, context, tokens_used = self._compact_context_items(items, prefix=personality_block)
         latency_ms = int((time.perf_counter() - start) * 1000.0)
 
-        report = {
-            "raw_context": context,
-            "context_tokens": tokens_used,
-            "top_k": final_top_k,
-            "kinds": final_kinds,
-            "phase": phase_enum.value if phase_enum else None,
-            "include_quarantined": include_quarantined,
-            "items": entries,
-            "survival_ledger_included": ledger_included,
-            "personality_overlay": personality_overlay,
-            "latency_ms": latency_ms,
-        }
+        scope = {"tenant_id": tenant_id, "client_id": client_id, "session_id": session_id, "instance_id": instance_id}
+        suppressed = suppressed_context_items(self.store.items(), request=request)
+        report = build_context_report(
+            prompt=prompt, scope=scope, revision=self._last_observed_state[0] if self._journal and self._last_observed_state else None,
+            as_of=effective_time, entries=entries, context=context, top_k=final_top_k,
+            kinds=list(request.kinds) if request.kinds is not None else None,
+            embedding=query_embedding, suppressed=suppressed,
+            replayable=scoped and not self.settings.ann_min_items and not self.enable_quality_on_retrieval,
+            tokens_used=tokens_used, phase=request.phase,
+            include_quarantined=include_quarantined,
+            survival_ledger_included=ledger_included,
+            personality_overlay=personality_overlay, latency_ms=latency_ms,
+        )
 
         if self.metrics_enabled:
             record_retrieval("context", latency_ms=latency_ms)
@@ -2464,28 +2745,11 @@ class DMLAdapter:
     ) -> Optional[MemoryItem]:
         if not self.survival_ledger_enabled or not tenant_id or not session_id:
             return None
-        target = self._survival_scope_key(
-            tenant_id=tenant_id,
-            client_id=client_id,
-            session_id=session_id,
-            instance_id=instance_id,
+        return survival_ledger_for_scope(
+            self.store.items(),
+            scope=(tenant_id, client_id, session_id, instance_id),
+            enabled=self.survival_ledger_enabled,
         )
-        candidates: List[MemoryItem] = []
-        for item in self.store.items():
-            meta = item.meta or {}
-            if meta.get("kind") != SURVIVAL_LEDGER_KIND:
-                continue
-            scope = self._survival_scope_key(
-                tenant_id=meta.get("tenant_id"),
-                client_id=meta.get("client_id"),
-                session_id=meta.get("session_id"),
-                instance_id=meta.get("instance_id"),
-            )
-            if scope == target:
-                candidates.append(item)
-        if not candidates:
-            return None
-        return max(candidates, key=lambda item: item.timestamp)
 
     def _upsert_survival_ledger(
         self,
@@ -2600,82 +2864,34 @@ class DMLAdapter:
             return None
 
     def _embed_query(self, prompt: str) -> np.ndarray:
-        # Embedders may distinguish case and whitespace. Cache the exact input.
-        key = str(prompt or "")
-        with self._query_embedding_cache_lock:
-            if self._query_embedding_cache_size > 0 and key in self._query_embedding_cache:
-                embedding = self._query_embedding_cache.pop(key)
-                self._query_embedding_cache[key] = embedding
-                return embedding
-            pending = self._query_embedding_inflight.get(key)
-            owner = pending is None
-            if owner:
-                pending = Future()
-                self._query_embedding_inflight[key] = pending
-        if not owner:
-            return pending.result()
-        try:
-            embedding = self.embedder.embed(prompt)
-            with self._query_embedding_cache_lock:
-                if self._query_embedding_cache_size > 0 and key:
-                    self._query_embedding_cache[key] = embedding
-                    while len(self._query_embedding_cache) > self._query_embedding_cache_size:
-                        self._query_embedding_cache.popitem(last=False)
-            pending.set_result(embedding)
-            return embedding
-        except BaseException as exc:
-            pending.set_exception(exc)
-            raise
-        finally:
-            with self._query_embedding_cache_lock:
-                self._query_embedding_inflight.pop(key, None)
+        text = str(prompt or "")
+        if self._journal is not None and self._journal.schema_version in (2, 3, 4):
+            # Receipt mode deliberately bypasses the legacy text-only cache.
+            # Its entries/single-flight futures carry no embedding identity,
+            # including entries left behind after a failed runtime hydration.
+            identity = self._receipt_embedding_space()
+            _, payload = self._journal.read_snapshot()
+            validate_embedding_contract(payload, identity)
+            vector = np.array(self.embedder.embed(text), dtype=np.float32, copy=True)
+            if vector.ndim != 1 or not vector.size or not np.isfinite(vector).all():
+                raise ReceiptEmbeddingCompatibilityError("Query embedding must be a nonempty finite vector")
+            if self._receipt_embedding_space() != identity:
+                raise ReceiptEmbeddingCompatibilityError("Embedding identity changed while preparing the query")
+            _, payload = self._journal.read_snapshot()
+            validate_embedding_contract(payload, identity, vector)
+            vector.setflags(write=False)
+            return vector
+        self.query_cache.capacity = max(0, self._query_embedding_cache_size)
+        return self.query_cache.get(text, self.embedder.embed)
 
-    def _compact_context_items(
-        self, items: List[MemoryItem]
-    ) -> tuple[List[Dict[str, Any]], str, int]:
-        if not items:
-            return [], "", 0
-        budget = int(self.config.get("token_budget", 600))
-        item_limit = self._context_item_limit(len(items))
-        summary_chars = self._context_summary_chars()
-        consumed = 0
-        lines: List[str] = ["=== Retrieved Context ==="]
-        entries: List[Dict[str, Any]] = []
-        for item in items[:item_limit]:
-            meta = item.meta or {}
-            max_len = summary_chars
-            if meta.get("kind") == SURVIVAL_LEDGER_KIND:
-                max_len = max(summary_chars, self.survival_ledger_summary_chars)
-            summary = item.cached_summary(max_len=max_len)
-            tokens = utils.estimate_tokens(summary)
-            if consumed + tokens > budget:
-                if entries:
-                    break
-                approx_chars = max(32, budget * 4)
-                summary = summary[:approx_chars].rstrip()
-                if len(item.cached_summary(max_len=max_len)) > len(summary):
-                    summary = summary.rstrip() + "..."
-                tokens = min(max(1, utils.estimate_tokens(summary)), budget)
-            consumed += tokens
-            source = meta.get("source", "unknown")
-            timestamp = time.strftime("%Y-%m-%d", time.gmtime(item.timestamp))
-            lines.append(f"- ({timestamp}) [source={source}]\n  {summary}")
-            entries.append(
-                {
-                    "id": str(item.id),
-                    "text": summary,
-                    "summary": summary,
-                    "meta": meta,
-                    "timestamp": float(item.timestamp),
-                    "level": item.level,
-                    "fidelity": float(item.fidelity),
-                    "salience": float(item.salience),
-                    "tokens": tokens,
-                }
-            )
-        if not entries:
-            return [], "", 0
-        return entries, "\n".join(lines), consumed
+    def _compact_context_items(self, items: List[MemoryItem], *, prefix: str = "") -> tuple[List[Dict[str, Any]], str, int]:
+        return compact_context(
+            items, budget=int(self.config.get("token_budget", 600)),
+            item_limit=self._context_item_limit(len(items)),
+            summary_chars=self._context_summary_chars(),
+            ledger_chars=self.survival_ledger_summary_chars,
+            count_tokens=utils.estimate_tokens, prefix=prefix,
+        )
 
     @staticmethod
     def _procedural_failure(meta: Dict[str, Any]) -> bool:
@@ -2724,11 +2940,7 @@ class DMLAdapter:
 
     @staticmethod
     def _meta_is_quarantined_or_suppressed(meta: Dict[str, Any]) -> bool:
-        state = str(meta.get("memory_state") or meta.get("lifecycle_state") or "").strip().lower()
-        namespace = str(meta.get("namespace") or "").strip().lower()
-        if state in {"quarantine", "quarantined", "suppressed", "deleted"}:
-            return True
-        return namespace in {"quarantine", "quarantined"}
+        return suppression_reason(meta, now=time.time()) is not None
 
     @classmethod
     def _is_quarantined_or_suppressed(cls, item: MemoryItem) -> bool:
@@ -2753,38 +2965,20 @@ class DMLAdapter:
         top_k: int,
         require_unscoped: bool = False,
         include_quarantined: bool = False,
+        as_of: Optional[float] = None,
     ) -> List[MemoryItem]:
-        allowed_kinds = set(kinds or [])
-        if not allowed_kinds and phase in {MemoryPhase.EXECUTE, MemoryPhase.DEBUG}:
-            allowed_kinds = {"action", "observation", "error"}
-        candidates: List[MemoryItem] = []
-        scoped = any(value is not None for value in (tenant_id, client_id, session_id, instance_id))
-        for item in self.store.items():
-            if not include_quarantined and self._is_quarantined_or_suppressed(item):
-                continue
-            meta = item.meta or {}
-            if require_unscoped and any(
-                meta.get(scope_key) is not None
-                for scope_key in ("tenant_id", "client_id", "session_id", "instance_id")
-            ):
-                continue
-            if scoped and meta.get("tenant_id") != tenant_id:
-                continue
-            if scoped and meta.get("client_id") != client_id:
-                continue
-            if scoped and meta.get("session_id") != session_id:
-                continue
-            if scoped and meta.get("instance_id") != instance_id:
-                continue
-            if phase is not None:
-                item_phase = meta.get("phase")
-                if item_phase is not None and str(item_phase).strip().lower() != phase.value:
-                    continue
-            item_kind = str(meta.get("kind") or "memory").lower()
-            if allowed_kinds and item_kind not in allowed_kinds:
-                continue
-            candidates.append(item)
-        return heapq.nlargest(max(1, top_k), candidates, key=lambda item: item.timestamp)
+        effective_time = time.time() if as_of is None else as_of
+        request = ScopedRetrievalRequest(
+            scope=(tenant_id, client_id, session_id, instance_id),
+            kinds=tuple(kinds) if kinds is not None else None,
+            phase=phase.value if phase else None,
+            top_k=top_k,
+            as_of=effective_time,
+            include_quarantined=include_quarantined,
+        )
+        return recent_context_items(
+            self.store.items(), request=request, require_unscoped=require_unscoped,
+        )
 
     def _format_ltm_entries(self, items: List[MemoryStore.MemoryItem]) -> str:
         if not items:
@@ -2957,6 +3151,7 @@ class DMLAdapter:
         include_quarantined: bool = False,
     ) -> List[MemoryStore.MemoryItem]:
         """Retrieve items with phase-aware filtering."""
+        self._require_legacy_retrieval()
         limit = self._resolve_dml_top_k(top_k)
         prompt_embedding = self._embed_query(prompt)
         semantic_items = self.store.retrieve(prompt_embedding, top_k=limit)
