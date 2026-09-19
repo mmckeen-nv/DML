@@ -376,7 +376,7 @@ def test_refresh_pins_the_journal_revision_actually_imported(factory, monkeypatc
     payload["items"][0]["text"] = "first peer generation"
     peer.save(payload, expected_revision=revision, operation="peer-one")
     expected_imported_revision = peer.revision
-    original_load = adapter.lattice_persistence.load
+    original_load = adapter.lattice_persistence.load_with_revision
     interleaved = False
 
     def load(**kwargs):
@@ -389,7 +389,7 @@ def test_refresh_pins_the_journal_revision_actually_imported(factory, monkeypatc
             peer.save(newer, expected_revision=revision, operation="peer-two")
         return imported
 
-    monkeypatch.setattr(adapter.lattice_persistence, "load", load)
+    monkeypatch.setattr(adapter.lattice_persistence, "load_with_revision", load)
     adapter.query_cache.get("must-invalidate", lambda _text: np.ones(4))
     assert adapter.refresh_if_changed()
     assert adapter._last_observed_state[0] == expected_imported_revision

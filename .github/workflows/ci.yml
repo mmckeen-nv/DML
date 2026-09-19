@@ -377,6 +377,77 @@ jobs:
           name: profile-recovery-${{ matrix.os }}-py${{ matrix.python-version }}
           path: profile-recovery-artifacts/
 
+  profile-concurrency:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            mode: full
+            scales: "1,16,64,256"
+          - os: macos-latest
+            mode: bounded
+            scales: "1,16"
+          - os: windows-latest
+            mode: bounded
+            scales: "1,16"
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    env:
+      OPENBLAS_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      DML_SKIP_VENV_REEXEC: "1"
+      DML_CONCURRENCY_SCALES: ${{ matrix.scales }}
+      DML_CONCURRENCY_HISTORY_DIR: ${{ github.workspace }}/profile-concurrency-artifacts/histories
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        if: runner.os != 'macOS'
+        with:
+          python-version: "3.12"
+      - name: Provision Homebrew CPython with dynamic SQLite on macOS
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          brew install python@3.12
+          python_prefix=$(brew --prefix python@3.12)
+          "$python_prefix/bin/python3.12" -m venv "$RUNNER_TEMP/dml-python"
+          echo "$RUNNER_TEMP/dml-python/bin" >> "$GITHUB_PATH"
+      - name: Require patched SQLite runtime
+        run: python .github/scripts/prepare_sqlite.py --expected-python 3.12
+      - name: Install concurrency evidence dependencies
+        run: python -m pip install -e .[server,dev]
+      - name: Lint concurrency evidence and fixtures
+        run: >-
+          ruff check
+          dml_core/scripts/profile_concurrency_evidence.py
+          dml_core/tests/profile_concurrency_fixture.py
+          dml_core/tests/profile_concurrency_http_fixture.py
+          dml_core/tests/test_profile_concurrency.py
+          dml_core/tests/test_profile_concurrency_http.py
+          dml_core/tests/test_profile_concurrency_runtime.py
+          dml_core/tests/test_profile_concurrency_adversarial.py
+          dml_core/tests/test_profile_concurrency_evidence.py
+      - name: Qualify concurrent histories and uncertain acknowledgements
+        run: >-
+          python -m pytest -p scripts.profile_concurrency_evidence
+          dml_core/tests/test_profile_concurrency.py
+          dml_core/tests/test_profile_concurrency_http.py
+          dml_core/tests/test_profile_concurrency_runtime.py
+          dml_core/tests/test_profile_concurrency_adversarial.py
+          dml_core/tests/test_profile_concurrency_evidence.py
+          --basetemp=profile-concurrency-work/stores
+          --junitxml=profile-concurrency-artifacts/concurrency.xml
+          --concurrency-evidence=profile-concurrency-artifacts/evidence.json
+          --concurrency-mode=${{ matrix.mode }}
+      - name: Preserve measured concurrency evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: profile-concurrency-${{ matrix.os }}-${{ matrix.mode }}
+          path: profile-concurrency-artifacts/
+
   profile-filesystem-full:
     runs-on: ubuntu-latest
     timeout-minutes: 15

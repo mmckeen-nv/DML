@@ -17,6 +17,7 @@ from daystrom_dml.services.receipt_ingestion import (
     ReceiptCommitUncertain,
     ReceiptEmbeddingError,
 )
+from daystrom_dml.store_lock import StoreLockTimeout
 
 
 class CountingEmbedder:
@@ -307,7 +308,7 @@ def test_http_lock_timeout_is_sanitized_retryable_and_does_not_commit(factory, m
 
     @contextmanager
     def timeout(*_args, **_kwargs):
-        raise TimeoutError("private storage path")
+        raise StoreLockTimeout("private storage path")
         yield
 
     monkeypatch.setattr(receipt_ingestion, "store_write_lock", timeout)

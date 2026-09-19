@@ -23,7 +23,7 @@ sections below retain the evidence and scope recorded when each gate was built.
 | 6. Agent outcomes | Outcome reducer, failure-inclusive costs, quality/latency/recovery distributions, CI offline baseline and journal-history cost evidence | Wire real agent harnesses; continuous 1k/10k and 100k-turn release campaigns |
 | 7. Stability boundaries | Provider contract inventory, reviewed supported-profile boundary and exact model/tokenizer input companion; native KV remains experimental | Release qualification; native-KV restore identity audit and hardware canaries are deferred |
 | 8. Version migration | Explicit side-by-side schema 0/1/2/4 paths, schema-3 fresh authorities, preserved historical receipts and commit-pinned compatibility fixtures | Milestone 5 closed by reconciliation of the admitted-profile coverage; preserve compatibility as versions evolve, with accurately labeled commit-pinned fixtures |
-| 9. Concurrency | Journal CAS/pinned reads, 256-client receipt/lifecycle/delivery tests, competing processes and deterministic race regressions | Mixed-operation HTTP/provider campaigns, cancellation/starvation checks and lock-latency SLOs |
+| 9. Concurrency | Journal CAS/pinned reads, targeted lifecycle/process tests, mixed selected-profile thread/process/HTTP campaigns, lifetime fencing and snapshot/revision race repair | Milestone 6 source accepted at 9.6/10 with local checks complete; exact-source CI and milestone closure remain pending |
 | 10. Observability | Durable mutation decisions/source proofs, response retrieval traces, degradation status and scoped retention inspection | Durable full request/context replay, complete decision coverage and bounded audit retention/export |
 
 ## Current completion reconciliation — 2026-09-19
@@ -77,6 +77,35 @@ credits the existing component inventory, commit-pinned fixtures, version reject
 interruption, export/restore and rollback evidence. This accounting correction
 claims no new implementation or test run and does not add a nineteenth serial gate.
 Milestones 6–11 and the two deferred milestones remain open within their stated scope.
+
+### Current implementation: serial gate 19 / milestone 6
+
+[Supported-profile mixed-operation concurrency](production-concurrency-2026-09-19.md)
+has **completed implementation and passed local checks**; milestone 6 remains
+open pending exact-source CI after independent acceptance at **9.6/10**.
+The frozen matrix covers schemas 2/3/4 and
+1/16/64/256 actual ready/in-flight clients through threads, spawned-process
+callers and real HTTP/provider routes. Independent history checks, uncertain
+HTTP acknowledgements, bounded progress and selected-profile close/fork behavior
+are required. The contract distinguishes OS ownership acquisition from complete
+request latency and records finite qualification limits.
+
+The final local selection passed **318 tests with zero failures or skips** in
+**572.87 seconds**, including all **48 matrix cells**. All 23 frozen file hashes
+matched before and after the run. Maintained/static checks passed; the
+independent grader replayed all 48 histories and accepted the bounded source at
+**9.6/10**, following rejection and repair of the earlier 9.2/10 result.
+Local environment qualification
+correctly remains unaccepted because the tree is unpublished and dirty and the
+filesystem is an overlay with `fsync=volatile`. The separately recorded earlier
+4,058-pass / 24-skip integration run predates the final paired-revision and
+typed-timeout fixes; final-source full integration remains for CI.
+
+This is the nineteenth serial implementation gate, not a new release milestone.
+It does not change the five closed / six unclosed first-release count. The
+completed index above will gain gate 19 only after independent acceptance at
+least 9.5/10, required validation and exact-source CI pass. PR #118 remains
+unmerged and `production_ready` remains false.
 
 ## Validation commands
 

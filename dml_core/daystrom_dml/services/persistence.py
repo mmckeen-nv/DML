@@ -44,20 +44,31 @@ class LatticePersistence:
             return None
 
     def load(self, *, startup: bool = False) -> dict | None:
+        """Retain the payload-only interface for existing storage callers."""
+        return self.load_with_revision(startup=startup)[0]
+
+    def load_with_revision(self, *, startup: bool = False) -> tuple[dict | None, int | None]:
+        """Return validated payload and the revision read in that same snapshot.
+
+        The journal's last-read revision is advisory shared runtime state; a
+        concurrent preparation read may replace it before a caller imports its
+        payload. File formats have no journal revision and return ``None``.
+        """
+        revision = None
         if self.journal:
             if startup and self.journal.stamp()[0] == 0 and (self.json_path.exists() or self.jsonl_path.exists()):
                 raise ValueError("Journal migration requires an explicit snapshot import")
-            payload = self.journal.load()
+            revision, payload = self.journal.read_snapshot()
         elif self.use_jsonl and self.jsonl_path.exists():
             payload = {"items": [item.to_dict() for item in self._read_jsonl(self.jsonl_path)]}
         elif self.json_path.exists() and (startup or not self.use_jsonl):
             payload = json.loads(self.json_path.read_text(encoding="utf-8"))
         elif startup:
-            return None
+            return None, None
         else:
             raise FileNotFoundError("Previously initialized DML state is missing")
         validate_snapshot(payload)
-        return payload
+        return payload, revision
 
     def commit(self, *, payload: dict | None, items: Sequence[MemoryItem] | None,
                expected_revision: int | None, operation: str) -> tuple[int, int] | None:
@@ -232,9 +243,12 @@ class PersistenceCoordinator:
             if current is None and self.state.observed_lattice is not None:
                 raise FileNotFoundError("Previously initialized DML state is missing")
             if current is not None and current != self.state.observed_lattice:
-                payload = self.lattice.load()
                 if self.lattice.journal:
-                    current = (self.lattice.journal.revision, current[1])
+                    payload, loaded_revision = self.lattice.load_with_revision()
+                    assert loaded_revision is not None
+                    current = (loaded_revision, current[1])
+                else:
+                    payload = self.lattice.load()
                 self.runtime.import_state(payload)
                 self._invalidate_cache()
                 self.state.observed_lattice = current

@@ -49,7 +49,8 @@ from .journal import JournalStateStore
 from .services.retrieval import QueryEmbeddingCache
 from .services.persistence import LatticePersistence, PersistenceCoordinator, PersistenceState
 from .services.profile_runtime import (
-    outside_production_profile, preflight_profile_authority, validate_profile_retrieval,
+    ProfileOperationLifetime, admitted_profile_operation, outside_production_profile,
+    preflight_profile_authority, validate_profile_retrieval,
 )
 from .services.transactions import (
     PersistenceCommitError,
@@ -157,6 +158,9 @@ class DMLAdapter:
             self.settings = load_config(config_path, overrides=overrides)
         self.config = self.settings.as_dict()
         self._production_profile = validate_profile_config(self.config)
+        self._profile_operation_lifetime = (
+            ProfileOperationLifetime() if self._production_profile is not None else None
+        )
         self._profile_validation_complete = False
         self._profile_embedding_identity = None
         if self._production_profile is not None:
@@ -533,12 +537,25 @@ class DMLAdapter:
         }
 
     def close(self, persist: bool = True, *, projection_timeout: float = 5.0) -> None:
-        """Drain owned workers before closing dependencies; retry after a timeout."""
+        """Fence profile calls and drain owned work; retry after a timeout.
+
+        ``projection_timeout`` also bounds selected-profile operation drain.
+        Admitted calls may finish after timeout; their dependencies remain live.
+        """
 
         if (type(projection_timeout) not in (int, float)
                 or projection_timeout > threading.TIMEOUT_MAX or projection_timeout < 0
                 or not math.isfinite(projection_timeout)):
             raise ValueError("Projection close timeout must be finite and nonnegative")
+        lifetime = getattr(self, "_profile_operation_lifetime", None)
+        if lifetime is None:
+            self._close_owned_runtime(persist, projection_timeout=projection_timeout)
+            return
+        with lifetime.shutdown(timeout=projection_timeout) as cleanup:
+            if cleanup:
+                self._close_owned_runtime(persist, projection_timeout=projection_timeout)
+
+    def _close_owned_runtime(self, persist: bool, *, projection_timeout: float) -> None:
         with self._projection_lifecycle_lock:
             self._projection_workers_closing = True
             projection_worker = self._owned_projection_worker
@@ -1644,6 +1661,7 @@ class DMLAdapter:
     def _clear_durability_failure_locked(self, component: str) -> None:
         self.persistence_coordinator.clear_failure(component)
 
+    @admitted_profile_operation
     def durability_status(self) -> Dict[str, Any]:
         """Return a detached summary of failed durability writes."""
         return self.persistence_coordinator.durability_status()
@@ -2012,6 +2030,7 @@ class DMLAdapter:
     # ------------------------------------------------------------------
     # Multi-tenant helpers used by the DML memory service
     # ------------------------------------------------------------------
+    @admitted_profile_operation
     def inspect_memory_retention(self, memory_id: int, *, tenant_id: str,
                                  client_id: Optional[str] = None,
                                  session_id: Optional[str] = None,
@@ -2105,6 +2124,7 @@ class DMLAdapter:
             scope={"tenant_id": tenant_id, "client_id": client_id, "session_id": session_id,
                    "instance_id": instance_id}, top_k=top_k, as_of=as_of)
 
+    @admitted_profile_operation
     def ingest_memory_receipted(self, text: str, *, idempotency_key: str, tenant_id: str,
                                client_id: Optional[str] = None, session_id: Optional[str] = None,
                                instance_id: Optional[str] = None, kind: Optional[str] = None,
@@ -2137,6 +2157,7 @@ class DMLAdapter:
             key=idempotency_key, embed=self.embedder.embed, capacity=self.store.capacity,
             embedding_space=self._receipt_embedding_space, hydrate=hydrate, degraded=degraded)
 
+    @admitted_profile_operation
     def retire_memory_receipted(self, memory_id: int, *, expected_memory_digest: str,
                                reason: str, idempotency_key: str, tenant_id: str,
                                client_id: Optional[str] = None, session_id: Optional[str] = None,
@@ -2173,6 +2194,7 @@ class DMLAdapter:
         return retire_receipted(self._journal, request=request, request_digest=digest,
             key=idempotency_key, hydrate=hydrate, degraded=degraded)
 
+    @admitted_profile_operation
     def supersede_memory_receipted(self, memory_id: int, *, replacement_memory_id: int,
                                   expected_memory_digest: str, expected_replacement_digest: str,
                                   reason: str, idempotency_key: str, tenant_id: str,
@@ -2212,6 +2234,7 @@ class DMLAdapter:
         return supersede_receipted(self._journal, request=request, request_digest=digest,
             key=idempotency_key, hydrate=hydrate, degraded=degraded)
 
+    @admitted_profile_operation
     def update_memory_receipted(self, memory_id: int, *, text: str,
                                expected_memory_digest: str, reason: str,
                                idempotency_key: str, tenant_id: str,
@@ -2256,6 +2279,7 @@ class DMLAdapter:
             key=idempotency_key, embed=embed, embedding_space=self._receipt_embedding_space,
             hydrate=hydrate, degraded=degraded)
 
+    @admitted_profile_operation
     def promote_memories_receipted(self, sources: List[Dict[str, Any]], *, text: str,
                                   reason: str, idempotency_key: str, tenant_id: str,
                                   client_id: Optional[str] = None,
@@ -2457,6 +2481,7 @@ class DMLAdapter:
             filtered.append(item)
         return filtered
 
+    @admitted_profile_operation
     def retrieve_context(
         self,
         prompt: str,

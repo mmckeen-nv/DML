@@ -270,17 +270,17 @@ def test_refresh_uses_revision_of_loaded_snapshot(make_coordinator, monkeypatch)
     rig.service.persist_lattice()
     first = copy.deepcopy(rig.runtime.data)
     rig.state.observed_lattice = None
-    original_load = rig.lattice.load
+    original_load = rig.lattice.load_with_revision
 
     def load_then_peer_write(**kwargs):
-        loaded = original_load(**kwargs)
+        loaded, loaded_revision = original_load(**kwargs)
         peer = JournalStateStore(rig.lattice.path)
         newer = copy.deepcopy(loaded)
         newer["next_id"] = 1
         peer.save(newer, expected_revision=1, operation="peer")
-        return loaded
+        return loaded, loaded_revision
 
-    monkeypatch.setattr(rig.lattice, "load", load_then_peer_write)
+    monkeypatch.setattr(rig.lattice, "load_with_revision", load_then_peer_write)
     assert rig.service.refresh()
     assert rig.runtime.data == first
     assert rig.state.observed_lattice[0] == 1

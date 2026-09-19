@@ -1,14 +1,102 @@
 """Runtime admission and public-operation guards for the candidate profile."""
 from __future__ import annotations
 
-from contextlib import closing
+from contextlib import closing, contextmanager
 from functools import wraps
 import math
+import os
 from pathlib import Path
 import sqlite3
+import threading
+import time
 
 from ..contracts.profile import ProductionProfileError, validate_profile_authority
 from ..journal import JournalIntegrityError, require_patched_sqlite
+
+
+class ProfileOperationLifetime:
+    """Fence and drain one selected-profile adapter without serializing its work.
+
+    Admission covers preparation, authority access and response construction.
+    Shutdown does not cancel admitted work: a timed-out caller must retry close,
+    while a lost mutation acknowledgement must be resolved using its same key.
+    """
+
+    def __init__(self) -> None:
+        self._owner_pid = os.getpid()
+        self._condition = threading.Condition(threading.Lock())
+        self._active: dict[int, int] = {}
+        self._closing = False
+        self._closed = False
+        self._cleanup_owner: int | None = None
+
+    def _require_owner(self) -> None:
+        # Never touch an inherited mutex: its owning thread may not exist here.
+        if os.getpid() != self._owner_pid:
+            raise RuntimeError("Inherited profile adapter cannot be used after fork; create a fresh adapter")
+
+    @contextmanager
+    def operation(self):
+        self._require_owner()
+        ident = threading.get_ident()
+        with self._condition:
+            if self._closing:
+                raise RuntimeError("Selected profile is closing or closed; create a fresh adapter")
+            self._active[ident] = self._active.get(ident, 0) + 1
+        try:
+            yield
+        finally:
+            self._require_owner()
+            with self._condition:
+                remaining = self._active[ident] - 1
+                if remaining:
+                    self._active[ident] = remaining
+                else:
+                    del self._active[ident]
+                self._condition.notify_all()
+
+    @contextmanager
+    def shutdown(self, *, timeout: float):
+        self._require_owner()
+        deadline = time.monotonic() + timeout
+        with self._condition:
+            if threading.get_ident() in self._active:
+                raise RuntimeError("Cannot close a profile adapter from an admitted operation")
+            if threading.get_ident() == self._cleanup_owner:
+                raise RuntimeError("Cannot close a profile adapter from its dependency cleanup")
+            self._closing = True
+            while self._active or self._cleanup_owner is not None:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise TimeoutError("Profile shutdown is incomplete; retry close after admitted operations drain")
+                self._condition.wait(remaining)
+            cleanup = not self._closed
+            if cleanup:
+                self._cleanup_owner = threading.get_ident()
+        if not cleanup:
+            yield False
+            return
+        succeeded = False
+        try:
+            yield True
+            succeeded = True
+        finally:
+            with self._condition:
+                self._closed = succeeded
+                self._cleanup_owner = None
+                self._condition.notify_all()
+
+
+def admitted_profile_operation(method):
+    """Keep legacy lifetimes unchanged; selected profiles reject use after close."""
+    @wraps(method)
+    def guarded(self, *args, **kwargs):
+        lifetime = getattr(self, "_profile_operation_lifetime", None)
+        if lifetime is None:
+            return method(self, *args, **kwargs)
+        with lifetime.operation():
+            return method(self, *args, **kwargs)
+    return guarded
 
 
 def outside_production_profile(method):

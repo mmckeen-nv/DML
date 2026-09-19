@@ -30,15 +30,32 @@ liveness. A retry must preserve the complete request, full scope and key.
 | `promote_memories_receipted` | Explicit first-level derivation from 1–32 exact source records; no recursive or automatic promotion. |
 | `retrieve_context` | Construct a detached scoped context report with pinned store revision and effective retrieval inputs. |
 | `inspect_memory_retention` | Inspect known structured copies at one verified authority revision without erasure or payload disclosure. |
-| `durability_status` | Report process-local durability degradation; this is not a continuous journal integrity check. |
+| `durability_status` | Report process-local durability degradation through selected-profile lifetime admission; this is not a continuous journal integrity check. |
 | `production_profile_status` | Report profile selection and qualification status. |
-| `close` | Shut down owned runtime resources. |
+| `close` | Fence new selected-profile operations, drain admitted work, then clean up owned resources; see the [lifetime contract](production-concurrency-2026-09-19.md#selected-profile-lifetime-target). |
 
 There is no separate adapter receipt-lookup API in this profile. Repeating a
 receipted mutation resolves its historical receipt before new model work. Direct
 access to internal stores, journals, service objects or mutable adapter attributes
 is outside the public profile boundary. Python callers are trusted code; the
 profile is not a sandbox against callers that modify internals.
+
+Selected-profile `close(projection_timeout=5.0)` uses that timeout for draining
+admitted operations and waiting for another close call's cleanup. It does not
+bound dependency cleanup once this caller starts it, forcibly cancel a backend,
+or impose a complete request deadline. A drain/wait timeout leaves admission
+fenced and dependencies available to unfinished work; retry close after that
+work finishes. Successful close is idempotent. The five mutation APIs, retrieval,
+retention inspection and durability status are protected by lifetime admission.
+Calls through an adapter inherited after a fork reject before taking lifetime
+locks; the child must open a fresh adapter. The existing HTTP health handler
+reports degraded status when durability inspection encounters a closing or
+closed selected adapter. Informational `production_profile_status` does not
+certify that such an adapter can accept work. Milestone 6's
+[qualification record](production-concurrency-2026-09-19.md) tracks this behavior
+and its completed implementation/local checks, accepted independently at
+**9.6/10** for the finite source scope. Exact-source CI remains pending;
+unselected legacy behavior is unchanged.
 
 `production_profile_status()` reports `profile_id`, `status`,
 `production_ready`, `validated`, `authority` (`journal_schema_version` and
@@ -137,8 +154,10 @@ identity or migration markers to make a damaged store look new. The
 recovery boundary and offline operator commands are defined in the
 [recovery contract](profile-recovery-v1.md), with acceptance and measured-platform
 results tracked in its [hardening record](profile-recovery-hardening-2026-09-18.md).
-Milestone 4 is in progress; persisted-format coverage and final release support
-remain milestones 5 and 11. A backup captures one revision only; independent
+Milestones 4 and 5 are closed, with their evidence credited in the
+[current release ledger](production-remaining-work-2026-09-18.md); mixed-operation
+concurrency is in progress as milestone 6 and final release support remains
+milestone 11. A backup captures one revision only; independent
 client receipts are required to detect a consistent rollback or acknowledged WAL
 loss that internal checksums cannot establish.
 
@@ -260,9 +279,13 @@ platform checks do not prove the filesystem or mount is suitable.
 
 The [recovery contract](profile-recovery-v1.md) inventories admitted components
 and separately records subprocess-kill, SQLite quota, real bounded-volume ENOSPC,
-corruption and caught-I/O-failure evidence. Its new CI jobs measure the actual test
-filesystem; runner labels do not substitute for an accepted observation. Actual
-platform and ENOSPC qualification remain pending until those jobs pass.
+corruption and caught-I/O-failure evidence. Its CI jobs measure the actual test
+filesystem; runner labels do not substitute for an accepted observation.
+Published source `3763303` passed all 17 jobs in
+[CI 320](https://github.com/mmckeen-nv/DML/actions/runs/35359517124), including six
+measured recovery environments and 15 real ext4 ENOSPC cases. This closes the
+documented milestone-4 process/storage-failure boundary, with current accounting
+in the [release ledger](production-remaining-work-2026-09-18.md).
 Existing subprocess-kill, SQLite quota, corruption and caught-I/O-failure tests
 are distinct evidence classes. Process-kill success does not establish physical
 power-loss durability, arbitrary device failure behavior or all-component crash
@@ -312,7 +335,7 @@ the key merely because an acknowledgement was lost.
 | HTTP 409 `receipt_capacity_exceeded` | Capacity refused append/promotion; no implicit eviction occurs. Resolve capacity deliberately. |
 | HTTP 409 `revision_conflict` | Retry the identical request, full scope and key after competing work settles. |
 | HTTP 422 `profile_validation_failed` | Correct shape/types/fields. Profile requests require an explicit tenant and reject unsupported fields. |
-| HTTP 503 `receipt_ownership_unavailable` | Ownership timed out; retry the identical request/key with bounded caller backoff. |
+| HTTP 503 `receipt_ownership_unavailable` | OS ownership acquisition raised `StoreLockTimeout`; retry the identical request/key with bounded caller backoff. Generic callback/backend timeouts do not receive this classification. |
 | HTTP 503 `receipt_outcome_unavailable` | Storage cannot establish a trustworthy outcome. Recover authority, then retry the identical request/key. |
 | HTTP 503 `receipt_not_committed` | Reconciliation found no receipt at that check. Retry the same request/key; it is not permission to invent another intent. |
 | HTTP 503 `embedding_unavailable` | Recover the declared embedding service/identity, then retry the identical request/key. |
@@ -334,13 +357,32 @@ commit rule, including failures to serialize an acknowledgement. Profile HTTP
 input errors use `profile_validation_failed`; they do
 not echo submitted text, metadata or credentials.
 
+`StoreLockTimeout` remains a `TimeoutError` subclass for Python compatibility.
+The selected HTTP profile distinguishes it from a generic timeout inside a
+mutation callback, which reports `receipt_outcome_unavailable` because commit
+may already have happened. Embedding-provider failures retain
+`embedding_unavailable`. The [concurrency qualification](production-concurrency-2026-09-19.md)
+retries only positively identified ownership rejection within its predeclared
+attempt and campaign limits. Recall retains `retrieval_outcome_unavailable` but
+adds `reason: store_ownership_timeout` only for actual `StoreLockTimeout`.
+The exact 503 detail
+`{"code":"retrieval_outcome_unavailable","reason":"store_ownership_timeout"}`
+permits bounded same-request retrieval retry in qualification. Generic read
+errors without that reason, retention errors and transport `ReadError` remain
+ineligible; the original 90-second deadline and three-total-attempt limit remain
+unchanged.
+
 ## Release closure
 
 Milestone 1 freezes this admitted product boundary and verifies its enforcement.
-It does not close model-input budget binding, crash/filesystem qualification,
-persisted-format coverage, mixed-operation concurrency, live-agent semantics,
-fair baseline value, continuous workloads, replay/retention or release support.
-Those are milestones 3–11. Remaining legacy orchestration extraction and native-KV
+The [current release ledger](production-remaining-work-2026-09-18.md) credits
+milestones **1–5 as closed** and tracks **six unclosed first-release gates**.
+Milestone 6, mixed-operation concurrency, has completed implementation and local
+checks with independent acceptance at **9.6/10**, but remains open pending
+exact-source CI.
+Live-agent semantics,
+fair baseline value, continuous workloads, replay/retention and final release
+support remain milestones 7–11. Remaining legacy orchestration extraction and native-KV
 restore identity are the two deferred milestones. Physical erasure, recursive
 promotion, cascading invalidation and extra deployment profiles remain excluded.
 

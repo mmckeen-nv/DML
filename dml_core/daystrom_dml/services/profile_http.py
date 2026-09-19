@@ -22,6 +22,7 @@ from ..contracts.profile import (
 from ..contracts.retention import retention_contract
 from ..journal import IdempotencyConflict, JournalIntegrityError, RevisionConflict
 from ..settings import DMLSettings
+from ..store_lock import StoreLockTimeout
 from .receipt_ingestion import (
     ReceiptCapacityError, ReceiptCommitRejected, ReceiptCommitUncertain,
     ReceiptEmbeddingError,
@@ -133,10 +134,13 @@ class ProfileAuthMiddleware:
         await self.app(scope, receive, send)
 
 
-def _fail(status: int, code: str, *, retry_same_key: bool = False) -> HTTPException:
+def _fail(status: int, code: str, *, retry_same_key: bool = False,
+          reason: str | None = None) -> HTTPException:
     detail: dict[str, Any] = {"code": code}
     if retry_same_key:
         detail["retry_same_key"] = True
+    if reason is not None:
+        detail["reason"] = reason
     return HTTPException(status_code=status, detail=detail)
 
 
@@ -166,9 +170,10 @@ def _invoke(operation: Callable, arguments: dict[str, Any], *, mode: str = "rece
         raise _fail(409, "idempotency_conflict") from exc
     except RevisionConflict as exc:
         raise _fail(409, "revision_conflict", retry_same_key=receipt) from exc
-    except TimeoutError as exc:
+    except StoreLockTimeout as exc:
         raise _fail(503, "receipt_ownership_unavailable" if receipt else f"{mode}_outcome_unavailable",
-                    retry_same_key=receipt) from exc
+                    retry_same_key=receipt,
+                    reason=None if receipt else "store_ownership_timeout") from exc
     except ReceiptCommitRejected as exc:
         raise _fail(503, "receipt_not_committed", retry_same_key=receipt) from exc
     except ReceiptEmbeddingError as exc:

@@ -22,6 +22,14 @@ if hasattr(errno, "EDEADLK"):
     _CONTENTION_ERRNOS.add(errno.EDEADLK)
 
 
+class StoreLockTimeout(TimeoutError):
+    """Store ownership was not acquired before its wait budget expired.
+
+    This distinguishes acquisition rejection from a timeout in an admitted
+    operation, whose mutation outcome may be unknown to the caller.
+    """
+
+
 def _ensure_lock_byte(handle: TextIO) -> None:
     """Ensure Windows has a stable byte range to lock."""
 
@@ -83,7 +91,7 @@ def store_write_lock(
             except BlockingIOError:
                 waited_ms = (time.perf_counter() - started) * 1000.0
                 if timeout_ms <= 0 or waited_ms >= timeout_ms:
-                    raise TimeoutError(
+                    raise StoreLockTimeout(
                         f"Timed out waiting for DML store lock {lock_path} during {operation}"
                     )
                 time.sleep(min(0.05, max(0.005, (timeout_ms - waited_ms) / 1000.0)))
