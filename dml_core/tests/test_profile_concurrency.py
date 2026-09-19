@@ -14,7 +14,7 @@ from types import SimpleNamespace
 import pytest
 
 from profile_concurrency_fixture import (
-    PROGRESS_SECONDS, WAIT_SECONDS, _assert_retention, _assert_retrieval,
+    PROGRESS_SECONDS, WAIT_SECONDS, _assert_recorded_causality, _assert_retention, _assert_retrieval,
     call_event, check_history, client_plan, digest, fixed_clock,
     full_client_plan, prepare_history, requested_scales, write_evidence, write_history,
 )
@@ -242,6 +242,18 @@ def test_history_oracle_rejects_invalid_retry_attempts(accepted_history, corrupt
         check_history(before, events, after, clients=1)
 
 
+def _synthetic_http_read_rejection(event):
+    # A schema-control attempt has no measured OS wait. Pin its zero-width
+    # interval to the existing invocation: subtracting even one nanosecond can
+    # move it before a prior response on platforms whose clock readings tie.
+    rejected = {"started_ns": event["started_ns"], "finished_ns": event["started_ns"],
+                "request_digest": digest(event["request"]), "error_code": "store_lock_timeout", "status_code": 503,
+                "error_detail": {"code": "retrieval_outcome_unavailable", "reason": "store_ownership_timeout"}}
+    event["attempts"][-1]["status_code"] = 200
+    event["attempts"].insert(0, rejected)
+    return rejected
+
+
 @pytest.mark.parametrize("detail", [
     {"code": "retrieval_outcome_unavailable"},
     {"code": "retrieval_outcome_unavailable", "reason": "backend_timeout"},
@@ -255,16 +267,97 @@ def test_history_oracle_rejects_invalid_retry_attempts(accepted_history, corrupt
 def test_history_oracle_rejects_unclassified_http_read_retries(accepted_history, detail):
     before, events, after, _ = deepcopy(accepted_history)
     event = next(event for event in events if event["request"]["operation"] == "retrieve")
-    rejected = {"started_ns": event["started_ns"] - 2, "finished_ns": event["started_ns"] - 1,
-                "request_digest": digest(event["request"]), "error_code": "store_lock_timeout", "status_code": 503,
-                "error_detail": {"code": "retrieval_outcome_unavailable", "reason": "store_ownership_timeout"}}
-    event["started_ns"] = rejected["started_ns"]
-    event["attempts"][-1]["status_code"] = 200
-    event["attempts"].insert(0, rejected)
+    rejected = _synthetic_http_read_rejection(event)
     assert check_history(before, events, after, clients=1)["ownership_rejections"] == 1
     rejected["error_detail"] = detail
     with pytest.raises(AssertionError, match="not positively identified"):
         check_history(before, events, after, clients=1)
+
+
+def test_synthetic_http_read_rejection_preserves_tied_clock_program_order(accepted_history):
+    before, events, after, _ = deepcopy(accepted_history)
+    index = next(index for index, event in enumerate(events) if event["request"]["operation"] == "retrieve")
+    previous, event = events[index - 1], events[index]
+    assert previous["client"] == event["client"]
+    previous["finished_ns"] = event["started_ns"]
+    previous["attempts"][-1]["finished_ns"] = event["started_ns"]
+    assert check_history(before, events, after, clients=1)["ownership_rejections"] == 0
+
+    # Reproduce the old failure independently of the host's clock resolution.
+    backdated_events = deepcopy(events)
+    backdated = backdated_events[index]
+    rejected = _synthetic_http_read_rejection(backdated)
+    rejected["started_ns"] -= 2
+    rejected["finished_ns"] -= 1
+    backdated["started_ns"] = rejected["started_ns"]
+    with pytest.raises(AssertionError, match="One client returned an impossible program order"):
+        check_history(before, backdated_events, after, clients=1)
+
+    rejected = _synthetic_http_read_rejection(event)
+    assert previous["finished_ns"] == event["started_ns"] == rejected["started_ns"] == rejected["finished_ns"]
+    assert check_history(before, events, after, clients=1)["ownership_rejections"] == 1
+    rejected["error_detail"] = {"code": "retrieval_outcome_unavailable"}
+    with pytest.raises(AssertionError, match="HTTP ownership rejection is not positively identified"):
+        check_history(before, events, after, clients=1)
+
+
+def _tie_synthetic_history_clock(events):
+    # Deliberately discard timing resolution only in copied checker controls.
+    # Request sequence and result content remain independent causal evidence.
+    for event in events:
+        event["started_ns"] = event["finished_ns"] = 1_000_000_000
+        for attempt in event["attempts"]:
+            attempt["started_ns"] = attempt["finished_ns"] = 1_000_000_000
+
+
+@pytest.mark.parametrize("corruption", ["stale-after-ack", "future-read"])
+def test_history_oracle_preserves_client_causality_when_clocks_tie(accepted_history, corruption):
+    before, events, after, _ = deepcopy(accepted_history)
+    _tie_synthetic_history_clock(events)
+    assert check_history(before, events, after, clients=1)["history_verified"] is True
+    # These are two real, internally consistent reports for the same scope;
+    # changing only the entire report cannot fail through a bad self-checksum.
+    earlier, later = events[15], events[19]
+    assert earlier["request"] == later["request"]
+    assert earlier["result"]["decision"]["store_revision"] < later["result"]["decision"]["store_revision"]
+    if corruption == "stale-after-ack":
+        later["result"] = deepcopy(earlier["result"])
+        message = "Read moved behind its client's prior observation"
+    else:
+        earlier["result"] = deepcopy(later["result"])
+        message = "Observed revision includes a causally later commit"
+    with pytest.raises(AssertionError, match=message):
+        check_history(before, events, after, clients=1)
+
+
+def test_recorded_causality_rejects_tied_read_regression_without_mutation_ack(accepted_history):
+    before, history, _, _ = deepcopy(accepted_history)
+    reads = [history[15], history[19]]
+    for sequence, event in enumerate(reads):
+        event["client"], event["sequence"] = 0, sequence
+    _tie_synthetic_history_clock(reads)
+    _assert_recorded_causality(reads, before["revision"])
+    reads[0]["result"], reads[1]["result"] = reads[1]["result"], reads[0]["result"]
+    with pytest.raises(AssertionError, match="Read moved behind its client's prior observation"):
+        _assert_recorded_causality(reads, before["revision"])
+
+
+def test_recorded_causality_distinguishes_tied_historical_replay_from_new_commit(accepted_history):
+    before, history, _, _ = deepcopy(accepted_history)
+    earlier, later = history[0], history[17]
+    replay, read = deepcopy(earlier), history[19]
+    events = [earlier, later, replay, read]
+    earlier["client"], earlier["sequence"] = 1, 0
+    for sequence, event in enumerate((later, replay, read)):
+        event["client"], event["sequence"] = 0, sequence
+    _tie_synthetic_history_clock(events)
+    # Another client could already have committed the older key. Its later
+    # receipt replay is legitimate and cannot lower this client's read floor.
+    _assert_recorded_causality(events, before["revision"])
+    # Without that candidate, the lower-revision commit would have to occur
+    # after this same client's higher-revision acknowledgement: impossible.
+    with pytest.raises(AssertionError, match="Observed revision includes a causally later commit"):
+        _assert_recorded_causality(events[1:], before["revision"])
 
 
 def test_retry_helper_only_retries_typed_ownership_rejection(monkeypatch):

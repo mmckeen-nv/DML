@@ -383,3 +383,48 @@ def test_history_checker_rejects_semantically_corrupt_complete_histories(tmp_pat
             check_history(before, altered, after, clients=16)
     finally:
         adapter.close()
+
+
+def test_history_checker_rejects_stale_read_at_recorded_windows_clock_boundary(tmp_path):
+    from profile_concurrency_fixture import (
+        call_event, check_history, fixed_clock, full_client_plan, prepare_history,
+    )
+
+    directory = tmp_path / "authority"
+    before = prepare_history(directory, 3)
+    adapter = make_adapter(directory, 3)
+    try:
+        with fixed_clock():
+            events = [call_event(adapter, request, client=0, sequence=sequence)
+                      for sequence, request in enumerate(full_client_plan(before, 0, 1))]
+        after = sql_observation(directory)
+        assert check_history(before, events, after, clients=1)["history_verified"] is True
+
+        # Actual CI 322 Windows schema-3/shared/one-client clock boundaries,
+        # expressed in milliseconds. Only the scheduling trace is replayed;
+        # this test obtains all requests, receipts and read payloads afresh.
+        recorded_clock = [
+            (307921, 307968), (307968, 307968), (307968, 308000),
+            (308000, 308046), (308046, 308046), (308046, 308078),
+            (308078, 308140), (308156, 308156), (308156, 308187),
+            (308187, 308234), (308234, 308234), (308234, 308265),
+            (308265, 308312), (308312, 308328), (308328, 308359),
+            (308359, 308406), (308406, 308406), (308406, 308484),
+            (308484, 308484), (308484, 308531),
+        ]
+        assert len(events) == len(recorded_clock)
+        for event, (started, finished) in zip(events, recorded_clock):
+            assert len(event["attempts"]) == 1
+            event["started_ns"], event["finished_ns"] = started * 1_000_000, finished * 1_000_000
+            event["attempts"][0].update(started_ns=event["started_ns"], finished_ns=event["finished_ns"])
+        assert check_history(before, events, after, clients=1)["history_verified"] is True
+
+        earlier, acknowledged, later = events[15], events[17], events[19]
+        assert earlier["request"] == later["request"]
+        assert acknowledged["finished_ns"] == later["started_ns"]
+        assert earlier["result"]["decision"]["store_revision"] < acknowledged["result"]["revision"]
+        later["result"] = deepcopy(earlier["result"])
+        with pytest.raises(AssertionError, match="Read moved behind its client's prior observation"):
+            check_history(before, events, after, clients=1)
+    finally:
+        adapter.close()

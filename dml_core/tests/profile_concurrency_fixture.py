@@ -243,6 +243,45 @@ def _assert_retention(event, view):
     assert report["retirement_is_erasure"] is False
 
 
+def _assert_recorded_causality(events, initial_revision):
+    """Preserve recorded program order even when clock readings are equal.
+
+    A receipt may be a historical replay. Its lower revision must not be
+    mistaken for a new commit, but it still provides a floor for later reads.
+    A commit is necessarily later only if every successful attempt that could
+    have created it is known to follow the observation being checked.
+    """
+    commits = {}
+    clients = {}
+
+    def revision(event):
+        operation = event["request"]["operation"]
+        if operation == "retrieve":
+            return event["result"]["decision"]["store_revision"]
+        if operation == "retention":
+            return event["result"]["source"]["revision"]
+        return event["result"]["revision"]
+
+    for event in events:
+        clients.setdefault(event["client"], []).append(event)
+        if event["request"]["operation"] in MUTATIONS:
+            commits.setdefault(revision(event), []).append(event)
+    for event in events:
+        observed_revision = revision(event)
+        for committed_revision, candidates in commits.items():
+            if all((candidate["client"] == event["client"] and candidate["sequence"] > event["sequence"])
+                   or candidate["attempts"][-1]["started_ns"] > event["finished_ns"]
+                   for candidate in candidates):
+                assert observed_revision < committed_revision, "Observed revision includes a causally later commit"
+    for history in clients.values():
+        floor = initial_revision
+        for event in sorted(history, key=lambda event: event["sequence"]):
+            observed_revision = revision(event)
+            if event["request"]["operation"] not in MUTATIONS:
+                assert observed_revision >= floor, "Read moved behind its client's prior observation"
+            floor = max(floor, observed_revision)
+
+
 def check_history(before, events, after, *, clients):
     """Check a finite completed history against submitted intent and direct SQL.
 
@@ -359,6 +398,7 @@ def check_history(before, events, after, *, clients):
         for later, later_revision in read_events:
             if earlier["finished_ns"] < later["started_ns"]:
                 assert earlier_revision <= later_revision, "Nonoverlapping reads moved backwards in revision"
+    _assert_recorded_causality(events, before["revision"])
     # Find a time-ordered placement of all observed commits and pinned reads.
     # Reads at one revision can commute; earliest deadline ordering gives a
     # feasible placement if one exists. A later revision cannot precede them.
