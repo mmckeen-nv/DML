@@ -4,7 +4,7 @@ Originally recorded 2026-09-18; current status reconciled **2026-09-20** against
 review artifacts and the published PR/CI record. The [original ten areas](productionization-plan-2026-09-12.md)
 remain workstreams. Twenty independently accepted serial source gates, plus the
 initial foundations tranche, supply implementation and evidence toward the release gates
-below; they are not nineteen additional release milestones.
+below; they are not twenty additional release milestones.
 
 ## Current completion tab — 2026-09-20
 
@@ -109,48 +109,67 @@ new milestone 7 implementation.
 
 ### Active: milestone 7 — live-agent semantic and outcome harness
 
-**IN PROGRESS as of 2026-09-20.** Bounded source implementation is independently
-accepted at **9.6/10**: a model-driven episode/event producer, strict tool protocol
-around the admitted receipt APIs, eight independent task verifiers, and versioned
-raw events and failure-inclusive outcomes. Published-source CI and trained-model
-live qualification remain pending at the reviewed-source freeze. Subsequent
-publication and exact-source CI results are tracked in
-[PR #118](https://github.com/mmckeen-nv/DML/pull/118); the pending-at-freeze wording
-below is not a statement about a later CI run. The existing
-`dml-task-outcome-v1` consumer contract
-is preserved. The [milestone 7 working record](live-agent-outcomes-2026-09-20.md)
-tracks the scope, acceptance gates, reused evidence and remaining qualification.
-This is accepted **serial implementation gate 20**, within milestone 7; the
-completed source index now has 20 serial gates plus foundations. It does not
-close milestone 7. The first independent source iteration scored **9.2/10 and
-was rejected**; repaired source received final **9.6/10 acceptance with no blocking
-findings**. It passed **529 focused CPU tests with zero failures or skips** and
-**4,667 full-suite tests with 24 declared skips and no failures or errors**,
-independently confirmed. These selections overlap. The
-[review](artifacts/agent-episode-review-2026-09-20.json) and
-[local validation manifest](artifacts/agent-episode-local-validation-2026-09-20.json)
-retain source identities and the qualification limits.
+**IN PROGRESS as of 2026-09-20.** Final repaired source passed **774 mandatory
+CPU tests with zero failures, errors or skips**, across **20 modules**, with
+**433 unchanged source hashes**. Both strict Ruff scopes and maintained mypy
+passed. The [combined final review](artifacts/agent-episode-grounding-cleanup-review-2026-09-20.json) accepts **9.6/10 with no source blockers**,
+following scoped cleanup (**9.6/10**) and grounding (**9.7/10**) acceptance. **Attempt 5 is pending** its
+reviewed source freeze; all four prior failed campaigns remain retained. Publication
+and exact-source CI for this repaired revision remain required. The public
+`da526eb` / passing CI 329 record predates these repairs and retains its separate
+9.2/10 cleanup-blocker review.
+
+This continues **serial implementation gate 20**: **20 accepted source gates plus
+foundations**, with no new milestone or renumbering. Source correctness, exact-source
+CI and trained live qualification have distinct acceptance records. Milestones
+1–6 remain closed; **five first-release gates and two deferred gates remain open**.
+
+| Source evidence | Recorded result |
+| --- | --- |
+| [Initial harness](artifacts/agent-episode-review-2026-09-20.json) | 9.2 rejected, repaired to **9.6**; 529 focused / zero skips and 4,667 full-suite / 24 skips, 417 unchanged source hashes. Counts overlap. CI 326 retained 18 successful jobs, one Windows path-length failure and one cancellation. |
+| [Windows test-ID repair](artifacts/agent-episode-windows-review-2026-09-20.json) | **9.8**; source `6db5a83`, CI 327 **20/20 passed**, CPU 529 / zero skips and 354 matching source hashes. |
+| [Trained companion completion](artifacts/agent-episode-completion-review-2026-09-20.json) | **9.6**, 698 mandatory CPU / zero skips, 428 unchanged hashes. Earlier 4,829-pass / 24-skip regression changed source mid-run and remains interim only. |
+| [Protocol clarification](artifacts/agent-episode-protocol-review-2026-09-20.json) | **9.7**, 710 mandatory CPU / zero skips, 428 unchanged hashes. |
+| [Native renderer](artifacts/agent-episode-native-review-2026-09-20.json) | **9.6**, 715 mandatory CPU / zero skips, 429 unchanged hashes. Source `2915b65` passed [CI 328](artifacts/agent-episode-ci-328-2026-09-20.json): 20/20 latest jobs after one same-source retry. Original 19-success/one 30-second ownership-timeout result remains retained, cause undetermined; no source or bound changed. |
+| [Action-JSON profile](artifacts/agent-episode-action-review-2026-09-20.json) | **9.6**, 760 mandatory CPU / zero skips, 433 unchanged hashes. Public `da526eb` passed [CI 329](artifacts/agent-episode-ci-329-2026-09-20.json) **20/20**, CPU 760 / zero skips with 370 matching hashes. A later [cleanup blocker](artifacts/agent-episode-worker-cleanup-blocker-review-2026-09-20.json) rejects that source's completion state at **9.2** despite passing CI. |
+| Integrated candidate | Scoped [cleanup repair](artifacts/agent-episode-worker-cleanup-review-2026-09-20.json) **9.6** and [grounding revision](artifacts/agent-episode-grounding-review-2026-09-20.json) **9.7**, integrated after attempt 4 and both replays completed. [Combined final validation](artifacts/agent-episode-grounding-cleanup-validation-2026-09-20.json): **774 mandatory passes / zero skips**, 20 modules, 433 unchanged source hashes, both strict Ruff scopes and maintained mypy passing. Combined final review accepted **9.6/10 with no source blockers**; publication, new-source CI and attempt 5 remain required. |
+
+The [live qualification record](agent-episode-live-qualification-2026-09-20.md)
+retains every pre-generation declaration, raw campaign, independent replay and
+failure-inclusive cost. All campaigns used the same pinned trained
+Qwen2.5-1.5B-Instruct revision and fixed nine-task/eight-intent corpus; changes to
+renderer, explicit grammar profile and shared policy were separately declared.
+An initial declaration with an inconsistent dependency inventory was rejected
+before any corpus generation and remains retained.
+
+| Trained attempt | Actual result and qualification |
+| --- | --- |
+| 1 | Nine invalid actions; no measurable intents; 13 completed model calls, four retrieves, **4,411 tokens**. Rejected. |
+| 2 | Seven measurable finals across six intents; four task successes, two invalid actions and three typed-value failures; 18 model calls, nine retrieves, **10,688 tokens**. Missing supersession/near-duplicate coverage; **8.5/10 rejected**. |
+| 3 | Two measurable finals/two intents, one task success, six invalid actions, one timeout; 16 completed model calls, eight retrieves, **10,192 known tokens**. Exact totals and one task's usage/effects unknown; **7.0/10 rejected**. |
+| 4 | Eight measurable finals, but only six intents had both retrieval and a measurable final; two task successes and one timeout. Missing model-owned supersession, retrieval/feedback and complete usage evidence; **13,362 known tokens**, exact totals unknown; **8.0/10 rejected**. |
+
+The cleanup repair makes the surviving supervisor own and reclaim worker temporary
+snapshot copies, including read-only copies after child termination; cleanup
+failure remains visible. This is current runtime scope, distinct from deferred
+supervisor-death replay. The grounding revision removes fictitious query/value/ID
+examples and clarifies public tool and final-versus-mutation semantics. Neither
+repair changes the trained model, parser, task truth, acceptance gates or bounds.
+The next campaign requires its own reviewed freeze after combined acceptance.
 
 | Tracking tab | Current evidence or obligation |
 | --- | --- |
-| Completed | Milestones 1–6; milestone 6 source `6647a0d`, independent 9.6/10, CI 324 all 20 jobs passing and 96 retained histories independently verified twice. Historical reviews and qualification records remain unchanged. |
-| Reused for milestone 7 | Existing eight-scenario adversarial intent, lifecycle and scope regressions, admitted receipt APIs, outcome reducer and exact-input/tokenizer companion. These establish deterministic behavior and plumbing, not live-agent outcomes. |
-| Accepted source, serial gate 20 | Independent **9.6/10**: eight bounded semantic scenarios, six gateway tools with task allowlists, model-owned supersession with independent receipt/state verification, supervised execution and failure-inclusive artifacts. Scripted execution is `test_injected`; lexical fixture ranking is `synthetic_fixture`. Publication and source-pinned CI remain pending at this snapshot. |
-| Remaining milestone 7 gate | Publish the accepted source and verify exact-source CI, then separately review a provenance-bound compatible trained snapshot, freeze campaign identities/bounds/thresholds, run genuine model-driven episodes covering all eight intents, and retain independently verified failure-inclusive artifacts. Source acceptance and live qualification remain separate. |
-| Later first-release gates | Milestone 8 fair held-out baseline comparison; milestone 9 recurring 1k/10k lanes and the 100k live campaign; milestone 10 durable replay/export/retention; milestone 11 final release qualification. Two broader milestones remain deferred. |
+| Completed | Milestones 1–6; milestone 5 reconciliation and milestone 6 source `6647a0d` / CI 324 / 96 independently verified histories remain unchanged. |
+| Active milestone 7 work | Publish the validated repaired source accepted at 9.6/10 with the retained histories, and run exact-source CI plus frozen attempt 5. All prior failures and unknown measurements remain retained. |
+| Later first-release gates | Milestone 8 fair held-out baseline comparison; milestone 9 recurring 1k/10k and 100k live campaign; milestone 10 durable replay/export/retention; milestone 11 release qualification. Two broader milestones remain deferred. |
 
-Live qualification requires a pinned **trained execution model**. The current
-exact-input companion admits local GPT-2/CPU/float32 with fixed JSON framing;
-no suitable trained snapshot is yet present in the workspace. A pinned
-[tokenizer-only preflight](artifacts/agent-episode-model-preflight-2026-09-20.json)
-retains historical first requests, a separately attributed planned prior-context
-follow-up, a default-bound supersession-path overflow and a tighter-bound planned
-path. It executes no trained model; actual generated history still requires
-runtime budget admission.
-Random tiny fixtures establish plumbing only. Missing model evidence keeps milestone 7 open even if the bounded
-source implementation passes review. The frozen source scope retains that
-consumer. Synthetic lexical fixture ranking and scheduled receipted peer writes do not qualify production retrieval
-quality or live multi-agent concurrency.
+The [working record](live-agent-outcomes-2026-09-20.md), [Qwen companion](qwen-model-input-v1.md)
+and [action profile](qwen-agent-action-v1.md) retain bounded contracts and evidence.
+Lexical ranking remains `synthetic_fixture`; scheduled peer writes do not qualify
+live multi-agent concurrency. Task failures stay failures. Harness qualification
+will not imply a baseline advantage, long-horizon quality or production readiness.
+Subsequent exact-source outcomes are tracked in [PR #118](https://github.com/mmckeen-nv/DML/pull/118),
+which remains open and unmerged; immutable reviews are not rewritten.
 
 ### Numbering legend
 
@@ -177,7 +196,7 @@ contains the completed serial-gate index.
 | 4 | Qualify crash recovery and supported filesystems | Closed: serial gate 18, 9.6/10; source `3763303`, CI 320 all 17 jobs passed; six measured environments and 15 real ENOSPC cases verified | Finish the supported-profile mutation/component inventory and deterministic plus seeded fault matrix; account for acknowledged, rejected and uncertain operations on restart; qualify the advertised filesystem/platform failure guarantees and publish a tested recovery runbook. Keep process-kill and power-loss evidence distinct. | 3, 9 |
 | 5 | Complete persisted-format and migration coverage | Closed by reconciliation on 2026-09-19: previously accepted foundations and serial gates 3, 8 and 18; mapping above | Inventory every persisted family admitted by the supported profile; enforce supported versions and compatibility; pass source-version, future-version, interrupted migration, export and restore cases using accurately labeled release or commit-pinned fixtures. Document excluded families and rollback limitations. | 3, 8 |
 | 6 | Qualify mixed-operation concurrency | Closed: serial gate 19, **9.6/10**, source `6647a0d`, **CI 324 all 20 jobs passed**, 48/24/24 platform histories independently verified twice. [Qualification evidence](artifacts/profile-concurrency-qualification-2026-09-19.json) | Exercise supported reads, writes, lifecycle operations and journal checkpoint/recovery behavior through threads, processes and HTTP/provider callers at 1/16/64/256-client levels with an independent history checker. Show zero lost updates, dirty reads, deadlocks or scope leakage in the qualified histories and satisfy the predeclared cancellation, timeout, finite progress and OS ownership-wait requirements. | 3, 9 |
-| 7 | Wire the live-agent semantic and outcome harness | **IN PROGRESS**: serial source gate 20 accepted **9.6/10**; 529 focused passes with zero skips and 4,667 full-suite passes / 24 declared skips (overlapping selections); publication/CI were pending at reviewed-source freeze (subsequent results in PR #118); trained-model live qualification remains open | Run pinned tool-driven agent episodes with task verifiers, raw events and failure-inclusive cost/quality metrics; cover the adversarial semantic cases and incorrect-retrieval feedback loops. Distinguish live outcomes from deterministic state checks and offline retrieval smoke. | 4, 6 |
+| 7 | Wire the live-agent semantic and outcome harness | **IN PROGRESS**: four trained campaigns rejected; public `da526eb` passed CI 329 but retains a 9.2 cleanup blocker. Integrated repairs passed 774 mandatory tests / zero skips with 433 unchanged hashes; combined review accepted 9.6/10 with no blockers; publication, new-source CI and frozen attempt 5 remain required | Run pinned tool-driven agent episodes with task verifiers, raw events and failure-inclusive cost/quality metrics; cover the adversarial semantic cases and incorrect-retrieval feedback loops. Distinguish live outcomes from deterministic state checks and offline retrieval smoke. | 4, 6 |
 | 8 | Demonstrate fair baseline value | Independent durable baseline implemented; fair held-out live comparison pending | Freeze a fairness manifest and acceptance thresholds before held-out evaluation; compare no memory, the independent durable baseline and the supported DML profile with equal models, embeddings, budgets, tools and compaction. Meet the predeclared value, quality and latency gates with paired episodes and confidence intervals. | 5, 6 |
 | 9 | Run continuous 1k/10k lanes and the 100k campaign | Offline runner implemented; recurring live lanes and completed 100k campaign pending | Provision recurring 1k/10k live workload lanes and a completed 100k-turn release campaign with growing-store measurements, recovery checks, raw events, seeds, configuration/runtime identities and quality/latency distributions. Report turns and record counts separately; skips and offline simulations cannot close this milestone. | 3, 5, 6, 9 |
 | 10 | Deliver durable decision replay and audit export/retention | Durable mutation decisions and response traces implemented; complete durable replay/export/retention pending | Persist the supported profile's complete decision and context-replay inputs; reconstruct a deliberately bad answer across restart using retained source versions and pinned policies/renderers. Verify export behavior, access controls and bounded retention; state exactly when retention prevents reconstruction. | 10 |

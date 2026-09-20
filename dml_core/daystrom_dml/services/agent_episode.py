@@ -12,10 +12,14 @@ from dataclasses import asdict, dataclass
 import hashlib
 import math
 import multiprocessing
+import os
 from pathlib import Path
 from queue import Empty, Full, Queue
 import re
+import shutil
 import sqlite3
+import stat
+import tempfile
 from threading import Event, Thread
 import time
 import uuid
@@ -499,6 +503,43 @@ def _interrupt_pending(events, *, status):
     return True
 
 
+def _worker_entry(worker_target, connection, config, scratch_directory):
+    """Confine temporary model copies to scratch owned by the surviving parent."""
+    tempfile.tempdir = scratch_directory
+    for name in ("TMPDIR", "TEMP", "TMP"):
+        os.environ[name] = scratch_directory
+    worker_target(connection, config)
+
+
+def _remove_worker_scratch(directory, identity):
+    """Remove only this worker's directory, including read-only verified copies."""
+    directory = Path(directory)
+    current = directory.lstat()
+    if not stat.S_ISDIR(current.st_mode) or (current.st_dev, current.st_ino) != identity:
+        raise OSError("Worker scratch ownership changed")
+    resolved_directory = directory.resolve()
+
+    def readonly(function, name, error):
+        if not isinstance(error[1], PermissionError):
+            raise error[1]
+        path = Path(name)
+        # Never follow a link while relaxing a private copy's permissions.
+        if path.is_symlink() or not path.resolve().is_relative_to(resolved_directory):
+            raise error[1]
+        if path != directory:
+            path.parent.chmod(0o700)
+        path.chmod(0o700 if path.is_dir() else 0o600)
+        if function in (os.scandir, os.open):
+            shutil.rmtree(path, onerror=readonly)
+        else:
+            function(name)
+
+    directory.chmod(0o700)
+    shutil.rmtree(directory, onerror=readonly)
+    if directory.exists():
+        raise OSError("Worker scratch cleanup incomplete")
+
+
 def _supervise(config, *, worker_target=_worker):
     """Parent owns the deadline and ACKs only fully validated bounded frames."""
     limits = EpisodeLimits(**config["limits"])
@@ -506,17 +547,21 @@ def _supervise(config, *, worker_target=_worker):
     deadline = start + limits.wall_time_seconds
     context = multiprocessing.get_context("spawn")
     parent, child = context.Pipe(duplex=True)
-    process = context.Process(target=worker_target, args=(child, config), daemon=True)
+    process = None
+    scratch_directory = scratch_identity = None
     events, prepared = [], {"seed_receipts": [], "seed_records": {}, "setup_records": []}
     outcome = {"status": "runner_error", "answer": None, "retrieval_ms": None}
     completed = False
     queue = Queue(maxsize=1)
     stop = Event()
     reader = None
-    started = False
     try:
+        scratch_directory = tempfile.mkdtemp(prefix="dml-episode-worker-")
+        scratch_stat = Path(scratch_directory).lstat()
+        scratch_identity = (scratch_stat.st_dev, scratch_stat.st_ino)
+        process = context.Process(target=_worker_entry,
+            args=(worker_target, child, config, scratch_directory), daemon=True)
         process.start()
-        started = True
         child.close()
         reader = Thread(target=_read_frames, args=(parent, queue, limits.max_event_bytes, stop),
                         name="dml-episode-frame-reader", daemon=True)
@@ -584,17 +629,26 @@ def _supervise(config, *, worker_target=_worker):
     except (ValueError, TypeError, KeyError, OSError, EOFError, RuntimeError, AgentEpisodeError):
         outcome = {"status": "runner_error", "answer": None, "retrieval_ms": None}
     finally:
-        if started and process.is_alive():
-            if completed:
-                process.join(timeout=min(0.1, max(0, deadline - time.monotonic())))
-            if process.is_alive():
-                process.terminate()
-                process.join(timeout=0.2)
-            if process.is_alive():
-                process.kill()
-                process.join(timeout=0.2)
-        elif started:
-            process.join(timeout=0)
+        stopped = process is None or process.pid is None
+        try:
+            if not stopped:
+                if completed:
+                    process.join(timeout=min(0.1, max(0, deadline - time.monotonic())))
+                if process.is_alive():
+                    process.terminate()
+                    process.join(timeout=0.2)
+                if process.is_alive():
+                    process.kill()
+                    process.join(timeout=0.2)
+                process.join(timeout=0)
+                stopped = not process.is_alive() and process.exitcode is not None
+            if not stopped:
+                raise OSError("Worker termination could not be confirmed")
+            if scratch_directory is not None:
+                _remove_worker_scratch(scratch_directory, scratch_identity)
+        except (OSError, ValueError, RuntimeError):
+            outcome = {"status": "runner_error", "answer": None, "retrieval_ms": None}
+            completed = False
         child.close()
         stop.set()
         parent.close()

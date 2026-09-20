@@ -82,6 +82,7 @@ def schema_bytes(tools):
 def policy_identity():
     return {"profile": GRAMMAR_PROFILE, "runtime_versions": check_grammar_runtime(),
             "public_schema_sha256": hashlib.sha256(schema_bytes(episode_tool_definitions())).hexdigest(),
+            "public_tools_sha256": hashlib.sha256(canonical_json(episode_tool_definitions())).hexdigest(),
             "object_order": "declared", "strict_mode": True, "any_order": False,
             "any_whitespace": True, "max_whitespace_cnt": None,
             "cache_enabled": False, "compiler_threads": 1, "mask_backend": "cpu",

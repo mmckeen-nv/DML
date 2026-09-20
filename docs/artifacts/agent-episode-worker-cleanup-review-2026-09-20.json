@@ -1,0 +1,78 @@
+{
+  "base_source_commit": "da526eb58d7556c455b2b534f9261cc68f74becf",
+  "base_source_tree": "57e7fda56cb2dbb2aef5b0a265367dd20da39a7b",
+  "decision": "accepted_scoped_source_repair",
+  "findings": [
+    "The parent creates one private scratch directory and records its filesystem identity before spawning each worker. The spawn entry redirects tempfile and TMPDIR/TEMP/TMP only in that child, confining both GPT-2 and Qwen verified copies without changing public consumer APIs, snapshot bytes or persistent authority.",
+    "Successful completion, startup failure, killed child, timeout and malformed worker transport all reach cleanup. Child termination must be confirmed by process liveness and exit status before reclamation. No global temporary-directory search or unrelated path deletion is introduced.",
+    "Cleanup verifies root directory type/device/inode, handles sealed readonly artifacts, rejects changed ownership, and refuses symlink escapes. Comparing resolved child paths to a resolved admitted root also supports system temporary parents that are themselves symlink aliases.",
+    "Cleanup failure or unconfirmed death prevents a successful outcome and becomes runner_error. Observed event bodies and known token subtotals remain retained; unknown completion remains conservative. Scratch is retained when deletion cannot safely be attempted.",
+    "Tests exercise actual spawned GPT-2 and Qwen private-copy admission followed by SIGKILL, timeout and ordinary completion; they verify death before deletion, unchanged parent temp settings, source bytes and authority/evidence/sibling sentinels.",
+    "Additional controls cover process-start failure, explicit PermissionError recovery, external symlink targets, changed root ownership, cleanup refusal and uncertain child death. No tiny-fixture test claims pretrained task quality."
+  ],
+  "historical_evidence_mutated": false,
+  "limitations": [
+    "Whole-parent death can still leave scratch and remains a separately documented recovery obligation.",
+    "The cleanup protocol assumes the surviving supervisor controls its worker; it is not a general sandbox against arbitrary same-user concurrent filesystem attackers."
+  ],
+  "milestone_7_closed": false,
+  "minimum_acceptable_score": 9.5,
+  "production_ready": false,
+  "recorded_at_utc": "2026-09-20T14:37:21.856503+00:00",
+  "remaining_requirements": [
+    "Integrate only after the frozen attempt-4 campaign and both sequential independent replays finish; preserve original source and evidence identities.",
+    "Validate the combined final source with the full mandatory lane and required published CI.",
+    "Freeze a fresh complete nine-task campaign after all reviewed changes. Attempt 4 already lacks the predeclared model-owned supersession gate; no historical run is retagged as repaired code."
+  ],
+  "resolved_blocker": {
+    "path": "docs/artifacts/agent-episode-worker-cleanup-blocker-review-2026-09-20.json",
+    "sha256": "f9208ec744d2a7f6f1272ff083972ec4051740a4efdebc16bec2709bcbeb9e59"
+  },
+  "reviewed_files_sha256": {
+    "dml_core/daystrom_dml/services/agent_episode.py": "65e8fc06a95e827a48e667da7abc0181d162e4d371b2764fd4912417c1668c69",
+    "dml_core/tests/test_agent_episode_adversarial.py": "4ab4f44fce8837826154e109fbc44f44f5082fabeacbca8159846033bf8c457d",
+    "dml_core/tests/test_agent_episode_runtime.py": "0f6c2d467553d394538217b024a144a5dca8e86a5106518379150be6d12d04a4"
+  },
+  "reviewer": "independent delegated m7_final_grader",
+  "schema_version": "dml-independent-worker-cleanup-repair-review-v1",
+  "score": 9.6,
+  "source_blockers": [],
+  "trained_live_qualified": false,
+  "validation": {
+    "builder_final_alias_controls": {
+      "errors": 0,
+      "failures": 0,
+      "sha256": "044d2aa2407346a2284b1843163e919c20ff0cccc57d455c7612c28bbf4fda1b",
+      "skipped": 0,
+      "tests": 3
+    },
+    "builder_focused_before_final_alias_fix": {
+      "errors": 0,
+      "failures": 0,
+      "sha256": "eff0d5d2c5b6eef9b23c369d905e358460569b5ec40e6c2bbd3f5b1a5f5f3fbe",
+      "skipped": 0,
+      "tests": 241
+    },
+    "builder_static_checks": "Strict Ruff and git diff --check passed.",
+    "independent_final_alias_controls": {
+      "errors": 0,
+      "failures": 0,
+      "sha256": "b290244585030a1f2e760273e1a8ffe62ebc8bb613c4d7707212202b0ed52584",
+      "skipped": 0,
+      "tests": 3
+    },
+    "independent_real_copy_and_failure_controls": {
+      "errors": 0,
+      "failures": 0,
+      "sha256": "03650efa61b2620765a2f558200447fad86cb05fcf4be36625375c60013f7825",
+      "skipped": 0,
+      "tests": 13
+    },
+    "source_timing_boundary": "The 241-case builder focus and 13-case independent run precede the final resolved-root containment fix; only the affected three cleanup/alias controls were rerun independently after that fix. Full final integrated mandatory validation remains required. Counts overlap and must not be added as unique tests.",
+    "unprivileged_probe": {
+      "executed_cleanup": false,
+      "reason": "Managed UID namespace rejected setgroups/setgid/setuid. No unprivileged execution is claimed. Explicit PermissionError injection exercised the callback locally; ordinary-user CI remains required.",
+      "receipt_sha256": "f319e210ce128bad6c1f1db303bf818d0b1e6023b17ef09f91acf81aa04260ea"
+    }
+  }
+}

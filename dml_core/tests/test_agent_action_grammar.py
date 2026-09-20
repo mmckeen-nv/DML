@@ -182,6 +182,29 @@ def test_mutated_public_schema_and_duplicate_tools_are_not_silently_narrowed():
             action_schema(invalid)
 
 
+def test_description_only_revision_changes_runtime_identity_without_changing_grammar(monkeypatch):
+    from daystrom_dml.contracts.model_input import ModelInputIdentity
+    from daystrom_dml.services import agent_action_grammar as module
+    from daystrom_dml.services.qwen_action_input import constrained_identity
+
+    tools = episode_tool_definitions()
+    original = module.policy_identity()
+    base = ModelInputIdentity("1" * 64, "2" * 64, "3" * 64, "test-base-runtime", 4096)
+    identity = constrained_identity(base)
+    changed = deepcopy(tools)
+    changed[0]["function"]["description"] += " Changed interface wording."
+    monkeypatch.setattr(module, "episode_tool_definitions", lambda: deepcopy(changed))
+    revised = module.policy_identity()
+    assert revised["public_schema_sha256"] == original["public_schema_sha256"]
+    assert revised["public_tools_sha256"] != original["public_tools_sha256"]
+    assert constrained_identity(base).runtime_identity != identity.runtime_identity
+    for old in (tools, [{"type": tool["type"], "function": {
+            key: value for key, value in tool["function"].items() if key != "description"}}
+            for tool in tools]):
+        with pytest.raises(ModelInputError, match="exact public tool schemas"):
+            action_schema(old)
+
+
 def test_policy_guidance_is_generic_and_does_not_relax_parser():
     assert "Repeating an identical retrieval against unchanged memory adds no evidence" in AGENT_POLICY
     assert "When the task explicitly requests a lifecycle operation" in AGENT_POLICY

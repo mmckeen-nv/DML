@@ -1,6 +1,13 @@
 """Focused producer evidence, exact dispatch, budgets and real-consumer plumbing."""
 from copy import deepcopy
 from dataclasses import replace
+import json
+import multiprocessing
+import os
+from pathlib import Path
+import signal
+import tempfile
+import time
 from types import SimpleNamespace
 
 import pytest
@@ -329,3 +336,141 @@ def test_default_profile_does_not_infer_qwen_from_snapshot(tmp_path):
     assert report["terminal"]["status"] == "runner_error"
     assert not any(event["kind"] in ("model_requested", "model_completed") for event in report["events"])
     assert report["live_qualified"] is False
+
+
+def _copy_snapshot_worker(connection, config):
+    """Real snapshot admission, then a controlled worker exit; no learned quality."""
+    from daystrom_dml.services.agent_episode import _run_loop
+    from daystrom_dml.contracts.agent_episode import make_event
+    from daystrom_dml.services.model_input_snapshot import verify_local_snapshot
+    from daystrom_dml.services.qwen_model_snapshot import verify_qwen_snapshot
+
+    verify = verify_local_snapshot if config["consumer_profile"] == "gpt2-v1" else verify_qwen_snapshot
+    snapshot = verify(config["snapshot_directory"])
+    snapshot.validate_integrity()
+    if config["exit_mode"] == "timeout":
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
+    Path(config["marker"]).write_text(json.dumps({
+        "scratch": tempfile.gettempdir(), "private_copy": str(snapshot.path), "pid": os.getpid(),
+        "environment": {name: os.environ[name] for name in ("TMPDIR", "TEMP", "TMP")},
+    }), encoding="utf-8")
+    if config["exit_mode"] == "killed":
+        if hasattr(signal, "SIGKILL"):
+            os.kill(os.getpid(), signal.SIGKILL)
+        os._exit(73)
+    if config["exit_mode"] == "timeout":
+        while True:
+            time.sleep(1)
+    sequence = 1
+
+    def send(value):
+        connection.send_bytes(canonical_json(value))
+        assert connection.recv_bytes(128) == b"ack"
+
+    def emit(kind, call_id, payload):
+        nonlocal sequence
+        send({"kind": "event", "event": make_event(episode_id=config["episode_id"],
+            task_id=config["task"]["id"], sequence=sequence, kind=kind, call_id=call_id, payload=payload)})
+        sequence += 1
+
+    send({"kind": "prepared", "prepared": config["prepared"]})
+    outcome = _run_loop(ScriptedConsumer([final({"claims": []})]), SimpleNamespace(allowed_tools=("retrieve",)),
+        task=config["task"], limits=EpisodeLimits(**config["limits"]), emit=emit)
+    snapshot.close()
+    send({"kind": "finished", "outcome": outcome})
+    connection.close()
+
+
+@pytest.fixture(params=["gpt2-v1", "qwen2-instruct-v1"])
+def cleanup_config(tmp_path, request):
+    from model_input_fixture import create_snapshot
+    from qwen_model_input_fixture import create_qwen_snapshot
+    from test_agent_episode_adversarial import _supervisor_config
+
+    create = create_snapshot if request.param == "gpt2-v1" else create_qwen_snapshot
+    snapshot = create(tmp_path / "source", context_window=4096)
+    config = _supervisor_config(tmp_path, seconds=10)
+    config.update(snapshot_directory=str(snapshot.path), consumer_profile=request.param,
+                  marker=str(tmp_path / "copy-admitted.json"))
+    adapter, config["prepared"] = _prepare_fixture(
+        config["authority_directory"], config["scenario"], config["episode_id"])
+    adapter.close()
+    return config
+
+
+@pytest.mark.parametrize("exit_mode", ["timeout", "killed", "finished"])
+def test_parent_reclaims_only_owned_scratch_after_real_snapshot_worker_exit(
+        tmp_path, monkeypatch, cleanup_config, exit_mode):
+    from daystrom_dml.services import agent_episode
+
+    config = {**cleanup_config, "exit_mode": exit_mode}
+    parent_tempdir = tempfile.tempdir
+    parent_environment = {name: os.environ.get(name) for name in ("TMPDIR", "TEMP", "TMP")}
+    preserved = []
+    for directory in (tmp_path / "shared-snapshot", Path(config["authority_directory"]),
+                      tmp_path / "evidence", tmp_path / "other-worker"):
+        directory.mkdir(exist_ok=True)
+        sentinel = directory / "sentinel"
+        sentinel.write_bytes(directory.name.encode())
+        preserved.append((sentinel, sentinel.read_bytes()))
+    source = Path(config["snapshot_directory"])
+    original = {path.name: path.read_bytes() for path in source.iterdir()}
+    remove = agent_episode._remove_worker_scratch
+    removed = []
+
+    def after_confirmed_exit(directory, identity):
+        marker = json.loads(Path(config["marker"]).read_text(encoding="utf-8"))
+        assert not any(child.pid == marker["pid"] for child in multiprocessing.active_children())
+        assert Path(directory) == Path(marker["scratch"])
+        assert Path(marker["private_copy"]).parent == Path(directory)
+        assert set(marker["environment"].values()) == {directory}
+        if exit_mode != "finished":
+            assert Path(marker["private_copy"]).is_dir()
+            assert (Path(marker["private_copy"]) / "model.safetensors").read_bytes() == original["model.safetensors"]
+        remove(directory, identity)
+        removed.append(directory)
+
+    monkeypatch.setattr(agent_episode, "_remove_worker_scratch", after_confirmed_exit)
+    report = agent_episode._supervise(config, worker_target=_copy_snapshot_worker)
+    assert report["terminal"]["status"] == {"timeout": "timeout", "killed": "killed", "finished": "completed"}[exit_mode]
+    assert report["live_qualified"] is report["terminal"]["success"] is False
+    assert len(removed) == 1 and not Path(removed[0]).exists()
+    assert tempfile.tempdir == parent_tempdir
+    assert {name: os.environ.get(name) for name in parent_environment} == parent_environment
+    assert {path.name: path.read_bytes() for path in source.iterdir()} == original
+    assert all(path.read_bytes() == payload for path, payload in preserved)
+    validate_episode_events(report["events"])
+
+
+@pytest.mark.parametrize("failure", ["cleanup", "termination"])
+def test_supervisor_refuses_success_when_cleanup_or_death_is_uncertain(
+        tmp_path, monkeypatch, cleanup_config, failure):
+    from daystrom_dml.services import agent_episode
+    from multiprocessing.process import BaseProcess
+
+    config = {**cleanup_config, "exit_mode": "finished"}
+    remove = agent_episode._remove_worker_scratch
+    attempted = []
+
+    def cannot_remove(directory, identity):
+        attempted.append(directory)
+        raise PermissionError("Injected cleanup refusal")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(agent_episode, "_remove_worker_scratch", cannot_remove)
+        if failure == "termination":
+            patch.setattr(BaseProcess, "is_alive", lambda self: True)
+        report = agent_episode._supervise(config, worker_target=_copy_snapshot_worker)
+    marker = json.loads(Path(config["marker"]).read_text(encoding="utf-8"))
+    scratch = Path(marker["scratch"])
+    try:
+        assert report["terminal"]["status"] == "runner_error"
+        assert report["terminal"]["success"] is False
+        assert any(event["kind"] == "model_completed" for event in report["events"])
+        assert scratch.is_dir()
+        assert bool(attempted) is (failure == "cleanup")
+        assert not any(child.pid == marker["pid"] for child in multiprocessing.active_children())
+        validate_episode_events(report["events"])
+    finally:
+        identity = scratch.lstat()
+        remove(scratch, (identity.st_dev, identity.st_ino))

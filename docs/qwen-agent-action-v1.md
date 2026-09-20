@@ -3,11 +3,13 @@
 This candidate extends the [Qwen exact-input companion](qwen-model-input-v1.md)
 with an explicit **`qwen2-action-json-v1`** profile for the bounded
 [milestone 7 harness](live-agent-outcomes-2026-09-20.md). At this documentation
-freeze, its bounded source received independent **9.6/10** acceptance. Final
-mandatory validation passed **760 tests with zero failures, errors or skips**
-across **20 modules**, with **433 unchanged source hashes**. Strict Ruff and
-maintained mypy over **78 files** passed. Published-source CI for this revision
-and genuine trained-model campaign acceptance remain pending. This continues
+freeze, its original bounded source received independent **9.6/10** acceptance
+and passed CI 329. A subsequently discovered worker-cleanup blocker rejected
+that public source's completion state at 9.2/10. The scoped cleanup (**9.6/10**)
+and grounding (**9.7/10**) repairs are now integrated; final mandatory validation
+passed **774 tests with zero failures, errors or skips** across **20 modules**,
+with **433 unchanged source hashes**. Both strict Ruff scopes and maintained mypy
+passed. The [combined final review](artifacts/agent-episode-grounding-cleanup-review-2026-09-20.json) accepted **9.6/10 with no source blockers**. Publication/CI for the repaired source and genuine trained-model campaign acceptance remain required. This continues
 serial source gate 20; milestone 7 remains open and `production_ready` is false.
 
 `daystrom_dml.services.qwen_action_input.LocalQwenActionInputConsumer` exposes
@@ -16,9 +18,12 @@ selects it explicitly with `--consumer-profile qwen2-action-json-v1`. The defaul
 remains `gpt2-v1`; generic `gpt2-v1` and `qwen2-instruct-v1` generation and the strict
 action parser remain unchanged. Unknown profiles reject instead of falling back.
 
-The same candidate also clarifies the shared harness `AGENT_POLICY`: retrieve
+The current candidate also clarifies the shared harness `AGENT_POLICY`: retrieve
 all task-required records, avoid identical read loops, and complete explicitly
-requested lifecycle actions before claiming completion. Thus the shared harness
+requested lifecycle actions before claiming completion. It removes fictitious
+query/value/citation-ID examples and distinguishes producing a final answer from
+performing a requested mutation. Public tool descriptions receive the same generic
+clarification; no task-specific expected value or forced action sequence is added. Thus the shared harness
 prompt changes even though generic consumers' generation paths and the parser
 remain unchanged. The next campaign must declare both policy and grammar changes;
 any difference in its result cannot be attributed to grammar alone.
@@ -49,7 +54,9 @@ The action consumer verifies the same five-file Qwen snapshot, model weights,
 configuration, tokenizer and native v2 template as the generic Qwen consumer.
 It retains CPU/float32, eager attention and greedy decoding. Its additional
 runtime identity, `dml-qwen-action-runtime-v1`, binds the base runtime identity,
-exact grammar versions, public action-schema digest, declared key-order policy,
+exact grammar versions, the public action-schema digest and a separate
+`public_tools_sha256` over the complete public tool definitions (including their
+descriptions), declared key-order policy,
 stop/special-token policy, compiler settings, request capacity and prohibition
 on post-generation repair. Runtime policy drift rejects execution.
 
@@ -122,6 +129,23 @@ JSON; no output is repaired, stripped of fences or substituted after generation.
 Execution failure or interruption retains its observed or unknown accounting
 through the existing episode contract.
 
+## Supervised temporary-file ownership
+
+The Linux/CPU episode supervisor now creates a private directory for each worker,
+records its device/inode identity and redirects child temporary files into it.
+After confirming worker termination, the surviving parent removes that owned
+tree, including read-only private model copies left by a killed child. Permission
+recovery rejects links and paths outside the resolved owned root. Failure to
+confirm termination or reclaim the tree becomes a visible `runner_error`; it
+cannot be reported as successful cleanup. User-supplied model bundles and memory
+authority are outside that temporary tree.
+
+This repairs the observed surviving-supervisor leak. It does not claim automatic
+reclamation or durable event reconstruction after the supervisor itself dies.
+The episode child deadline still excludes subsequent cleanup and publication;
+the contract does not invent a constant-time filesystem deletion bound. Broader
+platform cleanup support requires separately demonstrated qualification.
+
 ## Replay and qualification
 
 Raw events retain the complete request, compiled identity and actual generated
@@ -138,8 +162,13 @@ has SHA-256 `5ddd1eaf58fdfdc5d423a7f7243912896ad227e4091ca5463879dbdc445ba032`.
 The [strict admission record](artifacts/agent-episode-qwen-action-admission-2026-09-20.json),
 SHA-256 `6a9f65a96bb79e907953c8ebb78c616a82b3a72cedc4100e66604c181e6f52a3`,
 records **zero generations** and does not qualify a semantic task.
-Published-source CI for this revision remains required; passing CI 328 covers its
-preceding native-renderer source only. A new pre-generation declaration
+Those records belong to the preceding action-profile source, which passed CI 329.
+The [combined repaired-source validation](artifacts/agent-episode-grounding-cleanup-validation-2026-09-20.json)
+and [433-file source manifest](artifacts/agent-episode-grounding-cleanup-source-2026-09-20.json)
+retain the current 774-case result. Scoped
+[cleanup](artifacts/agent-episode-worker-cleanup-review-2026-09-20.json) and
+[grounding](artifacts/agent-episode-grounding-review-2026-09-20.json) reviews are supplemented by [combined final review](artifacts/agent-episode-grounding-cleanup-review-2026-09-20.json) at **9.6/10 with no source blockers**. New-source CI and actual live acceptance remain required. A new
+pre-generation declaration
 must bind its runtime, source, trained snapshot, public corpus, limits and unchanged
 milestone acceptance gates before a genuine campaign. Prior failed campaigns
 remain retained with their original profiles and costs. Syntax constraints do not

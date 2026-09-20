@@ -1,5 +1,6 @@
 """Protocol and replay checks for the experimental episode boundary."""
 from copy import deepcopy
+import hashlib
 import json
 
 import pytest
@@ -115,17 +116,37 @@ def test_exact_final_action_accepts_record_zero_and_typed_values():
                                                   "answer": altered}))["answer"]["claims"][0]["value"]) is type(value)
 
 
-@pytest.mark.parametrize("label,kind", [
-    ("Tool-call syntax example: ", "tool"), ("Final-answer syntax example: ", "final"),
-], ids=["tool-envelope", "final-envelope"])
-def test_policy_examples_are_literal_complete_protocol_objects(label, kind):
-    # Validate the exact bytes shown to the model, without substituting
-    # pseudo-JSON placeholders or repairing the example by serialization.
-    shown = AGENT_POLICY.split(label, 1)[1]
-    value, end = json.JSONDecoder().raw_decode(shown)
-    admitted = parse_agent_action(shown[:end])
-    assert admitted == value
-    assert admitted["kind"] == kind
+def test_policy_supplies_protocol_fields_without_copyable_fabricated_actions():
+    # A literal action can become a false fact/citation even when described as
+    # an example. Instructions specify fields/types, without supplying answers.
+    for index, character in enumerate(AGENT_POLICY):
+        if character == "{":
+            with pytest.raises(json.JSONDecodeError):
+                json.JSONDecoder().raw_decode(AGENT_POLICY[index:])
+    for field in ("schema_version", "kind", "name", "arguments", "answer", "claims",
+                  "key", "value", "evidence_ids"):
+        assert field in AGENT_POLICY
+    assert '"dml-agent-action-v1"' in AGENT_POLICY
+    assert "native JSON type" in AGENT_POLICY
+    assert "A final answer is readout only" in AGENT_POLICY
+
+
+def test_tool_descriptions_preserve_argument_contract_and_bind_complete_request():
+    tools = episode_tool_definitions()
+    bare = deepcopy(tools)
+    for tool in bare:
+        description = tool["function"].pop("description")
+        assert type(description) is str and description.strip()
+    # Frozen pre-description schemas: this wording repair cannot relax fields,
+    # bounds, operation membership or their declared order.
+    assert hashlib.sha256(canonical_json(bare)).hexdigest() == (
+        "e66a74ef0d76889fcc8648d24af066371b578ce5fe15d3f20240314cec300727")
+    payload = {"messages": initial_messages("Read the requested memory"),
+               "tools": tools, "output_reserved_tokens": 16}
+    owned = ModelInputRequest.from_payload(payload)
+    tools[0]["function"]["description"] = "Changed public meaning"
+    assert owned.request_digest != ModelInputRequest.from_payload(payload).request_digest
+    assert owned.tools == episode_tool_definitions()
 
 
 @pytest.mark.parametrize("raw", [

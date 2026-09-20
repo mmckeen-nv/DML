@@ -93,8 +93,9 @@ identity; it does not alter GPT-2 decoding.
 
 Tiny random Qwen fixtures test admission, reversible full-field framing, token
 accounting, dispatch and adversarial rejection. The v2 rendering correction
-received independent **9.6/10** source acceptance after **715 mandatory CPU tests
-passed with zero failures or skips**, with all **429 source hashes unchanged**. They do not establish trained-model task outcomes.
+received independent **9.6/10** [source acceptance](artifacts/agent-episode-native-review-2026-09-20.json)
+after **715 mandatory CPU tests passed with zero failures or skips**, with all
+**429 source hashes unchanged** in the [validation record](artifacts/agent-episode-native-validation-2026-09-20.json). They do not establish trained-model task outcomes.
 The live campaign separately freezes trained weights, source, corpus, runtime,
 thread settings, limits, and acceptance gates before generation. Every attempted
 task and failure is retained. Independent verifiers measure semantic results;

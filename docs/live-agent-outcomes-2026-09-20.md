@@ -8,38 +8,32 @@ its unchanged **13 milestones: 11 first-release and 2 deferred**. Milestones
 candidate, and `production_ready` remains false. [PR #118](https://github.com/mmckeen-nv/DML/pull/118)
 remains open and unmerged.
 
-This bounded source work is **serial implementation gate 20**, independently
-accepted at **9.6/10 with no blocking findings**. The completed-source index now
-contains 20 serial gates plus the foundations tranche. Source publication and
-exact-source CI were pending at this reviewed-source freeze; subsequent exact
-publication and CI results are recorded in
-[PR #118](https://github.com/mmckeen-nv/DML/pull/118). The pending-at-freeze entries
-below do not assert the current state of a later run. Source acceptance does not
-close release milestone 7 without its separate trained-model campaign.
+This remains **serial implementation gate 20**. Final repaired source passed
+**774 mandatory CPU tests with zero failures, errors or skips**, across **20
+modules**, with **433 unchanged source hashes**. Both strict Ruff scopes and
+maintained mypy passed. Scoped cleanup and grounding repairs received **9.6/10**
+and **9.7/10**; the [combined final review](artifacts/agent-episode-grounding-cleanup-review-2026-09-20.json) accepts **9.6/10 with no source blockers**. **Attempt 5 is pending**
+its reviewed freeze, publication and exact-source CI. The
+[live qualification record](agent-episode-live-qualification-2026-09-20.md)
+retains the detailed chronology and immutable raw evidence.
 
-## Tracking at the reviewed-source freeze
-
-| State | Evidence or remaining work |
+| Tracking item | Current attribution |
 | --- | --- |
-| Completed before this stage | Milestones 1–6. Milestone 6 source `6647a0d` received independent 9.6/10 acceptance and passed all 20 jobs in [CI 324](https://github.com/mmckeen-nv/DML/actions/runs/35470900431); 96 retained histories were independently verified twice. Its frozen contract, raw qualification artifacts and historical review records are unchanged. |
-| Reused | Eight adversarial scenario intents; receipt/lifecycle, scope and provenance regressions; the existing outcome reducer; admitted receipt APIs; and the exact-input/tokenizer companion. Their established deterministic results remain credited to their original sources. |
-| Accepted source, serial gate 20 | Independent **9.6/10**, with no blocking findings: eight bounded semantic scenarios, six gateway tools with task allowlists, model-owned supersession checked independently, supervised execution, versioned raw events and failure-inclusive terminal outcomes. |
-| Focused source evidence | The final focused CPU selection passed **529 tests with no failures or skips in 18.87 seconds**, independently confirmed: 256 existing exact-input cases plus 273 new milestone 7 cases. Maintained static, hygiene and package checks passed. This is focused evidence, not source acceptance or live qualification. |
-| Publication/CI at source freeze | The first source iteration scored **9.2/10 and was rejected**; repaired source was accepted at **9.6/10** after **4,667 full-suite passes, 24 declared skips and zero failures/errors**. Publish that accepted source and verify exact-source CI. Source review, CI and trained live qualification are separate gates. |
-| Live qualification remaining | Freeze an available compatible trained model and all campaign identities before qualification; run actual model-generated tool episodes covering all eight intents; retain raw events and every terminal result, including failures. No qualified live campaign is recorded yet. |
-| Later scope | Milestone 8's fair held-out baseline comparison, milestone 9's recurring 1k/10k lanes and 100k live campaign, milestone 10's durable replay/export/retention, and milestone 11's release qualification remain separate. |
+| Earlier milestones | 1–6 remain closed, including milestone 5's reconciliation and milestone 6's source `6647a0d` / CI 324 qualification. |
+| Historical source work | Initial harness 9.6/529 CPU passes; protocol clarification 9.7/710; native renderer 9.6/715; action profile 9.6/760. Selections overlap. Every review retains its exact source. |
+| Latest public source | `da526eb58d7556c455b2b534f9261cc68f74becf` passed [CI 329](artifacts/agent-episode-ci-329-2026-09-20.json) 20/20, CPU 760 / zero skips and 370 matching source hashes. A later surviving-supervisor cleanup finding rejected its source completion state at 9.2. |
+| Repaired source | Parent-owned temporary snapshot cleanup and generic grounding/public-tool clarification integrated after the fourth campaign and both replays finished. [Final validation](artifacts/agent-episode-grounding-cleanup-validation-2026-09-20.json): 774 / zero skips, 433 unchanged hashes. Combined review accepted 9.6/10 with no blockers; publication and new-source CI remain required. |
+| Actual trained campaigns | All four completed and failed their unchanged gates. Attempt 1 had zero measurable intents; attempt 2 had four successes but failed supersession/coverage (8.5); attempt 3 had one success, six invalid actions and a timeout (7.0); attempt 4 had two successes, missing supersession/feedback and a timeout (8.0). All failed cost and unknown measurements remain retained. |
+| Active work | Publish source accepted at 9.6/10, run exact-source CI and a freshly frozen fifth campaign. No live qualification or milestone closure is claimed. |
+| Later work | Milestones 8–11 and two deferred gates retain their existing criteria. No new milestone is added. |
 
-The later milestone 6 documentation closure at source
-`a5fdf71677ccefa198f8a84bdb8722a66779c87a` passed **20/20 jobs** in
-[CI 325](https://github.com/mmckeen-nv/DML/actions/runs/35472033511).
-This documentation-head evidence does not replace immutable source `6647a0d` /
-CI 324 qualification and does not qualify new milestone 7 source.
-
-Source completion and live qualification are separate gates. A missing compatible
-trained model leaves milestone 7 open even if the source implementation and CI
-pass. Random model fixtures, scripted actions and offline retrieval checks must
-be labeled as plumbing or deterministic evidence; they cannot close live
-qualification.
+The [generic Qwen contract](qwen-model-input-v1.md) and
+[action-profile contract](qwen-agent-action-v1.md) preserve explicit identity,
+complete input framing, strict parsing, model-owned choices and failure-inclusive
+accounting. The cleanup finding concerns a surviving supervisor and therefore
+belongs to this milestone. Supervisor-death replay remains a separate boundary.
+The original 4,829-pass / 24-skip broad run changed source during execution and
+is retained as interim evidence only; it never qualified final source.
 
 ## Bounded scope and reused behavior
 
@@ -83,9 +77,12 @@ The implementation scope is frozen to the eight bounded scenarios above and a
 strict protocol with six gateway capabilities around current selected-profile
 receipt APIs: `retrieve`, `ingest`, `update`, `promote`, `supersede` and `retire`. A task allowlist restricts ordinary tasks to retrieval and the
 supersession task to retrieval plus supersession. The latter requires an actual
-model-owned supersession with an independent receipt/state check. The concrete runtime remains
-`LocalTransformersInputConsumer`; its model/tokenizer/template admission,
-CPU/float32 execution and fixed JSON framing remain in force.
+model-owned supersession with an independent receipt/state check. The initial concrete runtime is
+`LocalTransformersInputConsumer`, retained as the default `gpt2-v1` profile.
+The completion work adds explicit `qwen2-instruct-v1` selection through the
+separate [Qwen exact-input contract](qwen-model-input-v1.md), retaining strict
+model/tokenizer/template admission, CPU/float32 execution and complete framing.
+There is no automatic architecture probing or fallback.
 
 Scripted backends are explicitly `test_injected`. The private deterministic
 lexical embedder labels its ranking scope `synthetic_fixture`. Its task wiring
@@ -172,8 +169,10 @@ child wall limit is not a claimed end-to-end campaign latency ceiling.
 
 ## Running the bounded corpus
 
-The [CLI](../dml_core/scripts/agent_episodes.py) uses the concrete local consumer;
-it has no model download or injected-backend option. With an already admitted
+The [CLI](../dml_core/scripts/agent_episodes.py) uses an explicitly selected concrete
+local consumer; it has no model download or injected-backend option. The default
+is `--consumer-profile gpt2-v1`; a Qwen bundle requires
+`--consumer-profile qwen2-instruct-v1`. With an already admitted
 local snapshot and fresh output paths:
 
 ```sh
@@ -221,41 +220,43 @@ not claim the durable replay contract reserved for milestone 10.
 
 | Gate | Required evidence | Current status |
 | --- | --- | --- |
-| Model-driven execution | Actions and final output originate in recorded model generation using the admitted exact-input path. Pinned model, tokenizer/template, effective decoding settings, input/output bounds and runtime identities accompany the campaign. Fixture/scripted backends are explicitly distinguished. | Source accepted; trained model unresolved. |
+| Model-driven execution | Actions and final output originate in recorded model generation using the admitted exact-input path. Pinned model, tokenizer/template, effective decoding settings, input/output bounds and runtime identities accompany the campaign. Fixture/scripted backends are explicitly distinguished. | Source accepted; trained Qwen snapshot admitted and campaign frozen; corpus results require independent qualification. |
 | Bounded tool protocol | Validate model output against an explicit action grammar before dispatch. Reject malformed, unknown, extra or wrong-typed fields and disallowed actions without widening the caller's scope. Bound steps, attempts, output and elapsed work; terminate and account for protocol errors, model errors and exhaustion. | Source accepted at 9.6/10. |
-| Independent task verification | Cover all eight intents with task-specific pinned expectations. A separate verifier checks observed state, receipts, scope, provenance and final-output evidence as applicable; a claimed-success flag or producer-authored grade is insufficient. Adversarial tests must prove the verifier rejects intentionally wrong results. | Source accepted at 9.6/10; genuine live results pending. |
+| Independent task verification | Cover all eight intents with task-specific pinned expectations. A separate verifier checks observed state, receipts, scope, provenance and final-output evidence as applicable; a claimed-success flag or producer-authored grade is insufficient. Adversarial tests must prove the verifier rejects intentionally wrong results. | Source accepted at 9.6/10; attempt 1 produced no measurable final answers and failed qualification. |
 | Raw evidence and terminal completeness | Preserve ordered model/tool/task events, source/configuration identities and a terminal outcome for every attempted episode under a surviving supervisor. Failures, rejections, timeouts, limits and unavailable measurements remain visible. Corrupt, missing, duplicate or inconsistent evidence must not become a successful run. | Source accepted at 9.6/10. |
 | Failure-inclusive accounting | Charge measured input/output and maintenance cost from unsuccessful attempts to the campaign. Use verified successes as the completed-task denominator; zero successes yields an undefined per-completion cost. Missing quality denominators or cost measurements remain unavailable instead of invented zeroes. | Source accepted; existing reducer semantics preserved. |
 | Compatibility | Preserve the existing `dml-task-outcome-v1` consumer and its meaning. New raw and terminal schemas are explicitly versioned, and incompatible records fail closed. Existing deterministic/offline output retains its label. | Source accepted at 9.6/10. |
 | Independent source acceptance | Exercise valid and adversarial protocol/verification/accounting paths, preserve the admitted profile, pass maintained checks and obtain an independent score of at least 9.5/10. Record exact reviewed source and separately attribute later source changes. | Final **9.6/10 accepted**, no blocking findings; first 9.2/10 rejection and repairs retained. |
-| Published-source CI | Publish the reviewed bounded work to the existing PR without merging; retain source/tree identity, CI run, relevant job outcomes and raw artifact digests. Skipped or failed required lanes remain incomplete. | Pending at reviewed-source freeze; subsequent results tracked in PR #118. |
-| Genuine live qualification | Run the predeclared bounded campaign with the pinned compatible trained model and independent verifiers. Report complete success and failure results and measured quality/cost/latency, without treating a fixture or a model's own verdict as live success. | Pending; no compatible trained snapshot selected. |
+| Published-source CI | Publish the reviewed bounded work to the existing PR without merging; retain source/tree identity, CI run, relevant job outcomes and raw artifact digests. Skipped or failed required lanes remain incomplete. | Initial source passed CI 327; completion source `2915b65` has CI 328 20/20 latest jobs passing after one same-source retry; original ownership timeout retained. |
+| Genuine live qualification | Run the predeclared bounded campaign with the pinned compatible trained model and independent verifiers. Report complete success and failure results and measured quality/cost/latency, without treating a fixture or a model's own verdict as live success. | Both frozen Qwen campaigns completed and were rejected; native renderer source has separate 9.6/10 acceptance; attempt 3 completed without required coverage; independent final completion review **7.0/10: rejected**. |
 
-The source obligations have independent acceptance at 9.6/10. Published-source
-CI and genuine trained-model qualification remain incomplete. The source scope
-and versioned formats above are frozen. A separate live
-qualification manifest must fix the trained model, campaign bounds and acceptance
-thresholds before collecting live acceptance results. Source tests can establish
+Historical source obligations retain their independent reviews and passing CI.
+The current repaired revision requires its own final review, publication/CI and
+trained-model qualification. The corrected
+[pre-generation declaration](artifacts/agent-episode-live-spec-r2-2026-09-20.json)
+fixes model, source, bounds and acceptance criteria before collecting live results. Source tests can establish
 harness correctness without establishing trained-model semantic outcomes.
 Fairness/value claims, confidence-supported baseline advantage and long-horizon qualification belong to milestones 8 and 9.
 
-## Model qualification prerequisite
+## Model qualification: historical preflight and current prerequisite
 
-The existing [exact-input companion](model-input-contract-v1.md) currently
-admits a local GPT-2 model snapshot on CPU in float32 with fixed JSON framing.
-No suitable trained snapshot is presently available in the workspace. The
+The initial [exact-input companion](model-input-contract-v1.md) admits local
+GPT-2/CPU/float32 with fixed JSON framing. At the initial source freeze, no suitable
+trained snapshot was present. Its retained
 [tokenizer-only preflight](artifacts/agent-episode-model-preflight-2026-09-20.json)
-uses the real `openai-community/gpt2` tokenizer/configuration pinned at
-`607a30d783dfa663caf39e06633721c8d4cfcd7e`; it downloads no model weights and runs
-no trained model. The current source tranche does not build a model normalizer
-or acquire weights, and the strict consumer remains unchanged.
+uses `openai-community/gpt2` tokenizer/configuration revision
+`607a30d783dfa663caf39e06633721c8d4cfcd7e`; that artifact contains no trained
+execution. This is historical evidence, not the current acquisition status.
 
-A qualified campaign must identify real trained weights and their immutable
-source, prove compatibility with the selected execution path, and retain model,
-tokenizer/template and runtime identities with raw results. The existing tiny
-random fixture is useful for exact-input and harness plumbing checks only.
-The missing trained-model prerequisite must remain an explicit open item instead
-of being replaced with a synthetic success result.
+The completion work now retains both a pinned
+[GPT-2 normalization record](artifacts/agent-episode-gpt2-provenance-2026-09-20.json)
+and an instruction-trained
+[Qwen normalization record](artifacts/agent-episode-qwen-provenance-2026-09-20.json).
+The live campaign selects Qwen through its separate strict consumer; it does not
+weaken GPT-2 admission or use the random tiny fixture. Model provenance, actual
+admission, generic timing, the frozen campaign and its independent qualification
+are recorded separately in the
+[live qualification record](agent-episode-live-qualification-2026-09-20.md).
 
 The original retained preflight records nine scoped first requests fitting the
 1,024-token context window at the default 128-token output reservation, without
@@ -279,11 +280,12 @@ This is one bounded possible prompt path. It does not establish trained-model
 tool competence, actual task success, model loading cost, latency or universal
 framing incompatibility. Different generated history may have different costs.
 The 64-token case does not silently change the default 128-token runtime bound.
-The next live gate requires separately reviewed provenance-bound pretrained
-safetensors normalization, unchanged strict snapshot admission, and a
-predeclared campaign followed by actual model-generated tool episodes.
+The later completion work supplies separately reviewed provenance-bound
+normalization and a strict Qwen companion, with a predeclared actual campaign.
+The GPT-2 measurements above remain historical feasibility results and do not
+qualify the Qwen campaign.
 
-## Accepted local source validation
+## Initial accepted local source validation
 
 The mandatory focused CPU selection passed **529 tests, zero failures and zero
 skips, in 18.87 seconds**. The independent grader confirmed the exact JUnit
@@ -353,9 +355,10 @@ it was previously available only to the verifier. These repairs and unchanged
 source validation support the final **9.6/10 accepted source review**, with no
 blocking findings. The review retains the rejected iteration and source identity.
 
-Source publication and exact-source CI were pending at this source freeze;
-[PR #118](https://github.com/mmckeen-nv/DML/pull/118) records subsequent results
-with their exact source attribution. No trained-model live qualification artifact
-is recorded. Historical milestone 6 reviews,
-qualification manifests and retained histories are immutable and are not
-rewritten by this stage.
+Initial source publication and exact-source CI were pending at the original
+review freeze; the current tracking table above now records CI 327's passing
+initial-source result. The [live qualification record](agent-episode-live-qualification-2026-09-20.md)
+separately tracks completion-source validation and actual trained-model evidence.
+Subsequent results in [PR #118](https://github.com/mmckeen-nv/DML/pull/118) retain
+exact source attribution. Historical milestone 6 reviews, qualification manifests
+and retained histories are immutable and are not rewritten by this stage.

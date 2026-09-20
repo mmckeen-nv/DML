@@ -428,17 +428,81 @@ def test_supervisor_counts_and_terminates_stalled_startup(tmp_path):
 
 def test_process_creation_failure_still_produces_one_failed_terminal(tmp_path, monkeypatch):
     import multiprocessing.process
-    from daystrom_dml.services.agent_episode import _supervise
+    from daystrom_dml.services import agent_episode
+
+    removed = []
+    remove = agent_episode._remove_worker_scratch
+
+    def record_cleanup(directory, identity):
+        remove(directory, identity)
+        removed.append(directory)
 
     def cannot_start(process):
         raise OSError("Independent simulated process admission failure")
 
     monkeypatch.setattr(multiprocessing.process.BaseProcess, "start", cannot_start)
-    result = _supervise(_supervisor_config(tmp_path), worker_target=_silent_startup_worker)
+    monkeypatch.setattr(agent_episode, "_remove_worker_scratch", record_cleanup)
+    result = agent_episode._supervise(_supervisor_config(tmp_path), worker_target=_silent_startup_worker)
     assert result["terminal"]["status"] == "runner_error"
     assert result["terminal"]["success"] is False
     assert sum(event["kind"] == "terminal" for event in result["events"]) == 1
+    assert len(removed) == 1 and not Path(removed[0]).exists()
     validate_episode_events(result["events"])
+
+
+@pytest.mark.parametrize("symlink_parent", [False, True])
+def test_worker_scratch_cleanup_preserves_symlink_target_and_readonly_copy(tmp_path, monkeypatch, symlink_parent):
+    import os
+    from daystrom_dml.services.agent_episode import _remove_worker_scratch
+
+    owned = tmp_path / "owned"
+    copy = owned / "verified"
+    copy.mkdir(parents=True)
+    (copy / "weights").write_bytes(b"private-copy")
+    (copy / "weights").chmod(0o400)
+    copy.chmod(0o500)
+    outside = tmp_path / "unrelated-source"
+    outside.mkdir()
+    sentinel = outside / "weights"
+    sentinel.write_bytes(b"must survive")
+    try:
+        (owned / "external").symlink_to(outside, target_is_directory=True)
+        if symlink_parent:
+            alias = tmp_path / "parent-alias"
+            alias.symlink_to(tmp_path, target_is_directory=True)
+            owned = alias / owned.name
+    except OSError:
+        pytest.skip("Creating directory symlinks requires platform permission")
+    unlink = os.unlink
+    denied = []
+
+    def readonly_once(path, *args, **kwargs):
+        if Path(path).name == "weights" and not denied:
+            denied.append(path)
+            raise PermissionError("Exercise read-only cleanup even as a privileged user")
+        return unlink(path, *args, **kwargs)
+
+    monkeypatch.setattr(os, "unlink", readonly_once)
+    identity = owned.lstat()
+    _remove_worker_scratch(owned, (identity.st_dev, identity.st_ino))
+    assert len(denied) == 1
+    assert not owned.exists()
+    assert sentinel.read_bytes() == b"must survive"
+
+
+def test_worker_scratch_cleanup_refuses_replaced_directory(tmp_path):
+    from daystrom_dml.services.agent_episode import _remove_worker_scratch
+
+    owned = tmp_path / "owned"
+    owned.mkdir()
+    identity = owned.lstat()
+    owned.rename(tmp_path / "original")
+    owned.mkdir()
+    sentinel = owned / "not-owned"
+    sentinel.write_bytes(b"must survive")
+    with pytest.raises(OSError, match="ownership"):
+        _remove_worker_scratch(owned, (identity.st_dev, identity.st_ino))
+    assert sentinel.read_bytes() == b"must survive"
 
 
 @pytest.mark.parametrize("pending_kind", ["model", "tool"])
