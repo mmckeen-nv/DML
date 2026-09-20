@@ -123,7 +123,10 @@ def test_exact_final_action_accepts_record_zero_and_typed_values():
     '{"schema_version":"dml-agent-action-v1","kind":"final","answer":{"claims":[{"key":"x","value":NaN,"evidence_ids":[]}]}}',
     '{"schema_version":"dml-agent-action-v1","kind":"final","answer":{"claims":[{"key":"x","value":"\\ud800","evidence_ids":[]}]}}',
     '[]', b'\xff', "{" * 70, " " * (MAX_ACTION_BYTES + 1),
-])
+], ids=[
+    "code-fence", "duplicate-key", "trailing-prose", "extra-field", "nonfinite-number",
+    "unpaired-surrogate", "array", "invalid-utf8", "malformed-json", "oversized-whitespace",
+])  # Bounded IDs keep PYTEST_CURRENT_TEST within Windows' environment-variable limit.
 def test_model_output_is_never_repaired(raw):
     with pytest.raises(AgentEpisodeError):
         parse_agent_action(raw)
