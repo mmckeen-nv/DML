@@ -1,0 +1,187 @@
+{
+  "acceptance_boundaries": {
+    "merge_authorized": false,
+    "milestone_7_closed": false,
+    "production_ready": false,
+    "published_completion_source_ci_qualified_at_source_freeze": false,
+    "source_accepted": true,
+    "status_time_boundary": "Source acceptance preceded corpus execution. This immutable source review does not record the subsequently running campaign result or final published-source CI; each requires separately attributed qualification evidence.",
+    "trained_model_live_qualified_at_source_freeze": false
+  },
+  "blocking_source_findings": [],
+  "component_decisions": [
+    {
+      "component": "CI 326 Windows parameter ID correction",
+      "decision": "accepted",
+      "evidence": "AST independently equal except explicit bounded IDs; all ten adversarial payloads/assertions preserved; 151 focused passes. Native Windows subsequently belongs to CI 327 attribution, not local Linux execution.",
+      "score": 9.8
+    },
+    {
+      "component": "GPT-2 pinned preparation",
+      "decision": "accepted",
+      "evidence": "Independently verified four upstream and five bundle hashes/sizes, 148 learned tensor shapes and exact bytes plus tied head bytes; 45 final focused passes.",
+      "score": 9.6
+    },
+    {
+      "component": "Qwen pinned preparation and initial no-cache companion",
+      "consumer_sha256": "9f03ebc854b94be36398b1c15830bb70d661c34c1402d2565926045bff61096e",
+      "decision": "accepted_for_its_source_scope",
+      "evidence": "Independent hashes/sizes for five upstream and five bundle files; all 338 finite BF16-to-F32 learned tensors verified for exact values and bit-exact round trips. Only config dtype changed. Actual strict admission and 70 focused cases retained. No corpus outcome credited.",
+      "score": 9.6,
+      "snapshot_sha256": "20879530c0de7512524415b89dc0efe8c301da05a484ac3acb8a035d7d2d3787"
+    },
+    {
+      "component": "Final Qwen request-local cache policy",
+      "decision": "accepted",
+      "evidence": "Reviewed explicit dynamic allocation against installed pinned Transformers code; independently reran five loader/cached-uncached/repeated-request/cache-lifetime/rejection controls. All passed. Runtime identity changed explicitly.",
+      "score": 9.6
+    },
+    {
+      "component": "Explicit profile dispatch and independent campaign checker",
+      "decision": "accepted",
+      "evidence": "Reviewed dispatch and 51 retained cases. Independently ran 31 checker controls; two later fresh-verifier negative controls are covered by the final unchanged-source 698-case selection. Both actual feedback attempts are required, and zero opportunities remain valid.",
+      "score": 9.6
+    }
+  ],
+  "decision": "accepted_for_source_publication_and_frozen_live_qualification",
+  "milestone": 7,
+  "minimum_accepted_score": 9.5,
+  "pre_generation_campaign_declaration": {
+    "accepted_path": "docs/artifacts/agent-episode-live-spec-r2-2026-09-20.json",
+    "accepted_sha256": "923ea74d37b9604825677f78ce9bb71e7caa541e4bb87dc43087397a451b08e5",
+    "independent_verification": "Before launch, verified corrected resolved dependency versions, complete source identity, unchanged model/bounds/criteria and absence of work/output paths. One complete nine-task attempt was then authorized; this source review makes no claim about its outcome.",
+    "rejected_unexecuted_path": "docs/artifacts/agent-episode-live-spec-2026-09-20.json",
+    "rejected_unexecuted_sha256": "f2582f0ba270cc97d83a40e5cf99500a593bc5773cc7535a1608f0752fe7387f"
+  },
+  "recorded_at_utc": "2026-09-20T09:56:46.821113+00:00",
+  "remaining_qualification_requirements": [
+    "Independently verify genuine frozen trained-model execution, ordered raw evidence and every terminal outcome against the unchanged predeclared semantic/tool/feedback gates.",
+    "Publish this reviewed source to PR 118 and pass the required exact-source CI jobs; keep PR open and unmerged.",
+    "Attribute later qualification in a separate artifact. Keep M7 open and production_ready false until its completion gate actually passes.",
+    "Baseline value, long-horizon campaigns, durable parent-death reconstruction and final production release remain their separate milestones."
+  ],
+  "repaired_during_review": [
+    "Recheck copied config/template against cached loader-visible bytes in the Qwen snapshot verifier.",
+    "Verify framing markers through actual special AddedTokens without inventing a missing marker.",
+    "Require genuine measurable final claims for semantic coverage and both actual initial/correction attempts for feedback coverage.",
+    "Retain the no-cache runtime and measured timing, then separately review a request-local dynamic-cache policy with a distinct runtime identity.",
+    "Reject the first pre-execution campaign declaration because duplicate inherited package metadata misreported ten resolved versions; preserve it and accept corrected revision 2 before any corpus generation."
+  ],
+  "review_scope": [
+    "Offline exact-provenance GPT-2 and Qwen preparation without downloads, remote code, pickle, training, or corpus conditioning.",
+    "Separate explicit Qwen snapshot/profile admission, exact learned-state coverage, meta construction with strict assigned weights, tied embedding, CPU/F32/eager execution and drift detection; GPT-2 behavior remains unchanged.",
+    "Full-field reversible JSON within ChatML, escaped control delimiters, exact immutable input IDs and budgets, valid-token membership, and one verified terminal EOS omission with all raw output IDs/cost retained.",
+    "Request-local DynamicCache allocation and disposal, with no caller cache, retained cache, cross-call reuse, persistence, export, or native checkpoint restoration.",
+    "Explicit episode/CLI profile dispatch, no architecture inference or fallback, failure-inclusive artifacts, and source identity covering both companions and replay code.",
+    "Frozen nine-task/eight-intent campaign checker: causal event/token replay, fresh task-verifier and accounting replay, actual model-owned supersession and actual prior-answer feedback, with no authenticity claim from structural replay alone.",
+    "Required zero-skip CPU CI lane, final source validation, accurately bounded documentation and separate source/live/CI acceptance."
+  ],
+  "reviewed_source_identity": {
+    "complete_tested_source_map": {
+      "artifact_sha256": "26c12346342070d2f805b1580acffa31b94f6e9aea6c7fdda8a464da139ab515",
+      "file_count": 428,
+      "json_field": "files_sha256",
+      "path": "docs/artifacts/agent-episode-completion-validation-2026-09-20.json"
+    },
+    "coverage_note": "The 428-file map binds complete tested source/configuration. Direct review covers this M7 completion tranche; unchanged prior production components retain their historical acceptance rather than a new line-by-line audit.",
+    "identity_kind": "Reviewed working-tree file-content snapshot, not yet identified by a new published commit.",
+    "independently_rehashed_current_files_equal": true,
+    "parent_commit": "6db5a837eb7377e08356a76a2d4f226c3e9b26fd",
+    "selected_sha256": {
+      ".github/workflows/ci.yml": "d0bea9ae1ec8c959fd78e6060fdf59704f8ff4c9b9f0e57b2dbcb43dbd958fda",
+      "dml_core/daystrom_dml/services/agent_episode.py": "a9726b059249b292c4ffba79b7b6b2f27c771c4dcbb921477acd12e8907a4776",
+      "dml_core/daystrom_dml/services/pretrained_snapshot.py": "72b702d1f2179cfbbf765ceb90022f43eb73676d02a8a8e612ef4f63e51ba70f",
+      "dml_core/daystrom_dml/services/qwen_model_input.py": "31c538bb1738851833e08d57d79148b1e378347e206aa50f756cf6d4a7ffe0a7",
+      "dml_core/daystrom_dml/services/qwen_model_snapshot.py": "b12a7f10c3e7029680b962df7d9e60c049428a069ebe6f8b88e66739e76e5c3c",
+      "dml_core/daystrom_dml/services/qwen_pretrained_snapshot.py": "aa2281ebdfb4bba9536825b589493fa50f1402c8328edf8d155cffe4b5f16204",
+      "dml_core/scripts/agent_campaign_evidence.py": "e3055b5d2a51bcfd09950e378a6bcab2e1ab329939af9f1a7e031a29c30acf42",
+      "dml_core/scripts/agent_episodes.py": "3944908203d4c263ddb22c55973eba5a707505b17ed4a0dfbd9690aa843824ee",
+      "dml_core/tests/qwen_model_input_fixture.py": "6e05399e87b22d8d4d94aa6a294be567e74bd1f0f2b410a2ddbb3097dc90a2c2",
+      "dml_core/tests/test_agent_campaign_evidence.py": "3eb574034a4bf9c66739ea560a8363cc324e9b75e6c1abf52e059e4333e683c4",
+      "dml_core/tests/test_agent_episode_cli.py": "a9997172700bf155f604c9117fecf956fd62a6ff9bf53cd627bf79321227580e",
+      "dml_core/tests/test_agent_episode_contract.py": "ae25fb19bacb9308cc714cb352ff89acaabb77d4f773a9c4092e57691d3ad6ce",
+      "dml_core/tests/test_agent_episode_runtime.py": "6eed3ee62f5e1bf26e7119b5fa7091aef21479d2cdb5db597a31f14bac0a0117",
+      "dml_core/tests/test_pretrained_snapshot.py": "2b3527a8a76a0c891bd045fe3e1d546c13e5560afccffd6f606a974691d903d6",
+      "dml_core/tests/test_qwen_model_adversarial.py": "d7a10fec6bd0cd28008bfbb7469233d1dcb048dc04f616870ca1d3e8261ae54b",
+      "dml_core/tests/test_qwen_model_equivalence.py": "ebbe173edc865ee5a7ebd402a2ed0df6841aee980635ffdfa3afe8dcf5e8435e",
+      "dml_core/tests/test_qwen_pretrained_snapshot.py": "476701fe482adc144109d558292a3a874f6f3a0be203ba091012c4ea958ec96f"
+    },
+    "source_before_after_equal": true
+  },
+  "reviewer_role": "Independent delegated M7 completion grader; implementation and campaign execution owned by separate builders.",
+  "schema_version": "dml-independent-agent-episode-completion-source-review-v1",
+  "score": 9.6,
+  "self_exclusion": "This new review excludes its own digest. Record that digest separately with publication evidence; historical reviews and provenance were not rewritten.",
+  "trained_artifact_evidence": {
+    "generic_timing": {
+      "cached_probe_sha256": "6bab6beb34deec32e55bb8b97c98fdcd59bbe0bc0556c5e8de2c6820ce27a7e0",
+      "input_ids_identical": true,
+      "input_tokens": 462,
+      "no_cache_execution_seconds": 64.26753878899945,
+      "output_tokens_including_eos": 10,
+      "raw_output_ids_identical": true,
+      "request_local_cache_execution_seconds": 21.00740771799974,
+      "scope": "Two separately retained neutral non-corpus timing probes; no semantic qualification."
+    },
+    "gpt2_provenance": {
+      "corpus_generations": 0,
+      "path": "docs/artifacts/agent-episode-gpt2-provenance-2026-09-20.json",
+      "sha256": "affa1ab7f27f11bac458bd470d7952069b037e353cffad0ba96a347bc8a86851",
+      "trained_tensor_identity_verified": true
+    },
+    "qwen_cached_admission_sha256": "73a12ca785148d632b8cb5d42c1b21a5ce3b9df95d2cf309224ff9041bcb2888",
+    "qwen_final_runtime_identity": "dml-qwen-model-input-runtime-v1:09d6ffce6fb460925b15550dbffcdfc4fe65c2b80127723455c04e053205a723",
+    "qwen_original_normalization": {
+      "attribution": "Original normalization/admission is immutable. The later cache policy binds the identical five bundle files to a distinct runtime identity; it does not change learned weights.",
+      "learned_tensors_independently_verified": 338,
+      "original_runtime_identity": "dml-qwen-model-input-runtime-v1:cc2eca17a4e1e05e6acfc37ac510ff32019ac517d57365212ca9a89ec7f12c12",
+      "path": "docs/artifacts/agent-episode-qwen-provenance-2026-09-20.json",
+      "sha256": "2c850b97b3aa7a6721f312c861ea9854ecff4f32a10a4d7e67bc9499d0e9e21c"
+    }
+  },
+  "validation": {
+    "final_focused": {
+      "errors": 0,
+      "failures": 0,
+      "independent_verification": "Parsed retained JUnit; checked all 428 before/after hashes and every current file.",
+      "junit_sha256": "db080fccfe156c842b0358e5ef550abf91f6abd6b3ceacb72d4740aa6c5fd36d",
+      "passed": 698,
+      "skipped": 0
+    },
+    "independently_executed_cache_equivalence_controls": {
+      "errors": 0,
+      "failures": 0,
+      "junit_sha256": "1b639cc4661cae5c8ad758f69bb18cc8ccb7fa2a2fe7697c45dbf2e3c39f3872",
+      "passed": 5,
+      "skipped": 0
+    },
+    "independently_executed_checker_controls": {
+      "errors": 0,
+      "failures": 0,
+      "junit_sha256": "a548300dd48346f267d54ec531690aff491bec0975e83f69c83a21afe46ffdf1",
+      "passed": 31,
+      "skipped": 0
+    },
+    "interim_broad_regression": {
+      "errors": 0,
+      "failures": 0,
+      "final_source_qualification": false,
+      "junit_sha256": "c66a68fd1337ee00962d341f79765fd5e96b983ff5b128c9414da17128a8dce1",
+      "passed": 4829,
+      "reason": "The bounded cache repair and test additions were made during this run; it is retained as interim regression evidence only. Final source qualification uses the frozen mandatory lane and subsequently published-source CI.",
+      "skipped": 24
+    },
+    "overlap_notice": "Selections overlap; do not sum their counts.",
+    "static_attribution": "Maintained static pass results are retained in the integration validation manifest; they are not a claim of another independent rerun.",
+    "static_checks": {
+      "final_cache_sources_mypy_and_ruff": "passed",
+      "maintained_mypy": {
+        "local_python_target": "3.12",
+        "note": "CI retains its 3.10/3.11 targets; local override admits installed NumPy stub syntax.",
+        "passed": true,
+        "source_files": 76
+      },
+      "maintained_ruff": "passed"
+    }
+  }
+}

@@ -60,6 +60,23 @@ class EpisodeLimits:
 
 
 _POLICY = AGENT_POLICY
+CONSUMER_PROFILES = ("gpt2-v1", "qwen2-instruct-v1")
+
+
+def validate_consumer_profile(consumer_profile):
+    """Select an explicit admitted implementation; never infer it from files."""
+    if type(consumer_profile) is not str or consumer_profile not in CONSUMER_PROFILES:
+        raise ValueError("Unknown episode consumer profile")
+    return consumer_profile
+
+
+def _open_consumer(snapshot_directory, consumer_profile):
+    validate_consumer_profile(consumer_profile)
+    if consumer_profile == "gpt2-v1":
+        from .model_input import LocalTransformersInputConsumer
+        return LocalTransformersInputConsumer(snapshot_directory)
+    from .qwen_model_input import LocalQwenInputConsumer
+    return LocalQwenInputConsumer(snapshot_directory)
 
 
 def _failure_verdict(reason: str) -> dict:
@@ -415,10 +432,10 @@ def _worker(connection, config):
         send({"kind": "event", "event": event})
         sequence += 1
     try:
+        consumer_profile = validate_consumer_profile(config.get("consumer_profile", "gpt2-v1"))
         adapter, prepared = _prepare_fixture(config["authority_directory"], config["scenario"], config["episode_id"])
         send({"kind": "prepared", "prepared": prepared})
-        from .model_input import LocalTransformersInputConsumer
-        consumer = LocalTransformersInputConsumer(config["snapshot_directory"])
+        consumer = _open_consumer(config["snapshot_directory"], consumer_profile)
         toolbox = SelectedProfileEpisodeTools(adapter, scope=config["scenario"]["scope"],
             episode_id=config["episode_id"], seed_receipts=prepared["seed_receipts"],
             observation_records=list(prepared["seed_records"].values()),
@@ -598,12 +615,13 @@ def _supervise(config, *, worker_target=_worker):
         effective_time=config["effective_time"], previous_answers=config.get("previous_answers"),
         elapsed_ms=_elapsed(start), usage_unknown=not completed)
     return {"events": events, "terminal": terminal, "prepared": prepared,
-            "current_records": records, "live_qualified": False}
+            "current_records": records, "live_qualified": False,
+            "consumer_profile": config.get("consumer_profile", "gpt2-v1")}
 
 
 def run_local_episode(*, snapshot_directory, work_directory, scenario: dict, task: dict,
                       limits=EpisodeLimits(), effective_time=2000000000, previous_answers=None,
-                      prior_context=None) -> dict:
+                      prior_context=None, consumer_profile="gpt2-v1") -> dict:
     """Run a fresh fixture through the actual local exact-input consumer.
 
     Startup, fixture writes, compile, generation and agent tools are inside the
@@ -612,6 +630,7 @@ def run_local_episode(*, snapshot_directory, work_directory, scenario: dict, tas
     """
     if type(limits) is not EpisodeLimits:
         raise ValueError("Exact EpisodeLimits are required")
+    validate_consumer_profile(consumer_profile)
     from .episode_verifiers import load_episode_corpus
     corpus = load_episode_corpus()
     if (not any(canonical_json(scenario) == canonical_json(value) for value in corpus["scenarios"])
@@ -625,7 +644,7 @@ def run_local_episode(*, snapshot_directory, work_directory, scenario: dict, tas
     ident = "episode-" + uuid.uuid4().hex
     config = {"episode_id": ident, "execution_path": "live_local", "scenario": deepcopy(scenario),
         "task": deepcopy(task), "limits": asdict(limits), "effective_time": effective_time,
-        "prior_context": prior_context,
+        "prior_context": prior_context, "consumer_profile": consumer_profile,
         "previous_answers": deepcopy(previous_answers), "snapshot_directory": str(Path(snapshot_directory).resolve()),
         "authority_directory": str(directory / "authority")}
     return _supervise(config)

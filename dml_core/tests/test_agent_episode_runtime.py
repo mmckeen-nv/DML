@@ -273,3 +273,59 @@ def test_live_fixture_identity_distinguishes_integer_and_float(tmp_path):
         run_local_episode(snapshot_directory=tmp_path / "missing", work_directory=tmp_path / "run",
             scenario=scenario, task=scenario["tasks"][0])
     assert not (tmp_path / "run").exists()
+
+
+@pytest.mark.parametrize("profile", [None, True, [], "auto", "Qwen2-instruct-v1"])
+def test_concrete_api_refuses_unknown_consumer_before_any_work(tmp_path, profile):
+    scenario = load_episode_corpus()["scenarios"][0]
+    with pytest.raises(ValueError, match="consumer profile"):
+        run_local_episode(snapshot_directory=tmp_path / "missing", work_directory=tmp_path / "run",
+            scenario=scenario, task=scenario["tasks"][0], consumer_profile=profile)
+    assert not (tmp_path / "run").exists()
+
+
+def test_qwen_profile_does_not_fall_back_to_gpt2_snapshot(tmp_path):
+    from model_input_fixture import create_snapshot
+    snapshot = create_snapshot(tmp_path / "snapshot", context_window=4096)
+    scenario = load_episode_corpus()["scenarios"][0]
+    report = run_local_episode(snapshot_directory=snapshot.path, work_directory=tmp_path / "run",
+        scenario=scenario, task=scenario["tasks"][0], consumer_profile="qwen2-instruct-v1",
+        limits=replace(EpisodeLimits(), max_steps=1, output_tokens=4, wall_time_seconds=30))
+    assert report["consumer_profile"] == "qwen2-instruct-v1"
+    assert report["terminal"]["status"] == "runner_error"
+    assert report["terminal"]["execution_path"] == "live_local"
+    assert not any(event["kind"] in ("model_requested", "model_completed") for event in report["events"])
+    assert report["live_qualified"] is False
+    validate_episode_events(report["events"])
+
+
+def test_real_qwen_profile_generates_through_spawned_worker_without_quality_claim(tmp_path):
+    from qwen_model_input_fixture import create_qwen_snapshot
+    snapshot = create_qwen_snapshot(tmp_path / "snapshot", context_window=4096)
+    scenario = load_episode_corpus()["scenarios"][0]
+    report = run_local_episode(snapshot_directory=snapshot.path, work_directory=tmp_path / "run",
+        scenario=scenario, task=scenario["tasks"][0], consumer_profile="qwen2-instruct-v1",
+        limits=replace(EpisodeLimits(), max_steps=1, output_tokens=4, wall_time_seconds=30))
+    requested = [event for event in report["events"] if event["kind"] == "model_requested"]
+    completed = [event for event in report["events"] if event["kind"] == "model_completed"]
+    assert len(requested) == len(completed) == 1, report["terminal"]
+    assert requested[0]["payload"]["compiled"]["identity"]["model_window_tokens"] == 4096
+    assert completed[0]["payload"]["output_token_count"] == len(completed[0]["payload"]["output_ids"]) > 0
+    assert completed[0]["payload"]["input_token_count"] > 0
+    assert report["consumer_profile"] == "qwen2-instruct-v1"
+    assert report["terminal"]["execution_path"] == "live_local"
+    assert report["live_qualified"] is report["terminal"]["success"] is False
+    validate_episode_events(report["events"])
+
+
+def test_default_profile_does_not_infer_qwen_from_snapshot(tmp_path):
+    from qwen_model_input_fixture import create_qwen_snapshot
+    snapshot = create_qwen_snapshot(tmp_path / "snapshot", context_window=4096)
+    scenario = load_episode_corpus()["scenarios"][0]
+    report = run_local_episode(snapshot_directory=snapshot.path, work_directory=tmp_path / "run",
+        scenario=scenario, task=scenario["tasks"][0],
+        limits=replace(EpisodeLimits(), max_steps=1, output_tokens=4, wall_time_seconds=30))
+    assert report["consumer_profile"] == "gpt2-v1"
+    assert report["terminal"]["status"] == "runner_error"
+    assert not any(event["kind"] in ("model_requested", "model_completed") for event in report["events"])
+    assert report["live_qualified"] is False

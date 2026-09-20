@@ -212,6 +212,11 @@ jobs:
           dml_core/daystrom_dml/services/episode_outcomes.py
           dml_core/daystrom_dml/services/episode_verifiers.py
           dml_core/scripts/agent_episodes.py
+          dml_core/daystrom_dml/services/pretrained_snapshot.py
+          dml_core/daystrom_dml/services/qwen_model_snapshot.py
+          dml_core/daystrom_dml/services/qwen_model_input.py
+          dml_core/daystrom_dml/services/qwen_pretrained_snapshot.py
+          dml_core/scripts/agent_campaign_evidence.py
       - name: Record pinned runtime versions
         run: |
           mkdir -p model-input-artifacts
@@ -263,6 +268,11 @@ jobs:
           dml_core/tests/test_agent_episode_runtime.py
           dml_core/tests/test_episode_tools.py
           dml_core/tests/test_agent_episode_cli.py
+          dml_core/tests/test_pretrained_snapshot.py
+          dml_core/tests/test_agent_campaign_evidence.py
+          dml_core/tests/test_qwen_model_adversarial.py
+          dml_core/tests/test_qwen_pretrained_snapshot.py
+          dml_core/tests/test_qwen_model_equivalence.py
           --junitxml=model-input-artifacts/model-input.xml
       - name: Require complete model-input and episode harness evidence without skipped tests
         run: |
@@ -278,6 +288,10 @@ jobs:
               "test_episode_verifiers", "test_agent_episode_adversarial",
               "test_agent_episode_runtime", "test_episode_tools",
               "test_agent_episode_cli",
+              "test_pretrained_snapshot", "test_agent_campaign_evidence",
+              "test_qwen_model_adversarial",
+              "test_qwen_pretrained_snapshot",
+              "test_qwen_model_equivalence",
           }
           observed_modules = set()
           for case in report.iter("testcase"):

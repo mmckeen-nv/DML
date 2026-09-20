@@ -16,7 +16,7 @@ def arguments(tmp_path, *extra):
 
 def failed_test_report(**kwargs):
     return cli._interrupted_report(kwargs["scenario"], kwargs["task"], kwargs["limits"], RuntimeError(), 1.0,
-                                   prior_context=kwargs.get("prior_context"))
+        prior_context=kwargs.get("prior_context"), consumer_profile=kwargs.get("consumer_profile", "gpt2-v1"))
 
 
 def test_full_corpus_failures_are_retained_and_exit_nonzero(tmp_path, monkeypatch):
@@ -35,7 +35,14 @@ def test_full_corpus_failures_are_retained_and_exit_nonzero(tmp_path, monkeypatc
     assert artifact["summary"]["contradiction_rate"] is None
     assert artifact["live_qualified"] is artifact["source_ci_qualified"] is False
     assert artifact["raw_evidence_complete"] is False
-    assert len(artifact["source_sha256"]) == 6
+    assert len(artifact["source_sha256"]) == 13
+    assert {"daystrom_dml.services.model_input", "daystrom_dml.services.model_input_snapshot",
+            "daystrom_dml.services.pretrained_snapshot", "daystrom_dml.services.qwen_model_input",
+            "daystrom_dml.services.qwen_model_snapshot", "daystrom_dml.services.qwen_pretrained_snapshot",
+            "scripts.agent_campaign_evidence"}.issubset(artifact["source_sha256"])
+    assert artifact["consumer_profile"] == "gpt2-v1"
+    assert all(call["consumer_profile"] == "gpt2-v1" for call in calls)
+    assert all(report["consumer_profile"] == "gpt2-v1" for report in artifact["episodes"])
     assert len({str(call["work_directory"]) for call in calls}) == 9
     assert len(list((tmp_path / "work").rglob("report.json"))) == 9
     repeat = next(call for call in calls if call["task"]["id"] == "recall_after_correction")
@@ -95,7 +102,8 @@ def test_cli_hands_off_actual_failed_answer_and_terminal_provenance_verbatim(tmp
                                       retrieval_ms=0.0, answer=wrong_answer)
         append("terminal", terminal)
         prior_terminals.append(deepcopy(terminal))
-        return {"events": events, "terminal": terminal, "prepared": {}, "current_records": [], "live_qualified": False}
+        return {"events": events, "terminal": terminal, "prepared": {}, "current_records": [],
+                "live_qualified": False, "consumer_profile": kwargs["consumer_profile"]}
     monkeypatch.setattr(cli, "run_local_episode", producer)
     assert cli.main(arguments(tmp_path, "--scenario", "self_reinforcing_error")) == 1
     assert len(prior_terminals) == 1
@@ -168,6 +176,7 @@ def test_existing_output_or_authority_refused_before_model_work(tmp_path, monkey
     ["--max-event-bytes", "16777217"], ["--task", "first_recall"],
     ["--scenario", "near_duplicates", "--task", "missing"],
     ["--max-st", "2"],
+    ["--consumer-profile", "auto"], ["--consumer-profile", "Qwen2-instruct-v1"],
 ])
 def test_invalid_or_unbounded_flags_refused_before_work(tmp_path, extra):
     with pytest.raises(SystemExit) as caught:
@@ -213,3 +222,45 @@ def test_actual_missing_snapshot_attempt_retains_failure_artifact(tmp_path):
     assert artifact["live_qualified"] is False
     assert artifact["episodes"][0]["terminal"]["status"] in ("runner_error", "timeout")
     assert len(list((tmp_path / "work").rglob("report.json"))) == 1
+
+
+def test_explicit_qwen_profile_is_forwarded_and_retained_without_qualification(tmp_path, monkeypatch):
+    calls = []
+    def producer(**kwargs):
+        calls.append(kwargs)
+        return failed_test_report(**kwargs)
+    monkeypatch.setattr(cli, "run_local_episode", producer)
+    assert cli.main(arguments(tmp_path, "--scenario", "near_duplicates",
+                              "--consumer-profile", "qwen2-instruct-v1")) == 1
+    artifact = json.loads((tmp_path / "campaign.json").read_text())
+    assert len(calls) == 1
+    assert calls[0]["consumer_profile"] == artifact["consumer_profile"] == "qwen2-instruct-v1"
+    assert artifact["episodes"][0]["consumer_profile"] == "qwen2-instruct-v1"
+    assert artifact["live_qualified"] is artifact["source_ci_qualified"] is False
+
+
+def test_cli_refuses_report_from_another_consumer_and_preserves_evidence(tmp_path, monkeypatch):
+    def producer(**kwargs):
+        report = failed_test_report(**kwargs)
+        report["consumer_profile"] = "gpt2-v1"
+        return report
+    monkeypatch.setattr(cli, "run_local_episode", producer)
+    assert cli.main(arguments(tmp_path, "--scenario", "near_duplicates",
+                              "--consumer-profile", "qwen2-instruct-v1")) == 1
+    artifact = json.loads((tmp_path / "campaign.json").read_text())
+    report = artifact["episodes"][0]
+    assert report["terminal"]["status"] == "runner_error"
+    assert report["runner_error_code"] == "ValueError"
+    assert report["consumer_profile"] == "qwen2-instruct-v1"
+    assert report["rejected_raw_report"]["consumer_profile"] == "gpt2-v1"
+    assert artifact["raw_evidence_complete"] is False
+
+
+@pytest.mark.parametrize("profile", [None, True, [], "auto"])
+def test_campaign_api_rejects_unknown_profile_before_any_work(tmp_path, profile, monkeypatch):
+    monkeypatch.setattr(cli, "run_local_episode", lambda **kwargs: pytest.fail("must not dispatch"))
+    with pytest.raises(ValueError, match="consumer profile"):
+        cli.run_campaign(snapshot_directory=tmp_path / "missing", work_directory=tmp_path / "work",
+                         output=tmp_path / "campaign.json", limits=cli.EpisodeLimits(), consumer_profile=profile)
+    assert not (tmp_path / "work").exists()
+    assert not (tmp_path / "campaign.json").exists()
