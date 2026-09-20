@@ -6,7 +6,8 @@ defines implemented behavior, migration and remaining release gates.
 The current [finite remaining-work ledger](production-remaining-work-2026-09-18.md)
 contains eleven first-release milestones and two deferred broader milestones;
 **six milestones are closed**, leaving **five unclosed first-release gates and
-two deferred gates**. These are acceptance obligations, not five unstarted
+two deferred gates**. **Milestone 7 is IN PROGRESS as of 2026-09-20.**
+These are acceptance obligations, not five unstarted
 implementation projects. Milestone 5 is closed by reconciliation of
 previously accepted migration/versioning evidence, not by a new implementation.
 
@@ -26,7 +27,7 @@ sections below retain the evidence and scope recorded when each gate was built.
 | 9. Concurrency | Journal CAS/pinned reads, targeted lifecycle/process tests, mixed selected-profile thread/process/HTTP campaigns, lifetime fencing and snapshot/revision race repair | Milestone 6 closed at 9.6/10 after CI 324 passed all 20 jobs and the 48/24/24 platform histories were verified; growing-store/live-agent qualification remains separate |
 | 10. Observability | Durable mutation decisions/source proofs, response retrieval traces, degradation status and scoped retention inspection | Durable full request/context replay, complete decision coverage and bounded audit retention/export |
 
-## Current completion reconciliation — 2026-09-19
+## Current completion reconciliation — 2026-09-20
 
 Published source [`3763303`](https://github.com/mmckeen-nv/DML/commit/3763303)
 passed all **17 jobs** in [CI 320](https://github.com/mmckeen-nv/DML/actions/runs/35359517124),
@@ -68,6 +69,7 @@ Grades apply to the bounded feature reviewed, not whole-platform production read
 | 17 | [Exact model-input/tokenizer binding](model-input-hardening-2026-09-18.md) | 9.6 |
 | 18 | [Supported-profile crash qualification and verified backup/restore](profile-recovery-hardening-2026-09-18.md) | 9.6 |
 | 19 | [Supported-profile mixed-operation concurrency](production-concurrency-2026-09-19.md) and [exact-source qualification](artifacts/profile-concurrency-qualification-2026-09-19.json) | 9.6 |
+| 20 | [Bounded live-agent episode source harness](live-agent-outcomes-2026-09-20.md) and [independent source review](artifacts/agent-episode-review-2026-09-20.json); publication/CI and trained-model qualification remain pending, so milestone 7 stays open | 9.6 |
 
 Milestone 5 **closed by reconciliation of previously completed work on 2026-09-19**.
 The initial version guards and schema-0→1 path, gate 3's schema-1→2 migration,
@@ -133,11 +135,58 @@ closure come from CI 324 and its verified artifacts above.
 
 This is the nineteenth serial implementation gate, not a new release milestone.
 Gate 19 is now in the completed index: **six first-release milestones closed,
-five first-release milestones open and two deferred**. Next is milestone 7's
-live-agent episode/event producer and independent task verifiers, as clarified
-in the [finite plan](production-remaining-work-2026-09-18.md#next-milestone-7).
-That implementation has not started. PR #118 remains unmerged and
-`production_ready` remains false.
+five first-release milestones open and two deferred**. Milestone 7 is now
+**IN PROGRESS**: the bounded model-driven episode/event producer, strict tool
+protocol, independent eight-scenario verifiers and versioned failure-inclusive
+outcome artifacts have source acceptance at **9.6/10**. Source publication/CI and
+trained-model live qualification remain pending. The
+[finite plan](production-remaining-work-2026-09-18.md#active-milestone-7--live-agent-semantic-and-outcome-harness)
+and [milestone 7 working record](live-agent-outcomes-2026-09-20.md) distinguish
+reused evidence, source completion and genuine trained-model qualification.
+A compatible pinned trained model remains required for live acceptance; random
+tiny fixtures prove plumbing only. The pinned
+[tokenizer-only preflight](artifacts/agent-episode-model-preflight-2026-09-20.json)
+retains both failing and fitting planned budget paths without model execution. Milestone 7 stays open until its acceptance
+criteria are met. PR #118 remains unmerged and `production_ready` remains false.
+
+The subsequent documentation closure at source
+`a5fdf71677ccefa198f8a84bdb8722a66779c87a` passed **20/20 jobs** in
+[CI 325](https://github.com/mmckeen-nv/DML/actions/runs/35472033511).
+This is separate documentation-head evidence. Milestone 6 retains source
+`6647a0d` / CI 324 as its immutable qualification; CI 325 does not qualify the
+new milestone 7 source work.
+
+### Accepted source: serial gate 20 / milestone 7 remains open
+
+The [live-agent harness record](live-agent-outcomes-2026-09-20.md) tracks this
+bounded work as accepted **serial implementation gate 20**, independently reviewed
+at **9.6/10 with no blocking findings**. The completed source index now contains
+20 serial gates plus foundations; gate 20 source acceptance does not close
+release milestone 7. It reuses the outcome reducer, exact-input companion, admitted
+receipt APIs and eight adversarial intents with explicit receipt/lifecycle
+semantics. The frozen source scope has eight bounded scenarios and six tools,
+including model-owned supersession checked against independent receipt/state
+evidence. Scripted execution is `test_injected`; private lexical fixture ranking
+is `synthetic_fixture`. Scheduled receipted peers do not establish live two-agent
+concurrency. Raw events and terminal outcomes must retain rejected, failed and
+bounded-out attempts, separate measured costs from unavailable measurements,
+and preserve the existing `dml-task-outcome-v1` reader.
+
+Independent source review, published-source CI and live qualification are
+separate acceptance rows. The first independent source iteration scored
+**9.2/10 and was rejected**; repaired source received final **9.6/10 acceptance**.
+It passed **529 focused CPU tests with zero failures or skips** and **4,667
+full-suite tests with 24 declared skips and no failures or errors**, independently
+confirmed. These selections overlap. All **417 frozen source hashes** remained
+unchanged through both runs; maintained static, hygiene and package checks
+passed. The [local manifest](artifacts/agent-episode-local-validation-2026-09-20.json)
+and [review](artifacts/agent-episode-review-2026-09-20.json) retain that attribution.
+Publication and exact-source CI were pending at this reviewed-source freeze;
+[PR #118](https://github.com/mmckeen-nv/DML/pull/118) records subsequent published
+source and CI results. This historical pending status is not a claim about a
+later CI run. No trained-model live campaign result is asserted. This stage does not start milestone 8's fair
+baseline comparison, milestone 9's long campaigns or milestone 10's durable
+replay/export/retention, and it does not add another finite release milestone.
 
 ## Validation commands
 

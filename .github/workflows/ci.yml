@@ -30,6 +30,7 @@ jobs:
         dml_core/daystrom_dml/contracts/profile.py
         dml_core/daystrom_dml/contracts/production.py
         dml_core/daystrom_dml/contracts/model_input.py
+        dml_core/daystrom_dml/contracts/agent_episode.py
         integrations/hermes/plugins/daystrom_dml
         dml_core/daystrom_dml/tests/test_dml.py
       DML_CI_MYPY_TARGETS: >-
@@ -45,6 +46,7 @@ jobs:
         dml_core/daystrom_dml/contracts/profile.py
         dml_core/daystrom_dml/contracts/production.py
         dml_core/daystrom_dml/contracts/model_input.py
+        dml_core/daystrom_dml/contracts/agent_episode.py
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
@@ -162,6 +164,9 @@ jobs:
           dml_core/tests/test_production_profile_adversarial.py
           dml_core/tests/test_model_input_contract.py
           dml_core/tests/test_model_input_snapshot.py
+          dml_core/tests/test_agent_episode_contract.py
+          dml_core/tests/test_episode_outcomes.py
+          dml_core/tests/test_episode_verifiers.py
           dml_core/tests/test_adversarial_memory.py
           dml_core/tests/test_outcome_metrics.py
           dml_core/tests/test_fail_closed_persistence.py
@@ -198,12 +203,52 @@ jobs:
           python -m pip install '.[model-input,dev]'
       - name: Strict lint of exact model-input surfaces
         run: ruff check dml_core/daystrom_dml/contracts/model_input.py dml_core/daystrom_dml/services/model_input.py dml_core/daystrom_dml/services/model_input_snapshot.py
+      - name: Strict lint of agent episode companion
+        run: >-
+          ruff check
+          dml_core/daystrom_dml/contracts/agent_episode.py
+          dml_core/daystrom_dml/services/agent_episode.py
+          dml_core/daystrom_dml/services/episode_tools.py
+          dml_core/daystrom_dml/services/episode_outcomes.py
+          dml_core/daystrom_dml/services/episode_verifiers.py
+          dml_core/scripts/agent_episodes.py
       - name: Record pinned runtime versions
         run: |
           mkdir -p model-input-artifacts
           python -m pip freeze > model-input-artifacts/dependencies.txt
           python --version > model-input-artifacts/python.txt
-      - name: Verify real model-input compilation and CPU execution
+      - name: Bind model-input and episode evidence to exact source
+        env:
+          DML_REVIEWED_PR_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          import subprocess
+
+          def git(*args):
+              return subprocess.check_output(["git", *args], text=True).strip()
+
+          tracked = subprocess.check_output(["git", "ls-files", "-z"]).decode().split("\0")
+          configuration = {".github/workflows/ci.yml", "pyproject.toml", "setup.py", "mypy.ini", "ruff.toml"}
+          paths = sorted(path for path in tracked if path and (
+              path.startswith(("dml_core/daystrom_dml/", "dml_core/tests/", "dml_core/scripts/"))
+              or path in configuration))
+          manifest = {
+              "schema_version": "dml-episode-ci-source-v1",
+              "evidence_scope": "source_and_fixture_harness_only",
+              "trained_model_qualification": False,
+              "reviewed_pr_head": os.environ["DML_REVIEWED_PR_HEAD"],
+              "tested_commit": git("rev-parse", "HEAD"),
+              "tested_tree": git("rev-parse", "HEAD^{tree}"),
+              "files": {path: hashlib.sha256(Path(path).read_bytes()).hexdigest() for path in paths},
+          }
+          Path("model-input-artifacts/source-manifest.json").write_text(
+              json.dumps(manifest, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+          PY
+      - name: Verify model-input CPU execution and bounded episode harness
         run: >-
           python -m pytest
           dml_core/tests/test_model_input_contract.py
@@ -211,8 +256,15 @@ jobs:
           dml_core/tests/test_model_input_runtime.py
           dml_core/tests/test_model_input_integration.py
           dml_core/tests/test_model_input_adversarial.py
+          dml_core/tests/test_agent_episode_contract.py
+          dml_core/tests/test_episode_outcomes.py
+          dml_core/tests/test_episode_verifiers.py
+          dml_core/tests/test_agent_episode_adversarial.py
+          dml_core/tests/test_agent_episode_runtime.py
+          dml_core/tests/test_episode_tools.py
+          dml_core/tests/test_agent_episode_cli.py
           --junitxml=model-input-artifacts/model-input.xml
-      - name: Require positive real-model evidence without skipped tests
+      - name: Require complete model-input and episode harness evidence without skipped tests
         run: |
           python - <<'PY'
           from pathlib import Path
@@ -222,6 +274,10 @@ jobs:
           required_modules = {
               "test_model_input_contract", "test_model_input_snapshot", "test_model_input_runtime",
               "test_model_input_integration", "test_model_input_adversarial",
+              "test_agent_episode_contract", "test_episode_outcomes",
+              "test_episode_verifiers", "test_agent_episode_adversarial",
+              "test_agent_episode_runtime", "test_episode_tools",
+              "test_agent_episode_cli",
           }
           observed_modules = set()
           for case in report.iter("testcase"):

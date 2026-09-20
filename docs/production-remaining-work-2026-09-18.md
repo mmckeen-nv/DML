@@ -1,15 +1,16 @@
 # Finite production release plan
 
-Originally recorded 2026-09-18; current status reconciled **2026-09-19** against
+Originally recorded 2026-09-18; current status reconciled **2026-09-20** against
 review artifacts and the published PR/CI record. The [original ten areas](productionization-plan-2026-09-12.md)
-remain workstreams. Nineteen completed serial hardening gates, plus the initial
-foundations tranche, supply implementation and evidence toward the release gates
+remain workstreams. Twenty independently accepted serial source gates, plus the
+initial foundations tranche, supply implementation and evidence toward the release gates
 below; they are not nineteen additional release milestones.
 
-## Current completion tab — 2026-09-19
+## Current completion tab — 2026-09-20
 
 The finite scope remains **13 release milestones: 11 first-release and 2 deferred**.
-Milestones **1–6 are closed**, leaving **5 unclosed first-release gates and 2 deferred**.
+Milestones **1–6 are closed** and **milestone 7 is IN PROGRESS**, leaving
+**5 unclosed first-release gates (including active milestone 7) and 2 deferred**.
 These are remaining acceptance obligations, **not five untouched implementation
 projects**. Existing implementations and evidence must be credited before assigning
 new work. DML remains alpha and the supported profile remains a candidate.
@@ -99,15 +100,57 @@ results. Final qualification comes from CI 324 and its verified artifacts above.
 The plan now has **six first-release gates closed, five first-release gates open
 and two deferred gates**; DML remains alpha and `production_ready` remains false.
 
-### Next: milestone 7
+The subsequent documentation closure at source
+`a5fdf71677ccefa198f8a84bdb8722a66779c87a` passed **20/20 jobs** in
+[CI 325](https://github.com/mmckeen-nv/DML/actions/runs/35472033511).
+That documentation-head result supplements milestone 6's record; it does not
+replace the immutable source `6647a0d` / CI 324 qualification evidence or qualify
+new milestone 7 implementation.
 
-The next action is to build the live episode/event producer and independent task
-verifiers around the existing outcome reducer, receipt APIs and exact-input
-consumer. Reuse the eight scenario intents with the current explicit receipt
-and lifecycle behavior, rather than legacy implicit-merge expectations. Live
-qualification requires a pinned **trained execution model**; random tiny model
-fixtures establish plumbing only. This clarifies existing milestone 7 acceptance,
-adds no milestone or product scope, and does not mark its implementation started.
+### Active: milestone 7 — live-agent semantic and outcome harness
+
+**IN PROGRESS as of 2026-09-20.** Bounded source implementation is independently
+accepted at **9.6/10**: a model-driven episode/event producer, strict tool protocol
+around the admitted receipt APIs, eight independent task verifiers, and versioned
+raw events and failure-inclusive outcomes. Published-source CI and trained-model
+live qualification remain pending at the reviewed-source freeze. Subsequent
+publication and exact-source CI results are tracked in
+[PR #118](https://github.com/mmckeen-nv/DML/pull/118); the pending-at-freeze wording
+below is not a statement about a later CI run. The existing
+`dml-task-outcome-v1` consumer contract
+is preserved. The [milestone 7 working record](live-agent-outcomes-2026-09-20.md)
+tracks the scope, acceptance gates, reused evidence and remaining qualification.
+This is accepted **serial implementation gate 20**, within milestone 7; the
+completed source index now has 20 serial gates plus foundations. It does not
+close milestone 7. The first independent source iteration scored **9.2/10 and
+was rejected**; repaired source received final **9.6/10 acceptance with no blocking
+findings**. It passed **529 focused CPU tests with zero failures or skips** and
+**4,667 full-suite tests with 24 declared skips and no failures or errors**,
+independently confirmed. These selections overlap. The
+[review](artifacts/agent-episode-review-2026-09-20.json) and
+[local validation manifest](artifacts/agent-episode-local-validation-2026-09-20.json)
+retain source identities and the qualification limits.
+
+| Tracking tab | Current evidence or obligation |
+| --- | --- |
+| Completed | Milestones 1–6; milestone 6 source `6647a0d`, independent 9.6/10, CI 324 all 20 jobs passing and 96 retained histories independently verified twice. Historical reviews and qualification records remain unchanged. |
+| Reused for milestone 7 | Existing eight-scenario adversarial intent, lifecycle and scope regressions, admitted receipt APIs, outcome reducer and exact-input/tokenizer companion. These establish deterministic behavior and plumbing, not live-agent outcomes. |
+| Accepted source, serial gate 20 | Independent **9.6/10**: eight bounded semantic scenarios, six gateway tools with task allowlists, model-owned supersession with independent receipt/state verification, supervised execution and failure-inclusive artifacts. Scripted execution is `test_injected`; lexical fixture ranking is `synthetic_fixture`. Publication and source-pinned CI remain pending at this snapshot. |
+| Remaining milestone 7 gate | Publish the accepted source and verify exact-source CI, then separately review a provenance-bound compatible trained snapshot, freeze campaign identities/bounds/thresholds, run genuine model-driven episodes covering all eight intents, and retain independently verified failure-inclusive artifacts. Source acceptance and live qualification remain separate. |
+| Later first-release gates | Milestone 8 fair held-out baseline comparison; milestone 9 recurring 1k/10k lanes and the 100k live campaign; milestone 10 durable replay/export/retention; milestone 11 final release qualification. Two broader milestones remain deferred. |
+
+Live qualification requires a pinned **trained execution model**. The current
+exact-input companion admits local GPT-2/CPU/float32 with fixed JSON framing;
+no suitable trained snapshot is yet present in the workspace. A pinned
+[tokenizer-only preflight](artifacts/agent-episode-model-preflight-2026-09-20.json)
+retains historical first requests, a separately attributed planned prior-context
+follow-up, a default-bound supersession-path overflow and a tighter-bound planned
+path. It executes no trained model; actual generated history still requires
+runtime budget admission.
+Random tiny fixtures establish plumbing only. Missing model evidence keeps milestone 7 open even if the bounded
+source implementation passes review. The frozen source scope retains that
+consumer. Synthetic lexical fixture ranking and scheduled receipted peer writes do not qualify production retrieval
+quality or live multi-agent concurrency.
 
 ### Numbering legend
 
@@ -134,7 +177,7 @@ contains the completed serial-gate index.
 | 4 | Qualify crash recovery and supported filesystems | Closed: serial gate 18, 9.6/10; source `3763303`, CI 320 all 17 jobs passed; six measured environments and 15 real ENOSPC cases verified | Finish the supported-profile mutation/component inventory and deterministic plus seeded fault matrix; account for acknowledged, rejected and uncertain operations on restart; qualify the advertised filesystem/platform failure guarantees and publish a tested recovery runbook. Keep process-kill and power-loss evidence distinct. | 3, 9 |
 | 5 | Complete persisted-format and migration coverage | Closed by reconciliation on 2026-09-19: previously accepted foundations and serial gates 3, 8 and 18; mapping above | Inventory every persisted family admitted by the supported profile; enforce supported versions and compatibility; pass source-version, future-version, interrupted migration, export and restore cases using accurately labeled release or commit-pinned fixtures. Document excluded families and rollback limitations. | 3, 8 |
 | 6 | Qualify mixed-operation concurrency | Closed: serial gate 19, **9.6/10**, source `6647a0d`, **CI 324 all 20 jobs passed**, 48/24/24 platform histories independently verified twice. [Qualification evidence](artifacts/profile-concurrency-qualification-2026-09-19.json) | Exercise supported reads, writes, lifecycle operations and journal checkpoint/recovery behavior through threads, processes and HTTP/provider callers at 1/16/64/256-client levels with an independent history checker. Show zero lost updates, dirty reads, deadlocks or scope leakage in the qualified histories and satisfy the predeclared cancellation, timeout, finite progress and OS ownership-wait requirements. | 3, 9 |
-| 7 | Wire the live-agent semantic and outcome harness | Deterministic adversarial corpus and outcome reducer implemented; live-agent evidence pending | Run pinned tool-driven agent episodes with task verifiers, raw events and failure-inclusive cost/quality metrics; cover the adversarial semantic cases and incorrect-retrieval feedback loops. Distinguish live outcomes from deterministic state checks and offline retrieval smoke. | 4, 6 |
+| 7 | Wire the live-agent semantic and outcome harness | **IN PROGRESS**: serial source gate 20 accepted **9.6/10**; 529 focused passes with zero skips and 4,667 full-suite passes / 24 declared skips (overlapping selections); publication/CI were pending at reviewed-source freeze (subsequent results in PR #118); trained-model live qualification remains open | Run pinned tool-driven agent episodes with task verifiers, raw events and failure-inclusive cost/quality metrics; cover the adversarial semantic cases and incorrect-retrieval feedback loops. Distinguish live outcomes from deterministic state checks and offline retrieval smoke. | 4, 6 |
 | 8 | Demonstrate fair baseline value | Independent durable baseline implemented; fair held-out live comparison pending | Freeze a fairness manifest and acceptance thresholds before held-out evaluation; compare no memory, the independent durable baseline and the supported DML profile with equal models, embeddings, budgets, tools and compaction. Meet the predeclared value, quality and latency gates with paired episodes and confidence intervals. | 5, 6 |
 | 9 | Run continuous 1k/10k lanes and the 100k campaign | Offline runner implemented; recurring live lanes and completed 100k campaign pending | Provision recurring 1k/10k live workload lanes and a completed 100k-turn release campaign with growing-store measurements, recovery checks, raw events, seeds, configuration/runtime identities and quality/latency distributions. Report turns and record counts separately; skips and offline simulations cannot close this milestone. | 3, 5, 6, 9 |
 | 10 | Deliver durable decision replay and audit export/retention | Durable mutation decisions and response traces implemented; complete durable replay/export/retention pending | Persist the supported profile's complete decision and context-replay inputs; reconstruct a deliberately bad answer across restart using retained source versions and pinned policies/renderers. Verify export behavior, access controls and bounded retention; state exactly when retention prevents reconstruction. | 10 |
