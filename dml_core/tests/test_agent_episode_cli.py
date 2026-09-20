@@ -35,10 +35,11 @@ def test_full_corpus_failures_are_retained_and_exit_nonzero(tmp_path, monkeypatc
     assert artifact["summary"]["contradiction_rate"] is None
     assert artifact["live_qualified"] is artifact["source_ci_qualified"] is False
     assert artifact["raw_evidence_complete"] is False
-    assert len(artifact["source_sha256"]) == 13
+    assert len(artifact["source_sha256"]) == 15
     assert {"daystrom_dml.services.model_input", "daystrom_dml.services.model_input_snapshot",
             "daystrom_dml.services.pretrained_snapshot", "daystrom_dml.services.qwen_model_input",
             "daystrom_dml.services.qwen_model_snapshot", "daystrom_dml.services.qwen_pretrained_snapshot",
+            "daystrom_dml.services.agent_action_grammar", "daystrom_dml.services.qwen_action_input",
             "scripts.agent_campaign_evidence"}.issubset(artifact["source_sha256"])
     assert artifact["consumer_profile"] == "gpt2-v1"
     assert all(call["consumer_profile"] == "gpt2-v1" for call in calls)

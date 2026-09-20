@@ -77,6 +77,7 @@ def _observations(events):
 
 def _replay_model(events, identity, tokenizer, consumer_profile):
     generated = 0
+    grammar_matcher = None
     for event in events:
         payload = event["payload"]
         if event["kind"] == "model_requested":
@@ -89,9 +90,20 @@ def _replay_model(events, identity, tokenizer, consumer_profile):
             _require(_same(encoded["input_ids"], compiled["input_ids"])
                      and _same(encoded["attention_mask"], compiled["attention_mask"]),
                      "Recorded input tokens differ from independent tokenization")
+            if consumer_profile == "qwen2-action-json-v1":
+                from daystrom_dml.services.agent_action_grammar import compile_action_grammar
+                import xgrammar as xgr
+                # Membership below separately rejects unused model rows. A
+                # syntax replay needs only the tokenizer's actual ID space.
+                grammar = compile_action_grammar(tokenizer, max(tokenizer.get_vocab().values()) + 1,
+                                                 request["tools"])
+                grammar_matcher = xgr.GrammarMatcher(
+                    grammar, override_stop_tokens=[tokenizer.eos_token_id],
+                    terminate_without_stop_token=False, max_rollback_tokens=-1, default_temperature=None,
+                )
         elif event["kind"] == "model_completed":
             output_ids = payload["output_ids"]
-            if consumer_profile == "qwen2-instruct-v1":
+            if consumer_profile in {"qwen2-instruct-v1", "qwen2-action-json-v1"}:
                 vocabulary = tokenizer.get_vocab()
                 allowed_ids = frozenset(vocabulary.values())
                 _require(all(type(token) is int and token in allowed_ids for token in output_ids),
@@ -100,6 +112,12 @@ def _replay_model(events, identity, tokenizer, consumer_profile):
                 _require(type(eos) is int and tokenizer.eos_token == "<|im_end|>"
                          and eos == tokenizer.eos_token_id and eos in tokenizer.all_special_ids,
                          "Qwen terminal EOS identity differs")
+                if consumer_profile == "qwen2-action-json-v1":
+                    _require(grammar_matcher is not None, "Constrained output lacks its request grammar")
+                    special = {index for index, token in tokenizer.added_tokens_decoder.items() if token.special}
+                    _require(all(token not in special - {eos} and grammar_matcher.accept_token(token)
+                                 for token in output_ids), "Recorded output violates its request-owned grammar")
+                    grammar_matcher = None
                 if output_ids and output_ids[-1] == eos:
                     output_ids = output_ids[:-1]
             text = tokenizer.decode(output_ids, skip_special_tokens=False,
@@ -223,14 +241,18 @@ def verify_files(*, spec_path, spec_sha256, campaign_path, snapshot_directory, s
     campaign_bytes = Path(campaign_path).read_bytes()
     campaign = decode_json(campaign_bytes, limit=MAX_CAMPAIGN_BYTES)
     consumer_profile = validate_consumer_profile(spec["consumer_profile"])
-    if consumer_profile == "qwen2-instruct-v1":
+    if consumer_profile in {"qwen2-instruct-v1", "qwen2-action-json-v1"}:
         from daystrom_dml.services.qwen_model_snapshot import verify_qwen_snapshot
         verify_snapshot = verify_qwen_snapshot
     else:
         verify_snapshot = verify_local_snapshot
     with verify_snapshot(bundle) as snapshot:
         from transformers import PreTrainedTokenizerFast
-        identity = snapshot.identity.to_payload()
+        if consumer_profile == "qwen2-action-json-v1":
+            from daystrom_dml.services.qwen_action_input import constrained_identity
+            identity = constrained_identity(snapshot.identity).to_payload()
+        else:
+            identity = snapshot.identity.to_payload()
         _require(_same(identity, spec["model_identity"]), "Frozen model identity differs")
         tokenizer = PreTrainedTokenizerFast(tokenizer_file=str(snapshot.path / "tokenizer.json"),
                                             **snapshot.special_tokens)

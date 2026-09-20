@@ -200,7 +200,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install torch==2.8.0 --index-url https://download.pytorch.org/whl/cpu
-          python -m pip install '.[model-input,dev]'
+          python -m pip install '.[agent-action,dev]'
       - name: Strict lint of exact model-input surfaces
         run: ruff check dml_core/daystrom_dml/contracts/model_input.py dml_core/daystrom_dml/services/model_input.py dml_core/daystrom_dml/services/model_input_snapshot.py
       - name: Strict lint of agent episode companion
@@ -216,6 +216,8 @@ jobs:
           dml_core/daystrom_dml/services/qwen_model_snapshot.py
           dml_core/daystrom_dml/services/qwen_model_input.py
           dml_core/daystrom_dml/services/qwen_pretrained_snapshot.py
+          dml_core/daystrom_dml/services/agent_action_grammar.py
+          dml_core/daystrom_dml/services/qwen_action_input.py
           dml_core/scripts/agent_campaign_evidence.py
       - name: Record pinned runtime versions
         run: |
@@ -274,6 +276,8 @@ jobs:
           dml_core/tests/test_qwen_pretrained_snapshot.py
           dml_core/tests/test_qwen_model_equivalence.py
           dml_core/tests/test_qwen_chat_template.py
+          dml_core/tests/test_agent_action_grammar.py
+          dml_core/tests/test_qwen_action_input.py
           --junitxml=model-input-artifacts/model-input.xml
       - name: Require complete model-input and episode harness evidence without skipped tests
         run: |
@@ -294,6 +298,7 @@ jobs:
               "test_qwen_pretrained_snapshot",
               "test_qwen_model_equivalence",
               "test_qwen_chat_template",
+              "test_agent_action_grammar", "test_qwen_action_input",
           }
           observed_modules = set()
           for case in report.iter("testcase"):

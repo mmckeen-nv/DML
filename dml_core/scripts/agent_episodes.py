@@ -70,7 +70,7 @@ def _source_digests():
     files = {module.__name__: Path(module.__file__) for module in (contract, runner, gateway, verifier, reducer)}
     files["scripts.agent_episodes"] = Path(__file__)
     for name in ("model_input", "model_input_snapshot", "pretrained_snapshot", "qwen_model_input",
-                 "qwen_model_snapshot", "qwen_pretrained_snapshot"):
+                 "qwen_model_snapshot", "qwen_pretrained_snapshot", "qwen_action_input", "agent_action_grammar"):
         files["daystrom_dml.services." + name] = Path(runner.__file__).with_name(name + ".py")
     files["scripts.agent_campaign_evidence"] = Path(__file__).with_name("agent_campaign_evidence.py")
     return {name: hashlib.sha256(path.read_bytes()).hexdigest() for name, path in files.items()}

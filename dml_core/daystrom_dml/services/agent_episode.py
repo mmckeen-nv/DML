@@ -60,7 +60,7 @@ class EpisodeLimits:
 
 
 _POLICY = AGENT_POLICY
-CONSUMER_PROFILES = ("gpt2-v1", "qwen2-instruct-v1")
+CONSUMER_PROFILES = ("gpt2-v1", "qwen2-instruct-v1", "qwen2-action-json-v1")
 
 
 def validate_consumer_profile(consumer_profile):
@@ -75,6 +75,9 @@ def _open_consumer(snapshot_directory, consumer_profile):
     if consumer_profile == "gpt2-v1":
         from .model_input import LocalTransformersInputConsumer
         return LocalTransformersInputConsumer(snapshot_directory)
+    if consumer_profile == "qwen2-action-json-v1":
+        from .qwen_action_input import LocalQwenActionInputConsumer
+        return LocalQwenActionInputConsumer(snapshot_directory)
     from .qwen_model_input import LocalQwenInputConsumer
     return LocalQwenInputConsumer(snapshot_directory)
 
