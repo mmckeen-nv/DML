@@ -47,13 +47,33 @@ separate retained evidence.
 
 ## Complete framing and output
 
-The fixed template places the complete tool definitions and each complete message
-inside JSON bodies with explicit ChatML framing. Message content, original role,
-name, tool calls, arguments, and tool-result identifiers remain recoverable.
-Tool messages use a user-role envelope while retaining their original `role` in
-the JSON body. Every `<` inside serialized data is escaped as `\u003c`, preventing
-literal ChatML markers in memory or tool data from becoming framing tokens.
-Escaping changes representation; parsing the JSON restores the original fields.
+Renderer v2 places each message's original content in native ChatML framing.
+An initial system message's content stays at the start of the first system
+message. Every message's complete non-content fields, including its original
+role, name, tool calls, arguments and tool-result identifiers, are retained in an
+index-aligned metadata array, together with the complete tool definitions.
+That first-system data section uses `dml-qwen-chatml-fields-v2` and explicitly
+states that metadata is data: user and tool attributes do not gain system
+authority. The template supplies no task truth or action grammar; the conversation's
+policy retains responsibility for response syntax.
+
+Content escapes `&` to `&amp;` before escaping `<` to `&lt;`. Reverse those
+substitutions in the opposite order (`&lt;`, then `&amp;`) to recover the exact
+original string, including literal entity spellings. The metadata is complete
+JSON with `<` escaped as `\u003c`. Caller data therefore cannot emit ChatML
+framing tokens, close the metadata section or become a tool-response delimiter.
+Tool content uses a user-role envelope with native `<tool_response>` wrappers;
+the metadata preserves its original `tool` role and all other fields. Content
+and indexed metadata together recover every supplied message field.
+
+The exact v2 template has SHA-256
+`24bd5fcdd71018049c672f96778e9162c6d00337e22f8f5f9b358c52705d9348`.
+Admission rejects a different template even when its manifest is rehashed to
+match. The earlier full-message JSON template used by live attempts 1 and 2
+remains historical evidence with its own identity; it is not accepted by this
+renderer revision. A freshly prepared bundle must retain the same pinned learned
+weights, configuration and tokenizer while separately recording the new template
+and derived identity. A new campaign freeze is required before execution.
 
 The real tokenizer compiles that complete framing, including the final assistant
 prefix. Input IDs plus the reserved output must fit the verified context window.
@@ -71,8 +91,10 @@ identity; it does not alter GPT-2 decoding.
 
 ## Qualification limits
 
-Tiny random Qwen fixtures test admission, framing, token accounting, dispatch,
-and adversarial rejection. They do not establish trained-model task outcomes.
+Tiny random Qwen fixtures test admission, reversible full-field framing, token
+accounting, dispatch and adversarial rejection. The v2 rendering correction
+received independent **9.6/10** source acceptance after **715 mandatory CPU tests
+passed with zero failures or skips**, with all **429 source hashes unchanged**. They do not establish trained-model task outcomes.
 The live campaign separately freezes trained weights, source, corpus, runtime,
 thread settings, limits, and acceptance gates before generation. Every attempted
 task and failure is retained. Independent verifiers measure semantic results;

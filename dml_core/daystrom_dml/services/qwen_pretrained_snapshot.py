@@ -122,7 +122,7 @@ def prepare_qwen_snapshot(raw_directory: str | Path, destination: str | Path) ->
                 "config_changes": {"torch_dtype": {"source": "bfloat16", "target": "float32"}},
                 "tied_head": {"source": "model.embed_tokens.weight", "target": "lm_head.weight",
                               "materialization": "loader-alias-same-storage"},
-                "template": "dml-qwen-full-json-chatml-v1",
+                "template": "dml-qwen-native-content-chatml-v2",
                 "bundle_files": {path.name: {"bytes": path.stat().st_size, "sha256": _hash_file(path)}
                                  for path in bundle.iterdir()},
                 "model_identity": identity, "trained_model": True, "instruction_tuned": True,

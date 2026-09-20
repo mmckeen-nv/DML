@@ -14,10 +14,11 @@ from qwen_model_input_fixture import create_qwen_snapshot
 
 @pytest.fixture
 def raw(tmp_path, monkeypatch):
+    fixture = create_qwen_snapshot(tmp_path / "fixture", context_window=32768)
+
     import torch
     from safetensors.torch import load_file, save_file
 
-    fixture = create_qwen_snapshot(tmp_path / "fixture", context_window=32768)
     path = tmp_path / "raw"
     path.mkdir()
     config = json.loads((fixture.path / "config.json").read_bytes())

@@ -273,6 +273,7 @@ jobs:
           dml_core/tests/test_qwen_model_adversarial.py
           dml_core/tests/test_qwen_pretrained_snapshot.py
           dml_core/tests/test_qwen_model_equivalence.py
+          dml_core/tests/test_qwen_chat_template.py
           --junitxml=model-input-artifacts/model-input.xml
       - name: Require complete model-input and episode harness evidence without skipped tests
         run: |
@@ -292,6 +293,7 @@ jobs:
               "test_qwen_model_adversarial",
               "test_qwen_pretrained_snapshot",
               "test_qwen_model_equivalence",
+              "test_qwen_chat_template",
           }
           observed_modules = set()
           for case in report.iter("testcase"):
