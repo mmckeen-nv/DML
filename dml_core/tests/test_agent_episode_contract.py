@@ -115,6 +115,19 @@ def test_exact_final_action_accepts_record_zero_and_typed_values():
                                                   "answer": altered}))["answer"]["claims"][0]["value"]) is type(value)
 
 
+@pytest.mark.parametrize("label,kind", [
+    ("Tool-call syntax example: ", "tool"), ("Final-answer syntax example: ", "final"),
+], ids=["tool-envelope", "final-envelope"])
+def test_policy_examples_are_literal_complete_protocol_objects(label, kind):
+    # Validate the exact bytes shown to the model, without substituting
+    # pseudo-JSON placeholders or repairing the example by serialization.
+    shown = AGENT_POLICY.split(label, 1)[1]
+    value, end = json.JSONDecoder().raw_decode(shown)
+    admitted = parse_agent_action(shown[:end])
+    assert admitted == value
+    assert admitted["kind"] == kind
+
+
 @pytest.mark.parametrize("raw", [
     '```json\n{"schema_version":"dml-agent-action-v1","kind":"final","answer":{"claims":[]}}\n```',
     '{"schema_version":"dml-agent-action-v1","kind":"final","kind":"tool","answer":{"claims":[]}}',
@@ -123,9 +136,18 @@ def test_exact_final_action_accepts_record_zero_and_typed_values():
     '{"schema_version":"dml-agent-action-v1","kind":"final","answer":{"claims":[{"key":"x","value":NaN,"evidence_ids":[]}]}}',
     '{"schema_version":"dml-agent-action-v1","kind":"final","answer":{"claims":[{"key":"x","value":"\\ud800","evidence_ids":[]}]}}',
     '[]', b'\xff', "{" * 70, " " * (MAX_ACTION_BYTES + 1),
+    '{"kind":"tool","name":"retrieve","arguments":{"query":"example","top_k":1}}',
+    '{"schema_version":"dml-agent-action-v1","answer":{"claims":[]}}',
+    '{"claims":[{"key":"example.setting","value":"example-value","evidence_ids":[42]}]}',
+    '{"schema_version":"dml-agent-action-v1","kind":"final","claims":[]}',
+    '{"schema_version":"dml-agent-action-v1","kind":"final","answer":{"claims":[]}}"',
+    json.dumps('{"schema_version":"dml-agent-action-v1","kind":"final","answer":{"claims":[]}}'),
+    '{"schema_version":"dml-agent-action-v1","kind":"final","answer":{"claims":[]}}' * 2,
 ], ids=[
     "code-fence", "duplicate-key", "trailing-prose", "extra-field", "nonfinite-number",
     "unpaired-surrogate", "array", "invalid-utf8", "malformed-json", "oversized-whitespace",
+    "missing-version", "missing-kind", "missing-envelope", "missing-answer-envelope",
+    "trailing-quote", "quoted-object", "multiple-actions",
 ])  # Bounded IDs keep PYTEST_CURRENT_TEST within Windows' environment-variable limit.
 def test_model_output_is_never_repaired(raw):
     with pytest.raises(AgentEpisodeError):
@@ -149,6 +171,8 @@ def test_model_cannot_expand_tool_bounds_or_claim_runner_authority(arguments):
     lambda a: a["claims"][0].update(evidence_ids=[0, 0]),
     lambda a: a["claims"][0].update(evidence_ids=[True]),
     lambda a: a["claims"][0].update(evidence_ids=[-1]),
+    lambda a: a["claims"][0].update(evidence_ids=["r0"]),
+    lambda a: a["claims"][0].update(evidence_ids=["0"]),
     lambda a: a["claims"][0].update(value={"nested": "object"}),
 ])
 def test_final_claim_protocol_is_strict(mutation):
@@ -156,6 +180,17 @@ def test_final_claim_protocol_is_strict(mutation):
     mutation(answer)
     with pytest.raises(AgentEpisodeError):
         parse_agent_action(json.dumps({"schema_version": ACTION_VERSION, "kind": "final", "answer": answer}))
+
+
+def test_write_reference_fields_require_opaque_strings_not_citation_integers():
+    action = {"schema_version": ACTION_VERSION, "kind": "tool", "name": "supersede",
+              "arguments": {"record_ref": "r7", "replacement_ref": "r8", "reason": "example reason"}}
+    assert parse_agent_action(json.dumps(action)) == action
+    for field in ("record_ref", "replacement_ref"):
+        invalid = deepcopy(action)
+        invalid["arguments"][field] = 42
+        with pytest.raises(AgentEpisodeError):
+            parse_agent_action(json.dumps(invalid))
 
 
 def test_completed_transcript_replays_with_exact_accounting():
