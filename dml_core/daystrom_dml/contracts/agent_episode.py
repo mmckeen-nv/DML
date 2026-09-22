@@ -73,7 +73,10 @@ _TOOL_DESCRIPTIONS = {
     "retrieve": (
         "Read relevant eligible memories in the current scope without changing them. query selects the topic; "
         "top_k caps returned records, which may be fewer than all relevant memories. Results include "
-        "citation id and, when available, immutable record_ref for writes."
+        "citation id and, when available, immutable record_ref for writes. Results also include requested_top_k, "
+        "returned_count and limit_reached, which is true exactly when returned_count equals requested_top_k. "
+        "Reaching the limit does not establish whether additional records exist; this is not a total count "
+        "or a completeness guarantee."
     ),
     "ingest": (
         "Create a new memory from text in the current scope, marked untrusted. "

@@ -215,7 +215,9 @@ class SelectedProfileEpisodeTools:
                     reference, record = match
                     records.append(record)
                     public.append(self._public(record, reference))
-            return {"report": deepcopy(report), "receipt": None, "observed_records": records}, canonical({"records": public})
+            return {"report": deepcopy(report), "receipt": None, "observed_records": records}, canonical({
+                "records": public, "requested_top_k": arguments["top_k"],
+                "returned_count": len(public), "limit_reached": len(public) == arguments["top_k"]})
 
         kwargs = {**self._scope, "idempotency_key": prepared.idempotency_key}
         if name == "ingest":

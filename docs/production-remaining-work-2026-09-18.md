@@ -109,21 +109,47 @@ new milestone 7 implementation.
 
 ### Active: milestone 7 — live-agent semantic and outcome harness
 
-**IN PROGRESS as of 2026-09-22.** Published repaired source `0d4364d` passed
-[CI 330](artifacts/agent-episode-ci-330-2026-09-20.json) **20/20 jobs without retry**,
-including **774 mandatory CPU cases with zero skips** and 370 verified source hashes.
-Its combined source review remains accepted at **9.6/10**. Four completed live
-campaigns failed qualification. Attempt 5 was interrupted across a frozen session;
-its temporary model/work directory and final campaign are unavailable, so complete
-counts, costs, effects and replay remain unknown. It is not a qualifying result.
-The [recovery review](artifacts/agent-episode-session-recovery-review-2026-09-22.json)
-retains that gap and permits a separately identified new attempt. The fixed-source Coder preparer has been reconstructed and independently
-accepted at **9.5/10** in its [new source review](artifacts/agent-episode-coder-reconstruction-review-2026-09-22.json).
-[Mandatory validation](artifacts/agent-episode-coder-recovery-validation-2026-09-22.json)
-passed **780 CPU cases / zero skips**, strict lint and maintained mypy, with
-**434 unchanged source hashes**. Actual model preparation/admission and a fresh
-predeclared live campaign remain pending; historical acceptance is not transferred
-to reconstructed code.
+#### Latest recovery status
+
+M7 remains **IN PROGRESS**. Public Coder-recovery source `1c4ccd5` passed
+[CI 331](https://github.com/mmckeen-nv/DML/actions/runs/35697661942), all 20 jobs.
+The current workspace can access the public repository and the separate reviewed
+retrieval-metadata checkout, but the previous main workspace is absent.
+
+Before the disconnect, attempt 6 was observed to finish all nine tasks with 8/9
+verifier successes, nine measurable finals across eight intents and 15,534 known
+tokens. Both sequential replays matched and the independent completion review
+rejected M7 solely because the model never performed the required supersession.
+Those are retained observations in the [PR recovery handoff](https://github.com/mmckeen-nv/DML/pull/118),
+not a replacement for raw evidence. The campaign, both replay artifacts, trained
+provenance/admission artifacts, integrated validation receipt and unpublished
+27-file commit are currently unavailable. Do not reconstruct them from prose,
+claim their bytes remain verified locally, or reclassify attempt 6 as qualifying.
+Attempt 5 remains separately interrupted/unreplayable with unknown full costs.
+
+The unavailable local commit was `97df9a569baf0c4c1a81370f91094a13b777946f`, tree
+`97d7aed92e0cea92e467404bcf173069a58039ba`. This recovery does not recreate or claim
+that exact tree. The surviving three-file metadata change and its original
+[independent 9.6/10 review](artifacts/agent-episode-retrieval-metadata-review-2026-09-22.json)
+remain byte-matched. Its 234-case independent JUnit also survives with zero skips,
+failures or errors. A fresh clone differs from public source only in those three
+reviewed source files before recovery documentation is added.
+
+The change exposes only requested retrieval cap, returned count and equality to
+the cap. It asserts no hidden-record total or completeness guarantee and does not
+force model actions, add reads, change task truth or relax acceptance gates.
+Fresh [integrated validation](artifacts/agent-episode-metadata-recovery-validation-2026-09-22.json)
+passed **784 mandatory cases with zero skips/errors/failures**, all 21 modules,
+both strict lint scopes and maintained mypy, with 434 unchanged source hashes.
+[Independent supervisor review](artifacts/agent-episode-metadata-recovery-supervisor-review-2026-09-22.json)
+accepts this recovered source for publication at **9.6/10**, with no source blockers.
+Published-source CI, recreated pinned model assets, strict admission and
+independent pre-generation review remain required before a new campaign can qualify. Attempt 7 has not been frozen or launched. No attempt ID or
+successful result will be substituted for missing historical evidence.
+
+Milestones 1–6 remain closed; M7 is active; M8–11 remain open; M12–13 remain
+deferred. This continues serial source gate 20. PR #118 stays unmerged and DML
+remains alpha with `production_ready=false`.
 
 This continues **serial implementation gate 20**: **20 accepted source gates plus
 foundations**, with no new milestone or renumbering. Source correctness, exact-source
@@ -166,7 +192,7 @@ The next campaign requires its own reviewed freeze after combined acceptance.
 | Tracking tab | Current evidence or obligation |
 | --- | --- |
 | Completed | Milestones 1–6; milestone 5 reconciliation and milestone 6 source `6647a0d` / CI 324 / 96 independently verified histories remain unchanged. |
-| Active milestone 7 work | Coder preparer reconstructed and reviewed at 9.5/10; 780 mandatory tests passed. Complete actual model preparation/admission, then freeze a fresh complete live campaign. Preserve interrupted attempt 5 and all prior failed evidence. Source `0d4364d` already passed CI 330. |
+| Active milestone 7 work | Recover exact reviewed retrieval metadata source; repeat integrated validation and new-source CI, reacquire pinned model and strict admission, then independently freeze attempt 7. Attempt-6 completion/rejection is recorded in PR prose but its raw artifacts are currently inaccessible. |
 | Later first-release gates | Milestone 8 fair held-out baseline comparison; milestone 9 recurring 1k/10k and 100k live campaign; milestone 10 durable replay/export/retention; milestone 11 release qualification. Two broader milestones remain deferred. |
 
 The [working record](live-agent-outcomes-2026-09-20.md), [Qwen companion](qwen-model-input-v1.md)
@@ -202,7 +228,7 @@ contains the completed serial-gate index.
 | 4 | Qualify crash recovery and supported filesystems | Closed: serial gate 18, 9.6/10; source `3763303`, CI 320 all 17 jobs passed; six measured environments and 15 real ENOSPC cases verified | Finish the supported-profile mutation/component inventory and deterministic plus seeded fault matrix; account for acknowledged, rejected and uncertain operations on restart; qualify the advertised filesystem/platform failure guarantees and publish a tested recovery runbook. Keep process-kill and power-loss evidence distinct. | 3, 9 |
 | 5 | Complete persisted-format and migration coverage | Closed by reconciliation on 2026-09-19: previously accepted foundations and serial gates 3, 8 and 18; mapping above | Inventory every persisted family admitted by the supported profile; enforce supported versions and compatibility; pass source-version, future-version, interrupted migration, export and restore cases using accurately labeled release or commit-pinned fixtures. Document excluded families and rollback limitations. | 3, 8 |
 | 6 | Qualify mixed-operation concurrency | Closed: serial gate 19, **9.6/10**, source `6647a0d`, **CI 324 all 20 jobs passed**, 48/24/24 platform histories independently verified twice. [Qualification evidence](artifacts/profile-concurrency-qualification-2026-09-19.json) | Exercise supported reads, writes, lifecycle operations and journal checkpoint/recovery behavior through threads, processes and HTTP/provider callers at 1/16/64/256-client levels with an independent history checker. Show zero lost updates, dirty reads, deadlocks or scope leakage in the qualified histories and satisfy the predeclared cancellation, timeout, finite progress and OS ownership-wait requirements. | 3, 9 |
-| 7 | Wire the live-agent semantic and outcome harness | **IN PROGRESS**: four completed trained campaigns rejected; repaired source `0d4364d` passed CI 330 (20/20, 774 mandatory CPU passes / zero skips). Attempt 5 interrupted/unreplayable after session loss. Coder reconstruction reviewed at 9.5/10, 780 mandatory CPU passes / zero skips; actual admission and live qualification still required | Run pinned tool-driven agent episodes with task verifiers, raw events and failure-inclusive cost/quality metrics; cover the adversarial semantic cases and incorrect-retrieval feedback loops. Distinguish live outcomes from deterministic state checks and offline retrieval smoke. | 4, 6 |
+| 7 | Wire the live-agent semantic and outcome harness | **IN PROGRESS**: public source1c4 passed CI331; attempt6 observed complete but rejected for missing supersession, raw evidence now inaccessible. Surviving metadata source reviewed9.6; recovery validation/publication and new live qualification required | Run pinned tool-driven agent episodes with task verifiers, raw events and failure-inclusive cost/quality metrics; cover the adversarial semantic cases and incorrect-retrieval feedback loops. Distinguish live outcomes from deterministic state checks and offline retrieval smoke. | 4, 6 |
 | 8 | Demonstrate fair baseline value | Independent durable baseline implemented; fair held-out live comparison pending | Freeze a fairness manifest and acceptance thresholds before held-out evaluation; compare no memory, the independent durable baseline and the supported DML profile with equal models, embeddings, budgets, tools and compaction. Meet the predeclared value, quality and latency gates with paired episodes and confidence intervals. | 5, 6 |
 | 9 | Run continuous 1k/10k lanes and the 100k campaign | Offline runner implemented; recurring live lanes and completed 100k campaign pending | Provision recurring 1k/10k live workload lanes and a completed 100k-turn release campaign with growing-store measurements, recovery checks, raw events, seeds, configuration/runtime identities and quality/latency distributions. Report turns and record counts separately; skips and offline simulations cannot close this milestone. | 3, 5, 6, 9 |
 | 10 | Deliver durable decision replay and audit export/retention | Durable mutation decisions and response traces implemented; complete durable replay/export/retention pending | Persist the supported profile's complete decision and context-replay inputs; reconstruct a deliberately bad answer across restart using retained source versions and pinned policies/renderers. Verify export behavior, access controls and bounded retention; state exactly when retention prevents reconstruction. | 10 |

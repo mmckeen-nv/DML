@@ -61,6 +61,53 @@ def test_actual_retrieval_yields_original_receipt_refs_and_exact_presented_text(
         assert next(record for record in raw["observed_records"] if record["id"] == item["id"]) == originals[item["id"]]
 
 
+@pytest.mark.parametrize("scope, top_k, count, limit_reached", [
+    (SCOPE, 1, 1, True),
+    (SCOPE, 2, 2, True),  # Exactly all eligible records also reaches the requested limit.
+    (SCOPE, 10, 2, False),
+    ({**SCOPE, "tenant_id": "empty"}, 1, 0, False),
+], ids=["capped", "exact-limit", "below-limit", "empty"])
+def test_retrieval_metadata_describes_only_the_requested_read(
+        authority, monkeypatch, scope, top_k, count, limit_reached):
+    adapter, _, seeds = authority
+    bridge = SelectedProfileEpisodeTools(adapter, scope=scope, episode_id="read-metadata", seed_receipts=seeds)
+    retrieve = adapter.retrieve_context
+    calls, reports = [], []
+
+    def record_read(query, **kwargs):
+        calls.append((query, kwargs))
+        report = retrieve(query, **kwargs)
+        reports.append(deepcopy(report))
+        return report
+
+    monkeypatch.setattr(adapter, "retrieve_context", record_read)
+    before = adapter._journal.verified_snapshot()
+    raw, model_text = invoke(bridge, "retrieve", {"query": "owner answers", "top_k": top_k}, "read")
+    shown = json.loads(model_text)
+    assert calls == [("owner answers", {"top_k": top_k, "as_of": bridge.effective_time, **scope})]
+    assert raw["report"] == reports[0]
+    assert raw["receipt"] is None
+    assert adapter._journal.verified_snapshot() == before
+    assert set(shown) == {"records", "requested_top_k", "returned_count", "limit_reached"}
+    assert shown["requested_top_k"] == top_k
+    assert shown["returned_count"] == count
+    assert shown["limit_reached"] is limit_reached
+    assert len(shown["records"]) == count
+    returned_ids = {int(item["id"]) for item in reports[0]["items"]}
+    assert {item["id"] for item in shown["records"]} == returned_ids
+    assert {record["id"] for record in raw["observed_records"]} == returned_ids
+    assert not any(key in model_text for key in SCOPE)
+    for receipt in seeds:
+        record = receipt["result"]["memory"]
+        if record["id"] not in returned_ids:
+            assert record["text"] not in model_text
+        else:
+            presented = next(item for item in shown["records"] if item["id"] == record["id"])
+            assert presented["text"] == record["text"]
+            assert presented["record_ref"]
+            assert next(item for item in raw["observed_records"] if item["id"] == record["id"]) == record
+
+
 def test_generated_memory_is_untrusted_and_receipt_replay_does_not_duplicate(authority):
     adapter, bridge, _ = authority
     prepared = bridge.prepare("ingest", {"text": "The model guessed a new fact."}, call_id="write")
@@ -69,6 +116,7 @@ def test_generated_memory_is_untrusted_and_receipt_replay_does_not_duplicate(aut
     assert bridge.execute(prepared) == (raw, shown)
     assert adapter._journal.verified_snapshot() == before_replay
     record = raw["receipt"]["result"]["memory"]
+    assert set(json.loads(shown)) == {"records"}
     assert record["meta"]["source_trust"] == "untrusted"
     assert record["meta"]["source"] == "episode-generated:tool-test"
     assert all(record["meta"][key] == value for key, value in SCOPE.items())

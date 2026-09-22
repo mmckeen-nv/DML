@@ -45,6 +45,15 @@ or generated-answer substitution. Snapshot admission establishes the bytes and
 execution boundary; training provenance and campaign qualification require their
 separate retained evidence.
 
+## Latest execution recovery status
+
+The pinned Coder source API remains accepted. A later retrieval-metadata change
+is recovered from exact reviewed bytes, but the prior runtime/model workspace is
+unavailable. [Current recovery handoff](production-handoff-2026-09-22.md) records
+what survives and what must be independently revalidated. Previous preparation,
+admission and live observations do not replace missing raw evidence or qualify a
+new execution. A new campaign has not started.
+
 ## Separately pinned Coder preparation candidate
 
 The separately pinned preparation API was reconstructed after the September 20
