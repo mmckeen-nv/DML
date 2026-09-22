@@ -1,6 +1,6 @@
-"""Offline, exact-source Qwen2.5-1.5B-Instruct BF16-to-F32 preparation.
+"""Offline, exact-source Qwen2.5 instruction-model BF16-to-F32 preparation.
 
-This single-model preparer accepts no downloaded code, pickle or caller-defined
+The two separately pinned preparers accept no downloaded code, pickle or caller-defined
 trust pins. Conversion preserves every finite learned value exactly. Only the
 config dtype declaration changes; the safe full-field template is separately
 versioned. The tied output head remains an explicit loader alias.
@@ -8,9 +8,11 @@ versioned. The tied output head remains an explicit loader alias.
 from __future__ import annotations
 
 import hashlib
+from dataclasses import dataclass
 from pathlib import Path
 import shutil
 import tempfile
+from types import MappingProxyType
 from typing import Any
 
 from .model_input_snapshot import RUNTIME_VERSION_PINS, _json_object, _read_regular
@@ -23,13 +25,31 @@ from .qwen_model_snapshot import (
 PREPARER_VERSION = "dml-pretrained-qwen2-instruct-v1"
 MODEL_ID = "Qwen/Qwen2.5-1.5B-Instruct"
 MODEL_REVISION = "989aa7980e4cf806f80c7fef2b1adb7bc71aa306"
-SOURCE_FILE_PINS = {
+SOURCE_FILE_PINS = MappingProxyType({
     "config.json": (660, "98d2ff8cc47488d08a2b0b3acf4eb99ef210779b42bd48605f6b8e36acdbf670"),
     "tokenizer.json": (7031645, "c0382117ea329cdf097041132f6d735924b697924d6f6fc3945713e96ce87539"),
     "tokenizer_config.json": (7305, "5b5d4f65d0acd3b2d56a35b56d374a36cbc1c8fa5cf3b3febbbfabf22f359583"),
     "LICENSE": (11343, "832dd9e00a68dd83b3c3fb9f5588dad7dcf337a0db50f7d9483f310cd292e92e"),
     "model.safetensors": (3087467144, "dd924a11b4c220f385b51ffa522daea7c9f3d850e31b162bb5661df483c6d3ee"),
-}
+})
+CODER_PREPARER_VERSION = "dml-pretrained-qwen2-coder-instruct-v1"
+CODER_MODEL_ID = "Qwen/Qwen2.5-Coder-1.5B-Instruct"
+CODER_MODEL_REVISION = "2e1fd397ee46e1388853d2af2c993145b0f1098a"
+CODER_SOURCE_FILE_PINS = MappingProxyType({
+    "config.json": (660, "88f9a17863c05fb313515d2ff74b1098e0c35579f99068e32beda00618508ae0"),
+    "tokenizer.json": (7031645, "c0382117ea329cdf097041132f6d735924b697924d6f6fc3945713e96ce87539"),
+    "tokenizer_config.json": (7305, "959e7f1d9a1b7641a6d6ce05ca97b75c7894fcb66cbe5a040406458fb1128ee4"),
+    "LICENSE": (11343, "832dd9e00a68dd83b3c3fb9f5588dad7dcf337a0db50f7d9483f310cd292e92e"),
+    "model.safetensors": (3087467144, "c1b9b30e907950516ba3c646bdf570d8084c25a6410a0cdca80cf04b11bc13a8"),
+})
+
+
+@dataclass(frozen=True)
+class _SourceProfile:
+    model_id: str
+    revision: str
+    preparer_version: str
+    files: tuple[tuple[str, int, str], ...]
 
 
 def tensor_digest(tensor: Any) -> str:
@@ -62,14 +82,30 @@ def normalize_state(state: dict[str, Any], config: dict[str, Any]):
 
 
 def prepare_qwen_snapshot(raw_directory: str | Path, destination: str | Path) -> dict[str, Any]:
-    """Prepare a new offline bundle; a complete provenance record is mandatory."""
+    """Prepare only the original pinned Qwen2.5-1.5B-Instruct source."""
+    profile = _SourceProfile(MODEL_ID, MODEL_REVISION, PREPARER_VERSION,
+        tuple((name, size, digest) for name, (size, digest) in SOURCE_FILE_PINS.items()))
+    return _prepare_snapshot(raw_directory, destination, profile)
+
+
+def prepare_qwen_coder_snapshot(raw_directory: str | Path, destination: str | Path) -> dict[str, Any]:
+    """Prepare only the separately pinned Qwen2.5-Coder-1.5B-Instruct source."""
+    profile = _SourceProfile(CODER_MODEL_ID, CODER_MODEL_REVISION, CODER_PREPARER_VERSION,
+        tuple((name, size, digest) for name, (size, digest) in CODER_SOURCE_FILE_PINS.items()))
+    return _prepare_snapshot(raw_directory, destination, profile)
+
+
+def _prepare_snapshot(
+    raw_directory: str | Path, destination: str | Path, profile: _SourceProfile,
+) -> dict[str, Any]:
+    """Use the immutable source identity captured before any preparation I/O."""
     from safetensors.torch import load_file, save_file
     raw = _directory(raw_directory)
     target = Path(destination).absolute()
     parent = _directory(target.parent)
     if target.name in {"", ".", ".."} or ".." in target.parts:
         raise PretrainedSnapshotError("Invalid Qwen destination")
-    if {entry.name for entry in raw.iterdir()} != SOURCE_FILE_PINS.keys():
+    if {entry.name for entry in raw.iterdir()} != {name for name, _, _ in profile.files}:
         raise PretrainedSnapshotError("Missing or unlisted Qwen raw files")
     if target.exists() or target.is_symlink():
         raise PretrainedSnapshotError("Qwen destination already exists")
@@ -79,7 +115,7 @@ def prepare_qwen_snapshot(raw_directory: str | Path, destination: str | Path) ->
             staging = Path(temporary)
             copied = staging / "raw"
             copied.mkdir()
-            for name, (size, expected) in SOURCE_FILE_PINS.items():
+            for name, size, expected in profile.files:
                 source = raw / name
                 if source.lstat().st_size != size:
                     raise PretrainedSnapshotError("Pinned Qwen source size differs")
@@ -104,19 +140,19 @@ def prepare_qwen_snapshot(raw_directory: str | Path, destination: str | Path) ->
                 tensor_digest(restored[record["name"]]) != record["target_sha256"] for record in records
             ):
                 raise PretrainedSnapshotError("Serialized Qwen learned tensors differ")
-            manifest = {"schema_version": SNAPSHOT_SCHEMA_VERSION, "model_id": MODEL_ID,
-                "model_revision": MODEL_REVISION, "context_window": 32768,
+            manifest = {"schema_version": SNAPSHOT_SCHEMA_VERSION, "model_id": profile.model_id,
+                "model_revision": profile.revision, "context_window": 32768,
                 "runtime_versions": dict(RUNTIME_VERSION_PINS), "special_tokens": SPECIAL_TOKENS,
                 "files": {path.name: _hash_file(path) for path in bundle.iterdir()}}
             _write(bundle / "snapshot.json", _json_bytes(manifest))
             with verify_qwen_snapshot(bundle) as verified:
                 identity = verified.identity.to_payload()
-            provenance = {"schema_version": PREPARER_VERSION, "complete": True,
-                "model_id": MODEL_ID, "source_revision": MODEL_REVISION,
+            provenance = {"schema_version": profile.preparer_version, "complete": True,
+                "model_id": profile.model_id, "source_revision": profile.revision,
                 "normalizer_sha256": _hash_file(Path(__file__)),
                 "source_files": {name: {"bytes": size, "sha256": digest,
-                    "source_url": f"https://huggingface.co/{MODEL_ID}/resolve/{MODEL_REVISION}/{name}"}
-                    for name, (size, digest) in SOURCE_FILE_PINS.items()},
+                    "source_url": f"https://huggingface.co/{profile.model_id}/resolve/{profile.revision}/{name}"}
+                    for name, size, digest in profile.files},
                 "learned_tensors": records, "omitted_tensors": [],
                 "dtype_conversion": "finite-bfloat16-to-float32-exact-round-trip-v1",
                 "config_changes": {"torch_dtype": {"source": "bfloat16", "target": "float32"}},

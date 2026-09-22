@@ -274,6 +274,7 @@ jobs:
           dml_core/tests/test_agent_campaign_evidence.py
           dml_core/tests/test_qwen_model_adversarial.py
           dml_core/tests/test_qwen_pretrained_snapshot.py
+          dml_core/tests/test_qwen_coder_pretrained_snapshot.py
           dml_core/tests/test_qwen_model_equivalence.py
           dml_core/tests/test_qwen_chat_template.py
           dml_core/tests/test_agent_action_grammar.py
@@ -296,6 +297,7 @@ jobs:
               "test_pretrained_snapshot", "test_agent_campaign_evidence",
               "test_qwen_model_adversarial",
               "test_qwen_pretrained_snapshot",
+              "test_qwen_coder_pretrained_snapshot",
               "test_qwen_model_equivalence",
               "test_qwen_chat_template",
               "test_agent_action_grammar", "test_qwen_action_input",

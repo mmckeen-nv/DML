@@ -45,6 +45,46 @@ or generated-answer substitution. Snapshot admission establishes the bytes and
 execution boundary; training provenance and campaign qualification require their
 separate retained evidence.
 
+## Separately pinned Coder preparation candidate
+
+The separately pinned preparation API was reconstructed after the September 20
+session froze. Historical review applies to the earlier isolated bytes; the
+reconstructed revision has its own independent review and
+[validation](artifacts/agent-episode-coder-recovery-validation-2026-09-22.json).
+All **780 mandatory CPU cases passed with zero skips**, including six Coder
+controls; both strict lint scopes and maintained mypy passed, with **434 unchanged
+source hashes**. The five actual pinned source payloads have been acquired and
+hash-verified. Preparation/admission and a fresh declared live campaign remain
+separate gates; this source change does not establish stronger model capability.
+
+The existing `prepare_qwen_snapshot(raw_directory, destination)` continues to
+accept only the original general model. The separate
+`prepare_qwen_coder_snapshot(raw_directory, destination)` pins
+`Qwen/Qwen2.5-Coder-1.5B-Instruct` revision
+`2e1fd397ee46e1388853d2af2c993145b0f1098a` and provenance schema
+`dml-pretrained-qwen2-coder-instruct-v1`. Neither API accepts caller-defined trust
+pins or auto-detects a model. The shared finite BF16-to-float32 exact-round-trip
+normalization, complete learned-tensor checks, five-file bundle, native template,
+strict admission bounds and CPU execution architecture are unchanged.
+
+After source validation, preparation from an already
+acquired exact pinned raw directory uses a fresh destination:
+
+```python
+from daystrom_dml.services.qwen_pretrained_snapshot import prepare_qwen_coder_snapshot
+
+provenance = prepare_qwen_coder_snapshot("/path/pinned-coder-raw", "/path/new-coder-prepared")
+```
+
+The raw directory must contain exactly the pinned `config.json`, `tokenizer.json`,
+`tokenizer_config.json`, `LICENSE` and `model.safetensors`. Preparation performs
+no download. The destination contains `bundle/`, `provenance.json` and the license;
+existing destinations, missing/extra files and wrong source sizes or hashes reject.
+The new model identity needs its own strict admission and reviewed pre-generation
+campaign freeze. Prior models, campaign evidence and failures remain preserved;
+the policy, tools, runtime architecture, limits and qualification gates are not
+relaxed for the alternate fixed source.
+
 ## Complete framing and output
 
 Renderer v2 places each message's original content in native ChatML framing.

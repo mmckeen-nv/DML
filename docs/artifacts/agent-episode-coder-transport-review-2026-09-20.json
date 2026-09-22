@@ -1,0 +1,73 @@
+{
+  "builder_final_probe": {
+    "exact_transport_probe": {
+      "automatic_credential_lookups": 0,
+      "bytes": 660,
+      "exact_pin_match": true,
+      "sha256": "88f9a17863c05fb313515d2ff74b1098e0c35579f99068e32beda00618508ae0",
+      "status": 200
+    },
+    "full_phase_executed": false,
+    "offline_credential_control": {
+      "automatic_credential_lookups": 0,
+      "initial_authorization_removed": true,
+      "passed": true,
+      "redirect_authorization_removed": true
+    },
+    "passed": true,
+    "recorded_at": "2026-09-20T15:31:17.707289+00:00",
+    "requests_version": "2.34.2",
+    "runner_sha256": "3ea8807954f3961bc286aea4e57766ebc38598fdc3524002a473166b49f1df9b",
+    "weights_downloaded": false
+  },
+  "builder_final_probe_receipt_sha256": "8a94d8fedba665c9d65131ddcf45c8fc099f092a63007d21ad2391ac86b833d5",
+  "decision": "accepted_operational_transport_revision",
+  "diagnostic_causality_boundary": "Attempt4 versus attempt5 changes model-facing policy and tool descriptions as well as cleanup. The observed collapse in finals is correlated with that interface revision and does not establish model capability or grammar alone as its cause. A later stock-Coder run keeps the current interface fixed and explicitly tests the model/source change.",
+  "findings": [
+    "The transport preserves configured proxy and certificate routing through trust_env=True, without disabling HTTPS certificate verification.",
+    "An explicit auth handler removes Authorization before initial dispatch, while an overridden rebuild_auth removes it without consulting origin credentials on redirects. This closes the separate Requests redirect lookup path that an initial auth handler alone does not suppress.",
+    "Independent offline sentinel controls verify initial and redirect credential lookup suppression, header removal, and retention of configured proxy and CA settings. No real credentials or network request are used by these reviewer controls.",
+    "The exact final helper fetched the public revision-pinned660-byte config successfully with zero automatic origin credential lookups, and its SHA256 matched the preparer pin. This proves only the small metadata route, not a successful weight download.",
+    "Independent AST comparison confirms only acquire and the new http_session helper differ. Source pins, disk estimates/reserve, manual HTTPS redirects, exact downloaded sizes/hashes, no-replace publication, owned-partial cleanup, safe receipts and offline preparation are unchanged."
+  ],
+  "historical_evidence_mutated": false,
+  "independent_offline_controls": {
+    "acquire_or_prepare_phase_executed": false,
+    "authorization_headers_removed": true,
+    "configured_ca_bundle_preserved": true,
+    "configured_proxy_routing_preserved": true,
+    "initial_origin_credential_lookup_blocked": true,
+    "network_calls": 0,
+    "redirect_origin_credential_lookup_blocked": true,
+    "runner_sha256": "3ea8807954f3961bc286aea4e57766ebc38598fdc3524002a473166b49f1df9b"
+  },
+  "independent_receipt_sha256": "a45f5361ba6a1025c398abf133acd8dff81b78c96ed1731b7a03a09463aff9fb",
+  "milestone_7_closed": false,
+  "minimum_acceptable_score": 9.5,
+  "production_ready": false,
+  "recorded_at_utc": "2026-09-20T15:33:26.765494+00:00",
+  "remaining_execution_requirements": [
+    "Finish the active nine-task campaign and both sequential replays, then obtain the already-planned explicit freeze release before integration/storage/download operations.",
+    "Integrate and validate the reviewed preparer source, execute only the reviewed historical-source deduplication when quiescent, and remeasure required disk headroom before acquisition.",
+    "Run acquire and prepare as separate phases using this final runner hash; preserve all phase receipts and actual failure states. Independently verify actual source tensors, provenance and strict admission before freezing a new model campaign."
+  ],
+  "retained_failure": {
+    "configuration": "requests Session trust_env=False",
+    "failure_reclassified_as_success": false,
+    "outcome": "ConnectionError before HTTP; the initial assumption that default environment routing could be disabled was disproved by the bounded metadata probe.",
+    "probe_receipt_sha256": "5f8ee9214b38ea97e732930db00f375b813002b71ad3b198634dcc8723f84c5f"
+  },
+  "reviewer": "independent delegated m7_final_grader",
+  "runner": {
+    "acquire_phase_executed": false,
+    "prepare_phase_executed": false,
+    "prior_bytes_retained": true,
+    "prior_unexecuted_runner_sha256": "ea6d03ac42621b93d46821d10be10d4df16b5f2292ee61abaf3b184456c67a17",
+    "sha256": "3ea8807954f3961bc286aea4e57766ebc38598fdc3524002a473166b49f1df9b",
+    "weights_downloaded": false
+  },
+  "schema_version": "dml-independent-coder-transport-review-v1",
+  "scope": "Scratch acquisition-runner transport only; repository source, model policy/tools, corpus, gates and active campaign remain unchanged.",
+  "score": 9.6,
+  "trained_live_qualified": false
+}

@@ -1,26 +1,28 @@
 # Milestone 7 live qualification record
 
-Status at this documentation review freeze: **IN PROGRESS**. All **four**
-predeclared trained campaigns completed and failed their unchanged live gates.
-The latest attempt received independent **8.0/10: rejected** completion review.
-All raw results, failed costs and unavailable measurements remain retained.
+Current status reconciled **2026-09-22: IN PROGRESS**. Four predeclared
+trained campaigns completed and failed their unchanged live gates. Attempt 5
+started on September 20, but its temporary model and raw output paths did not
+survive the frozen session. Its final result, total cost, effects and completed-task
+count are unavailable. It is **interrupted/unreplayable and unqualified**, not a
+completed fifth campaign. Contemporaneous PR observations remain attributed to
+their original update; they do not substitute for raw evidence.
 
-Public action-profile source `da526eb58d7556c455b2b534f9261cc68f74becf` passed
-[CI 329](https://github.com/mmckeen-nv/DML/actions/runs/35516379118) **20/20 jobs**,
-including **760 mandatory CPU passes / zero skips** and **370 independently
-matching source hashes**. A subsequent surviving-supervisor temporary-snapshot
-cleanup leak made its source completion state **9.2/10: rejected**; passing CI
-and its historical 9.6/10 review do not waive that finding.
+Reviewed source `0d4364d116d75ed24b60e441845518b47f39ad57` passed
+[CI 330](https://github.com/mmckeen-nv/DML/actions/runs/35518344343) **20/20 jobs**,
+with **774 mandatory CPU passes / zero skips**. The
+[session recovery review](artifacts/agent-episode-session-recovery-review-2026-09-22.json)
+records the missing evidence and limited process visibility. It releases the
+operational hold only for new, separately identified work; it does not assert that
+attempt 5 finished or passed replay. Historical declarations and reviews remain
+unchanged. The separately pinned Coder preparer has been reconstructed with fresh
+[independent source acceptance at 9.5/10](artifacts/agent-episode-coder-reconstruction-review-2026-09-22.json)
+and [780 mandatory CPU passes / zero skips](artifacts/agent-episode-coder-recovery-validation-2026-09-22.json).
+All 434 recorded source hashes stayed unchanged; strict lint and mypy passed.
+Actual model preparation/admission and a fresh pre-generation declaration remain
+required. No new live qualification is claimed.
 
-The reviewed cleanup (**9.6/10**) and generic grounding-policy (**9.7/10**) repairs
-have now been integrated after attempt 4 and both replays finished.
-[Combined final validation](artifacts/agent-episode-grounding-cleanup-validation-2026-09-20.json)
-passed **774 mandatory cases / zero failures, errors or skips**, 20 modules,
-433 unchanged source hashes, both strict Ruff scopes and maintained mypy.
-The [combined final review](artifacts/agent-episode-grounding-cleanup-review-2026-09-20.json) accepts **9.6/10 with no source blockers**; **attempt 5 is pending** a reviewed
-freeze, with publication and new-source CI still required. Those unpublished repairs are
-not attributed to the public commit. [PR #118](https://github.com/mmckeen-nv/DML/pull/118)
-remains open and unmerged.
+[PR #118](https://github.com/mmckeen-nv/DML/pull/118) remains open and unmerged.
 
 This continues **serial source gate 20** within release milestone 7. It does not
 create a twenty-first source gate. The [finite release plan](production-remaining-work-2026-09-18.md)
@@ -249,6 +251,37 @@ performed **zero generations**, with all five bundle files unchanged and the new
 public-tools-bound runtime identity recorded separately. Combined review is
 accepted at **9.6/10 with no source blockers** in the [combined final review](artifacts/agent-episode-grounding-cleanup-review-2026-09-20.json); publication, new-source CI and a fifth pre-generation freeze remain required. Historical reviews, all four campaigns and their failed costs remain
 immutable; milestone 7 stays open.
+
+## Interrupted attempt 5 — evidence unavailable after session recovery
+
+The [fifth pre-generation declaration](artifacts/agent-episode-live-spec-attempt-5-2026-09-20.json),
+SHA-256 `46177ba2958f1a1c18927d6c6761d2c5250a0abc4eb9e7bb57aded831e9d2ad0`,
+passed independent review before launch. It binds 433 source hashes and 278
+dependency versions, retaining the same trained model, nine tasks, limits and
+acceptance gates. The first task timed out after **300.14 seconds**, with four
+completed retrieves; that observed failure prevents qualification under the fixed
+gates. That statement described the September 20 run. On September 22 the raw
+work directory and final campaign are unavailable, so completion and replay cannot
+be established. The original declaration remains immutable; a new run must receive
+a new attempt identifier and freeze. Completed episode reports for future runs
+will be stored outside `/tmp`. In-progress parent-death replay remains outside
+this operational recovery; milestone 10 is not closed by this change.
+
+Repaired source is published as
+[`0d4364d116d75ed24b60e441845518b47f39ad57`](https://github.com/mmckeen-nv/DML/commit/0d4364d116d75ed24b60e441845518b47f39ad57), exact tree
+`d8b2c5d4c699fdde85fe6c70d190c2375b9fb0de`. [CI 330](https://github.com/mmckeen-nv/DML/actions/runs/35518344343)
+passed **20/20 jobs without retry**; PR #118 remains unmerged. Its
+[immutable receipt](artifacts/agent-episode-ci-330-2026-09-20.json), SHA-256
+`7ae8722a64d4e14a0795cc2a9c78cb2bf86e199df4968e119867a4dfbfc4ce0a`,
+retains **774 mandatory CPU passes / zero skips**, exactly **20 modules**, and
+**370 independently matched source hashes** with verified merge/tree identity.
+Both full suites passed **4,675 tests with 261 skips each**, plus hygiene;
+these overlap other selections and do not replace zero-skip CPU evidence.
+Source remains accepted at 9.6/10; trained qualification stays open.
+A separately assessed compatible stock
+coder-model alternative is only a prospective path; no new model selection,
+admission or semantic qualification is asserted here. All four prior failed campaigns remain retained and
+milestone 7 remains open.
 
 ## Published-source CI 328
 
