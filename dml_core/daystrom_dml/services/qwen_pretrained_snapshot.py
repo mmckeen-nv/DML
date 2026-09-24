@@ -8,18 +8,27 @@ versioned. The tied output head remains an explicit loader alias.
 from __future__ import annotations
 
 import hashlib
+import json
+import math
+import os
+import shutil
+import struct
+import sys
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-import shutil
-import tempfile
 from types import MappingProxyType
 from typing import Any
 
 from .model_input_snapshot import RUNTIME_VERSION_PINS, _json_object, _read_regular
 from .pretrained_snapshot import PretrainedSnapshotError, _directory, _hash_file, _json_bytes, _write
 from .qwen_model_snapshot import (
-    QWEN_CHAT_TEMPLATE, SNAPSHOT_SCHEMA_VERSION, SPECIAL_TOKENS,
-    check_config, expected_shapes, verify_qwen_snapshot,
+    QWEN_CHAT_TEMPLATE,
+    SNAPSHOT_SCHEMA_VERSION,
+    SPECIAL_TOKENS,
+    check_config,
+    expected_shapes,
+    verify_qwen_snapshot,
 )
 
 PREPARER_VERSION = "dml-pretrained-qwen2-instruct-v1"
@@ -42,6 +51,7 @@ CODER_SOURCE_FILE_PINS = MappingProxyType({
     "LICENSE": (11343, "832dd9e00a68dd83b3c3fb9f5588dad7dcf337a0db50f7d9483f310cd292e92e"),
     "model.safetensors": (3087467144, "c1b9b30e907950516ba3c646bdf570d8084c25a6410a0cdca80cf04b11bc13a8"),
 })
+_NORMALIZE_CHUNK_ELEMENTS = 4 * 1024 * 1024
 
 
 @dataclass(frozen=True)
@@ -54,7 +64,11 @@ class _SourceProfile:
 
 def tensor_digest(tensor: Any) -> str:
     import torch
-    return hashlib.sha256(tensor.detach().contiguous().view(torch.uint8).numpy().tobytes()).hexdigest()
+    flat = tensor.detach().contiguous().reshape(-1)
+    digest = hashlib.sha256()
+    for start in range(0, flat.numel(), _NORMALIZE_CHUNK_ELEMENTS):
+        digest.update(flat[start:start + _NORMALIZE_CHUNK_ELEMENTS].view(torch.uint8).numpy().tobytes())
+    return digest.hexdigest()
 
 
 def normalize_state(state: dict[str, Any], config: dict[str, Any]):
@@ -81,6 +95,64 @@ def normalize_state(state: dict[str, Any], config: dict[str, Any]):
     return transformed, records
 
 
+def _write_normalized_state(
+    state: dict[str, Any], config: dict[str, Any], destination: Path,
+) -> list[dict[str, Any]]:
+    """Serialize exact finite F32 tensors without retaining converted weights.
+
+    All admitted tensors share F32 dtype, so the safetensors order is lexical.
+    The compact header and eight-byte padding match the pinned serializer; only
+    one conversion chunk and its byte buffers are resident at a time.
+    """
+    import torch
+
+    shapes = expected_shapes(config)
+    if state.keys() != shapes.keys():
+        raise PretrainedSnapshotError("Qwen learned tensor coverage differs")
+    if sys.byteorder != "little":
+        raise PretrainedSnapshotError("Qwen streaming serialization requires little-endian tensors")
+    header: dict[str, Any] = {"__metadata__": {"format": "pt"}}
+    offset = 0
+    for name in sorted(shapes):
+        source = state[name]
+        if (not isinstance(source, torch.Tensor) or source.device.type != "cpu"
+                or source.dtype != torch.bfloat16 or tuple(source.shape) != shapes[name]
+                or source.layout != torch.strided or not source.is_contiguous()):
+            raise PretrainedSnapshotError("Qwen source tensor shape, dtype or layout differs")
+        end = offset + math.prod(shapes[name]) * 4
+        header[name] = {"dtype": "F32", "shape": list(shapes[name]), "data_offsets": [offset, end]}
+        offset = end
+    payload = json.dumps(header, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode("utf-8")
+    payload += b" " * (-len(payload) % 8)
+    records = []
+    with destination.open("xb") as output:
+        output.write(struct.pack("<Q", len(payload)))
+        output.write(payload)
+        for name in sorted(shapes):
+            flat = state[name].reshape(-1)
+            source_digest, target_digest = hashlib.sha256(), hashlib.sha256()
+            for start in range(0, flat.numel(), _NORMALIZE_CHUNK_ELEMENTS):
+                source = flat[start:start + _NORMALIZE_CHUNK_ELEMENTS]
+                if not bool(torch.isfinite(source).all()):
+                    raise PretrainedSnapshotError("Qwen source tensor finite values differ")
+                target = source.to(dtype=torch.float32).contiguous()
+                source_bytes = source.view(torch.uint8).numpy().tobytes()
+                round_trip = target.to(dtype=torch.bfloat16).view(torch.uint8).numpy().tobytes()
+                if round_trip != source_bytes:
+                    raise PretrainedSnapshotError("Qwen BF16-to-F32 conversion is not byte-exact on round trip")
+                target_bytes = target.view(torch.uint8).numpy().tobytes()
+                source_digest.update(source_bytes)
+                target_digest.update(target_bytes)
+                output.write(target_bytes)
+                del target, source_bytes, round_trip, target_bytes
+            records.append({"name": name, "shape": list(shapes[name]), "source_dtype": "bfloat16",
+                "target_dtype": "float32", "source_sha256": source_digest.hexdigest(),
+                "target_sha256": target_digest.hexdigest(), "round_trip_exact": True})
+        output.flush()
+        os.fsync(output.fileno())
+    return records
+
+
 def prepare_qwen_snapshot(raw_directory: str | Path, destination: str | Path) -> dict[str, Any]:
     """Prepare only the original pinned Qwen2.5-1.5B-Instruct source."""
     profile = _SourceProfile(MODEL_ID, MODEL_REVISION, PREPARER_VERSION,
@@ -99,7 +171,8 @@ def _prepare_snapshot(
     raw_directory: str | Path, destination: str | Path, profile: _SourceProfile,
 ) -> dict[str, Any]:
     """Use the immutable source identity captured before any preparation I/O."""
-    from safetensors.torch import load_file, save_file
+    import torch
+    from safetensors.torch import load_file
     raw = _directory(raw_directory)
     target = Path(destination).absolute()
     parent = _directory(target.parent)
@@ -128,18 +201,20 @@ def _prepare_snapshot(
             config["torch_dtype"] = "float32"
             check_config(config, 32768)
             state = load_file(str(copied / "model.safetensors"), device="cpu")
-            transformed, records = normalize_state(state, config)
             bundle = staging / "bundle"
             bundle.mkdir()
             _write(bundle / "config.json", _json_bytes(config))
             _write(bundle / "tokenizer.json", (copied / "tokenizer.json").read_bytes())
             _write(bundle / "chat_template.jinja", QWEN_CHAT_TEMPLATE.encode())
-            save_file(transformed, str(bundle / "model.safetensors"), metadata={"format": "pt"})
+            records = _write_normalized_state(state, config, bundle / "model.safetensors")
             restored = load_file(str(bundle / "model.safetensors"), device="cpu")
-            if restored.keys() != transformed.keys() or any(
-                tensor_digest(restored[record["name"]]) != record["target_sha256"] for record in records
+            if restored.keys() != state.keys() or any(
+                tuple(restored[record["name"]].shape) != tuple(record["shape"])
+                or restored[record["name"]].dtype != torch.float32
+                or tensor_digest(restored[record["name"]]) != record["target_sha256"] for record in records
             ):
                 raise PretrainedSnapshotError("Serialized Qwen learned tensors differ")
+            del state, restored
             manifest = {"schema_version": SNAPSHOT_SCHEMA_VERSION, "model_id": profile.model_id,
                 "model_revision": profile.revision, "context_window": 32768,
                 "runtime_versions": dict(RUNTIME_VERSION_PINS), "special_tokens": SPECIAL_TOKENS,

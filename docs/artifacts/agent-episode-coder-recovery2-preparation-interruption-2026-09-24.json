@@ -1,0 +1,40 @@
+{
+  "actual_generations": 0,
+  "cgroup_observations": {
+    "memory.events": "low 0\nhigh 0\nmax 31528\noom 1\noom_kill 1\noom_group_kill 0",
+    "memory.max": "8589934592",
+    "memory.peak": "8589934592"
+  },
+  "command_helper": "m7-resume/prepare_coder_recovery2_20260924.py",
+  "complete": false,
+  "diagnosis": "Process was killed under an 8 GiB cgroup memory limit; memory.events records one OOM kill. No normal completion receipt was produced.",
+  "download_receipt_sha256": "bf31c60cbc20b7825c465e7706987b781dcf432cb059129ddffd889bff7b9ff3",
+  "exec_session_id": 44576,
+  "helper_sha256": "d551568ce725b7b625df8be4510dff32c9091d0787cec2e64b35675018c840c5",
+  "incomplete_staging_preserved": true,
+  "milestone_7_closed": false,
+  "observed_at_utc": "2026-09-24T22:46:38.319588+00:00",
+  "operation": "offline pinned normalizer preparation",
+  "prepared_destination_exists": false,
+  "process_exit_code": 137,
+  "production_ready": false,
+  "provenance_exists": false,
+  "recovery_identity": "2026-09-24-recovery2",
+  "retained_asset_inventory": {
+    ".dml-qwen-pretrained-q0tiw3s6/bundle/chat_template.jinja": 1343,
+    ".dml-qwen-pretrained-q0tiw3s6/bundle/config.json": 557,
+    ".dml-qwen-pretrained-q0tiw3s6/bundle/tokenizer.json": 7031645,
+    ".dml-qwen-pretrained-q0tiw3s6/raw/LICENSE": 11343,
+    ".dml-qwen-pretrained-q0tiw3s6/raw/config.json": 660,
+    ".dml-qwen-pretrained-q0tiw3s6/raw/model.safetensors": 3087467144,
+    ".dml-qwen-pretrained-q0tiw3s6/raw/tokenizer.json": 7031645,
+    ".dml-qwen-pretrained-q0tiw3s6/raw/tokenizer_config.json": 7305,
+    "raw/LICENSE": 11343,
+    "raw/config.json": 660,
+    "raw/model.safetensors": 3087467144,
+    "raw/tokenizer.json": 7031645,
+    "raw/tokenizer_config.json": 7305
+  },
+  "schema_version": "dml-coder-preparation-interruption-v1",
+  "source_commit": "a6f54953241ea644da1770dd86dc86ec6b7fda8f"
+}

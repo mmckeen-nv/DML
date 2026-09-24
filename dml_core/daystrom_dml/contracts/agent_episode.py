@@ -71,12 +71,14 @@ _ARGUMENTS = {
 }
 _TOOL_DESCRIPTIONS = {
     "retrieve": (
-        "Read relevant eligible memories in the current scope without changing them. query selects the topic; "
-        "top_k caps returned records, which may be fewer than all relevant memories. Results include "
-        "citation id and, when available, immutable record_ref for writes. Results also include requested_top_k, "
-        "returned_count and limit_reached, which is true exactly when returned_count equals requested_top_k. "
-        "Reaching the limit does not establish whether additional records exist; this is not a total count "
-        "or a completeness guarantee."
+        "Read relevant eligible memories in the current scope; this tool and a final answer never change stored memory. "
+        "Requested memory changes require the appropriate mutation tool. query selects the topic; top_k caps returned "
+        "records and may omit records needed for an operation. Retrieve missing records before using their references. "
+        "One retrieval capped at one record cannot supply references for multiple records; "
+        "choose a cap that covers the records the operation needs. "
+        "Results contain citation id and, when available, immutable record_ref for writes. requested_top_k is the cap; "
+        "returned_count is the number returned; limit_reached is true exactly when returned_count equals requested_top_k. "
+        "These fields do not report a total count or prove that all relevant records were returned."
     ),
     "ingest": (
         "Create a new memory from text in the current scope, marked untrusted. "
@@ -91,9 +93,10 @@ _TOOL_DESCRIPTIONS = {
         "with supplied text and reason. A successful result confirms the new record; source records remain unchanged."
     ),
     "supersede": (
-        "Mark the record identified by record_ref as superseded by an existing record identified by replacement_ref, "
-        "with a reason. Both references must be observed. A successful result confirms the changed source record; "
-        "the replacement remains unchanged."
+        "Mark the source record identified by record_ref as superseded by the existing record identified by replacement_ref, "
+        "with a reason. Both references must come from observed tool results; retrieve missing references before calling. "
+        "Reading or citing the replacement in a final answer does not change the source record. "
+        "This tool's successful result confirms the persisted supersession; the replacement remains unchanged."
     ),
     "retire": (
         "Mark the record identified by an observed record_ref as deleted from normal retrieval, with a reason. "

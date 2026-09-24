@@ -1,5 +1,50 @@
 # M7 continuation — 2026-09-24
 
+## Current recovery and attempt 8
+
+M7 remains **IN PROGRESS**. Attempt 7 completed nine tasks on published source
+`a6f54953241ea644da1770dd86dc86ec6b7fda8f`, with eight verifier successes. Both
+sequential replays matched and rejected the required model-owned supersession:
+the model retrieved the current preference and answered without executing the
+requested lifecycle operation. The independent grader released that source freeze.
+
+After another workspace rollback, the attempt-7 raw campaign, replays and local
+reviews are unavailable. Their previously observed results and hashes are
+historical evidence only; no missing raw events will be reconstructed or treated
+as freshly verified. Attempt 8 uses a distinct identity and fresh evidence.
+
+The pending semantic candidate changes the public descriptions of `retrieve` and
+`supersede`. It clarifies retrieval cardinality, observed write references and
+the difference between reading a record and committing a lifecycle change.
+Task truth, parser, policy, learned model weights, limits, verifier and acceptance
+gates remain unchanged. The revised public descriptions produce a newly declared
+action-runtime identity. Fresh source validation, model admission, independent pre-generation
+review, the full nine-task campaign, two sequential replays and passing exact-source
+CI remain required before closure. Earlier checkpoints below are historical.
+
+The restored execution environment enforces an 8 GiB memory limit. The original
+model preparation was killed by the memory limit before publication; that failed
+preparation is retained and is not a model admission or a live attempt. The
+canonical preparer now converts and serializes tensors in bounded
+chunks. This resource repair retains the original immutable source pins,
+exact finite BF16-to-F32 conversion and round-trip checks, complete tensor coverage,
+serialized readback verification and exclusive publication. Fresh validation and
+independent all-tensor comparison are required for its new source hash.
+Fresh validation passed **803 mandatory tests across 21 modules** (the original
+784 plus 19 serialization, corruption and memory-bound controls), **34 separate
+filesystem controls**, both strict lint scopes and maintained mypy. All 436 source
+hashes remained unchanged. These results establish source validation, not live
+qualification; actual bounded preparation and model admission are next.
+
+CI 334 passed its three filesystem qualification lanes. Its aggregate result was
+19 original successful jobs plus one successful, independently reviewed diagnostic
+retry of the production stress job. The original lock-acquisition timeout remains
+a recorded failure and repeatability limitation; the retry does not establish a
+fairness fix. Candidate 8 requires new-source CI.
+
+Only compact outcomes, source changes and necessary review records are published.
+Raw logs and campaign events are not uploaded. PR #118 remains open and unmerged.
+
 ## Actual backing filesystem repair (r2)
 
 [CI 333](artifacts/agent-episode-ci-333-summary-2026-09-24.json) finished **17/20 successful**

@@ -1,6 +1,6 @@
 # Milestone 7 live qualification record
 
-Current continuation: [September 24 handoff](production-handoff-2026-09-24.md). M7 remains open; CI 332 filesystem rejection is retained in a compact receipt. Earlier dated status below is historical.
+Current continuation: [September 24 handoff](production-handoff-2026-09-24.md). M7 remains open after attempt 7 failed required model-owned supersession. Attempt 8 is being prepared with fresh evidence after workspace rollback. Earlier dated status below is historical.
 
 ## Recovery after the execution-environment disconnect — 2026-09-22
 
