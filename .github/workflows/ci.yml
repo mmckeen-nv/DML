@@ -239,7 +239,7 @@ jobs:
               return subprocess.check_output(["git", *args], text=True).strip()
 
           tracked = subprocess.check_output(["git", "ls-files", "-z"]).decode().split("\0")
-          configuration = {".github/workflows/ci.yml", "pyproject.toml", "setup.py", "mypy.ini", "ruff.toml"}
+          configuration = {".github/workflows/ci.yml", ".github/scripts/prepare_qualification_filesystem.py", "pyproject.toml", "setup.py", "mypy.ini", "ruff.toml"}
           paths = sorted(path for path in tracked if path and (
               path.startswith(("dml_core/daystrom_dml/", "dml_core/tests/", "dml_core/scripts/"))
               or path in configuration))
@@ -413,6 +413,7 @@ jobs:
       OMP_NUM_THREADS: "1"
       MKL_NUM_THREADS: "1"
       DML_SKIP_VENV_REEXEC: "1"
+      DML_RECOVERY_BASETEMP: profile-recovery-work/stores
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
@@ -435,7 +436,15 @@ jobs:
       - name: Install recovery evidence dependencies
         run: python -m pip install -e .[server,dev]
       - name: Lint recovery evidence and CI bootstrap
-        run: ruff check dml_core/scripts/profile_recovery_evidence.py .github/scripts/prepare_sqlite.py
+        run: >-
+          ruff check dml_core/scripts/profile_recovery_evidence.py .github/scripts/prepare_sqlite.py
+          .github/scripts/prepare_qualification_filesystem.py dml_core/tests/test_ci_qualification_filesystem.py
+      - name: Verify filesystem setup fault controls
+        if: runner.os == 'Linux'
+        run: python -m pytest dml_core/tests/test_ci_qualification_filesystem.py -q
+      - name: Prepare the actual Linux recovery filesystem
+        if: runner.os == 'Linux'
+        run: python .github/scripts/prepare_qualification_filesystem.py prepare --kind recovery
       - name: Qualify profile recovery on the measured test filesystem
         run: >-
           python -m pytest -p scripts.profile_recovery_evidence
@@ -445,7 +454,7 @@ jobs:
           dml_core/tests/test_authority_backup.py
           dml_core/tests/test_crash_qualification_adversarial.py
           dml_core/tests/test_profile_recovery_evidence.py
-          --basetemp=profile-recovery-work/stores
+          --basetemp="${{ env.DML_RECOVERY_BASETEMP }}"
           --junitxml=profile-recovery-artifacts/recovery.xml
           --recovery-evidence=profile-recovery-artifacts/evidence.json
           --require-recovery-filesystem
@@ -455,6 +464,9 @@ jobs:
         with:
           name: profile-recovery-${{ matrix.os }}-py${{ matrix.python-version }}
           path: profile-recovery-artifacts/
+      - name: Remove owned Linux recovery test directory
+        if: always() && runner.os == 'Linux'
+        run: python .github/scripts/prepare_qualification_filesystem.py cleanup --kind recovery
 
   profile-concurrency:
     strategy:
@@ -509,61 +521,14 @@ jobs:
           dml_core/tests/test_profile_concurrency_runtime.py
           dml_core/tests/test_profile_concurrency_adversarial.py
           dml_core/tests/test_profile_concurrency_evidence.py
-      - name: Select an admitted existing Linux test filesystem
+          .github/scripts/prepare_qualification_filesystem.py
+          dml_core/tests/test_ci_qualification_filesystem.py
+      - name: Verify filesystem setup fault controls
         if: runner.os == 'Linux'
-        shell: bash
-        run: |
-          python - <<'PY'
-          import json, os, shutil, subprocess
-          from pathlib import Path
-          from scripts.profile_recovery_evidence import filesystem, target_filesystem
-
-          output = Path("profile-concurrency-artifacts/filesystem-selection.json")
-          output.parent.mkdir(parents=True, exist_ok=True)
-          evidence = {"scope": "existing filesystem selection for finite concurrency tests",
-                      "power_loss_qualified": False, "candidates": [], "selected": None}
-          try:
-              for candidate in (Path(os.environ["RUNNER_TEMP"]), Path("/mnt")):
-                  row = {"requested_path": str(candidate)}
-                  evidence["candidates"].append(row)
-                  try:
-                      candidate = candidate.resolve(strict=True)
-                      row["path"] = str(candidate)
-                      if not candidate.is_dir():
-                          raise ValueError("Candidate test filesystem parent is not a directory")
-                      observed = filesystem(candidate)
-                      row.update(filesystem=observed, admitted=target_filesystem(observed))
-                      row["free_bytes"] = shutil.disk_usage(candidate).free
-                      row["mount"] = json.loads(subprocess.check_output([
-                          "findmnt", "--json", "--target", str(candidate),
-                          "--output", "TARGET,SOURCE,FSTYPE,OPTIONS"], text=True))
-                  except (OSError, ValueError, subprocess.SubprocessError) as error:
-                      row["error"] = str(error)
-              selected = next((row for row in evidence["candidates"]
-                               if row.get("admitted") and "error" not in row), None)
-              if selected is None:
-                  raise RuntimeError("No existing candidate filesystem passes the unchanged admission guard")
-              parent = Path(selected["path"])
-              owned = Path(subprocess.check_output([
-                  "sudo", "mktemp", "-d", str(parent / "dml-concurrency.XXXXXX")], text=True).strip())
-              if owned.parent != parent or not owned.name.startswith("dml-concurrency.") or owned.is_symlink():
-                  raise RuntimeError("Disposable test directory identity differs")
-              subprocess.run(["sudo", "chown", f"{os.getuid()}:{os.getgid()}", str(owned)], check=True)
-              (owned / ".dml-ci-concurrency").write_text("dml-ci-concurrency-v1\n")
-              with open(os.environ["GITHUB_ENV"], "a") as environment:
-                  environment.write(f"DML_CONCURRENCY_PARENT={parent}\nDML_CONCURRENCY_OWNED={owned}\n")
-                  environment.write(f"DML_CONCURRENCY_BASETEMP={owned / 'stores'}\n")
-              measured = filesystem(owned)
-              if measured != selected["filesystem"] or not target_filesystem(measured):
-                  raise RuntimeError("Allocated test directory is not on the selected admitted filesystem")
-              evidence["selected"] = {"parent": str(parent), "directory": str(owned), "filesystem": measured}
-          except BaseException as error:
-              evidence["error"] = str(error)
-              raise
-          finally:
-              with output.open("x") as report:
-                  report.write(json.dumps(evidence, sort_keys=True, indent=2) + "\n")
-          PY
+        run: python -m pytest dml_core/tests/test_ci_qualification_filesystem.py -q
+      - name: Prepare the actual Linux concurrency filesystem
+        if: runner.os == 'Linux'
+        run: python .github/scripts/prepare_qualification_filesystem.py prepare --kind concurrency
       - name: Qualify concurrent histories and uncertain acknowledgements
         run: >-
           python -m pytest -p scripts.profile_concurrency_evidence
@@ -584,21 +549,7 @@ jobs:
           path: profile-concurrency-artifacts/
       - name: Remove owned Linux concurrency test directory
         if: always() && runner.os == 'Linux'
-        shell: bash
-        run: |
-          python - <<'PY'
-          import os, shutil
-          from pathlib import Path
-          value = os.environ.get("DML_CONCURRENCY_OWNED")
-          if value:
-              owned = Path(value)
-              parent = Path(os.environ["DML_CONCURRENCY_PARENT"]).resolve(strict=True)
-              marker = owned / ".dml-ci-concurrency"
-              if (owned.is_symlink() or owned.parent != parent or not owned.name.startswith("dml-concurrency.")
-                      or marker.is_symlink() or marker.read_text() != "dml-ci-concurrency-v1\n"):
-                  raise RuntimeError("Refusing cleanup of an unowned test directory")
-              shutil.rmtree(owned)
-          PY
+        run: python .github/scripts/prepare_qualification_filesystem.py cleanup --kind concurrency
 
   profile-filesystem-full:
     runs-on: ubuntu-latest

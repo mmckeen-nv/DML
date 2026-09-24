@@ -1,5 +1,37 @@
 # M7 continuation — 2026-09-24
 
+## Actual backing filesystem repair (r2)
+
+[CI 333](artifacts/agent-episode-ci-333-summary-2026-09-24.json) finished **17/20 successful**
+on `c18f022fe39ad5f9585cbed007501a3a28aed3f0` and established that both
+candidate directories resolve to the same root ext4 block device with barriers
+disabled. Selection correctly failed closed; both Linux recovery jobs rejected
+the same mount condition. No live campaign was frozen or launched on that source.
+Its strict model admission completed with zero generations and remains a
+historical receipt.
+
+The r2 source adds a shared helper restricted to disposable GitHub-hosted Linux
+runners. Only an actual root ext4 block filesystem rejected solely for disabled
+barriers may be remounted with `barrier=1`. Device/source/target identity, other
+mount options and the unchanged admission predicate are checked before and
+after; failed attempts retain evidence. Existing recovery/concurrency recorders,
+scales, timing bounds and qualification guards remain unchanged. No loopback
+filesystem or admission waiver is used.
+
+Independent source grading accepted this repair at **9.6/10**, with all **34
+focused fault controls passing and zero skips/errors/failures**. The original
+434-source manifest expands to 436, including both new source files. Fresh
+validation passed the exact **784-case/21-module model lane**, all **34 separate
+filesystem controls**, both strict lint scopes and maintained mypy. All **436
+source hashes remained unchanged**, with zero test skips/errors/failures. Actual runner repair/readback and successful new-source
+CI remain required. The live campaign remains on hold pending fresh admission
+and an independently reviewed freeze.
+
+Raw CI logs stay local. Public evidence uses compact outcomes and hashes, as
+requested; summaries are not substitutes for raw bytes in a replay.
+
+## Earlier September 24 checkpoint
+
 M7 remains **IN PROGRESS**. PR #118 remains open and unmerged. Milestones 1–6
 remain closed; M8–11 remain open; M12–13 remain deferred. No new milestone or
 serial source gate is introduced. DML remains alpha, `production_ready=false`.
