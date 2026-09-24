@@ -1,5 +1,31 @@
 # M7 continuation — 2026-09-24
 
+## Current attempt 9 after execution connection loss
+
+M7 remains **IN PROGRESS**. Attempt 8 lost its execution connection after five
+retained task reports: four successes and one `tool_error`. The model requested
+self-supersession (`r1` as both source and replacement), which the existing
+service rejects. The partial reports contain **9,659 known tokens**; final costs,
+effects and outcomes of the full nine-task invocation remain unknown. No final
+campaign or execution receipt appeared after the next task's declared deadline.
+No missing campaign, replay, completion review or termination proof is fabricated.
+
+A separately identified attempt 9 uses an isolated checkout. The original
+attempt-8 checkout stays at `35b5cf2d5400705ee57b9b0685dc55b97590a960`, with its
+source, runtime inputs and work paths preserved for any late evidence. The new
+candidate only clarifies the public `supersede` description: source and replacement
+must be distinct records with observed references; obtain the missing record
+before calling. The service already enforces this precondition. No parser,
+schema, model weights, task truth, policy, limits or live gates change.
+
+The independent source review accepted that clarification at **9.6/10**. Fresh
+803-case/21-module validation plus 34 filesystem controls, current strict model
+admission, published-source freeze and pre-generation review are required for
+the new full nine-task run. Two sequential replays, independent completion review
+and passing exact-source CI remain mandatory for closure. The next run cannot
+repair historical retention gaps. Raw logs stay local; published records remain
+compact. Earlier checkpoints below are historical.
+
 ## Current recovery and attempt 8
 
 M7 remains **IN PROGRESS**. Attempt 7 completed nine tasks on published source

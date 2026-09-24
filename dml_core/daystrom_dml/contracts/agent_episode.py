@@ -93,8 +93,11 @@ _TOOL_DESCRIPTIONS = {
         "with supplied text and reason. A successful result confirms the new record; source records remain unchanged."
     ),
     "supersede": (
-        "Mark the source record identified by record_ref as superseded by the existing record identified by replacement_ref, "
-        "with a reason. Both references must come from observed tool results; retrieve missing references before calling. "
+        "Supersede one existing record with a different existing record. record_ref identifies the source being replaced; "
+        "replacement_ref identifies the replacement. The records must have distinct ids and distinct record_ref values; "
+        "a record cannot supersede itself. Both references must come from observed tool results. "
+        "If only one of the required records has been retrieved, retrieve the other before calling; "
+        "never reuse its reference for both arguments. Provide a reason for the replacement. "
         "Reading or citing the replacement in a final answer does not change the source record. "
         "This tool's successful result confirms the persisted supersession; the replacement remains unchanged."
     ),
