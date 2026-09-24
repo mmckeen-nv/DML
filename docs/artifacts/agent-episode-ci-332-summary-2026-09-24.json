@@ -1,0 +1,120 @@
+{
+  "full_suite_skip_context": "The quiet full-suite logs do not enumerate all per-test reasons for266 skips. The separate mandatory pinned CPU lane passed all784 cases without skips; no complete skip-reason attribution is claimed.",
+  "full_suites": [
+    {
+      "conclusion": "success",
+      "duration_seconds": 536.31,
+      "hygiene_smoke_passed": true,
+      "job_id": 106862034224,
+      "passed": 4680,
+      "python": "3.10",
+      "retained_log_sha256": "a107dd76c906b6c933e4cdf8db6bf6ca1ffb24008a8847a8fedd8736f0774577",
+      "skipped": 266,
+      "warnings": 1
+    },
+    {
+      "conclusion": "success",
+      "duration_seconds": 496.72,
+      "hygiene_smoke_passed": true,
+      "job_id": 106862033954,
+      "passed": 4680,
+      "python": "3.11",
+      "retained_log_sha256": "c7d69ed33b2978f8a99061866f40d4f192d679fa2d4e51a681baa86df287836a",
+      "skipped": 266,
+      "warnings": 2
+    }
+  ],
+  "linux_concurrency": {
+    "all48_history_digests_and_envelopes_verified": true,
+    "all48_reported_history_verified": true,
+    "archive_sha256": "93f35576bd52b99b6305eec6d71ba007369db2f09e9b781b37f7c574215c1f0b",
+    "artifact_id": 10710687603,
+    "campaign_count": 48,
+    "errors": [
+      "Actual test filesystem is changed or unqualified"
+    ],
+    "filesystem": {
+      "device_id": 66305,
+      "local": true,
+      "options": [
+        "data=writeback",
+        "errors=remount-ro",
+        "nobarrier",
+        "relatime",
+        "rw"
+      ],
+      "source": "proc-self-mountinfo",
+      "type": "ext4"
+    },
+    "history_replay_independently_rerun_by_this_review": false,
+    "job_id": 106862033852,
+    "measured_limits": {
+      "max_campaign_duration_seconds": 48.63969121,
+      "max_first_progress_seconds": 7.080224561,
+      "max_operation_seconds": 45.8119217
+    },
+    "next_action": "Provide and freshly measure a genuinely admitted CI backing filesystem using the existing unchanged predicate; fail closed if none is available. Do not hide rejected backing options with a loopback layer, waive the predicate or blindly retry. No application correctness defect is established by this artifact.",
+    "power_loss_qualified": false,
+    "pytest_counts": {
+      "error": 0,
+      "failure": 0,
+      "skipped": 0,
+      "testcase": 359
+    },
+    "root_cause": "Recorded ext4 mount option nobarrier is explicitly rejected by unchanged target_filesystem(). This alone is sufficient to explain the qualification failure. The generic error also covers changed/symlinked test roots; initial filesystem detail is not retained, so additional causes cannot be excluded.",
+    "source_hash_count": 216,
+    "source_hash_mismatches": []
+  },
+  "mandatory_cpu": {
+    "archive_sha256": "25729cd30639b5650d29e6de4a8dde87e10167b963c3910e21f2175db93e6793",
+    "artifact_id": 10709644971,
+    "complete_mandatory_module_inventory_verified": true,
+    "complete_source_inventory_verified": true,
+    "counts": {
+      "error": 0,
+      "failure": 0,
+      "skipped": 0,
+      "testcase": 784
+    },
+    "module_count": 21,
+    "source_file_count": 371,
+    "source_hash_mismatches": []
+  },
+  "qualification": {
+    "milestone_7_closed": false,
+    "production_ready": false,
+    "published_source_ci_qualified": false,
+    "reason": "Original attempt1 failed the Linux concurrency filesystem admission gate despite359 successful pytest cases. Retain this failure independently of any later repaired-source CI. No actual attempt7 generation has been performed by this reviewer.",
+    "trained_live_qualified": false
+  },
+  "recorded_at_utc": "2026-09-24T14:52:13.673842+00:00",
+  "retention": {
+    "detailed_local_receipt_sha256": "cd3c25b6b640ba9ff13c257f1370fcca2bbeffdf731577c2f209b96afd82730b",
+    "policy": "Per user request, publish this compact summary only; raw logs/archive remain local and are not included. Hashes identify retained evidence but cannot replace its bytes for independent replay.",
+    "raw_archive_sha256": "dff36be1e7725afaae367ff756c22a1ea19e3bbb49a990c39dadea8b167b099f",
+    "raw_logs_uploaded": false
+  },
+  "retries_requested": 0,
+  "run": {
+    "observed_job_counts": {
+      "cancelled": 0,
+      "failure": 1,
+      "pending": 0,
+      "success": 19,
+      "total": 20
+    },
+    "run_attempt": 1,
+    "run_conclusion": "failure",
+    "run_id": 35761991252,
+    "run_number": 332,
+    "run_status": "completed",
+    "run_url": "https://github.com/mmckeen-nv/DML/actions/runs/35761991252"
+  },
+  "schema_version": "dml-ci-dense-summary-v1",
+  "source": {
+    "source_commit": "3ba05702e256d3fc10837fd8e42b84e739b71a69",
+    "tested_commit": "b2082d940c04cfdf475484146df7e353d1c2a30f",
+    "tested_merge_git_tree_independently_verified": true,
+    "tested_tree": "cbc553b554c0e7a712d36d2c353ee177a3913bd4"
+  }
+}

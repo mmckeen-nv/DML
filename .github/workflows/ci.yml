@@ -479,6 +479,7 @@ jobs:
       DML_SKIP_VENV_REEXEC: "1"
       DML_CONCURRENCY_SCALES: ${{ matrix.scales }}
       DML_CONCURRENCY_HISTORY_DIR: ${{ github.workspace }}/profile-concurrency-artifacts/histories
+      DML_CONCURRENCY_BASETEMP: profile-concurrency-work/stores
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
@@ -508,6 +509,61 @@ jobs:
           dml_core/tests/test_profile_concurrency_runtime.py
           dml_core/tests/test_profile_concurrency_adversarial.py
           dml_core/tests/test_profile_concurrency_evidence.py
+      - name: Select an admitted existing Linux test filesystem
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json, os, shutil, subprocess
+          from pathlib import Path
+          from scripts.profile_recovery_evidence import filesystem, target_filesystem
+
+          output = Path("profile-concurrency-artifacts/filesystem-selection.json")
+          output.parent.mkdir(parents=True, exist_ok=True)
+          evidence = {"scope": "existing filesystem selection for finite concurrency tests",
+                      "power_loss_qualified": False, "candidates": [], "selected": None}
+          try:
+              for candidate in (Path(os.environ["RUNNER_TEMP"]), Path("/mnt")):
+                  row = {"requested_path": str(candidate)}
+                  evidence["candidates"].append(row)
+                  try:
+                      candidate = candidate.resolve(strict=True)
+                      row["path"] = str(candidate)
+                      if not candidate.is_dir():
+                          raise ValueError("Candidate test filesystem parent is not a directory")
+                      observed = filesystem(candidate)
+                      row.update(filesystem=observed, admitted=target_filesystem(observed))
+                      row["free_bytes"] = shutil.disk_usage(candidate).free
+                      row["mount"] = json.loads(subprocess.check_output([
+                          "findmnt", "--json", "--target", str(candidate),
+                          "--output", "TARGET,SOURCE,FSTYPE,OPTIONS"], text=True))
+                  except (OSError, ValueError, subprocess.SubprocessError) as error:
+                      row["error"] = str(error)
+              selected = next((row for row in evidence["candidates"]
+                               if row.get("admitted") and "error" not in row), None)
+              if selected is None:
+                  raise RuntimeError("No existing candidate filesystem passes the unchanged admission guard")
+              parent = Path(selected["path"])
+              owned = Path(subprocess.check_output([
+                  "sudo", "mktemp", "-d", str(parent / "dml-concurrency.XXXXXX")], text=True).strip())
+              if owned.parent != parent or not owned.name.startswith("dml-concurrency.") or owned.is_symlink():
+                  raise RuntimeError("Disposable test directory identity differs")
+              subprocess.run(["sudo", "chown", f"{os.getuid()}:{os.getgid()}", str(owned)], check=True)
+              (owned / ".dml-ci-concurrency").write_text("dml-ci-concurrency-v1\n")
+              with open(os.environ["GITHUB_ENV"], "a") as environment:
+                  environment.write(f"DML_CONCURRENCY_PARENT={parent}\nDML_CONCURRENCY_OWNED={owned}\n")
+                  environment.write(f"DML_CONCURRENCY_BASETEMP={owned / 'stores'}\n")
+              measured = filesystem(owned)
+              if measured != selected["filesystem"] or not target_filesystem(measured):
+                  raise RuntimeError("Allocated test directory is not on the selected admitted filesystem")
+              evidence["selected"] = {"parent": str(parent), "directory": str(owned), "filesystem": measured}
+          except BaseException as error:
+              evidence["error"] = str(error)
+              raise
+          finally:
+              with output.open("x") as report:
+                  report.write(json.dumps(evidence, sort_keys=True, indent=2) + "\n")
+          PY
       - name: Qualify concurrent histories and uncertain acknowledgements
         run: >-
           python -m pytest -p scripts.profile_concurrency_evidence
@@ -516,7 +572,7 @@ jobs:
           dml_core/tests/test_profile_concurrency_runtime.py
           dml_core/tests/test_profile_concurrency_adversarial.py
           dml_core/tests/test_profile_concurrency_evidence.py
-          --basetemp=profile-concurrency-work/stores
+          --basetemp="${{ env.DML_CONCURRENCY_BASETEMP }}"
           --junitxml=profile-concurrency-artifacts/concurrency.xml
           --concurrency-evidence=profile-concurrency-artifacts/evidence.json
           --concurrency-mode=${{ matrix.mode }}
@@ -526,6 +582,23 @@ jobs:
         with:
           name: profile-concurrency-${{ matrix.os }}-${{ matrix.mode }}
           path: profile-concurrency-artifacts/
+      - name: Remove owned Linux concurrency test directory
+        if: always() && runner.os == 'Linux'
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os, shutil
+          from pathlib import Path
+          value = os.environ.get("DML_CONCURRENCY_OWNED")
+          if value:
+              owned = Path(value)
+              parent = Path(os.environ["DML_CONCURRENCY_PARENT"]).resolve(strict=True)
+              marker = owned / ".dml-ci-concurrency"
+              if (owned.is_symlink() or owned.parent != parent or not owned.name.startswith("dml-concurrency.")
+                      or marker.is_symlink() or marker.read_text() != "dml-ci-concurrency-v1\n"):
+                  raise RuntimeError("Refusing cleanup of an unowned test directory")
+              shutil.rmtree(owned)
+          PY
 
   profile-filesystem-full:
     runs-on: ubuntu-latest
