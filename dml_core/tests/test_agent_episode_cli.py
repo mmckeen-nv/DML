@@ -265,3 +265,30 @@ def test_campaign_api_rejects_unknown_profile_before_any_work(tmp_path, profile,
                          output=tmp_path / "campaign.json", limits=cli.EpisodeLimits(), consumer_profile=profile)
     assert not (tmp_path / "work").exists()
     assert not (tmp_path / "campaign.json").exists()
+
+
+def test_v2_runner_escape_retains_selected_protocol_without_known_zero_effects():
+    from daystrom_dml.contracts.agent_episode import VALIDATION_CONSUMER_PROFILE, EXECUTION_PROTOCOL_V2
+    from daystrom_dml.services.agent_episode import EpisodeLimits
+    from scripts.agent_episodes import _interrupted_report
+    corpus = cli.load_episode_corpus()
+    scenario = corpus['scenarios'][0]
+    report = _interrupted_report(scenario, scenario['tasks'][0], EpisodeLimits(), RuntimeError('lost'), 1,
+                                 consumer_profile=VALIDATION_CONSUMER_PROFILE)
+    assert report['events'][0]['schema_version'] == 'dml-agent-event-v2'
+    assert report['events'][0]['payload']['execution_protocol'] == EXECUTION_PROTOCOL_V2
+    assert report['terminal']['schema_version'] == 'dml-agent-terminal-v2'
+    assert report['terminal']['usage_unknown'] and report['terminal']['effects_unknown']
+
+
+def test_v2_campaign_cli_freezes_protocol_and_preserves_all_failed_attempts(tmp_path, monkeypatch):
+    from daystrom_dml.contracts.agent_episode import VALIDATION_CONSUMER_PROFILE, EXECUTION_PROTOCOL_V2
+    monkeypatch.setattr(cli, 'run_local_episode', failed_test_report)
+    assert cli.main(arguments(tmp_path, '--consumer-profile', VALIDATION_CONSUMER_PROFILE)) == 1
+    campaign = json.loads((tmp_path / 'campaign.json').read_text())
+    assert campaign['schema_version'] == cli.CAMPAIGN_VERSION_V2
+    assert campaign['execution_protocol'] == EXECUTION_PROTOCOL_V2
+    assert len(campaign['episodes']) == 9
+    assert all(e['terminal']['schema_version'] == 'dml-agent-terminal-v2' for e in campaign['episodes'])
+    assert campaign['summary']['unknown_effect_tasks'] == 9
+    assert not campaign['live_qualified'] and not campaign['raw_evidence_complete']

@@ -20,6 +20,14 @@ from .model_input import (
 ACTION_VERSION = "dml-agent-action-v1"
 EVENT_VERSION = "dml-agent-event-v1"
 TERMINAL_VERSION = "dml-agent-terminal-v1"
+EVENT_VERSION_V2 = "dml-agent-event-v2"
+TERMINAL_VERSION_V2 = "dml-agent-terminal-v2"
+EXECUTION_PROTOCOL_V1 = "dml-agent-terminal-only-v1"
+EXECUTION_PROTOCOL_V2 = "dml-agent-predispatch-validation-v2"
+VALIDATION_CONSUMER_PROFILE = "qwen2-action-json-validation-v2"
+VALIDATION_ERROR_CODE = "distinct_records_required"
+VALIDATION_MODEL_RESULT = ('{"effects":"none","error":{"code":"distinct_records_required",'
+    '"message":"Supersede requires different source and replacement records. No operation was executed."}}')
 MAX_ACTION_BYTES = 64 * 1024
 MAX_EVENT_BYTES = 16 * 1024 * 1024
 MAX_EPISODE_BYTES = 64 * 1024 * 1024
@@ -116,6 +124,75 @@ _DIGEST = re.compile(r"[0-9a-f]{64}\Z")
 
 class AgentEpisodeError(ValueError):
     """An action, transcript or outcome violates the experimental contract."""
+
+
+def execution_protocol_for_profile(profile):
+    if profile == VALIDATION_CONSUMER_PROFILE:
+        return EXECUTION_PROTOCOL_V2
+    if profile in ("gpt2-v1", "qwen2-instruct-v1", "qwen2-action-json-v1"):
+        return EXECUTION_PROTOCOL_V1
+    raise AgentEpisodeError("Unknown episode consumer profile")
+
+
+def execution_policy_identity():
+    """Actual v2 execution policy bytes, composed into the action runtime hash."""
+    return {"execution_protocol": EXECUTION_PROTOCOL_V2, "event_version": EVENT_VERSION_V2,
+            "terminal_version": TERMINAL_VERSION_V2, "consumer_profile": VALIDATION_CONSUMER_PROFILE,
+            "supersede_admission": {"requires": "both_prior_presented_immutable_full_record_bindings",
+                                    "missing_binding": "terminal_EpisodeToolError_before_key_or_dispatch"},
+            "rejections": [{"tool": "supersede", "condition": "presented_immutable_records_same_id",
+                            "error_code": VALIDATION_ERROR_CODE, "model_result": VALIDATION_MODEL_RESULT}]}
+
+
+def presented_record_identities(payload, scope):
+    """Derive references only from visible, validated full records in this result.
+
+    A private receipt or an integer-only display is not a presented reference.
+    Values bind the entire immutable record, not merely its underlying ID.
+    """
+    from ..persistence import validate_record
+    shown = decode_json(payload["model_result"])
+    if type(shown) is not dict or type(shown.get("records")) is not list:
+        raise AgentEpisodeError("Tool presentation requires a record list")
+    records = payload["result"].get("observed_records", [])
+    if type(records) is not list:
+        raise AgentEpisodeError("Full record observations require a list")
+    owned = []
+    for record in records:
+        try:
+            validate_record(record)
+        except (ValueError, TypeError, KeyError) as error:
+            raise AgentEpisodeError("Invalid full record observation") from error
+        if any(record["meta"].get(key) != value for key, value in scope.items()):
+            raise AgentEpisodeError("Presented record escaped episode scope")
+        if payload["name"] != "retrieve" and canonical_json(
+                payload["result"].get("receipt", {}).get("result", {}).get("memory")) != canonical_json(record):
+            raise AgentEpisodeError("Mutation observation differs from its receipt")
+        owned.append(record)
+    result = {}
+    for item in shown["records"]:
+        if type(item) is not dict:
+            raise AgentEpisodeError("Invalid displayed record")
+        reference = item.get("record_ref")
+        if reference is None:
+            continue
+        _identifier(reference)
+        _integer(item.get("id"))
+        matches = {}
+        for record in owned:
+            public = {"id": record["id"], "text": record["text"], "record_ref": reference}
+            public.update({key: record["meta"][key] for key in (
+                "source", "claim_key", "claim_value", "source_trust", "memory_state") if key in record["meta"]})
+            if canonical_json(public) == canonical_json(item):
+                matches[canonical_json(record)] = record["id"]
+        if len(matches) != 1:
+            raise AgentEpisodeError("Presented reference lacks a unique full record identity")
+        raw, record_id = next(iter(matches.items()))
+        identity = (record_id, raw)
+        if reference in result and result[reference] != identity:
+            raise AgentEpisodeError("Presented reference was rebound")
+        result[reference] = identity
+    return result
 
 
 def episode_tool_definitions():
@@ -403,13 +480,18 @@ def _refused_request(payload):
 
 
 def validate_terminal(terminal):
+    version = terminal.get("schema_version") if type(terminal) is dict else None
+    extra = ("execution_protocol", "consumer_profile") if version == TERMINAL_VERSION_V2 else ()
     _keys(terminal, ("schema_version", "episode_id", "task_id", "execution_path", "status",
                      "success", "answer", "verifier", "evidence_digest", "input_tokens",
                      "output_tokens", "maintenance_tokens", "known_input_tokens", "known_output_tokens",
                      "unknown_input_calls", "unknown_output_calls", "usage_unknown", "effects_unknown",
-                     "latency_ms", "retrieval_ms", "ttft_ms"))
-    if terminal["schema_version"] != TERMINAL_VERSION:
+                     "latency_ms", "retrieval_ms", "ttft_ms", *extra))
+    if version not in (TERMINAL_VERSION, TERMINAL_VERSION_V2):
         raise AgentEpisodeError("Unsupported terminal schema")
+    if extra and (terminal["execution_protocol"] != EXECUTION_PROTOCOL_V2
+                  or terminal["consumer_profile"] != VALIDATION_CONSUMER_PROFILE):
+        raise AgentEpisodeError("Terminal execution protocol differs")
     _identifier(terminal["episode_id"])
     _identifier(terminal["task_id"])
     if terminal["execution_path"] not in ("live_local", "test_injected"):
@@ -457,7 +539,8 @@ def validate_terminal(terminal):
 def validate_event(event):
     canonical_json(event)
     _keys(event, ("schema_version", "episode_id", "task_id", "sequence", "kind", "call_id", "payload"))
-    if event["schema_version"] != EVENT_VERSION:
+    version = event["schema_version"]
+    if version not in (EVENT_VERSION, EVENT_VERSION_V2):
         raise AgentEpisodeError("Unsupported event schema")
     _identifier(event["episode_id"])
     _identifier(event["task_id"])
@@ -471,9 +554,13 @@ def validate_event(event):
     else:
         _identifier(event["call_id"])
     if kind == "episode_started":
+        extra = ("execution_protocol", "consumer_profile") if version == EVENT_VERSION_V2 else ()
         _keys(payload, ("execution_path", "limits", "prompt", "scope",
                         "seed_receipts_digest", "ranking_scope", "allowed_tools", "effective_time",
-                        "prior_context"))
+                        "prior_context", *extra))
+        if extra and (payload["execution_protocol"] != EXECUTION_PROTOCOL_V2
+                      or payload["consumer_profile"] != VALIDATION_CONSUMER_PROFILE):
+            raise AgentEpisodeError("Episode execution protocol differs")
         if payload["execution_path"] not in ("live_local", "test_injected"):
             raise AgentEpisodeError("Unsupported execution path")
         _text(payload["prompt"], limit=1024 * 1024, nonempty=True)
@@ -572,6 +659,15 @@ def validate_event(event):
                 raise AgentEpisodeError("Retrieval has no write idempotency key")
         else:
             _text(payload["idempotency_key"], limit=256, nonempty=True)
+    elif kind == "tool_validation_rejected":
+        if version != EVENT_VERSION_V2:
+            raise AgentEpisodeError("Validation recovery requires the v2 protocol")
+        _keys(payload, ("name", "arguments", "error_code", "effects", "model_result", "latency_ms"))
+        _tool(payload["name"], payload["arguments"])
+        if (payload["name"] != "supersede" or payload["error_code"] != VALIDATION_ERROR_CODE
+                or payload["effects"] != "none" or payload["model_result"] != VALIDATION_MODEL_RESULT):
+            raise AgentEpisodeError("Unlisted pre-dispatch rejection")
+        _number(payload["latency_ms"])
     elif kind == "tool_completed":
         _keys(payload, ("name", "result", "model_result", "latency_ms"))
         _text(payload["name"], limit=128, nonempty=True)
@@ -588,12 +684,18 @@ def validate_event(event):
         _number(payload["latency_ms"], nullable=True)
     elif kind == "terminal":
         validate_terminal(payload)
+        if payload["schema_version"] != (TERMINAL_VERSION_V2 if version == EVENT_VERSION_V2 else TERMINAL_VERSION):
+            raise AgentEpisodeError("Event and terminal versions differ")
     else:
         raise AgentEpisodeError("Unsupported event kind")
 
 
-def make_event(*, episode_id, task_id, sequence, kind, payload, call_id=None):
-    event = {"schema_version": EVENT_VERSION, "episode_id": episode_id, "task_id": task_id,
+def make_event(*, episode_id, task_id, sequence, kind, payload, call_id=None,
+               execution_protocol=EXECUTION_PROTOCOL_V1):
+    if execution_protocol not in (EXECUTION_PROTOCOL_V1, EXECUTION_PROTOCOL_V2):
+        raise AgentEpisodeError("Unknown execution protocol")
+    version = EVENT_VERSION_V2 if execution_protocol == EXECUTION_PROTOCOL_V2 else EVENT_VERSION
+    event = {"schema_version": version, "episode_id": episode_id, "task_id": task_id,
              "sequence": sequence, "kind": kind, "call_id": call_id, "payload": payload}
     validate_event(event)
     return decode_json(canonical_json(event))
@@ -658,8 +760,12 @@ def validate_episode_events(events, *, require_terminal=True):
     next_messages = None
     halt_kind = None
     used_input = used_output = 0
+    ledger = {}
+    version = events[0].get("schema_version") if type(events[0]) is dict else None
     for sequence, event in enumerate(events):
         validate_event(event)
+        if event["schema_version"] != version:
+            raise AgentEpisodeError("Mixed episode execution protocols")
         key = (event["episode_id"], event["task_id"])
         if event["sequence"] != sequence or (identity is not None and key != identity):
             raise AgentEpisodeError("Episode identity or contiguous sequence differs")
@@ -714,6 +820,13 @@ def validate_episode_events(events, *, require_terminal=True):
             if step >= limits["max_steps"]:
                 raise AgentEpisodeError("Model step exceeds configured limit")
             request_payload = payload["request"]
+            compiled = payload.get("compiled")
+            if compiled is not None:
+                runtime = compiled["identity"]["runtime_identity"]
+                v2_identity = re.fullmatch(r"dml-qwen-action-runtime-v2:[0-9a-f]{64}", runtime) is not None
+                if ((version == EVENT_VERSION_V2 and not v2_identity)
+                        or version == EVENT_VERSION and runtime.startswith("dml-qwen-action-runtime-v2:")):
+                    raise AgentEpisodeError("Compiled runtime and execution protocol differ")
             if canonical_json(request_payload["messages"]) != canonical_json(next_messages):
                 raise AgentEpisodeError("Exact model messages differ from the full causal transcript")
             expected_tools = [tool for tool in episode_tool_definitions()
@@ -791,13 +904,52 @@ def validate_episode_events(events, *, require_terminal=True):
                 raise AgentEpisodeError("Dispatched tool differs from model output")
             if payload["name"] not in events[0]["payload"]["allowed_tools"]:
                 raise AgentEpisodeError("Dispatched tool is outside task authority")
+            if version == EVENT_VERSION_V2:
+                expected_key = None if payload["name"] == "retrieve" else "episode:" + event["episode_id"] + ":" + call_id
+                if call_id != "tool-" + str(step) or payload["idempotency_key"] != expected_key:
+                    raise AgentEpisodeError("Dispatched tool identity differs from its v2 proposal")
+            if version == EVENT_VERSION_V2 and payload["name"] == "supersede":
+                left = ledger.get(payload["arguments"]["record_ref"])
+                right = ledger.get(payload["arguments"]["replacement_ref"])
+                if left is None or right is None:
+                    raise AgentEpisodeError("Supersession dispatch requires previously presented immutable records")
+                if left[0] == right[0]:
+                    raise AgentEpisodeError("Presented same-record proposal cannot dispatch under v2")
             calls.add(call_id)
             pending = event
+            action = None
+        elif kind == "tool_validation_rejected":
+            if (pending is not None or call_id in calls or action is None or action["kind"] != "tool"
+                    or completed_model is None or events[sequence - 1] is not completed_model
+                    or call_id != "tool-" + str(step)):
+                raise AgentEpisodeError("Rejection lacks its unique undispatched model proposal")
+            if (payload["name"] != action["name"]
+                    or canonical_json(payload["arguments"]) != canonical_json(action["arguments"])
+                    or payload["name"] not in events[0]["payload"]["allowed_tools"]):
+                raise AgentEpisodeError("Rejected proposal differs from model output or authority")
+            left = ledger.get(payload["arguments"]["record_ref"])
+            right = ledger.get(payload["arguments"]["replacement_ref"])
+            if left is None or right is None or left[0] != right[0]:
+                raise AgentEpisodeError("No presented same-record identity derives this rejection")
+            calls.add(call_id)
+            presented.append((call_id, payload["model_result"]))
+            next_messages = [*previous_request["request"]["messages"],
+                {"role": "assistant", "content": completed_model["payload"]["text"],
+                 "tool_calls": [{"id": call_id, "type": "function", "function": {
+                     "name": payload["name"], "arguments": canonical_json(payload["arguments"]).decode("utf-8")}}]},
+                {"role": "tool", "tool_call_id": call_id, "name": payload["name"],
+                 "content": payload["model_result"]}]
             action = None
         elif kind in ("tool_completed", "tool_failed"):
             if pending is None or pending["kind"] != "tool_requested" or call_id != pending["call_id"] or payload["name"] != pending["payload"]["name"]:
                 raise AgentEpisodeError("Tool result lacks its unique matching request")
             if kind == "tool_completed":
+                if version == EVENT_VERSION_V2:
+                    additions = presented_record_identities(payload, events[0]["payload"]["scope"])
+                    if any(reference in ledger and ledger[reference] != identity
+                           for reference, identity in additions.items()):
+                        raise AgentEpisodeError("Presented immutable reference was rebound")
+                    ledger.update(additions)
                 presented.append((call_id, payload["model_result"]))
                 next_messages = [*previous_request["request"]["messages"],
                     {"role": "assistant", "content": completed_model["payload"]["text"],

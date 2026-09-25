@@ -15,12 +15,26 @@ from typing import Any, Sequence
 
 from ..contracts.profile import PROFILE_ID
 from ..contracts.agent_episode import episode_tool_definitions as episode_tool_definitions
+from ..contracts.agent_episode import (
+    EXECUTION_PROTOCOL_V1, EXECUTION_PROTOCOL_V2, VALIDATION_ERROR_CODE,
+    canonical_json, presented_record_identities,
+)
 from ..persistence import validate_record
 from .receipt_ingestion import SCOPE_KEYS
 
 
 class EpisodeToolError(ValueError):
     """An action cannot be admitted to this episode's tool authority."""
+
+
+class EpisodeToolValidationRejected(EpisodeToolError):
+    """One bridge-owned, proven no-dispatch rejection; never an adapter error."""
+
+    def __init__(self, owner, arguments, call_id):
+        super().__init__(VALIDATION_ERROR_CODE)
+        self._owner = owner
+        self._arguments = canonical_json(arguments)
+        self._call_id = call_id
 
 
 def canonical(value: Any) -> str:
@@ -85,7 +99,7 @@ class SelectedProfileEpisodeTools:
     def __init__(self, adapter, *, scope: dict, episode_id: str,
                  seed_receipts: Sequence[dict] = (), source_trust: str = "untrusted",
                  observation_records: Sequence[dict] = (), allowed_tools=None,
-                 effective_time=2000000000):
+                 effective_time=2000000000, execution_protocol=EXECUTION_PROTOCOL_V1):
         if adapter.production_profile_id != PROFILE_ID:
             raise EpisodeToolError("Episode tools require the selected receipt profile")
         if type(episode_id) is not str or not episode_id or len(episode_id.encode("utf-8")) > 128:
@@ -103,6 +117,11 @@ class SelectedProfileEpisodeTools:
         if not allowed or len(set(allowed)) != len(allowed) or set(allowed) - set(_ARGUMENTS):
             raise EpisodeToolError("Invalid frozen tool allowlist")
         self.allowed_tools = allowed
+        if execution_protocol not in (EXECUTION_PROTOCOL_V1, EXECUTION_PROTOCOL_V2):
+            raise EpisodeToolError("Unknown execution protocol")
+        self.execution_protocol = execution_protocol
+        self._presentation_ledger: dict[str, tuple[int, bytes]] = {}
+        self._rejection_owner = object()
         self._records: dict[str, dict] = {}
         self._references: dict[str, str] = {}
         self._observations: list[dict] = []
@@ -155,6 +174,13 @@ class SelectedProfileEpisodeTools:
             self._record(reference)
         if type(call_id) is not str or not call_id or len(call_id.encode("utf-8")) > 64:
             raise EpisodeToolError("Invalid runner-owned call identity")
+        if self.execution_protocol == EXECUTION_PROTOCOL_V2 and name == "supersede":
+            left, right = (self._record(arguments[field]) for field in ("record_ref", "replacement_ref"))
+            for field, record in (("record_ref", left), ("replacement_ref", right)):
+                if self._presentation_ledger.get(arguments[field]) != (record["id"], canonical_json(record)):
+                    raise EpisodeToolError("Supersession requires presented immutable references")
+            if left["id"] == right["id"]:
+                raise EpisodeToolValidationRejected(self._rejection_owner, arguments, call_id)
         key = None if name == "retrieve" else "episode:" + self._episode_id + ":" + call_id
         frozen = canonical(arguments)
         if key is not None:
@@ -165,6 +191,24 @@ class SelectedProfileEpisodeTools:
         prepared = PreparedEpisodeTool(name, frozen, key)
         self._prepared[id(prepared)] = prepared
         return prepared
+
+    def owns_validation_rejection(self, error, arguments, call_id):
+        return (type(self) is SelectedProfileEpisodeTools and type(error) is EpisodeToolValidationRejected
+                and self.execution_protocol == EXECUTION_PROTOCOL_V2
+                and error._owner is self._rejection_owner and error._arguments == canonical_json(arguments)
+                and error._call_id == call_id)
+
+    def _present(self, name, result, model_result):
+        if self.execution_protocol == EXECUTION_PROTOCOL_V2:
+            additions = presented_record_identities(
+                {"name": name, "result": result, "model_result": model_result}, self._scope)
+            for reference, identity in additions.items():
+                if (reference not in self._records
+                        or identity != (self._records[reference]["id"], canonical_json(self._records[reference]))
+                        or reference in self._presentation_ledger and self._presentation_ledger[reference] != identity):
+                    raise EpisodeToolError("Presented reference differs from its immutable owned record")
+            self._presentation_ledger.update(additions)
+        return result, model_result
 
     @staticmethod
     def _public(record: dict, reference: str | None) -> dict:
@@ -215,9 +259,9 @@ class SelectedProfileEpisodeTools:
                     reference, record = match
                     records.append(record)
                     public.append(self._public(record, reference))
-            return {"report": deepcopy(report), "receipt": None, "observed_records": records}, canonical({
+            return self._present(name, {"report": deepcopy(report), "receipt": None, "observed_records": records}, canonical({
                 "records": public, "requested_top_k": arguments["top_k"],
-                "returned_count": len(public), "limit_reached": len(public) == arguments["top_k"]})
+                "returned_count": len(public), "limit_reached": len(public) == arguments["top_k"]}))
 
         kwargs = {**self._scope, "idempotency_key": prepared.idempotency_key}
         if name == "ingest":
@@ -244,5 +288,5 @@ class SelectedProfileEpisodeTools:
         if reference is None:
             raise EpisodeToolError("Write receipt escaped the trusted scope")
         record = self._record(reference)
-        return {"receipt": deepcopy(receipt), "observed_records": [record]}, canonical({
-            "records": [self._public(record, reference)]})
+        return self._present(name, {"receipt": deepcopy(receipt), "observed_records": [record]}, canonical({
+            "records": [self._public(record, reference)]}))

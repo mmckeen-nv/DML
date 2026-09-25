@@ -6,6 +6,7 @@ import hashlib
 import hmac
 
 from ..contracts.model_input import CompiledModelInput, ModelInputError, ModelInputRequest
+from ..contracts.agent_episode import VALIDATION_CONSUMER_PROFILE, execution_policy_identity
 from .agent_action_grammar import (
     ActionLogitsProcessor, MAX_BOUND_REQUESTS, action_schema, compile_action_grammar, policy_identity,
 )
@@ -16,10 +17,16 @@ from .qwen_model_input import LocalQwenInputConsumer, decode_qwen_output
 CONSUMER_PROFILE = "qwen2-action-json-v1"
 
 
-def constrained_identity(base_identity):
+def constrained_identity(base_identity, *, consumer_profile=CONSUMER_PROFILE):
     """Reconstruct the full profile identity without loading model weights."""
     policy = {"base_runtime_identity": base_identity.runtime_identity, **policy_identity()}
-    return replace(base_identity, runtime_identity="dml-qwen-action-runtime-v1:" + hashlib.sha256(
+    if consumer_profile not in (CONSUMER_PROFILE, VALIDATION_CONSUMER_PROFILE):
+        raise ModelInputError("Unknown constrained action profile")
+    version = "v1"
+    if consumer_profile == VALIDATION_CONSUMER_PROFILE:
+        policy["execution_policy"] = execution_policy_identity()
+        version = "v2"
+    return replace(base_identity, runtime_identity="dml-qwen-action-runtime-" + version + ":" + hashlib.sha256(
         _json_bytes(policy)).hexdigest())
 
 
@@ -31,12 +38,17 @@ class LocalQwenActionInputConsumer(LocalQwenInputConsumer):
     binding. A new matcher/compiler is created within each execution deadline.
     """
 
-    def __init__(self, snapshot_directory):
+    def __init__(self, snapshot_directory, *, consumer_profile=CONSUMER_PROFILE):
+        if consumer_profile not in (CONSUMER_PROFILE, VALIDATION_CONSUMER_PROFILE):
+            raise ModelInputError("Unknown constrained action profile")
+        self._consumer_profile = consumer_profile
+        self._execution_policy = execution_policy_identity() if consumer_profile == VALIDATION_CONSUMER_PROFILE else None
         self._grammar_policy = policy_identity()
         self._bound_requests: dict[str, bytes] = {}
         super().__init__(snapshot_directory)
         try:
-            self._identity = constrained_identity(self._identity)
+            self._base_action_identity = self._identity
+            self._identity = constrained_identity(self._identity, consumer_profile=consumer_profile)
             self._runtime_digest = self._fingerprint()
         except BaseException:
             self.close()
@@ -46,6 +58,11 @@ class LocalQwenActionInputConsumer(LocalQwenInputConsumer):
         super()._validate_runtime()
         if self._grammar_policy != policy_identity():
             raise ModelInputError("Action grammar runtime or policy identity changed")
+        expected = execution_policy_identity() if self._consumer_profile == VALIDATION_CONSUMER_PROFILE else None
+        if self._execution_policy != expected:
+            raise ModelInputError("Action execution protocol or rejection policy changed")
+        if self._identity != constrained_identity(self._base_action_identity, consumer_profile=self._consumer_profile):
+            raise ModelInputError("Action profile and compiled runtime identity differ")
 
     def compile(self, messages, tools=None, *, output_reserved_tokens):
         request = ModelInputRequest.from_payload({

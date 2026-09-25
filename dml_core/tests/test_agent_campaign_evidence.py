@@ -1,6 +1,7 @@
 """Synthetic checker controls; no fixture here establishes model execution."""
 from copy import deepcopy
 from dataclasses import asdict
+import json
 from types import SimpleNamespace
 
 import pytest
@@ -38,12 +39,15 @@ class SyntheticTokenizer:
 
 
 class SyntheticConsumer:
-    def __init__(self, identity, tokenizer, actions):
+    def __init__(self, identity, tokenizer, actions, compiler=None):
         self.identity, self.tokenizer, self.actions = identity, tokenizer, iter(actions)
+        self.compiler = compiler
         self.count = 0
 
     def compile(self, messages, tools, *, output_reserved_tokens):
         self.count += 1
+        if self.compiler is not None:
+            return self.compiler.compile(messages, tools, output_reserved_tokens=output_reserved_tokens)
         request = ModelInputRequest.from_payload({"messages": messages, "tools": tools,
             "output_reserved_tokens": output_reserved_tokens})
         return CompiledModelInput(self.identity, request.request_digest, (1, 2, 3), (1, 1, 1),
@@ -52,17 +56,42 @@ class SyntheticConsumer:
     def execute(self, artifact):
         action = next(self.actions)
         text = action if type(action) is str else canonical_json(action).decode()
+        if self.compiler is not None:
+            text = action if type(action) is str else json.dumps(action, ensure_ascii=False, separators=(",", ":"))
+            ids = tuple(self.tokenizer.encode(text, add_special_tokens=False)) + (self.tokenizer.eos_token_id,)
+            return SimpleNamespace(artifact_digest=artifact.artifact_digest, input_token_count=artifact.input_tokens,
+                                   output_token_count=len(ids), output_ids=ids, text=text)
         ids = (len(self.tokenizer.outputs) + 4,)
         self.tokenizer.outputs[ids] = text
         return SimpleNamespace(artifact_digest=artifact.artifact_digest, input_token_count=3,
                                output_token_count=1, output_ids=ids, text=text)
 
 
-def synthetic_campaign(tmp_path, *, malformed=False, wrong_first=False, empty_answers=False, malformed_followup=False):
+def synthetic_campaign(tmp_path, *, validation=False, **options):
+    if not validation:
+        return _synthetic_campaign_impl(tmp_path, **options)
+    from daystrom_dml.contracts.agent_episode import VALIDATION_CONSUMER_PROFILE
+    from daystrom_dml.services.qwen_action_input import LocalQwenActionInputConsumer
+    from qwen_model_input_fixture import create_qwen_snapshot
+    snapshot = create_qwen_snapshot(tmp_path / 'tiny-replay-snapshot', context_window=8192)
+    with LocalQwenActionInputConsumer(snapshot.path, consumer_profile=VALIDATION_CONSUMER_PROFILE) as compiler:
+        return _synthetic_campaign_impl(tmp_path, validation_consumer=compiler, **options)
+
+
+def _synthetic_campaign_impl(tmp_path, *, malformed=False, wrong_first=False, empty_answers=False,
+                             malformed_followup=False, validation_consumer=None):
+    from daystrom_dml.contracts.agent_episode import (
+        VALIDATION_CONSUMER_PROFILE, EXECUTION_PROTOCOL_V1, EXECUTION_PROTOCOL_V2,
+    )
     corpus = load_episode_corpus()
     limits = EpisodeLimits(output_tokens=64)
     identity = ModelInputIdentity("1" * 64, "2" * 64, SUPPORTED_CHAT_TEMPLATE_DIGEST, "synthetic", 32768)
     tokenizer, episodes, selection, previous = SyntheticTokenizer(), [], [], {}
+    profile, protocol = 'gpt2-v1', EXECUTION_PROTOCOL_V1
+    if validation_consumer is not None:
+        profile, protocol = VALIDATION_CONSUMER_PROFILE, EXECUTION_PROTOCOL_V2
+        identity, tokenizer = validation_consumer._identity, validation_consumer._tokenizer
+        limits = EpisodeLimits(output_tokens=256, max_output_tokens=1536)
     for scenario in corpus["scenarios"]:
         for task in scenario["tasks"]:
             directory = tmp_path / scenario["id"] / task["id"]
@@ -73,7 +102,7 @@ def synthetic_campaign(tmp_path, *, malformed=False, wrong_first=False, empty_an
                 for key in ("episode_id", "task_id", "evidence_digest", "answer")}
             toolbox = SelectedProfileEpisodeTools(adapter, scope=scenario["scope"], episode_id=ident,
                 seed_receipts=prepared["seed_receipts"], observation_records=list(prepared["seed_records"].values()),
-                allowed_tools=task_allowed_tools(task), effective_time=corpus["effective_time"])
+                allowed_tools=task_allowed_tools(task), effective_time=corpus["effective_time"], execution_protocol=protocol)
             answer = {"claims": [{"key": key, "value": fact["value"],
                 "evidence_ids": [prepared["seed_records"][alias]["id"] for alias in fact["evidence_aliases"]]}
                 for key, fact in task["truth"].items()]}
@@ -86,16 +115,20 @@ def synthetic_campaign(tmp_path, *, malformed=False, wrong_first=False, empty_an
             if scenario["id"] == "superseded_preference":
                 # References are assigned once from ordered initialized observations.
                 refs = {alias: "r" + str(index) for index, alias in enumerate(prepared["seed_records"])}
+                if validation_consumer is not None:
+                    actions.append({"schema_version": "dml-agent-action-v1", "kind": "tool", "name": "supersede",
+                        "arguments": {"record_ref": refs["old"], "replacement_ref": refs["old"], "reason": "invalid test decision"}})
                 actions.append({"schema_version": "dml-agent-action-v1", "kind": "tool", "name": "supersede",
                     "arguments": {"record_ref": refs["old"], "replacement_ref": refs["current"], "reason": "Current preference"}})
             actions.append({"schema_version": "dml-agent-action-v1", "kind": "final", "answer": answer})
             try:
                 report = run_episode_with_test_dependencies(consumer=SyntheticConsumer(identity, tokenizer,
                     ["not JSON"] if malformed or (malformed_followup and task["id"] == "recall_after_correction")
-                    else actions), toolbox=toolbox, task=task, scenario=scenario,
+                    else actions, compiler=validation_consumer), toolbox=toolbox, task=task, scenario=scenario,
                     seed_records=prepared["seed_records"], current_records=lambda: _read_records(directory),
                     limits=limits, effective_time=corpus["effective_time"], prior_context=context,
-                    previous_answers={} if prior is None else {prior["task_id"]: prior["answer"]})
+                    previous_answers={} if prior is None else {prior["task_id"]: prior["answer"]},
+                    consumer_profile=profile, episode_id=ident if validation_consumer is not None else None)
                 records = _read_records(directory)
             finally:
                 adapter.close()
@@ -108,20 +141,23 @@ def synthetic_campaign(tmp_path, *, malformed=False, wrong_first=False, empty_an
                 latency_ms=old["latency_ms"], retrieval_ms=old["retrieval_ms"], answer=old["answer"])
             events[-1]["payload"] = terminal
             report.update(scenario_id=scenario["id"], terminal=terminal, prepared=prepared, current_records=records,
-                          consumer_profile="gpt2-v1")
+                          consumer_profile=profile)
             episodes.append(report)
             selection.append({"scenario_id": scenario["id"], "task_id": task["id"]})
             previous[(scenario["id"], task["id"])] = terminal
     spec = {"schema_version": checker.SPEC_VERSION, "acceptance": deepcopy(checker.GATES),
-            "consumer_profile": "gpt2-v1",
+            "consumer_profile": profile,
             "selection": selection, "corpus_digest": checker._digest(corpus), "limits": asdict(limits),
             "producer_source_sha256": {"synthetic": "0" * 64}}
     campaign = {"schema_version": "dml-agent-campaign-v1", "selection": selection,
-                "consumer_profile": "gpt2-v1",
+                "consumer_profile": profile,
                 "corpus_digest": spec["corpus_digest"], "limits": spec["limits"],
                 "source_sha256": spec["producer_source_sha256"], "ranking_scope": "synthetic_fixture",
                 "live_qualified": False, "source_ci_qualified": False, "raw_evidence_complete": True,
                 "episodes": episodes, "summary": summarize_episode_outcomes([e["terminal"] for e in episodes])}
+    if validation_consumer is not None:
+        spec.update(schema_version=checker.SPEC_VERSION_V2, execution_protocol=protocol)
+        campaign.update(schema_version='dml-agent-campaign-v2', execution_protocol=protocol)
     return campaign, spec, identity.to_payload(), tokenizer
 
 
@@ -291,3 +327,93 @@ def test_real_qwen_tokenization_replay_preserves_control_like_source_fields(tmp_
         event["payload"]["compiled"]["input_ids"][0] += 1
         with pytest.raises(ValueError, match="independent tokenization"):
             checker._replay_model([event], identity, fixture.tokenizer, "qwen2-instruct-v1")
+
+
+@pytest.fixture(scope='module')
+def validation_authority_report(tmp_path_factory):
+    from test_agent_episode_runtime import validation_case
+    report, _, _ = validation_case(tmp_path_factory.mktemp('v2-authority-replay'))
+    return report
+
+
+def test_v2_replay_derives_presented_refs_and_exact_mutation_receipt(validation_authority_report):
+    report = validation_authority_report
+    checker._replay_presented_authority(report['events'], report['prepared'])
+    assert report['terminal']['success'] is True
+
+
+@pytest.mark.parametrize('mutation', ['source', 'replacement', 'reason', 'digest', 'decision', 'store',
+                                      'owned_record', 'reference', 'key_pair', 'swapped'])
+def test_v2_replay_rejects_unbound_receipt_or_record_even_with_valid_scope(validation_authority_report, mutation):
+    report = deepcopy(validation_authority_report)
+    requested = next(e for e in report['events'] if e['kind'] == 'tool_requested' and e['payload']['name'] == 'supersede')
+    completed = next(e for e in report['events'] if e['kind'] == 'tool_completed' and e['payload']['name'] == 'supersede')
+    arguments = requested['payload']['arguments']
+    receipt = completed['payload']['result']['receipt']
+    first = next(e for e in report['events'] if e['kind'] == 'tool_completed')
+    if mutation == 'source':
+        arguments['record_ref'] = arguments['replacement_ref']
+    elif mutation == 'replacement':
+        arguments['replacement_ref'] = arguments['record_ref']
+    elif mutation == 'swapped':
+        arguments['record_ref'], arguments['replacement_ref'] = arguments['replacement_ref'], arguments['record_ref']
+    elif mutation == 'reason':
+        arguments['reason'] = 'unacknowledged different reason'
+    elif mutation == 'digest':
+        receipt['request_digest'] = '0' * 64
+    elif mutation == 'decision':
+        receipt['result']['memory']['meta']['supersession_decision']['reason'] = 'other'
+    elif mutation == 'store':
+        receipt['store_id'] = '0' * 32
+    elif mutation == 'owned_record':
+        first['payload']['result']['observed_records'][0]['salience'] += .001
+    elif mutation == 'reference':
+        shown = decode_json(first['payload']['model_result'])
+        shown['records'][0]['record_ref'] = 'fabricated-alias'
+        first['payload']['model_result'] = canonical_json(shown).decode()
+    elif mutation == 'key_pair':
+        requested['payload']['idempotency_key'] = receipt['key'] = 'copied-prior-key'
+    from daystrom_dml.journal import JournalIntegrityError
+    from daystrom_dml.services.receipt_lifecycle import ReceiptLifecycleConflict
+    with pytest.raises((ValueError, JournalIntegrityError, ReceiptLifecycleConflict),
+                       match='request digest differs' if mutation == 'swapped' else None):
+        checker._replay_presented_authority(report['events'], report['prepared'])
+
+
+@pytest.fixture(scope='module')
+def validation_campaign(tmp_path_factory):
+    return synthetic_campaign(tmp_path_factory.mktemp('v2-campaign'), validation=True)
+
+
+def test_v2_full_causal_campaign_replay_checks_real_tokenization_and_grammar(validation_campaign):
+    evidence = replay(validation_campaign)
+    assert evidence['schema_version'] == checker.EVIDENCE_VERSION_V2
+    assert evidence['execution_protocol'] == 'dml-agent-predispatch-validation-v2'
+    assert evidence['predeclared_gates_passed'] is True
+    assert evidence['execution_authenticity_verified'] is False
+    assert evidence['source_ci_qualified'] is False
+    assert sum(e['kind'] == 'tool_validation_rejected' for report in validation_campaign[0]['episodes']
+               for e in report['events']) == 1
+
+
+@pytest.mark.parametrize('field', ['spec_version', 'campaign_version', 'spec_protocol', 'campaign_protocol',
+                                  'consumer', 'event_version', 'terminal_version'])
+def test_v2_campaign_cannot_mix_v1_version_or_identity(validation_campaign, field):
+    campaign, spec, identity, tokenizer = validation_campaign
+    campaign, spec = deepcopy(campaign), deepcopy(spec)
+    if field == 'spec_version':
+        spec['schema_version'] = checker.SPEC_VERSION
+    elif field == 'campaign_version':
+        campaign['schema_version'] = 'dml-agent-campaign-v1'
+    elif field == 'spec_protocol':
+        spec.pop('execution_protocol')
+    elif field == 'campaign_protocol':
+        campaign['execution_protocol'] = 'dml-agent-terminal-only-v1'
+    elif field == 'consumer':
+        spec['consumer_profile'] = campaign['consumer_profile'] = 'qwen2-action-json-v1'
+    elif field == 'event_version':
+        campaign['episodes'][0]['events'][1]['schema_version'] = 'dml-agent-event-v1'
+    else:
+        campaign['episodes'][0]['terminal']['schema_version'] = 'dml-agent-terminal-v1'
+    with pytest.raises(ValueError):
+        checker.replay_campaign(campaign, spec, identity=identity, tokenizer=tokenizer)

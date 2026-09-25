@@ -1,6 +1,65 @@
-# M7 continuation — 2026-09-24
+# M7 continuation — updated 2026-09-25
 
-## Current attempt 9 after execution connection loss
+## Current work: validated attempt 10 source
+
+M7 remains **IN PROGRESS**. Attempt 9 completed all nine tasks on published source
+`2a2fb0891d14213c5a593157aab64a1d5ea41834`: eight successes and one `tool_error`,
+with **17,525 known tokens** and one task with unknown effects. The model received
+the distinct-record contract but still requested self-supersession. Both actual,
+sequential evidence replays agree: intent coverage, verified supersession and
+complete effects accounting fail. The
+[independent completion review](artifacts/agent-episode-live-completion-grader-review-attempt-9-isolated-2026-09-24.json)
+rejects qualification and releases only attempt 9's completed freeze.
+[CI 336](https://github.com/mmckeen-nv/DML/actions/runs/36073124885) passed all
+**20 jobs on the first attempt** for that exact source; CI does not override the
+failed live gates. All nine reports and both replay records remain retained locally.
+
+The new candidate is implemented in a separate checkout. It adds an
+explicitly versioned capability to return a trusted, provably pre-dispatch
+validation rejection for self-supersession to the model. The original proposal and fixed error remain
+in the evidence; any correction must be a new model decision charged to the same
+six-step, token and 300-second budgets. Existing execution failures remain
+terminal and conservative. The old protocol retains its behavior. A separate
+resource change removes unnecessary whole-tensor byte copies from fingerprint
+hashing while preserving every fresh integrity scan and exact digest. Its
+[independent review](artifacts/agent-episode-fingerprint-allocation-grader-review-2026-09-25.json)
+accepted the allocation scope at **9.6/10**, with **132 focused passes** including
+22 new controls. A 16 MiB contiguous fixture used 569,267 bytes of peak Python
+allocation versus 16,845,541 for the old algorithm, with identical digests.
+This does not establish total process memory or inference-speed improvement.
+
+The explicit profile `qwen2-action-json-validation-v2` binds execution protocol
+`dml-agent-predispatch-validation-v2` into the actual runtime identity. Both
+supersession references must have appeared as immutable full records in prior
+model-visible results. Only a same-record rejection is recoverable; private or
+missing references remain terminal. Replay derives that boundary independently
+and binds successful mutation receipts to the model's exact request and call key.
+
+[Fresh integrated validation](artifacts/agent-episode-attempt-10-isolated-validation-2026-09-25-r2.json)
+passed **925 cases with zero skips, failures or errors**: all 803 original model
+cases, 34 filesystem controls, 66 new protocol controls and 22 fingerprint controls.
+Both strict lint scopes and maintained mypy passed; all **436 source hashes**
+remained unchanged. The initial validation's missing ledger type annotation is
+retained as a rejected source-validation record; the one-line correction changes
+no runtime behavior. The independent source review accepted the corrected scope
+at **9.6/10**; the
+[integrated review](artifacts/agent-episode-attempt-10-integrated-grader-review-2026-09-25.json)
+binds the final source, scope and actual validation evidence.
+
+Fresh published-source CI, strict zero-generation admission, pre-generation
+review, a full nine-task run and two sequential replays are still required.
+No attempt-10 model outcome or inference-speed improvement is claimed. Task truth,
+action grammar, public tool descriptions, agent policy, learned weights and live
+acceptance gates remain unchanged.
+
+The original attempt-8 source and inputs remain frozen; its full outcome is still
+unknown. Attempts 5–7 retain their disclosed historical evidence gaps. PR #118
+remains open and unmerged. Milestones 1–6 are closed, M7–11 remain open and M12–13
+are deferred; the count remains 20 serial source gates plus foundations.
+`production_ready=false`. Only compact records and source changes are published;
+raw logs and campaign events stay local. Earlier checkpoints below are historical.
+
+## Historical attempt 9 preparation after execution connection loss
 
 M7 remains **IN PROGRESS**. Attempt 8 lost its execution connection after five
 retained task reports: four successes and one `tool_error`. The model requested
@@ -26,7 +85,7 @@ and passing exact-source CI remain mandatory for closure. The next run cannot
 repair historical retention gaps. Raw logs stay local; published records remain
 compact. Earlier checkpoints below are historical.
 
-## Current recovery and attempt 8
+## Historical recovery and attempt 8
 
 M7 remains **IN PROGRESS**. Attempt 7 completed nine tasks on published source
 `a6f54953241ea644da1770dd86dc86ec6b7fda8f`, with eight verifier successes. Both

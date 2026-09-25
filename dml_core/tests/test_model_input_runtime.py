@@ -2,8 +2,11 @@
 from __future__ import annotations
 
 from dataclasses import FrozenInstanceError
+import gc
 import hashlib
 import json
+import tracemalloc
+from types import SimpleNamespace
 
 import pytest
 
@@ -13,7 +16,7 @@ from daystrom_dml.contracts.model_input import (
 from daystrom_dml.services.model_input import (
     LocalTransformersInputConsumer, ModelInputExecutionError,
 )
-from model_input_fixture import create_snapshot
+from model_input_fixture import create_snapshot, require_model_input_dependencies
 
 
 MESSAGES = [{"role": "user", "content": "The owner prefers green notebooks."}]
@@ -178,3 +181,162 @@ def test_snapshot_refusal_has_consumer_error_before_loader(snapshot, monkeypatch
     with pytest.raises(ModelInputError, match="snapshot admission failed"):
         LocalTransformersInputConsumer(snapshot.path)
     assert calls == []
+
+
+def _fingerprint_subject():
+    """Exercise the real fingerprint on tensors without running any model."""
+    versions = require_model_input_dependencies()
+    import torch
+
+    consumer = object.__new__(LocalTransformersInputConsumer)
+    consumer._closed = False
+    consumer._runtime_versions = versions
+    consumer._identity = SimpleNamespace(to_payload=lambda: {"identity": "exact café fixture"})
+    consumer._template = "{{ messages }}"
+    consumer._tokenizer = SimpleNamespace(
+        backend_tokenizer=SimpleNamespace(to_str=lambda: '{"fixture":"café"}'),
+        special_tokens_map={"eos_token": "<end>"}, chat_template="{{ messages }}",
+        model_max_length=128, padding_side="right", truncation_side="left",
+    )
+    consumer._model = torch.nn.Module()
+    consumer._model.config = SimpleNamespace(to_dict=lambda: {"model_type": "fingerprint-fixture"})
+    consumer._model.generation_config = SimpleNamespace(to_dict=lambda: {"use_cache": False})
+    consumer._model.eval()
+    return consumer
+
+
+def _old_fingerprint_oracle(consumer):
+    """Independent prior algorithm, including its whole-tensor bytes copy."""
+    from importlib.metadata import version
+
+    def encoded(value):
+        return json.dumps(value, ensure_ascii=False, sort_keys=True,
+                          separators=(",", ":"), allow_nan=False).encode("utf-8")
+
+    digest = hashlib.sha256()
+    tokenizer, model = consumer._tokenizer, consumer._model
+    digest.update(encoded({
+        "identity": consumer._identity.to_payload(), "template": consumer._template,
+        "tokenizer_backend": tokenizer.backend_tokenizer.to_str(),
+        "special_tokens": tokenizer.special_tokens_map,
+        "tokenizer_template": tokenizer.chat_template,
+        "tokenizer_window": tokenizer.model_max_length,
+        "tokenizer_padding": tokenizer.padding_side,
+        "tokenizer_truncation": tokenizer.truncation_side,
+        "model_config": model.config.to_dict(),
+        "generation_config": model.generation_config.to_dict(), "training": model.training,
+        "versions": {name: version(name)
+                     for name in ("torch", "transformers", "tokenizers", "safetensors", "jinja2")},
+    }))
+    for group, values in (("parameter", model.named_parameters()), ("buffer", model.named_buffers())):
+        for name, value in values:
+            if value.device.type != "cpu":
+                raise ModelInputError("Exact-input model moved outside the CPU runtime")
+            digest.update(encoded([group, name, str(value.dtype), list(value.shape), value.requires_grad]))
+            digest.update(value.detach().contiguous().numpy().tobytes())
+    return digest.hexdigest()
+
+
+@pytest.mark.parametrize("dtype", [
+    "float16", "float32", "float64", "complex64", "complex128", "bool",
+    "int8", "int16", "int32", "int64", "uint8", "uint16", "uint32", "uint64",
+])
+def test_fingerprint_matches_prior_bytes_for_tensor_shapes_dtypes_and_order(dtype):
+    consumer = _fingerprint_subject()
+    import torch
+
+    values = torch.arange(12).to(getattr(torch, dtype))
+    if values.is_floating_point():
+        values[:4] = torch.tensor([-0.0, float("inf"), -float("inf"), float("nan")])
+    # Deliberately nonlexical insertion order exercises the original ordering.
+    consumer._model.register_parameter("z_parameter", torch.nn.Parameter(values.clone(), requires_grad=False))
+    consumer._model.register_parameter("a_parameter", torch.nn.Parameter(values.reshape(3, 4).T,
+                                                                          requires_grad=False))
+    consumer._model.register_buffer("z_scalar", values[0].clone().reshape(()))
+    consumer._model.register_buffer("a_empty", values[:0].reshape(2, 0, 3))
+    consumer._model.register_buffer("sliced", values[::2])
+    consumer._model.register_buffer("transposed", values.reshape(3, 4).T)
+    assert consumer._fingerprint() == _old_fingerprint_oracle(consumer)
+
+
+@pytest.mark.parametrize("kind", ["meta", "bfloat16", "sparse"])
+def test_fingerprint_preserves_prior_cpu_and_unsupported_tensor_errors(kind):
+    consumer = _fingerprint_subject()
+    import torch
+
+    if kind == "meta":
+        value = torch.empty(2, device="meta")
+    elif kind == "bfloat16":
+        value = torch.ones(2, dtype=torch.bfloat16)
+    else:
+        value = torch.sparse_coo_tensor([[0]], [1.0], (2,))
+    consumer._model.register_buffer("unsupported", value)
+    with pytest.raises((ModelInputError, TypeError, RuntimeError)) as old:
+        _old_fingerprint_oracle(consumer)
+    with pytest.raises(type(old.value)) as current:
+        consumer._fingerprint()
+    assert str(current.value) == str(old.value)
+    consumer._runtime_digest = "unused"
+    expected = "outside the CPU runtime" if kind == "meta" else "identity cannot be verified"
+    with pytest.raises(ModelInputError, match=expected):
+        consumer._validate_runtime()
+
+
+@pytest.mark.parametrize("group", ["parameter", "buffer"])
+@pytest.mark.parametrize("alias", ["numpy", "data"])
+def test_every_fingerprint_scan_detects_alias_writes_without_version_counter_changes(group, alias):
+    consumer = _fingerprint_subject()
+    import torch
+
+    value = torch.arange(4, dtype=torch.float32)
+    if group == "parameter":
+        value = torch.nn.Parameter(value, requires_grad=False)
+        consumer._model.register_parameter("observed", value)
+    else:
+        consumer._model.register_buffer("observed", value)
+    consumer._runtime_digest = _old_fingerprint_oracle(consumer)
+    consumer._validate_runtime()
+    version = value._version
+    if alias == "numpy":
+        value.detach().numpy()[0] = 29.0
+    else:
+        value.data[0] = 29.0
+    assert value._version == version
+    assert consumer._fingerprint() == _old_fingerprint_oracle(consumer) != consumer._runtime_digest
+    with pytest.raises(ModelInputError, match="identity changed"):
+        consumer._validate_runtime()
+
+
+def test_fingerprint_eliminates_whole_tensor_python_bytes_allocation():
+    consumer = _fingerprint_subject()
+    import torch
+
+    value = torch.zeros(4 * 1024 * 1024, dtype=torch.float32)
+    consumer._model.register_buffer("large_contiguous", value)
+    consumer._fingerprint()  # Warm metadata imports before measuring allocations.
+
+    def observed_peak(operation):
+        already_tracing = tracemalloc.is_tracing()
+        if not already_tracing:
+            tracemalloc.start()
+        try:
+            gc.collect()
+            baseline, _ = tracemalloc.get_traced_memory()
+            tracemalloc.reset_peak()
+            result = operation()
+            _, peak = tracemalloc.get_traced_memory()
+            return result, peak - baseline
+        finally:
+            if not already_tracing:
+                tracemalloc.stop()
+
+    old_digest, old_peak = observed_peak(lambda: _old_fingerprint_oracle(consumer))
+    new_digest, new_peak = observed_peak(consumer._fingerprint)
+    tensor_bytes = value.numel() * value.element_size()
+    assert old_digest == new_digest
+    assert old_peak >= tensor_bytes
+    assert new_peak < tensor_bytes // 8
+    # tracemalloc measures Python allocation, not a noncontiguous Torch copy,
+    # total process memory, or inference speed. No performance claim follows.
+    print(json.dumps({"fingerprint_tensor_bytes": tensor_bytes,
+                      "old_python_peak_bytes": old_peak, "new_python_peak_bytes": new_peak}, sort_keys=True))

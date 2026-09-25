@@ -713,3 +713,44 @@ def test_actual_prior_wrong_answer_reaches_followup_model_as_untrusted_context(t
         validate_episode_events(second["events"])
     finally:
         adapter.close()
+
+
+def _validation_interruption_worker(connection, config):
+    connection.send_bytes(canonical_json({'kind': 'prepared', 'prepared': config['test_prepared']}))
+    assert connection.recv_bytes(128) == b'ack'
+    for event in config['test_events']:
+        connection.send_bytes(canonical_json({'kind': 'event', 'event': event}))
+        assert connection.recv_bytes(128) == b'ack'
+    time.sleep(10)
+
+
+@pytest.mark.parametrize('boundary', ['before_rejection', 'after_rejection', 'actual_dispatch'])
+def test_v2_supervisor_interruptions_never_invent_recovery_or_erase_dispatch(tmp_path, boundary):
+    from daystrom_dml.services.agent_episode import _supervise
+    from test_agent_episode_runtime import validation_case
+    from daystrom_dml.contracts.agent_episode import VALIDATION_CONSUMER_PROFILE
+    report, _, _ = validation_case(tmp_path)
+    events = report['events']
+    rejection = next(i for i, e in enumerate(events) if e['kind'] == 'tool_validation_rejected')
+    end = rejection - 1 if boundary == 'before_rejection' else rejection
+    if boundary == 'actual_dispatch':
+        end = next(i for i, e in enumerate(events) if e['kind'] == 'tool_requested' and e['payload']['name'] == 'supersede')
+    corpus = load_episode_corpus()
+    scenario = next(s for s in corpus['scenarios'] if s['id'] == report['scenario_id'])
+    config = {'episode_id': 'validation-test', 'execution_path': 'test_injected', 'scenario': scenario,
+        'task': scenario['tasks'][0], 'limits': {**events[0]['payload']['limits'], 'wall_time_seconds': 2.0},
+        'effective_time': corpus['effective_time'], 'previous_answers': None,
+        'snapshot_directory': str(tmp_path / 'absent-model'), 'authority_directory': str(tmp_path / 'validation-authority'),
+        'consumer_profile': VALIDATION_CONSUMER_PROFILE, 'test_prepared': report['prepared'], 'test_events': events[1:end + 1]}
+    observed = _supervise(config, worker_target=_validation_interruption_worker)
+    assert observed['terminal']['status'] == 'timeout'
+    assert observed['terminal']['usage_unknown'] and observed['terminal']['effects_unknown']
+    assert observed['terminal']['schema_version'] == 'dml-agent-terminal-v2'
+    retained = [e for e in observed['events'] if e['kind'] == 'tool_validation_rejected']
+    assert len(retained) == (0 if boundary == 'before_rejection' else 1)
+    failed = [e for e in observed['events'] if e['kind'] == 'tool_failed']
+    if boundary == 'actual_dispatch':
+        assert len(failed) == 1 and failed[0]['payload']['effects'] == 'unknown'
+    else:
+        assert failed == []
+    assert not observed['terminal']['success']

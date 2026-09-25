@@ -58,6 +58,69 @@ class ScriptedConsumer:
             output_token_count=2, output_ids=(5, 6), text=text)
 
 
+class ValidationScriptedConsumer(ScriptedConsumer):
+    """Synthetic protocol control: every decision is explicitly supplied by the test."""
+
+    def compile(self, messages, tools, *, output_reserved_tokens):
+        artifact = super().compile(messages, tools, output_reserved_tokens=output_reserved_tokens)
+        return replace(artifact, identity=replace(artifact.identity,
+            runtime_identity="dml-qwen-action-runtime-v2:" + "a" * 64))
+
+    def execute(self, artifact):
+        self.dispatched.append(artifact)
+        action = next(self.actions)
+        if callable(action):
+            action = action(self.requests[-1])
+        return SimpleNamespace(artifact_digest=artifact.artifact_digest, input_token_count=artifact.input_tokens,
+            output_token_count=2, output_ids=(5, 6), text=canonical(action))
+
+
+def validation_case(tmp_path, *, repeated=False, limits=None, prepare_hook=None, execute_hook=None):
+    from daystrom_dml.contracts.agent_episode import EXECUTION_PROTOCOL_V2, VALIDATION_CONSUMER_PROFILE
+    scenario = next(s for s in load_episode_corpus()["scenarios"] if s["id"] == "superseded_preference")
+    task = scenario["tasks"][0]
+    directory = tmp_path / "validation-authority"
+    adapter, values = _prepare_fixture(directory, scenario, "validation-test")
+    bridge = SelectedProfileEpisodeTools(adapter, scope=scenario["scope"], episode_id="validation-test",
+        seed_receipts=values["seed_receipts"], observation_records=list(values["seed_records"].values()),
+        allowed_tools=("retrieve", "supersede"), execution_protocol=EXECUTION_PROTOCOL_V2)
+    first_reference = []
+
+    def invalid(request):
+        if not first_reference:
+            first_reference.append(json.loads(request["messages"][-1]["content"])["records"][0]["record_ref"])
+        return tool("supersede", record_ref=first_reference[0], replacement_ref=first_reference[0], reason="test rejection")
+
+    def valid(request):
+        records = json.loads(request["messages"][-1]["content"])["records"]
+        refs = {record["id"]: record["record_ref"] for record in records}
+        return tool("supersede", record_ref=refs[values["seed_records"]["old"]["id"]],
+            replacement_ref=refs[values["seed_records"]["current"]["id"]], reason="test selected replacement")
+
+    answer = {"claims": [{"key": key, "value": fact["value"],
+        "evidence_ids": [values["seed_records"][alias]["id"] for alias in fact["evidence_aliases"]]}
+        for key, fact in task["truth"].items()]}
+    actions = [tool(query="preference", top_k=1), invalid]
+    actions += [invalid] * 5 if repeated else [tool(query="preference", top_k=10), valid, final(answer)]
+    consumer = ValidationScriptedConsumer(actions)
+    if prepare_hook:
+        original = bridge.prepare
+        bridge.prepare = lambda name, arguments, **kw: prepare_hook(bridge, original, name, arguments, kw)
+    if execute_hook:
+        original_execute = bridge.execute
+        bridge.execute = lambda prepared: execute_hook(bridge, original_execute, prepared)
+    try:
+        report = run_episode_with_test_dependencies(consumer=consumer, toolbox=bridge, task=task, scenario=scenario,
+            seed_records=values["seed_records"], current_records=lambda: _read_records(directory),
+            consumer_profile=VALIDATION_CONSUMER_PROFILE, episode_id="validation-test",
+            limits=limits or EpisodeLimits(output_tokens=16))
+        report.update(prepared=values, current_records=_read_records(directory), scenario_id=scenario["id"],
+                      consumer_profile=VALIDATION_CONSUMER_PROFILE)
+        return report, consumer, bridge
+    finally:
+        adapter.close()
+
+
 def tool(name="retrieve", **arguments):
     return {"schema_version": "dml-agent-action-v1", "kind": "tool", "name": name, "arguments": arguments}
 
@@ -474,3 +537,80 @@ def test_supervisor_refuses_success_when_cleanup_or_death_is_uncertain(
     finally:
         identity = scratch.lstat()
         remove(scratch, (identity.st_dev, identity.st_ino))
+
+
+def test_v2_rejection_then_new_model_decision_commits_once_with_full_transcript(tmp_path):
+    from daystrom_dml.contracts.agent_episode import VALIDATION_MODEL_RESULT
+    report, consumer, bridge = validation_case(tmp_path)
+    assert report['terminal']['success'] is True
+    assert report['terminal']['status'] == 'completed'
+    assert report['terminal']['input_tokens'] == 20 and report['terminal']['output_tokens'] == 10
+    rejected = [e for e in report['events'] if e['kind'] == 'tool_validation_rejected']
+    assert len(rejected) == 1 and rejected[0]['call_id'] == 'tool-1'
+    assert rejected[0]['payload']['model_result'] == VALIDATION_MODEL_RESULT
+    assert consumer.requests[2]['messages'][-1]['content'] == VALIDATION_MODEL_RESULT
+    assert consumer.requests[2]['messages'][-2]['content'] == report['events'][6]['payload']['text']
+    mutations = [e for e in report['events'] if e['kind'] == 'tool_completed' and e['payload']['name'] == 'supersede']
+    assert len(mutations) == 1
+    assert set(bridge._keys) == {'episode:validation-test:tool-3'}
+    assert not any(e['kind'] == 'tool_requested' and e['call_id'] == 'tool-1' for e in report['events'])
+    validate_episode_events(report['events'])
+
+
+def test_v2_repeated_invalid_decisions_exhaust_existing_steps_without_retry(tmp_path):
+    report, consumer, bridge = validation_case(tmp_path, repeated=True)
+    assert report['terminal']['status'] == 'step_limit'
+    assert len(consumer.dispatched) == 6
+    assert sum(e['kind'] == 'tool_validation_rejected' for e in report['events']) == 5
+    assert sum(e['kind'] == 'tool_requested' for e in report['events']) == 1
+    assert bridge._keys == {} and len(bridge._prepared) == 1
+    assert report['terminal']['effects_unknown'] is False
+
+
+@pytest.mark.parametrize('kind', ['generic', 'forged', 'subclass'])
+def test_v2_only_owned_exact_preparation_rejection_can_recover(tmp_path, kind):
+    from daystrom_dml.services.episode_tools import EpisodeToolValidationRejected
+    class Derived(EpisodeToolValidationRejected):
+        pass
+    def reject(bridge, original, name, arguments, kw):
+        if name != 'supersede':
+            return original(name, arguments, **kw)
+        if kind == 'generic':
+            raise ValueError('not whitelisted')
+        cls = Derived if kind == 'subclass' else EpisodeToolValidationRejected
+        raise cls(bridge._rejection_owner if kind == 'subclass' else object(), arguments, kw['call_id'])
+    report, consumer, _ = validation_case(tmp_path, prepare_hook=reject)
+    assert report['terminal']['status'] == 'invalid_action'
+    assert len(consumer.dispatched) == 2
+    assert not any(e['kind'] == 'tool_validation_rejected' for e in report['events'])
+
+
+def test_v2_exact_trusted_type_from_execution_is_terminal_with_unknown_effects(tmp_path):
+    from daystrom_dml.services.episode_tools import EpisodeToolValidationRejected
+    def fail(bridge, original, prepared):
+        if prepared.name == 'supersede':
+            raise EpisodeToolValidationRejected(bridge._rejection_owner, prepared.arguments, 'tool-3')
+        return original(prepared)
+    report, consumer, _ = validation_case(tmp_path, execute_hook=fail)
+    assert report['terminal']['status'] == 'tool_error' and report['terminal']['effects_unknown'] is True
+    assert len(consumer.dispatched) == 4
+    assert sum(e['kind'] == 'tool_validation_rejected' for e in report['events']) == 1
+
+
+@pytest.mark.parametrize('budget', ['input', 'output', 'transcript'])
+def test_v2_recovery_next_request_respects_existing_budget(tmp_path, budget):
+    baseline, consumer, _ = validation_case(tmp_path / 'baseline')
+    limits = EpisodeLimits(output_tokens=16)
+    if budget == 'input':
+        limits = replace(limits, max_input_tokens=8)
+    elif budget == 'output':
+        limits = replace(limits, max_output_tokens=19)
+    else:
+        size = len(canonical_json(consumer.requests[2]))
+        assert size > len(canonical_json(consumer.requests[1]))
+        limits = replace(limits, max_transcript_bytes=size - 1)
+    report, admitted, _ = validation_case(tmp_path / 'bounded', limits=limits)
+    assert report['terminal']['status'] == ('transcript_limit' if budget == 'transcript' else 'token_limit')
+    assert len(admitted.dispatched) == 2
+    assert sum(e['kind'] == 'tool_validation_rejected' for e in report['events']) == 1
+    assert report['events'][-2]['kind'] == 'admission_rejected'

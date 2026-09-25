@@ -11,7 +11,10 @@ from copy import deepcopy
 import hashlib
 from pathlib import Path
 
-from daystrom_dml.contracts.agent_episode import canonical_json, decode_json, validate_episode_events
+from daystrom_dml.contracts.agent_episode import (
+    canonical_json, decode_json, validate_episode_events, presented_record_identities,
+    execution_protocol_for_profile, EXECUTION_PROTOCOL_V2, VALIDATION_CONSUMER_PROFILE, EVENT_VERSION_V2,
+)
 from daystrom_dml.services.agent_episode import task_allowed_tools, validate_consumer_profile
 from daystrom_dml.services.episode_outcomes import build_terminal, summarize_episode_outcomes
 from daystrom_dml.services.episode_verifiers import INTENTS, load_episode_corpus, verify_task
@@ -20,6 +23,8 @@ from scripts.agent_episodes import MAX_CAMPAIGN_BYTES, _atomic_json, _source_dig
 
 SPEC_VERSION = "dml-agent-campaign-spec-v1"
 EVIDENCE_VERSION = "dml-agent-campaign-evidence-v1"
+SPEC_VERSION_V2 = "dml-agent-campaign-spec-v2"
+EVIDENCE_VERSION_V2 = "dml-agent-campaign-evidence-v2"
 GATES = {
     "attempted_tasks": 9,
     "intent_count": 8,
@@ -75,6 +80,66 @@ def _observations(events):
     return observations
 
 
+def _replay_presented_authority(events, prepared):
+    """Bind the causal v2 ledger to scoped prepared records and acknowledged receipts."""
+    from daystrom_dml.journal import _validated_receipt
+    from daystrom_dml.persistence import validate_record
+    from daystrom_dml.services.episode_tools import _digest as record_digest
+    from daystrom_dml.services.receipt_supersession import canonical_supersession_request, _supersession_receipt
+    scope = events[0]["payload"]["scope"]
+    owned, stores, references = set(), set(), {}
+    for receipt in prepared["seed_receipts"]:
+        _validated_receipt(receipt)
+        record = receipt["result"]["memory"]
+        validate_record(record)
+        _require(_same(receipt["scope"], {key: record["meta"].get(key) for key in scope}),
+                 "Seed receipt record and scope differ")
+        if _same(receipt["scope"], scope):
+            stores.add(receipt["store_id"])
+            owned.add(canonical_json(record))
+            references.setdefault(canonical_json(record), "r" + str(len(references)))
+    for record in prepared["seed_records"].values():
+        validate_record(record)
+        if _same({key: record["meta"].get(key) for key in scope}, scope):
+            owned.add(canonical_json(record))
+    pending, ledger = None, {}
+    for event in events:
+        payload = event["payload"]
+        if event["kind"] == "tool_requested":
+            pending = event
+        elif event["kind"] == "tool_completed":
+            if payload["name"] != "retrieve":
+                receipt = payload["result"]["receipt"]
+                _validated_receipt(receipt)
+                _require(_same(receipt["scope"], scope) and receipt["store_id"] in stores
+                         and pending is not None and receipt["key"] == pending["payload"]["idempotency_key"]
+                         and receipt["key"] == "episode:" + event["episode_id"] + ":" + event["call_id"],
+                         "Acknowledged mutation receipt differs from scoped prepared authority")
+                _require(payload["name"] == "supersede", "Mutation is outside the fixed campaign authority")
+                arguments = pending["payload"]["arguments"]
+                _require(all(arguments[field] in ledger for field in ("record_ref", "replacement_ref")),
+                         "Mutation did not use previously presented immutable records")
+                source = decode_json(ledger[arguments["record_ref"]][1])
+                replacement = decode_json(ledger[arguments["replacement_ref"]][1])
+                request, digest = canonical_supersession_request(source["id"],
+                    replacement_memory_id=replacement["id"], expected_memory_digest=record_digest(source),
+                    expected_replacement_digest=record_digest(replacement), reason=arguments["reason"], **scope)
+                _require(receipt["request_digest"] == digest, "Mutation receipt request digest differs from proposal")
+                _supersession_receipt(receipt, request)
+                record = receipt["result"]["memory"]
+                validate_record(record)
+                owned.add(canonical_json(record))
+                references.setdefault(canonical_json(record), "r" + str(len(references)))
+            identities = presented_record_identities(payload, scope)
+            _require(all(raw in owned and references.get(raw) == reference
+                         for reference, (_, raw) in identities.items()),
+                     "Presented immutable identity was not owned by prepared or receipted authority")
+            ledger.update(identities)
+            pending = None
+        elif event["kind"] == "tool_failed":
+            pending = None
+
+
 def _replay_model(events, identity, tokenizer, consumer_profile):
     generated = 0
     grammar_matcher = None
@@ -90,7 +155,7 @@ def _replay_model(events, identity, tokenizer, consumer_profile):
             _require(_same(encoded["input_ids"], compiled["input_ids"])
                      and _same(encoded["attention_mask"], compiled["attention_mask"]),
                      "Recorded input tokens differ from independent tokenization")
-            if consumer_profile == "qwen2-action-json-v1":
+            if consumer_profile in ("qwen2-action-json-v1", VALIDATION_CONSUMER_PROFILE):
                 from daystrom_dml.services.agent_action_grammar import compile_action_grammar
                 import xgrammar as xgr
                 # Membership below separately rejects unused model rows. A
@@ -103,7 +168,7 @@ def _replay_model(events, identity, tokenizer, consumer_profile):
                 )
         elif event["kind"] == "model_completed":
             output_ids = payload["output_ids"]
-            if consumer_profile in {"qwen2-instruct-v1", "qwen2-action-json-v1"}:
+            if consumer_profile in {"qwen2-instruct-v1", "qwen2-action-json-v1", VALIDATION_CONSUMER_PROFILE}:
                 vocabulary = tokenizer.get_vocab()
                 allowed_ids = frozenset(vocabulary.values())
                 _require(all(type(token) is int and token in allowed_ids for token in output_ids),
@@ -112,7 +177,7 @@ def _replay_model(events, identity, tokenizer, consumer_profile):
                 _require(type(eos) is int and tokenizer.eos_token == "<|im_end|>"
                          and eos == tokenizer.eos_token_id and eos in tokenizer.all_special_ids,
                          "Qwen terminal EOS identity differs")
-                if consumer_profile == "qwen2-action-json-v1":
+                if consumer_profile in ("qwen2-action-json-v1", VALIDATION_CONSUMER_PROFILE):
                     _require(grammar_matcher is not None, "Constrained output lacks its request grammar")
                     special = {index for index, token in tokenizer.added_tokens_decoder.items() if token.special}
                     _require(all(token not in special - {eos} and grammar_matcher.accept_token(token)
@@ -132,11 +197,17 @@ def replay_campaign(campaign, spec, *, identity, tokenizer):
     corpus = load_episode_corpus()
     selected = [(scenario, task) for scenario in corpus["scenarios"] for task in scenario["tasks"]]
     selection = [{"scenario_id": scenario["id"], "task_id": task["id"]} for scenario, task in selected]
-    _require(spec.get("schema_version") == SPEC_VERSION and _same(spec.get("acceptance"), GATES),
-             "Campaign specification or fixed acceptance gates differ")
     consumer_profile = validate_consumer_profile(spec["consumer_profile"])
+    protocol = execution_protocol_for_profile(consumer_profile)
+    v2 = protocol == EXECUTION_PROTOCOL_V2
+    _require(spec.get("schema_version") == (SPEC_VERSION_V2 if v2 else SPEC_VERSION)
+             and _same(spec.get("acceptance"), GATES), "Campaign specification or fixed acceptance gates differ")
+    for value in (spec, campaign):
+        _require(value.get("execution_protocol") == protocol if v2 else "execution_protocol" not in value,
+                 "Campaign execution protocol differs")
     _require(campaign.get("consumer_profile") == consumer_profile, "Consumer profile differs")
-    _require(campaign.get("schema_version") == "dml-agent-campaign-v1", "Campaign schema differs")
+    _require(campaign.get("schema_version") == ("dml-agent-campaign-v2" if v2 else "dml-agent-campaign-v1"),
+             "Campaign schema differs")
     _require(_same(spec["selection"], selection) and _same(campaign["selection"], selection),
              "Campaign selection differs from the complete ordered corpus")
     _require(campaign["corpus_digest"] == spec["corpus_digest"] == _digest(corpus), "Corpus digest differs")
@@ -151,6 +222,7 @@ def replay_campaign(campaign, spec, *, identity, tokenizer):
         events, terminal, prepared = episode["events"], episode["terminal"], episode["prepared"]
         _require(episode.get("consumer_profile") == consumer_profile, "Episode consumer profile differs")
         validate_episode_events(events)
+        _require((events[0]["schema_version"] == EVENT_VERSION_V2) is v2, "Episode protocol differs from campaign")
         _require(_same(events[-1]["payload"], terminal), "Retained terminal differs from events")
         _require(episode["scenario_id"] == scenario["id"] and terminal["task_id"] == task["id"],
                  "Retained attempt order or task identity differs")
@@ -172,6 +244,8 @@ def replay_campaign(campaign, spec, *, identity, tokenizer):
                     and terminal["unknown_output_calls"] == 0)
         if prepared and start["seed_receipts_digest"] is not None:
             _require(start["seed_receipts_digest"] == _digest(prepared), "Seed evidence digest differs")
+            if v2:
+                _replay_presented_authority(events, prepared)
         else:
             complete = False
         generated = _replay_model(events, identity, tokenizer, consumer_profile)
@@ -220,7 +294,8 @@ def replay_campaign(campaign, spec, *, identity, tokenizer):
              "all_intents_reached_retrieval_and_final": all(coverage.values()),
              "verified_model_owned_supersession": any(row["verified_model_owned_supersession"] for row in rows),
              "complete_failure_inclusive_evidence": complete, "actual_predecessor_context": feedback_complete}
-    return {"schema_version": EVIDENCE_VERSION, "validation_scope": "independent_data_replay_only",
+    return {"schema_version": EVIDENCE_VERSION_V2 if v2 else EVIDENCE_VERSION,
+            **({"execution_protocol": protocol} if v2 else {}), "validation_scope": "independent_data_replay_only",
             "execution_authenticity_verified": False, "source_ci_qualified": False,
             "predeclared_gates_passed": all(gates.values()), "gates": gates, "intent_coverage": coverage,
             "attempts": rows, "summary": summary}
@@ -241,16 +316,16 @@ def verify_files(*, spec_path, spec_sha256, campaign_path, snapshot_directory, s
     campaign_bytes = Path(campaign_path).read_bytes()
     campaign = decode_json(campaign_bytes, limit=MAX_CAMPAIGN_BYTES)
     consumer_profile = validate_consumer_profile(spec["consumer_profile"])
-    if consumer_profile in {"qwen2-instruct-v1", "qwen2-action-json-v1"}:
+    if consumer_profile in {"qwen2-instruct-v1", "qwen2-action-json-v1", VALIDATION_CONSUMER_PROFILE}:
         from daystrom_dml.services.qwen_model_snapshot import verify_qwen_snapshot
         verify_snapshot = verify_qwen_snapshot
     else:
         verify_snapshot = verify_local_snapshot
     with verify_snapshot(bundle) as snapshot:
         from transformers import PreTrainedTokenizerFast
-        if consumer_profile == "qwen2-action-json-v1":
+        if consumer_profile in ("qwen2-action-json-v1", VALIDATION_CONSUMER_PROFILE):
             from daystrom_dml.services.qwen_action_input import constrained_identity
-            identity = constrained_identity(snapshot.identity).to_payload()
+            identity = constrained_identity(snapshot.identity, consumer_profile=consumer_profile).to_payload()
         else:
             identity = snapshot.identity.to_payload()
         _require(_same(identity, spec["model_identity"]), "Frozen model identity differs")

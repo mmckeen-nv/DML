@@ -417,3 +417,153 @@ def test_prior_context_cannot_cite_its_current_task_as_preceding_evidence():
     context.update(episode_id="episode", task_id="task")
     with pytest.raises(AgentEpisodeError, match="current task"):
         started(prior_context=context)
+
+
+@pytest.fixture(scope='module')
+def validation_rejection_prefix(tmp_path_factory):
+    from test_agent_episode_runtime import validation_case
+    report, _, _ = validation_case(tmp_path_factory.mktemp('v2-contract'))
+    end = next(i for i, e in enumerate(report['events']) if e['kind'] == 'tool_validation_rejected')
+    return report['events'][:end + 1]
+
+
+@pytest.mark.parametrize('mutation', [
+    'argument', 'reason', 'name', 'code', 'response', 'effects', 'call_id', 'latency', 'version',
+    'proposal', 'allowlist', 'duplicate', 'dispatch', 'hidden_ref', 'hidden_record', 'extra_receipt',
+])
+def test_v2_rejection_must_be_independently_derived_from_prior_evidence(validation_rejection_prefix, mutation):
+    events = deepcopy(validation_rejection_prefix)
+    rejected = events[-1]
+    payload = rejected['payload']
+    if mutation == 'argument':
+        payload['arguments']['replacement_ref'] = 'unseen'
+    elif mutation == 'reason':
+        payload['arguments']['reason'] = 'altered'
+    elif mutation == 'name':
+        payload['name'] = 'retire'
+    elif mutation == 'code':
+        payload['error_code'] = 'retryable'
+    elif mutation == 'response':
+        payload['model_result'] += ' '
+    elif mutation == 'effects':
+        payload['effects'] = 'unknown'
+    elif mutation == 'call_id':
+        rejected['call_id'] = 'tool-999'
+    elif mutation == 'latency':
+        payload['latency_ms'] = True
+    elif mutation == 'version':
+        rejected['schema_version'] = 'dml-agent-event-v1'
+    elif mutation == 'proposal':
+        proposal = json.loads(events[-2]['payload']['text'])
+        proposal['arguments']['reason'] = 'different proposal'
+        events[-2]['payload']['text'] = json.dumps(proposal)
+    elif mutation == 'allowlist':
+        events[0]['payload']['allowed_tools'] = ['retrieve']
+    elif mutation == 'duplicate':
+        duplicate = deepcopy(rejected)
+        duplicate['sequence'] += 1
+        events.append(duplicate)
+    elif mutation == 'dispatch':
+        rejected['kind'] = 'tool_requested'
+        rejected['payload'] = {'name': payload['name'], 'arguments': payload['arguments'],
+                              'idempotency_key': 'episode:validation-test:tool-1'}
+    elif mutation == 'hidden_ref':
+        payload['arguments'].update(record_ref='r999', replacement_ref='r999')
+        proposal = json.loads(events[-2]['payload']['text'])
+        proposal['arguments'] = deepcopy(payload['arguments'])
+        events[-2]['payload']['text'] = json.dumps(proposal)
+    elif mutation == 'hidden_record':
+        completed = next(e for e in events if e['kind'] == 'tool_completed')
+        completed['payload']['result']['observed_records'] = []
+    elif mutation == 'extra_receipt':
+        payload['receipt'] = {'hidden': 'not executed'}
+    with pytest.raises(AgentEpisodeError):
+        validate_episode_events(events, require_terminal=False)
+
+
+def test_v2_rejection_uses_producer_budget_and_cannot_be_relabelled_v1(validation_rejection_prefix):
+    from daystrom_dml.contracts.agent_episode import episode_budget_usage
+    events = deepcopy(validation_rejection_prefix)
+    before, after = episode_budget_usage(events[:-1]), episode_budget_usage(events)
+    assert after['producer_bytes'] - before['producer_bytes'] == len(canonical_json(events[-1])) + 1
+    assert after['diagnostic_bytes'] == before['diagnostic_bytes']
+    events[0]['payload']['limits']['max_episode_bytes'] = after['producer_bytes'] - 1
+    events[0]['payload']['limits']['max_event_bytes'] = min(
+        events[0]['payload']['limits']['max_event_bytes'], after['producer_bytes'] - 1)
+    with pytest.raises(AgentEpisodeError, match='budget'):
+        validate_episode_events(events, require_terminal=False)
+    events = deepcopy(validation_rejection_prefix)
+    for event in events:
+        event['schema_version'] = 'dml-agent-event-v1'
+    del events[0]['payload']['execution_protocol']
+    del events[0]['payload']['consumer_profile']
+    with pytest.raises(AgentEpisodeError):
+        validate_episode_events(events, require_terminal=False)
+
+
+def test_v2_compiled_profile_cannot_cross_protocol_even_after_rehash(validation_rejection_prefix):
+    from daystrom_dml.contracts.agent_episode import _compiled
+    events = deepcopy(validation_rejection_prefix)
+    for request_event in [e for e in events if e['kind'] == 'model_requested']:
+        request_event['payload']['compiled']['identity']['runtime_identity'] = 'old-profile-runtime'
+        digest = _compiled(request_event['payload']['compiled']).artifact_digest
+        request_event['payload']['artifact_digest'] = digest
+        completion = next(e for e in events if e['kind'] == 'model_completed' and e['call_id'] == request_event['call_id'])
+        completion['payload']['artifact_digest'] = digest
+    with pytest.raises(AgentEpisodeError, match='runtime'):
+        validate_episode_events(events, require_terminal=False)
+
+
+@pytest.mark.parametrize('references', [('r999', 'r998'), ('r999', None)])
+def test_v2_private_reference_dispatch_is_impossible_on_replay(validation_rejection_prefix, references):
+    events = deepcopy(validation_rejection_prefix)
+    old = events[-1]['payload']['arguments']
+    arguments = {**old, 'record_ref': references[0], 'replacement_ref': references[1] or old['replacement_ref']}
+    proposal = json.loads(events[-2]['payload']['text'])
+    proposal['arguments'] = arguments
+    events[-2]['payload']['text'] = json.dumps(proposal)
+    events[-1].update(kind='tool_requested', payload={'name': 'supersede', 'arguments': arguments,
+                                                    'idempotency_key': 'episode:validation-test:tool-1'})
+    with pytest.raises(AgentEpisodeError, match='previously presented'):
+        validate_episode_events(events, require_terminal=False)
+
+
+def test_v2_replay_rejects_dispatch_through_distinct_presented_aliases_for_same_record(tmp_path):
+    from test_agent_episode_runtime import ValidationScriptedConsumer, tool, final
+    from daystrom_dml.contracts.agent_episode import EXECUTION_PROTOCOL_V2, VALIDATION_CONSUMER_PROFILE
+    from daystrom_dml.services.agent_episode import (
+        EpisodeLimits, _prepare_fixture, _read_records, run_episode_with_test_dependencies,
+    )
+    from daystrom_dml.services.episode_tools import SelectedProfileEpisodeTools
+    from daystrom_dml.services.episode_verifiers import load_episode_corpus
+    scenario = load_episode_corpus()['scenarios'][0]
+    adapter, prepared = _prepare_fixture(tmp_path / 'authority', scenario, 'aliases')
+    bridge = SelectedProfileEpisodeTools(adapter, scope=scenario['scope'], episode_id='aliases',
+        seed_receipts=prepared['seed_receipts'], observation_records=list(prepared['seed_records'].values()),
+        allowed_tools=('retrieve', 'update', 'supersede'), execution_protocol=EXECUTION_PROTOCOL_V2)
+    old = []
+    def update(request):
+        record = json.loads(request['messages'][-1]['content'])['records'][0]
+        old.append(record)
+        return tool('update', record_ref=record['record_ref'], text='New test immutable version', reason='test version')
+    def reject(request):
+        record = json.loads(request['messages'][-1]['content'])['records'][0]
+        assert record['id'] == old[0]['id'] and record['record_ref'] != old[0]['record_ref']
+        return tool('supersede', record_ref=old[0]['record_ref'], replacement_ref=record['record_ref'], reason='same ID')
+    try:
+        report = run_episode_with_test_dependencies(
+            consumer=ValidationScriptedConsumer([tool(query='port', top_k=10), update, reject, final({'claims': []})]),
+            toolbox=bridge, task=scenario['tasks'][0], scenario=scenario, seed_records=prepared['seed_records'],
+            current_records=lambda: _read_records(tmp_path / 'authority'), limits=EpisodeLimits(output_tokens=16),
+            episode_id='aliases', consumer_profile=VALIDATION_CONSUMER_PROFILE)
+    finally:
+        adapter.close()
+    index = next(i for i, event in enumerate(report['events']) if event['kind'] == 'tool_validation_rejected')
+    events = deepcopy(report['events'][:index + 1])
+    validate_episode_events(events, require_terminal=False)
+    arguments = events[-1]['payload']['arguments']
+    assert arguments['record_ref'] != arguments['replacement_ref']
+    events[-1].update(kind='tool_requested', payload={'name': 'supersede', 'arguments': arguments,
+                                                    'idempotency_key': 'episode:aliases:tool-2'})
+    with pytest.raises(AgentEpisodeError, match='same-record'):
+        validate_episode_events(events, require_terminal=False)

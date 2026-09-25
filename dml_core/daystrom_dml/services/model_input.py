@@ -190,7 +190,9 @@ class LocalTransformersInputConsumer:
                 if value.device.type != "cpu":
                     raise ModelInputError("Exact-input model moved outside the CPU runtime")
                 digest.update(_json_bytes([group, name, str(value.dtype), list(value.shape), value.requires_grad]))
-                digest.update(value.detach().contiguous().numpy().tobytes())
+                # Hash the same contiguous bytes without a whole-tensor Python
+                # bytes copy. Noncontiguous tensors still require contiguous().
+                digest.update(memoryview(value.detach().contiguous().numpy()))
         return digest.hexdigest()
 
     def _validate_runtime(self) -> None:

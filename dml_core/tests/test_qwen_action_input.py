@@ -202,3 +202,49 @@ def test_independent_replay_checks_exact_request_grammar_and_constrained_runtime
     changed[1]["payload"]["output_ids"] = consumer._tokenizer.encode(changed[1]["payload"]["text"], add_special_tokens=False)
     with pytest.raises(ValueError, match="grammar"):
         checker._replay_model(changed, consumer._identity.to_payload(), consumer._tokenizer, "qwen2-action-json-v1")
+
+
+def test_v2_policy_identity_is_separate_and_v1_bytes_stay_unchanged(monkeypatch):
+    from daystrom_dml.contracts import agent_episode as contract
+    from daystrom_dml.contracts.model_input import ModelInputIdentity
+    from daystrom_dml.services.agent_action_grammar import policy_identity
+    from daystrom_dml.services.model_input import _json_bytes
+    import hashlib
+    base = ModelInputIdentity('1' * 64, '2' * 64, '3' * 64, 'base', 32768)
+    old = constrained_identity(base)
+    expected = 'dml-qwen-action-runtime-v1:' + hashlib.sha256(_json_bytes(
+        {'base_runtime_identity': base.runtime_identity, **policy_identity()})).hexdigest()
+    assert old.runtime_identity == expected
+    new = constrained_identity(base, consumer_profile=contract.VALIDATION_CONSUMER_PROFILE)
+    assert new != old and new.runtime_identity.startswith('dml-qwen-action-runtime-v2:')
+    assert contract.execution_policy_identity()['supersede_admission']['missing_binding'].startswith('terminal_')
+    monkeypatch.setattr(contract, 'VALIDATION_MODEL_RESULT', contract.VALIDATION_MODEL_RESULT + ' ')
+    assert constrained_identity(base) == old
+    assert constrained_identity(base, consumer_profile=contract.VALIDATION_CONSUMER_PROFILE) != new
+
+
+def test_v2_consumer_compiles_bound_identity_and_refuses_v1_artifact(snapshot, consumer, monkeypatch):
+    from daystrom_dml.contracts.agent_episode import VALIDATION_CONSUMER_PROFILE
+    from daystrom_dml.contracts.model_input import ModelInputError
+    with LocalQwenActionInputConsumer(snapshot.path, consumer_profile=VALIDATION_CONSUMER_PROFILE) as newer:
+        artifact = consumer.compile([{'role': 'user', 'content': 'test'}], _tools('retrieve'), output_reserved_tokens=16)
+        calls = []
+        monkeypatch.setattr(newer._model, 'generate', lambda **kw: calls.append(kw))
+        with pytest.raises(ModelInputError):
+            newer.execute(artifact)
+        own = newer.compile([{'role': 'user', 'content': 'test'}], _tools('retrieve'), output_reserved_tokens=16)
+        assert own.identity == constrained_identity(newer._base_action_identity, consumer_profile=VALIDATION_CONSUMER_PROFILE)
+        assert calls == []
+
+
+def test_v2_execution_policy_drift_is_refused_before_generation(snapshot, monkeypatch):
+    from daystrom_dml.contracts import agent_episode as contract
+    from daystrom_dml.contracts.model_input import ModelInputError
+    with LocalQwenActionInputConsumer(snapshot.path, consumer_profile=contract.VALIDATION_CONSUMER_PROFILE) as consumer:
+        artifact = consumer.compile([{'role': 'user', 'content': 'test'}], _tools('retrieve'), output_reserved_tokens=16)
+        calls = []
+        monkeypatch.setattr(consumer._model, 'generate', lambda **kw: calls.append(kw))
+        monkeypatch.setattr(contract, 'VALIDATION_ERROR_CODE', 'different')
+        with pytest.raises(ModelInputError, match='policy'):
+            consumer.execute(artifact)
+        assert calls == []

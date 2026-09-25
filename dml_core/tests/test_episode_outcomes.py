@@ -183,3 +183,32 @@ def test_original_outcome_v1_remains_unchanged_and_does_not_accept_nullable_requ
     legacy["output_tokens"] = None
     with pytest.raises(ValueError, match="output_tokens"):
         summarize_outcomes([legacy])
+
+
+def test_v2_rejection_latency_is_costed_without_retrieval_or_effect_credit(tmp_path):
+    from copy import deepcopy
+    from test_agent_episode_runtime import validation_case
+    from daystrom_dml.contracts.agent_episode import AgentEpisodeError
+    report, _, _ = validation_case(tmp_path)
+    terminal = report['terminal']
+    rejected = next(e for e in report['events'] if e['kind'] == 'tool_validation_rejected')
+    assert terminal['schema_version'] == 'dml-agent-terminal-v2'
+    assert terminal['effects_unknown'] is False
+    events = deepcopy(report['events'][:-1])
+    target = next(e for e in events if e['kind'] == 'tool_validation_rejected')
+    target['payload']['latency_ms'] = terminal['latency_ms'] + 1
+    with pytest.raises(AgentEpisodeError, match='latency'):
+        build_terminal(events, terminal['verifier'], status=terminal['status'], latency_ms=terminal['latency_ms'],
+                       retrieval_ms=terminal['retrieval_ms'], answer=terminal['answer'])
+    assert rejected['payload']['latency_ms'] >= 0
+
+
+def test_v2_and_v1_terminal_summaries_cannot_be_pooled(tmp_path):
+    from test_agent_episode_runtime import validation_case
+    from daystrom_dml.contracts.agent_episode import AgentEpisodeError
+    report, _, _ = validation_case(tmp_path)
+    old = dict(report['terminal'], schema_version='dml-agent-terminal-v1', episode_id='old')
+    old.pop('execution_protocol')
+    old.pop('consumer_profile')
+    with pytest.raises(AgentEpisodeError, match='protocol'):
+        summarize_episode_outcomes([old, report['terminal']])

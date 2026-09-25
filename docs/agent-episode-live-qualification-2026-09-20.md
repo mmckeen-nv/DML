@@ -1,8 +1,12 @@
 # Milestone 7 live qualification record
 
-Current continuation: [September 24 handoff](production-handoff-2026-09-24.md). M7 remains open. Attempt 8 is incomplete after execution connection loss; isolated attempt 9 clarifies the existing distinct-record precondition without changing live gates. Original source and partial evidence remain preserved. Earlier dated status below is historical.
+Current continuation: [handoff updated September 25](production-handoff-2026-09-24.md). **M7 remains open.** Attempt 9 completed all nine tasks on source `2a2fb089`, with eight successes, 18 model calls and 17,525 known tokens. One self-supersession tool error retains unknown effects and no measurable final. Both sequential replays agree and reject intent coverage, verified supersession and completeness. [CI 336](https://github.com/mmckeen-nv/DML/actions/runs/36073124885) passed all 20 jobs on its first attempt. The [completion review](artifacts/agent-episode-live-completion-grader-review-attempt-9-isolated-2026-09-24.json) releases only attempt 9's completed freeze; its failure is not reinterpreted.
 
-## Recovery after the execution-environment disconnect — 2026-09-22
+Attempt 10 source is implemented and validated in a separate checkout. Its explicit `qwen2-action-json-validation-v2` profile exposes only a trusted pre-dispatch self-supersession rejection, retaining the exact proposal, fixed error, unchanged budgets and a new model-owned decision. Both references require prior model-visible immutable records; private references remain terminal. The original protocol retains its behavior. A separately reviewed allocation fix removes redundant fingerprint byte copies while retaining every fresh integrity check.
+
+[Full validation](artifacts/agent-episode-attempt-10-isolated-validation-2026-09-25-r2.json) passed **925 cases** (803 retained model cases +34 filesystem +66 protocol +22 fingerprint), with zero skips/failures/errors; lint, mypy and all 436 source hashes passed. The retained first validation failed only a missing type annotation; its one-line correction changes no behavior. [Independent integrated review](artifacts/agent-episode-attempt-10-integrated-grader-review-2026-09-25.json) binds the corrected source and evidence. Exact-source CI, fresh admission and freeze, a full nine-task trained campaign and two sequential replays remain required. No new live qualification or inference-speed improvement is claimed. Original attempt 8 stays incomplete and frozen; historical attempts 5–7 retain their evidence gaps. Raw logs stay local; public evidence remains compact.
+
+## Historical recovery after the execution-environment disconnect — 2026-09-22
 
 M7 remains **IN PROGRESS**. Public Coder-recovery source `1c4ccd5` passed
 [CI 331](https://github.com/mmckeen-nv/DML/actions/runs/35697661942), all 20 jobs.

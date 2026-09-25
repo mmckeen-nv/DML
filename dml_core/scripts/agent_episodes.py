@@ -19,7 +19,9 @@ import time
 import uuid
 
 from daystrom_dml.atomic_io import _sync_directory
-from daystrom_dml.contracts.agent_episode import make_event, validate_episode_events
+from daystrom_dml.contracts.agent_episode import (
+    make_event, validate_episode_events, execution_protocol_for_profile, EXECUTION_PROTOCOL_V2,
+)
 from daystrom_dml.services.agent_episode import (
     CONSUMER_PROFILES, EpisodeLimits, _started, run_local_episode, validate_consumer_profile,
 )
@@ -27,6 +29,7 @@ from daystrom_dml.services.episode_outcomes import build_terminal, summarize_epi
 from daystrom_dml.services.episode_verifiers import INTENTS, VERIFIER_VERSION, load_episode_corpus
 
 CAMPAIGN_VERSION = "dml-agent-campaign-v1"
+CAMPAIGN_VERSION_V2 = "dml-agent-campaign-v2"
 MAX_CAMPAIGN_BYTES = 256 * 1024 * 1024
 
 
@@ -80,7 +83,9 @@ def _interrupted_report(scenario, task, limits, exc, elapsed_ms, *, prior_contex
                         consumer_profile="gpt2-v1"):
     """Account for an unexpected runner escape without inventing lost events."""
     ident = "episode-" + uuid.uuid4().hex
-    events = [_started(ident, task, scenario["scope"], limits, "live_local", prior_context=prior_context)]
+    protocol = execution_protocol_for_profile(consumer_profile)
+    events = [_started(ident, task, scenario["scope"], limits, "live_local", prior_context=prior_context,
+                       consumer_profile=consumer_profile)]
     verdict = {"verifier_version": VERIFIER_VERSION, "success": False,
                "reasons": ["runner_escaped_before_report"], "contradictions": None,
                "factual_outputs": None, "false_memory_claims": None, "recalled_claims": None,
@@ -88,7 +93,7 @@ def _interrupted_report(scenario, task, limits, exc, elapsed_ms, *, prior_contex
     terminal = build_terminal(events, verdict, status="runner_error", latency_ms=elapsed_ms,
                               retrieval_ms=None, usage_unknown=True)
     events.append(make_event(episode_id=ident, task_id=task["id"], sequence=len(events),
-                             kind="terminal", payload=terminal))
+                             kind="terminal", payload=terminal, execution_protocol=protocol))
     return {"events": events, "terminal": terminal, "prepared": None, "current_records": None,
             "live_qualified": False, "raw_evidence_incomplete": True,
             "runner_error_code": type(exc).__name__, "consumer_profile": consumer_profile}
@@ -109,6 +114,7 @@ def run_campaign(*, snapshot_directory, work_directory, output, limits,
                  scenario_id=None, task_id=None, consumer_profile="gpt2-v1"):
     """Run the selected finite tasks; all code paths use run_local_episode."""
     validate_consumer_profile(consumer_profile)
+    protocol = execution_protocol_for_profile(consumer_profile)
     corpus = load_episode_corpus()
     selected = _selected(corpus, scenario_id, task_id)
     output = Path(output).expanduser().absolute()
@@ -142,6 +148,9 @@ def run_campaign(*, snapshot_directory, work_directory, output, limits,
                 raise ValueError("CLI requires concrete local execution")
             if report.get("consumer_profile") != consumer_profile:
                 raise ValueError("Returned consumer profile differs from requested implementation")
+            if report["events"][0]["payload"].get("execution_protocol") != (
+                    protocol if protocol == EXECUTION_PROTOCOL_V2 else None):
+                raise ValueError("Returned execution protocol differs from requested implementation")
         except Exception as exc:
             report = _interrupted_report(scenario, task, limits, exc,
                 max(0.0, (time.monotonic() - start) * 1000), prior_context=prior_context,
@@ -157,7 +166,7 @@ def run_campaign(*, snapshot_directory, work_directory, output, limits,
         _atomic_json(attempt_directory / "report.json", report)
     summary = summarize_episode_outcomes([episode["terminal"] for episode in episodes])
     corpus_raw = json.dumps(corpus, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
-    artifact = {"schema_version": CAMPAIGN_VERSION,
+    artifact = {"schema_version": CAMPAIGN_VERSION_V2 if protocol == EXECUTION_PROTOCOL_V2 else CAMPAIGN_VERSION,
                 "consumer_profile": consumer_profile,
                 "corpus_digest": hashlib.sha256(corpus_raw).hexdigest(),
                 "source_sha256": source_digests, "limits": asdict(limits),
@@ -174,6 +183,8 @@ def run_campaign(*, snapshot_directory, work_directory, output, limits,
                     and not episode["terminal"]["unknown_input_calls"]
                     and not episode["terminal"]["unknown_output_calls"] for episode in episodes),
                 "episodes": episodes, "summary": summary}
+    if protocol == EXECUTION_PROTOCOL_V2:
+        artifact["execution_protocol"] = protocol
     _atomic_json(output, artifact)
     return artifact
 

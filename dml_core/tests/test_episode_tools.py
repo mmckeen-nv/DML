@@ -224,3 +224,99 @@ def test_retrieval_uses_pinned_episode_time_for_expiry(authority):
         raw, _ = retrieved(bridge)
         visible.append(memory_id in {int(item["id"]) for item in raw["report"]["items"]})
     assert visible == [True, False]
+
+
+def validation_bridge(authority):
+    from daystrom_dml.contracts.agent_episode import EXECUTION_PROTOCOL_V2
+    adapter, _, seeds = authority
+    return SelectedProfileEpisodeTools(adapter, scope=SCOPE, episode_id='validation-tools',
+        seed_receipts=seeds, execution_protocol=EXECUTION_PROTOCOL_V2)
+
+
+def test_v2_presented_self_supersession_rejects_before_any_authority_or_preparation(authority, monkeypatch):
+    from daystrom_dml.services.episode_tools import EpisodeToolValidationRejected
+    adapter, _, _ = authority
+    bridge = validation_bridge(authority)
+    _, records = retrieved(bridge)
+    reference = records[0]['record_ref']
+    keys, prepared = deepcopy(bridge._keys), dict(bridge._prepared)
+    def forbidden(*args, **kwargs):
+        pytest.fail('Semantic validation must not access adapter or storage')
+    for name in ('retrieve_context', 'supersede_memory_receipted', 'ingest_memory_receipted',
+                 'update_memory_receipted', 'retire_memory_receipted', 'promote_memories_receipted'):
+        monkeypatch.setattr(adapter, name, forbidden)
+    for name in ('read_snapshot', 'lookup_receipt', 'verified_snapshot'):
+        monkeypatch.setattr(adapter._journal, name, forbidden)
+    with pytest.raises(EpisodeToolValidationRejected) as caught:
+        bridge.prepare('supersede', {'record_ref': reference, 'replacement_ref': reference, 'reason': 'same'}, call_id='tool-1')
+    assert type(caught.value) is EpisodeToolValidationRejected
+    assert bridge._keys == keys and bridge._prepared == prepared
+    assert bridge.owns_validation_rejection(caught.value,
+        {'record_ref': reference, 'replacement_ref': reference, 'reason': 'same'}, 'tool-1')
+
+
+def test_v2_distinct_immutable_versions_of_same_id_cannot_evade_rejection(authority):
+    from daystrom_dml.services.episode_tools import EpisodeToolValidationRejected
+    bridge = validation_bridge(authority)
+    _, records = retrieved(bridge)
+    old = records[0]
+    raw, visible = invoke(bridge, 'update', {'record_ref': old['record_ref'], 'text': 'Updated test text',
+                                           'reason': 'test version'}, 'update')
+    fresh = json.loads(visible)['records'][0]
+    assert fresh['id'] == old['id'] and fresh['record_ref'] != old['record_ref']
+    assert bridge._presentation_ledger[fresh['record_ref']] != bridge._presentation_ledger[old['record_ref']]
+    before = dict(bridge._keys)
+    with pytest.raises(EpisodeToolValidationRejected):
+        bridge.prepare('supersede', {'record_ref': old['record_ref'], 'replacement_ref': fresh['record_ref'],
+                                    'reason': 'two aliases'}, call_id='reject')
+    assert bridge._keys == before
+
+
+def test_v2_private_seed_table_cannot_create_recoverable_reference(authority):
+    from daystrom_dml.services.episode_tools import EpisodeToolValidationRejected
+    bridge = validation_bridge(authority)
+    assert bridge._presentation_ledger == {}
+    with pytest.raises(EpisodeToolError) as caught:
+        bridge.prepare('supersede', {'record_ref': 'r0', 'replacement_ref': 'r0', 'reason': 'hidden'}, call_id='bad')
+    assert type(caught.value) is not EpisodeToolValidationRejected
+    assert bridge._keys == {} and bridge._prepared == {}
+
+
+def test_v2_presented_reference_rebind_is_rejected_without_partial_ledger_update(authority):
+    from daystrom_dml.contracts.agent_episode import AgentEpisodeError
+    bridge = validation_bridge(authority)
+    raw, records = retrieved(bridge)
+    before = dict(bridge._presentation_ledger)
+    altered = deepcopy(records)
+    altered[1]['record_ref'] = altered[0]['record_ref']
+    with pytest.raises((AgentEpisodeError, EpisodeToolError)):
+        bridge._present('retrieve', raw, json.dumps({'records': altered}))
+    assert bridge._presentation_ledger == before
+
+
+def test_v1_self_supersession_retains_original_terminal_adapter_rejection(authority):
+    from daystrom_dml.services.episode_tools import EpisodeToolValidationRejected
+    _, bridge, _ = authority
+    _, records = retrieved(bridge)
+    ref = records[0]['record_ref']
+    prepared = bridge.prepare('supersede', {'record_ref': ref, 'replacement_ref': ref, 'reason': 'same'}, call_id='bad')
+    with pytest.raises(ValueError) as caught:
+        bridge.execute(prepared)
+    assert type(caught.value) is not EpisodeToolValidationRejected
+    assert 'episode:tool-test:bad' in bridge._keys
+
+
+@pytest.mark.parametrize('shown', ['none', 'one'])
+def test_v2_distinct_private_references_are_terminal_without_keys_or_dispatch(authority, monkeypatch, shown):
+    from daystrom_dml.services.episode_tools import EpisodeToolValidationRejected
+    adapter, _, _ = authority
+    bridge = validation_bridge(authority)
+    if shown == 'one':
+        invoke(bridge, 'retrieve', {'query': 'owner answers', 'top_k': 1}, 'read-one')
+        assert len(bridge._presentation_ledger) == 1
+    before = dict(bridge._prepared)
+    monkeypatch.setattr(adapter, 'supersede_memory_receipted', lambda *a, **kw: pytest.fail('No dispatch'))
+    with pytest.raises(EpisodeToolError) as caught:
+        bridge.prepare('supersede', {'record_ref': 'r0', 'replacement_ref': 'r1', 'reason': 'private'}, call_id='bad')
+    assert type(caught.value) is not EpisodeToolValidationRejected
+    assert bridge._keys == {} and bridge._prepared == before

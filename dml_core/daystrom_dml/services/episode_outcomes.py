@@ -12,6 +12,7 @@ import statistics
 from ..contracts.agent_episode import (
     AgentEpisodeError, QUALITY_PAIRS, TERMINAL_VERSION, canonical_json, decode_json,
     evidence_digest, validate_episode_events, validate_terminal, validate_verifier,
+    EVENT_VERSION_V2, TERMINAL_VERSION_V2, EXECUTION_PROTOCOL_V2, VALIDATION_CONSUMER_PROFILE,
 )
 
 
@@ -60,6 +61,8 @@ input and output usage unknown. No maintenance model is used by this harness.
             if kind == "tool_failed" and payload["effects"] == "unknown":
                 effects_unknown = True
             pending = None
+        elif kind == "tool_validation_rejected":
+            known_latency += payload["latency_ms"]
     if pending is not None:
         if pending["kind"] == "model_requested":
             unknown["input"] += 1
@@ -77,7 +80,8 @@ input and output usage unknown. No maintenance model is used by this harness.
     if retrieval_ms != expected_retrieval:
         raise AgentEpisodeError("Retrieval latency differs from raw operation measurements")
     terminal = {
-        "schema_version": TERMINAL_VERSION, "episode_id": first["episode_id"],
+        "schema_version": TERMINAL_VERSION_V2 if first["schema_version"] == EVENT_VERSION_V2 else TERMINAL_VERSION,
+        "episode_id": first["episode_id"],
         "task_id": first["task_id"], "execution_path": first["payload"]["execution_path"],
         "status": status, "success": status == "completed" and verifier["success"],
         "answer": answer, "verifier": verifier, "evidence_digest": evidence_digest(events),
@@ -89,6 +93,8 @@ input and output usage unknown. No maintenance model is used by this harness.
         "usage_unknown": usage_unknown, "effects_unknown": effects_unknown,
         "latency_ms": latency_ms, "retrieval_ms": retrieval_ms, "ttft_ms": None,
     }
+    if first["schema_version"] == EVENT_VERSION_V2:
+        terminal.update(execution_protocol=EXECUTION_PROTOCOL_V2, consumer_profile=VALIDATION_CONSUMER_PROFILE)
     validate_terminal(terminal)
     if latency_ms < known_latency:
         raise AgentEpisodeError("Total latency cannot be below its serial measured operations")
@@ -106,6 +112,7 @@ are rejected so test injection is never pooled with concrete local generation.
         raise AgentEpisodeError("Expected a list of terminal outcomes")
     seen = set()
     paths = set()
+    versions = set()
     for terminal in terminals:
         validate_terminal(terminal)
         key = (terminal["episode_id"], terminal["task_id"])
@@ -113,8 +120,11 @@ are rejected so test injection is never pooled with concrete local generation.
             raise AgentEpisodeError("Each attempted task must have exactly one terminal")
         seen.add(key)
         paths.add(terminal["execution_path"])
+        versions.add(terminal["schema_version"])
     if len(paths) > 1:
         raise AgentEpisodeError("Cannot pool injected tests with concrete local execution")
+    if len(versions) > 1:
+        raise AgentEpisodeError("Cannot pool different execution protocols")
     successes = sum(terminal["success"] for terminal in terminals)
     total_known = sum(terminal["known_input_tokens"] + terminal["known_output_tokens"]
                       + terminal["maintenance_tokens"] for terminal in terminals)
@@ -141,7 +151,7 @@ are rejected so test injection is never pooled with concrete local generation.
                 "measured_tasks": len(measured), "unknown_tasks": len(terminals) - len(measured)}
 
     result = {
-        "schema_version": TERMINAL_VERSION,
+        "schema_version": next(iter(versions)) if versions else TERMINAL_VERSION,
         "execution_path": next(iter(paths)) if paths else None,
         "validation_scope": "structural_consistency_only",
         "attempted_tasks": len(terminals), "completed_tasks": successes,
@@ -156,6 +166,8 @@ are rejected so test injection is never pooled with concrete local generation.
         "status_counts": {status: sum(terminal["status"] == status for terminal in terminals)
                           for status in sorted({terminal["status"] for terminal in terminals})},
     }
+    if versions == {TERMINAL_VERSION_V2}:
+        result.update(execution_protocol=EXECUTION_PROTOCOL_V2, consumer_profile=VALIDATION_CONSUMER_PROFILE)
     for side in ("input", "output"):
         unknown_count = sum(terminal[f"unknown_{side}_calls"] for terminal in terminals)
         known_count = sum(terminal[f"known_{side}_tokens"] for terminal in terminals)

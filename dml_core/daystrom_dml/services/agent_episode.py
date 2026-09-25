@@ -29,9 +29,11 @@ from ..contracts.agent_episode import (
     AgentEpisodeError, canonical_json, decode_json, make_event,
     initial_messages, parse_agent_action, validate_episode_events,
     validate_prior_context, validate_verifier,
+    EXECUTION_PROTOCOL_V1, EXECUTION_PROTOCOL_V2, VALIDATION_CONSUMER_PROFILE,
+    VALIDATION_ERROR_CODE, VALIDATION_MODEL_RESULT, execution_protocol_for_profile,
 )
 from ..contracts.model_input import ModelInputBudgetError
-from .episode_tools import SelectedProfileEpisodeTools, episode_tool_definitions
+from .episode_tools import EpisodeToolValidationRejected, SelectedProfileEpisodeTools, episode_tool_definitions
 from .episode_outcomes import build_terminal
 
 
@@ -64,7 +66,7 @@ class EpisodeLimits:
 
 
 _POLICY = AGENT_POLICY
-CONSUMER_PROFILES = ("gpt2-v1", "qwen2-instruct-v1", "qwen2-action-json-v1")
+CONSUMER_PROFILES = ("gpt2-v1", "qwen2-instruct-v1", "qwen2-action-json-v1", VALIDATION_CONSUMER_PROFILE)
 
 
 def validate_consumer_profile(consumer_profile):
@@ -79,9 +81,9 @@ def _open_consumer(snapshot_directory, consumer_profile):
     if consumer_profile == "gpt2-v1":
         from .model_input import LocalTransformersInputConsumer
         return LocalTransformersInputConsumer(snapshot_directory)
-    if consumer_profile == "qwen2-action-json-v1":
+    if consumer_profile in ("qwen2-action-json-v1", VALIDATION_CONSUMER_PROFILE):
         from .qwen_action_input import LocalQwenActionInputConsumer
-        return LocalQwenActionInputConsumer(snapshot_directory)
+        return LocalQwenActionInputConsumer(snapshot_directory, consumer_profile=consumer_profile)
     from .qwen_model_input import LocalQwenInputConsumer
     return LocalQwenInputConsumer(snapshot_directory)
 
@@ -97,13 +99,17 @@ def _elapsed(start: float) -> float:
 
 
 def _started(episode_id, task, scope, limits, execution_path, seed_receipts_digest=None, allowed_tools=None,
-             effective_time=2000000000, prior_context=None):
+             effective_time=2000000000, prior_context=None, consumer_profile="gpt2-v1"):
+    protocol = execution_protocol_for_profile(consumer_profile)
+    extra = ({"execution_protocol": protocol, "consumer_profile": consumer_profile}
+             if protocol == EXECUTION_PROTOCOL_V2 else {})
     return make_event(episode_id=episode_id, task_id=task["id"], sequence=0,
+        execution_protocol=protocol,
         kind="episode_started", payload={"execution_path": execution_path,
         "limits": asdict(limits), "prompt": task["prompt"], "scope": scope,
         "seed_receipts_digest": seed_receipts_digest, "ranking_scope": "synthetic_fixture",
         "allowed_tools": list(task_allowed_tools(task) if allowed_tools is None else allowed_tools),
-        "effective_time": effective_time, "prior_context": prior_context})
+        "effective_time": effective_time, "prior_context": prior_context, **extra})
 
 
 def _tool_effects(exc, name):
@@ -129,8 +135,12 @@ def build_episode_request(task, *, messages=None, limits=EpisodeLimits(), allowe
         "output_reserved_tokens": limits.output_tokens}
 
 
-def _run_loop(consumer, toolbox, *, task, limits, emit, prior_context=None):
+def _run_loop(consumer, toolbox, *, task, limits, emit, prior_context=None,
+              execution_protocol=EXECUTION_PROTOCOL_V1):
     """Emit actual request/results; only admitted parsed model text selects work."""
+    if (getattr(toolbox, "execution_protocol", EXECUTION_PROTOCOL_V1) != execution_protocol
+            or execution_protocol == EXECUTION_PROTOCOL_V2 and type(toolbox) is not SelectedProfileEpisodeTools):
+        raise AgentEpisodeError("Execution requires its selected trusted preparation bridge")
     request = build_episode_request(task, limits=limits, allowed_tools=toolbox.allowed_tools, prior_context=prior_context)
     messages, tools = request["messages"], request["tools"]
     input_tokens = output_tokens = 0
@@ -190,8 +200,29 @@ def _run_loop(consumer, toolbox, *, task, limits, emit, prior_context=None):
             action = parse_agent_action(result.text)
             if action["kind"] == "final":
                 return {"status": "completed", "answer": action["answer"], "retrieval_ms": retrieval_ms}
-            tool_id = "tool-" + str(step)
+        except Exception as exc:
+            emit("action_rejected", call_id, {"step": step, "error_code": type(exc).__name__})
+            return {"status": "invalid_action", "answer": None, "retrieval_ms": retrieval_ms}
+        tool_id = "tool-" + str(step)
+        before = time.monotonic()
+        try:
             prepared = toolbox.prepare(action["name"], action["arguments"], call_id=tool_id)
+        except EpisodeToolValidationRejected as exc:
+            if (execution_protocol != EXECUTION_PROTOCOL_V2 or type(toolbox) is not SelectedProfileEpisodeTools
+                    or not SelectedProfileEpisodeTools.owns_validation_rejection(
+                        toolbox, exc, action["arguments"], tool_id)):
+                emit("action_rejected", call_id, {"step": step, "error_code": type(exc).__name__})
+                return {"status": "invalid_action", "answer": None, "retrieval_ms": retrieval_ms}
+            emit("tool_validation_rejected", tool_id, {"name": action["name"], "arguments": action["arguments"],
+                "error_code": VALIDATION_ERROR_CODE, "effects": "none", "model_result": VALIDATION_MODEL_RESULT,
+                "latency_ms": _elapsed(before)})
+            messages.extend([
+                {"role": "assistant", "content": result.text, "tool_calls": [{"id": tool_id,
+                 "type": "function", "function": {"name": action["name"],
+                    "arguments": canonical_json(action["arguments"]).decode("utf-8")}}]},
+                {"role": "tool", "tool_call_id": tool_id, "name": action["name"], "content": VALIDATION_MODEL_RESULT},
+            ])
+            continue
         except Exception as exc:
             emit("action_rejected", call_id, {"step": step, "error_code": type(exc).__name__})
             return {"status": "invalid_action", "answer": None, "retrieval_ms": retrieval_ms}
@@ -260,7 +291,8 @@ def _finish(events, outcome, *, scenario, task, seed_records, current_records,
     terminal = build_terminal(events, verdict, status=status, latency_ms=elapsed_ms,
         retrieval_ms=outcome.get("retrieval_ms"), answer=outcome.get("answer"), usage_unknown=usage_unknown)
     events.append(make_event(episode_id=events[0]["episode_id"], task_id=task["id"],
-        sequence=len(events), kind="terminal", payload=terminal))
+        sequence=len(events), kind="terminal", payload=terminal,
+        execution_protocol=events[0]["payload"].get("execution_protocol", EXECUTION_PROTOCOL_V1)))
     validate_episode_events(events)
     return terminal
 
@@ -286,24 +318,27 @@ def _prior_feedback(task, prior_context, previous_answers):
 
 def run_episode_with_test_dependencies(*, consumer, toolbox, task: dict, scenario: dict,
         seed_records: dict, current_records, limits=EpisodeLimits(), verifier=None,
-        effective_time=2000000000, previous_answers=None, prior_context=None, episode_id=None) -> dict:
+        effective_time=2000000000, previous_answers=None, prior_context=None, episode_id=None,
+        consumer_profile="gpt2-v1") -> dict:
     """Explicit in-process test plumbing.  It does not promise a hard deadline."""
     ident = episode_id or "test-" + uuid.uuid4().hex
     start = time.monotonic()
     prior_context, previous_answers = _prior_feedback(task, prior_context, previous_answers)
+    protocol = execution_protocol_for_profile(consumer_profile)
     events = [_started(ident, task, toolbox.scope, limits, "test_injected", allowed_tools=toolbox.allowed_tools,
-                       effective_time=effective_time, prior_context=prior_context)]
+                       effective_time=effective_time, prior_context=prior_context, consumer_profile=consumer_profile)]
     if toolbox.effective_time != effective_time:
         raise ValueError("Tool and verifier effective times differ")
     def emit(kind, call_id, payload):
         event = make_event(episode_id=ident, task_id=task["id"], sequence=len(events),
-                           kind=kind, call_id=call_id, payload=payload)
+                           kind=kind, call_id=call_id, payload=payload, execution_protocol=protocol)
         proposed = [*events, event]
         validate_episode_events(proposed, require_terminal=False)
         events.append(event)
     usage_unknown = False
     try:
-        outcome = _run_loop(consumer, toolbox, task=task, limits=limits, emit=emit, prior_context=prior_context)
+        outcome = _run_loop(consumer, toolbox, task=task, limits=limits, emit=emit, prior_context=prior_context,
+                            execution_protocol=protocol)
     except Exception:
         outcome = {"status": "runner_error", "answer": None, "retrieval_ms": None}
         usage_unknown = True
@@ -425,6 +460,7 @@ def _worker(connection, config):
     """Spawn target. Every operation request waits for the supervisor's ACK."""
     sequence = 1
     limits = EpisodeLimits(**config["limits"])
+    protocol = execution_protocol_for_profile(config.get("consumer_profile", "gpt2-v1"))
     adapter = consumer = None
     def send(value):
         raw = canonical_json(value, limit=limits.max_event_bytes)
@@ -435,7 +471,7 @@ def _worker(connection, config):
     def emit(kind, call_id, payload):
         nonlocal sequence
         event = make_event(episode_id=config["episode_id"], task_id=config["task"]["id"],
-            sequence=sequence, kind=kind, call_id=call_id, payload=payload)
+            sequence=sequence, kind=kind, call_id=call_id, payload=payload, execution_protocol=protocol)
         send({"kind": "event", "event": event})
         sequence += 1
     try:
@@ -446,9 +482,10 @@ def _worker(connection, config):
         toolbox = SelectedProfileEpisodeTools(adapter, scope=config["scenario"]["scope"],
             episode_id=config["episode_id"], seed_receipts=prepared["seed_receipts"],
             observation_records=list(prepared["seed_records"].values()),
-            allowed_tools=task_allowed_tools(config["task"]), effective_time=config["effective_time"])
+            allowed_tools=task_allowed_tools(config["task"]), effective_time=config["effective_time"],
+            execution_protocol=protocol)
         outcome = _run_loop(consumer, toolbox, task=config["task"], limits=limits, emit=emit,
-                            prior_context=config.get("prior_context"))
+                            prior_context=config.get("prior_context"), execution_protocol=protocol)
         consumer.close()
         consumer = None
         adapter.close()
@@ -499,7 +536,8 @@ def _interrupt_pending(events, *, status):
         result = {"name": payload["name"], "error_code": "worker_" + status,
             "effects": "none" if payload["name"] == "retrieve" else "unknown", "latency_ms": None}
     events.append(make_event(episode_id=requested["episode_id"], task_id=requested["task_id"],
-        sequence=len(events), kind=kind, call_id=requested["call_id"], payload=result))
+        sequence=len(events), kind=kind, call_id=requested["call_id"], payload=result,
+        execution_protocol=events[0]["payload"].get("execution_protocol", EXECUTION_PROTOCOL_V1)))
     return True
 
 
@@ -598,7 +636,7 @@ def _supervise(config, *, worker_target=_worker):
                 digest = hashlib.sha256(canonical_json(prepared, limit=limits.max_event_bytes)).hexdigest()
                 events.append(_started(config["episode_id"], config["task"], config["scenario"]["scope"],
                     limits, config["execution_path"], digest, effective_time=config["effective_time"],
-                    prior_context=config.get("prior_context")))
+                    prior_context=config.get("prior_context"), consumer_profile=config.get("consumer_profile", "gpt2-v1")))
             elif value["kind"] == "event":
                 if not events or set(value) != {"kind", "event"}:
                     raise AgentEpisodeError("Event preceded prepared authority")
@@ -657,7 +695,7 @@ def _supervise(config, *, worker_target=_worker):
     if not events:
         events.append(_started(config["episode_id"], config["task"], config["scenario"]["scope"],
                                limits, config["execution_path"], effective_time=config["effective_time"],
-                               prior_context=config.get("prior_context")))
+                               prior_context=config.get("prior_context"), consumer_profile=config.get("consumer_profile", "gpt2-v1")))
     if not completed:
         _interrupt_pending(events, status=outcome["status"])
     try:
