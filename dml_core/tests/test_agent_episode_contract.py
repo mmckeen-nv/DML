@@ -567,3 +567,79 @@ def test_v2_replay_rejects_dispatch_through_distinct_presented_aliases_for_same_
                                                     'idempotency_key': 'episode:aliases:tool-2'})
     with pytest.raises(AgentEpisodeError, match='same-record'):
         validate_episode_events(events, require_terminal=False)
+
+
+@pytest.fixture(scope='module')
+def recovery_report(tmp_path_factory):
+    from test_agent_episode_runtime import recovery_case
+    return recovery_case(tmp_path_factory.mktemp('v3-contract'))[0]
+
+
+def test_v3_guidance_paragraph_is_exact_declared_text_and_opt_in_only():
+    from daystrom_dml.contracts import agent_episode as contract
+    expected = ('If a tool response reports a validation error and states that no operation was executed, '
+        'the proposed action was rejected without performing it. This response does not complete '
+        'requested work or provide a successful result. Earlier successful tool results remain '
+        'observations with their original meaning. Use the original task, those observations and '
+        'the reported constraint to choose your next valid action within the remaining limits. '
+        'Do not repeat the same invalid proposal unchanged or claim that rejected work was completed.')
+    assert contract.RECOVERY_GUIDANCE == expected
+    assert initial_messages('task')[0]['content'] == contract.AGENT_POLICY
+    assert initial_messages('task', consumer_profile=contract.VALIDATION_CONSUMER_PROFILE)[0]['content'] == contract.AGENT_POLICY
+    assert initial_messages('task', consumer_profile=contract.RECOVERY_CONSUMER_PROFILE)[0]['content'] == contract.AGENT_POLICY + '\n\n' + expected
+
+
+@pytest.mark.parametrize('mutation', ['removed', 'changed', 'duplicated', 'relocated', 'hidden', 'later_removed'])
+def test_v3_causal_replay_requires_exact_guidance_in_each_actual_request(recovery_report, mutation):
+    from daystrom_dml.contracts import agent_episode as contract
+    events = deepcopy(recovery_report['events'])
+    requested = [e for e in events if e['kind'] == 'model_requested'][2 if mutation == 'later_removed' else 0]
+    events = events[:requested['sequence'] + 1]
+    payload = requested['payload']
+    messages = payload['request']['messages']
+    if mutation in ('removed', 'later_removed'):
+        messages[0]['content'] = contract.AGENT_POLICY
+    elif mutation == 'changed':
+        messages[0]['content'] += ' '
+    elif mutation == 'duplicated':
+        messages[0]['content'] += '\n\n' + contract.RECOVERY_GUIDANCE
+    elif mutation == 'relocated':
+        messages[0]['content'] = contract.AGENT_POLICY
+        messages[-1]['content'] += '\n\n' + contract.RECOVERY_GUIDANCE
+    elif mutation == 'hidden':
+        messages.insert(1, {'role': 'system', 'content': contract.RECOVERY_GUIDANCE})
+    # Rebind structurally valid compiled evidence so the causal prompt check,
+    # rather than a stale request digest, must reject this forgery.
+    payload['compiled']['request_digest'] = ModelInputRequest.from_payload(payload['request']).request_digest
+    payload['artifact_digest'] = contract._compiled(payload['compiled']).artifact_digest
+    with pytest.raises(AgentEpisodeError, match='causal transcript'):
+        validate_episode_events(events, require_terminal=False)
+
+
+@pytest.mark.parametrize('mutation', ['start_v2', 'terminal_v2', 'missing_start', 'unknown_start', 'runtime_v2'])
+def test_v3_same_schema_does_not_authorize_another_profile(recovery_report, mutation):
+    from daystrom_dml.contracts import agent_episode as contract
+    events = deepcopy(recovery_report['events'])
+    if mutation == 'start_v2':
+        events[0]['payload']['consumer_profile'] = contract.VALIDATION_CONSUMER_PROFILE
+    elif mutation == 'terminal_v2':
+        events[-1]['payload']['consumer_profile'] = contract.VALIDATION_CONSUMER_PROFILE
+    elif mutation == 'missing_start':
+        events[0]['payload'].pop('consumer_profile')
+    elif mutation == 'unknown_start':
+        events[0]['payload']['consumer_profile'] = 'auto'
+    else:
+        requested = events[1]
+        requested['payload']['compiled']['identity']['runtime_identity'] = 'dml-qwen-action-runtime-v2:' + 'a' * 64
+        requested['payload']['artifact_digest'] = contract._compiled(requested['payload']['compiled']).artifact_digest
+        events = events[:2]
+    with pytest.raises(AgentEpisodeError):
+        validate_episode_events(events, require_terminal=mutation != 'runtime_v2')
+
+
+def test_v2_rejection_prefix_cannot_be_relabelled_guidance_v3(validation_rejection_prefix):
+    from daystrom_dml.contracts.agent_episode import RECOVERY_CONSUMER_PROFILE
+    events = deepcopy(validation_rejection_prefix)
+    events[0]['payload']['consumer_profile'] = RECOVERY_CONSUMER_PROFILE
+    with pytest.raises(AgentEpisodeError, match='runtime'):
+        validate_episode_events(events, require_terminal=False)

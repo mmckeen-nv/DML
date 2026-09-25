@@ -1,6 +1,50 @@
 # M7 continuation — updated 2026-09-25
 
-## Current work: validated attempt 10 source
+## Current work: attempt 11 guidance candidate
+
+M7 remains **IN PROGRESS**. Attempt 10 completed all nine tasks on published
+source `443f444da6d1daa529b78c467cbe7652d40d4f1f`, with eight verifier successes,
+nine measurable finals across eight intents, **19 model calls and 18,918 known
+tokens**, and zero unknown usage or effects. The trusted rejection worked, but
+the model then finalized without the required supersession or a supporting
+citation. Both completed sequential replays matched and rejected only
+`verified_model_owned_supersession`. The
+[completion review](artifacts/agent-episode-live-completion-grader-review-attempt-10-isolated-2026-09-25.json)
+retains the earlier failed reviewer-launcher path setup separately from the two
+completed replays, rejects M7 closure, and releases only attempt 10's freeze.
+
+[CI 337](https://github.com/mmckeen-nv/DML/actions/runs/36080001253) passed all
+**20 jobs on the first attempt** for that exact source. Its
+[independent review](artifacts/agent-episode-ci-337-grader-review-2026-09-25.json)
+accepted **9.6/10**, including the exact 891 model case IDs with zero skips,
+filesystem qualification and production stress. This does not override the
+failed live gate. The original attempt-8 source and inputs remain frozen;
+attempts 5–7 retain their disclosed evidence gaps.
+
+Attempt 11 is implemented in a separate checkout. It tests one fixed,
+generic recovery-guidance paragraph under explicit profile
+`qwen2-action-json-recovery-v3`. It explains that a rejected operation does not
+complete requested work, earlier successful observations retain their meaning,
+and the model must choose its next valid action within the existing limits.
+There is no demonstrated wiring defect: the previous model received the complete
+history and error. This is an uncertain policy experiment, with no predicted
+improvement and no further wording iterations if it fails.
+
+Old v1 and attempt-10 v2 policy/runtime identities remain exact. The new profile
+inherits the same validated pre-dispatch mechanics and artifact schemas; grammar,
+public tool descriptions, task truth, verifier, learned weights, limits and live
+gates remain unchanged. All **925 existing cases** remain, with **50 new guidance controls** separately
+enumerated. [Full validation](artifacts/agent-episode-attempt-11-isolated-validation-2026-09-25.json)
+passed **975 cases with zero skips, failures or errors**, both strict lint scopes
+and maintained mypy. All **436 source hashes** remained unchanged. The independent
+[integrated review](artifacts/agent-episode-attempt-11-integrated-grader-review-2026-09-25.json) accepted the candidate at **9.6/10**. Exact-source CI, zero-generation
+admission, a reviewed freeze, one complete
+nine-task campaign and two sequential replays remain required. PR #118 stays
+open and unmerged; M1–6 are closed, M7–11 open and M12–13 deferred.
+`production_ready=false`. Raw logs and events stay local; published records are
+compact. Earlier checkpoints below are historical.
+
+## Historical validated attempt 10 source
 
 M7 remains **IN PROGRESS**. Attempt 9 completed all nine tasks on published source
 `2a2fb0891d14213c5a593157aab64a1d5ea41834`: eight successes and one `tool_error`,

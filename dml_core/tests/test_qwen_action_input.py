@@ -248,3 +248,94 @@ def test_v2_execution_policy_drift_is_refused_before_generation(snapshot, monkey
         with pytest.raises(ModelInputError, match='policy'):
             consumer.execute(artifact)
         assert calls == []
+
+
+def test_v3_preserves_pinned_prechange_policy_prompt_and_runtime_bytes():
+    # Captured from source 443f444 before editing, independently retained in
+    # legacy-before.json; these are literal fixtures, not current-code expectations.
+    import hashlib
+    from daystrom_dml.contracts import agent_episode as contract
+    from daystrom_dml.contracts.model_input import ModelInputIdentity, SUPPORTED_CHAT_TEMPLATE_DIGEST
+    def digest(data):
+        return hashlib.sha256(data).hexdigest()
+    assert digest(contract.AGENT_POLICY.encode()) == '560ad0f6cc0dacbcb7bdd559d68990e3f809016bac6583b68964045cb02c1e2b'
+    assert digest(contract.canonical_json(contract.execution_policy_identity())) == '8b433cd841a9585f35f9d4582ec5d1c2f612a2375a92141e5ba60f34c68845c4'
+    for profile in ('qwen2-action-json-v1', contract.VALIDATION_CONSUMER_PROFILE):
+        assert digest(contract.canonical_json(contract.initial_messages('fixture prompt', consumer_profile=profile))) == '02c79e4b1e683f5b5485489509cdee677ba6b1a61d0652be4eeef95b3ab87d1d'
+    base = ModelInputIdentity('1' * 64, '2' * 64, SUPPORTED_CHAT_TEMPLATE_DIGEST, 'fixed-baseline-runtime', 32768)
+    assert constrained_identity(base).runtime_identity == 'dml-qwen-action-runtime-v1:5f6c823fc95bab4372a24925f2430d589100e711dc21b0753dd9e3800e3ce5c2'
+    assert constrained_identity(base, consumer_profile=contract.VALIDATION_CONSUMER_PROFILE).runtime_identity == 'dml-qwen-action-runtime-v2:3bfc46c058d55a1401a049fa61b17e5e769bae74c7051530892d99919a5441fa'
+    guidance = contract.recovery_guidance_identity()
+    assert guidance['base_validation_policy'] == contract.execution_policy_identity()
+    assert guidance['placement'] == 'first_system_message' and guidance['join'] == '\n\n'
+    assert guidance['system_message_sha256'] == digest((contract.AGENT_POLICY + '\n\n' + contract.RECOVERY_GUIDANCE).encode())
+    assert constrained_identity(base, consumer_profile=contract.RECOVERY_CONSUMER_PROFILE).runtime_identity.startswith('dml-qwen-action-runtime-v3:')
+
+
+@pytest.mark.parametrize('profile', [None, 'auto', 'qwen2-action-json-recovery', ''])
+def test_v3_unknown_or_missing_explicit_profile_is_never_inferred(profile):
+    from daystrom_dml.contracts import agent_episode as contract
+    from daystrom_dml.contracts.model_input import ModelInputIdentity
+    base = ModelInputIdentity('1' * 64, '2' * 64, '3' * 64, 'base', 32768)
+    with pytest.raises(ModelInputError, match='profile'):
+        constrained_identity(base, consumer_profile=profile)
+    with pytest.raises(ModelInputError, match='profile'):
+        LocalQwenActionInputConsumer('/nonexistent', consumer_profile=profile)
+    with pytest.raises(contract.AgentEpisodeError, match='profile'):
+        contract.initial_messages('prompt', consumer_profile=profile)
+    assert contract.initial_messages(contract.RECOVERY_GUIDANCE)[0]['content'] == contract.AGENT_POLICY
+
+
+@pytest.mark.parametrize('mutation', ['omitted', 'changed', 'duplicated', 'relocated'])
+def test_v3_compile_requires_exact_explicit_first_system_message(snapshot, mutation):
+    from daystrom_dml.contracts import agent_episode as contract
+    messages = contract.initial_messages('prompt', consumer_profile=contract.RECOVERY_CONSUMER_PROFILE)
+    if mutation == 'omitted':
+        messages[0]['content'] = contract.AGENT_POLICY
+    elif mutation == 'changed':
+        messages[0]['content'] += ' '
+    elif mutation == 'duplicated':
+        messages[0]['content'] += '\n\n' + contract.RECOVERY_GUIDANCE
+    else:
+        messages = [messages[1], messages[0]]
+    with LocalQwenActionInputConsumer(snapshot.path, consumer_profile=contract.RECOVERY_CONSUMER_PROFILE) as instance:
+        with pytest.raises(ModelInputError, match='first system message'):
+            instance.compile(messages, _tools('retrieve'), output_reserved_tokens=16)
+        assert instance._bound_requests == {}
+
+
+@pytest.mark.parametrize('drift', ['guidance', 'base_policy', 'validation_mechanics'])
+def test_v3_guidance_or_inherited_policy_drift_refuses_execution(snapshot, monkeypatch, drift):
+    from daystrom_dml.contracts import agent_episode as contract
+    with LocalQwenActionInputConsumer(snapshot.path, consumer_profile=contract.RECOVERY_CONSUMER_PROFILE) as instance:
+        artifact = instance.compile(contract.initial_messages('prompt', consumer_profile=contract.RECOVERY_CONSUMER_PROFILE),
+                                    _tools('retrieve'), output_reserved_tokens=16)
+        calls = []
+        monkeypatch.setattr(instance._model, 'generate', lambda **kw: calls.append(kw))
+        attribute = {'guidance': 'RECOVERY_GUIDANCE', 'base_policy': 'AGENT_POLICY',
+                     'validation_mechanics': 'VALIDATION_ERROR_CODE'}[drift]
+        monkeypatch.setattr(contract, attribute, getattr(contract, attribute) + ' ')
+        with pytest.raises(ModelInputError, match='guidance'):
+            instance.execute(artifact)
+        assert calls == []
+
+
+def test_v3_exact_prompt_is_charged_and_compiled_artifacts_cannot_cross_profiles(snapshot, monkeypatch):
+    from daystrom_dml.contracts import agent_episode as contract
+    with LocalQwenActionInputConsumer(snapshot.path, consumer_profile=contract.VALIDATION_CONSUMER_PROFILE) as old:
+        with LocalQwenActionInputConsumer(snapshot.path, consumer_profile=contract.RECOVERY_CONSUMER_PROFILE) as new:
+            a = old.compile(contract.initial_messages('prompt'), _tools('retrieve'), output_reserved_tokens=16)
+            messages = contract.initial_messages('prompt', consumer_profile=contract.RECOVERY_CONSUMER_PROFILE)
+            b = new.compile(messages, _tools('retrieve'), output_reserved_tokens=16)
+            assert b.input_tokens > a.input_tokens
+            assert json.loads(new._bound_requests[b.artifact_digest])['messages'] == messages
+            expected = new._tokenizer.apply_chat_template(messages, tools=_tools('retrieve'), tokenize=True,
+                add_generation_prompt=True, return_dict=True, return_attention_mask=True, truncation=False, padding=False)
+            assert b.input_ids == tuple(expected['input_ids'])
+            calls = []
+            monkeypatch.setattr(old._model, 'generate', lambda **kw: calls.append(kw))
+            monkeypatch.setattr(new._model, 'generate', lambda **kw: calls.append(kw))
+            for consumer, artifact in ((old, b), (new, a)):
+                with pytest.raises(ModelInputError, match='authenticated'):
+                    consumer.execute(artifact)
+            assert calls == []

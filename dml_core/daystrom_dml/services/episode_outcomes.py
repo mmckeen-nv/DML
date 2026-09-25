@@ -12,7 +12,7 @@ import statistics
 from ..contracts.agent_episode import (
     AgentEpisodeError, QUALITY_PAIRS, TERMINAL_VERSION, canonical_json, decode_json,
     evidence_digest, validate_episode_events, validate_terminal, validate_verifier,
-    EVENT_VERSION_V2, TERMINAL_VERSION_V2, EXECUTION_PROTOCOL_V2, VALIDATION_CONSUMER_PROFILE,
+    EVENT_VERSION_V2, TERMINAL_VERSION_V2, EXECUTION_PROTOCOL_V2,
 )
 
 
@@ -94,7 +94,7 @@ input and output usage unknown. No maintenance model is used by this harness.
         "latency_ms": latency_ms, "retrieval_ms": retrieval_ms, "ttft_ms": None,
     }
     if first["schema_version"] == EVENT_VERSION_V2:
-        terminal.update(execution_protocol=EXECUTION_PROTOCOL_V2, consumer_profile=VALIDATION_CONSUMER_PROFILE)
+        terminal.update(execution_protocol=EXECUTION_PROTOCOL_V2, consumer_profile=first["payload"]["consumer_profile"])
     validate_terminal(terminal)
     if latency_ms < known_latency:
         raise AgentEpisodeError("Total latency cannot be below its serial measured operations")
@@ -113,6 +113,7 @@ are rejected so test injection is never pooled with concrete local generation.
     seen = set()
     paths = set()
     versions = set()
+    profiles = set()
     for terminal in terminals:
         validate_terminal(terminal)
         key = (terminal["episode_id"], terminal["task_id"])
@@ -121,10 +122,13 @@ are rejected so test injection is never pooled with concrete local generation.
         seen.add(key)
         paths.add(terminal["execution_path"])
         versions.add(terminal["schema_version"])
+        profiles.add(terminal.get("consumer_profile"))
     if len(paths) > 1:
         raise AgentEpisodeError("Cannot pool injected tests with concrete local execution")
     if len(versions) > 1:
         raise AgentEpisodeError("Cannot pool different execution protocols")
+    if len(profiles) > 1:
+        raise AgentEpisodeError("Cannot pool different consumer profiles")
     successes = sum(terminal["success"] for terminal in terminals)
     total_known = sum(terminal["known_input_tokens"] + terminal["known_output_tokens"]
                       + terminal["maintenance_tokens"] for terminal in terminals)
@@ -167,7 +171,7 @@ are rejected so test injection is never pooled with concrete local generation.
                           for status in sorted({terminal["status"] for terminal in terminals})},
     }
     if versions == {TERMINAL_VERSION_V2}:
-        result.update(execution_protocol=EXECUTION_PROTOCOL_V2, consumer_profile=VALIDATION_CONSUMER_PROFILE)
+        result.update(execution_protocol=EXECUTION_PROTOCOL_V2, consumer_profile=next(iter(profiles)))
     for side in ("input", "output"):
         unknown_count = sum(terminal[f"unknown_{side}_calls"] for terminal in terminals)
         known_count = sum(terminal[f"known_{side}_tokens"] for terminal in terminals)

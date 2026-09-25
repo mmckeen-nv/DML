@@ -6,7 +6,10 @@ import hashlib
 import hmac
 
 from ..contracts.model_input import CompiledModelInput, ModelInputError, ModelInputRequest
-from ..contracts.agent_episode import VALIDATION_CONSUMER_PROFILE, execution_policy_identity
+from ..contracts.agent_episode import (
+    VALIDATION_CONSUMER_PROFILE, RECOVERY_CONSUMER_PROFILE, VALIDATION_PROFILES,
+    execution_policy_identity, recovery_guidance_identity, initial_messages,
+)
 from .agent_action_grammar import (
     ActionLogitsProcessor, MAX_BOUND_REQUESTS, action_schema, compile_action_grammar, policy_identity,
 )
@@ -20,12 +23,15 @@ CONSUMER_PROFILE = "qwen2-action-json-v1"
 def constrained_identity(base_identity, *, consumer_profile=CONSUMER_PROFILE):
     """Reconstruct the full profile identity without loading model weights."""
     policy = {"base_runtime_identity": base_identity.runtime_identity, **policy_identity()}
-    if consumer_profile not in (CONSUMER_PROFILE, VALIDATION_CONSUMER_PROFILE):
+    if consumer_profile not in (CONSUMER_PROFILE, *VALIDATION_PROFILES):
         raise ModelInputError("Unknown constrained action profile")
     version = "v1"
     if consumer_profile == VALIDATION_CONSUMER_PROFILE:
         policy["execution_policy"] = execution_policy_identity()
         version = "v2"
+    elif consumer_profile == RECOVERY_CONSUMER_PROFILE:
+        policy["recovery_guidance"] = recovery_guidance_identity()
+        version = "v3"
     return replace(base_identity, runtime_identity="dml-qwen-action-runtime-" + version + ":" + hashlib.sha256(
         _json_bytes(policy)).hexdigest())
 
@@ -39,10 +45,11 @@ class LocalQwenActionInputConsumer(LocalQwenInputConsumer):
     """
 
     def __init__(self, snapshot_directory, *, consumer_profile=CONSUMER_PROFILE):
-        if consumer_profile not in (CONSUMER_PROFILE, VALIDATION_CONSUMER_PROFILE):
+        if consumer_profile not in (CONSUMER_PROFILE, *VALIDATION_PROFILES):
             raise ModelInputError("Unknown constrained action profile")
         self._consumer_profile = consumer_profile
         self._execution_policy = execution_policy_identity() if consumer_profile == VALIDATION_CONSUMER_PROFILE else None
+        self._recovery_guidance = recovery_guidance_identity() if consumer_profile == RECOVERY_CONSUMER_PROFILE else None
         self._grammar_policy = policy_identity()
         self._bound_requests: dict[str, bytes] = {}
         super().__init__(snapshot_directory)
@@ -61,6 +68,9 @@ class LocalQwenActionInputConsumer(LocalQwenInputConsumer):
         expected = execution_policy_identity() if self._consumer_profile == VALIDATION_CONSUMER_PROFILE else None
         if self._execution_policy != expected:
             raise ModelInputError("Action execution protocol or rejection policy changed")
+        guidance = recovery_guidance_identity() if self._consumer_profile == RECOVERY_CONSUMER_PROFILE else None
+        if self._recovery_guidance != guidance:
+            raise ModelInputError("Action recovery guidance identity changed")
         if self._identity != constrained_identity(self._base_action_identity, consumer_profile=self._consumer_profile):
             raise ModelInputError("Action profile and compiled runtime identity differ")
 
@@ -69,6 +79,10 @@ class LocalQwenActionInputConsumer(LocalQwenInputConsumer):
             "messages": messages, "tools": [] if tools is None else tools,
             "output_reserved_tokens": output_reserved_tokens,
         })
+        if self._consumer_profile == RECOVERY_CONSUMER_PROFILE:
+            expected = initial_messages("profile binding", consumer_profile=self._consumer_profile)[0]
+            if not request.messages or request.messages[0] != expected:
+                raise ModelInputError("Recovery profile requires its exact first system message")
         action_schema(request.tools)
         with self._lock:
             self._require_open()

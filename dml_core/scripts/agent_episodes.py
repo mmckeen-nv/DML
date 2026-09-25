@@ -148,6 +148,9 @@ def run_campaign(*, snapshot_directory, work_directory, output, limits,
                 raise ValueError("CLI requires concrete local execution")
             if report.get("consumer_profile") != consumer_profile:
                 raise ValueError("Returned consumer profile differs from requested implementation")
+            if protocol == EXECUTION_PROTOCOL_V2 and any(value.get("consumer_profile") != consumer_profile
+                    for value in (report["events"][0]["payload"], report["terminal"])):
+                raise ValueError("Returned boundary consumer profile differs from requested implementation")
             if report["events"][0]["payload"].get("execution_protocol") != (
                     protocol if protocol == EXECUTION_PROTOCOL_V2 else None):
                 raise ValueError("Returned execution protocol differs from requested implementation")

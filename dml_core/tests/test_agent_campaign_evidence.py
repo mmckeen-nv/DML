@@ -67,21 +67,22 @@ class SyntheticConsumer:
                                output_token_count=1, output_ids=ids, text=text)
 
 
-def synthetic_campaign(tmp_path, *, validation=False, **options):
-    if not validation:
+def synthetic_campaign(tmp_path, *, validation=False, recovery=False, **options):
+    if not validation and not recovery:
         return _synthetic_campaign_impl(tmp_path, **options)
-    from daystrom_dml.contracts.agent_episode import VALIDATION_CONSUMER_PROFILE
+    from daystrom_dml.contracts.agent_episode import VALIDATION_CONSUMER_PROFILE, RECOVERY_CONSUMER_PROFILE
     from daystrom_dml.services.qwen_action_input import LocalQwenActionInputConsumer
     from qwen_model_input_fixture import create_qwen_snapshot
     snapshot = create_qwen_snapshot(tmp_path / 'tiny-replay-snapshot', context_window=8192)
-    with LocalQwenActionInputConsumer(snapshot.path, consumer_profile=VALIDATION_CONSUMER_PROFILE) as compiler:
+    profile = RECOVERY_CONSUMER_PROFILE if recovery else VALIDATION_CONSUMER_PROFILE
+    with LocalQwenActionInputConsumer(snapshot.path, consumer_profile=profile) as compiler:
         return _synthetic_campaign_impl(tmp_path, validation_consumer=compiler, **options)
 
 
 def _synthetic_campaign_impl(tmp_path, *, malformed=False, wrong_first=False, empty_answers=False,
                              malformed_followup=False, validation_consumer=None):
     from daystrom_dml.contracts.agent_episode import (
-        VALIDATION_CONSUMER_PROFILE, EXECUTION_PROTOCOL_V1, EXECUTION_PROTOCOL_V2,
+        EXECUTION_PROTOCOL_V1, EXECUTION_PROTOCOL_V2,
     )
     corpus = load_episode_corpus()
     limits = EpisodeLimits(output_tokens=64)
@@ -89,7 +90,7 @@ def _synthetic_campaign_impl(tmp_path, *, malformed=False, wrong_first=False, em
     tokenizer, episodes, selection, previous = SyntheticTokenizer(), [], [], {}
     profile, protocol = 'gpt2-v1', EXECUTION_PROTOCOL_V1
     if validation_consumer is not None:
-        profile, protocol = VALIDATION_CONSUMER_PROFILE, EXECUTION_PROTOCOL_V2
+        profile, protocol = validation_consumer._consumer_profile, EXECUTION_PROTOCOL_V2
         identity, tokenizer = validation_consumer._identity, validation_consumer._tokenizer
         limits = EpisodeLimits(output_tokens=256, max_output_tokens=1536)
     for scenario in corpus["scenarios"]:
@@ -417,3 +418,51 @@ def test_v2_campaign_cannot_mix_v1_version_or_identity(validation_campaign, fiel
         campaign['episodes'][0]['terminal']['schema_version'] = 'dml-agent-terminal-v1'
     with pytest.raises(ValueError):
         checker.replay_campaign(campaign, spec, identity=identity, tokenizer=tokenizer)
+
+
+@pytest.fixture(scope='module')
+def recovery_campaign(tmp_path_factory):
+    return synthetic_campaign(tmp_path_factory.mktemp('v3-campaign'), recovery=True)
+
+
+def test_v3_full_causal_campaign_replays_exact_guidance_tokens_and_unchanged_gates(recovery_campaign):
+    from daystrom_dml.contracts.agent_episode import AGENT_POLICY, RECOVERY_GUIDANCE, RECOVERY_CONSUMER_PROFILE
+    evidence = replay(recovery_campaign)
+    assert evidence['predeclared_gates_passed'] is True
+    assert not evidence['execution_authenticity_verified'] and not evidence['source_ci_qualified']
+    assert evidence['schema_version'] == checker.EVIDENCE_VERSION_V2
+    assert evidence['summary']['consumer_profile'] == RECOVERY_CONSUMER_PROFILE
+    campaign = recovery_campaign[0]
+    requests = [event['payload'] for episode in campaign['episodes'] for event in episode['events']
+                if event['kind'] == 'model_requested']
+    assert all(request['request']['messages'][0]['content'] == AGENT_POLICY + '\n\n' + RECOVERY_GUIDANCE for request in requests)
+    assert evidence['summary']['input_tokens'] == sum(len(request['compiled']['input_ids']) for request in requests)
+    assert len(campaign['episodes']) == 9
+
+
+@pytest.mark.parametrize('field', ['spec', 'campaign', 'episode', 'start', 'terminal', 'summary', 'identity', 'missing_spec'])
+def test_v3_campaign_requires_profile_agreement_at_every_boundary(recovery_campaign, field):
+    from daystrom_dml.contracts.agent_episode import VALIDATION_CONSUMER_PROFILE
+    campaign, spec, identity, tokenizer = recovery_campaign
+    campaign, spec, identity = deepcopy(campaign), deepcopy(spec), deepcopy(identity)
+    targets = {'spec': spec, 'campaign': campaign, 'episode': campaign['episodes'][0],
+               'start': campaign['episodes'][0]['events'][0]['payload'],
+               'terminal': campaign['episodes'][0]['terminal'], 'summary': campaign['summary']}
+    if field == 'missing_spec':
+        spec.pop('consumer_profile')
+    elif field == 'identity':
+        identity['runtime_identity'] = identity['runtime_identity'].replace('-v3:', '-v2:')
+    else:
+        targets[field]['consumer_profile'] = VALIDATION_CONSUMER_PROFILE
+    with pytest.raises((ValueError, KeyError)):
+        checker.replay_campaign(campaign, spec, identity=identity, tokenizer=tokenizer)
+
+
+def test_v2_known_failure_remains_failure_with_no_guidance_inference(tmp_path):
+    from daystrom_dml.contracts.agent_episode import AGENT_POLICY, VALIDATION_CONSUMER_PROFILE
+    case = synthetic_campaign(tmp_path, validation=True, empty_answers=True)
+    evidence = replay(case)
+    assert not evidence['predeclared_gates_passed'] and evidence['summary']['completed_tasks'] == 0
+    assert evidence['summary']['consumer_profile'] == VALIDATION_CONSUMER_PROFILE
+    assert all(event['payload']['request']['messages'][0]['content'] == AGENT_POLICY
+               for episode in case[0]['episodes'] for event in episode['events'] if event['kind'] == 'model_requested')

@@ -292,3 +292,40 @@ def test_v2_campaign_cli_freezes_protocol_and_preserves_all_failed_attempts(tmp_
     assert all(e['terminal']['schema_version'] == 'dml-agent-terminal-v2' for e in campaign['episodes'])
     assert campaign['summary']['unknown_effect_tasks'] == 9
     assert not campaign['live_qualified'] and not campaign['raw_evidence_complete']
+
+
+def test_v3_campaign_retains_explicit_profile_in_every_error_boundary(tmp_path, monkeypatch):
+    from daystrom_dml.contracts.agent_episode import RECOVERY_CONSUMER_PROFILE, EXECUTION_PROTOCOL_V2
+    calls = []
+    def producer(**kwargs):
+        calls.append(kwargs)
+        return failed_test_report(**kwargs)
+    monkeypatch.setattr(cli, 'run_local_episode', producer)
+    assert cli.main(arguments(tmp_path, '--consumer-profile', RECOVERY_CONSUMER_PROFILE)) == 1
+    campaign = json.loads((tmp_path / 'campaign.json').read_text())
+    assert campaign['schema_version'] == cli.CAMPAIGN_VERSION_V2
+    assert campaign['execution_protocol'] == EXECUTION_PROTOCOL_V2
+    assert campaign['consumer_profile'] == campaign['summary']['consumer_profile'] == RECOVERY_CONSUMER_PROFILE
+    assert len(calls) == len(campaign['episodes']) == 9
+    assert all(call['consumer_profile'] == RECOVERY_CONSUMER_PROFILE for call in calls)
+    for episode in campaign['episodes']:
+        assert episode['consumer_profile'] == episode['terminal']['consumer_profile'] == RECOVERY_CONSUMER_PROFILE
+        assert episode['events'][0]['payload']['consumer_profile'] == RECOVERY_CONSUMER_PROFILE
+        assert episode['terminal']['usage_unknown'] and episode['terminal']['effects_unknown']
+    assert not campaign['raw_evidence_complete']
+
+
+@pytest.mark.parametrize('requested', ['qwen2-action-json-recovery-v3', 'qwen2-action-json-validation-v2'])
+def test_v3_cli_rejects_cross_profile_error_report_even_with_matching_outer_label(tmp_path, monkeypatch, requested):
+    other = 'qwen2-action-json-validation-v2' if requested.endswith('v3') else 'qwen2-action-json-recovery-v3'
+    def producer(**kwargs):
+        kwargs['consumer_profile'] = other
+        report = failed_test_report(**kwargs)
+        report['consumer_profile'] = requested
+        return report
+    monkeypatch.setattr(cli, 'run_local_episode', producer)
+    assert cli.main(arguments(tmp_path, '--scenario', 'near_duplicates', '--consumer-profile', requested)) == 1
+    episode = json.loads((tmp_path / 'campaign.json').read_text())['episodes'][0]
+    assert episode['consumer_profile'] == episode['terminal']['consumer_profile'] == requested
+    assert episode['rejected_raw_report']['terminal']['consumer_profile'] == other
+    assert episode['runner_error_code'] == 'ValueError'

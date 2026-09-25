@@ -754,3 +754,33 @@ def test_v2_supervisor_interruptions_never_invent_recovery_or_erase_dispatch(tmp
     else:
         assert failed == []
     assert not observed['terminal']['success']
+
+
+@pytest.mark.parametrize('boundary', ['before_rejection', 'after_rejection', 'actual_dispatch', 'foreign_v2'])
+def test_v3_supervisor_interruptions_preserve_explicit_profile_and_uncertainty(tmp_path, boundary):
+    from daystrom_dml.services.agent_episode import _supervise
+    from daystrom_dml.contracts.agent_episode import RECOVERY_CONSUMER_PROFILE
+    from test_agent_episode_runtime import recovery_case, validation_case
+    report, _, _ = (validation_case if boundary == 'foreign_v2' else recovery_case)(tmp_path)
+    events = report['events']
+    rejection = next(i for i, e in enumerate(events) if e['kind'] == 'tool_validation_rejected')
+    end = rejection - 1 if boundary == 'before_rejection' else rejection
+    if boundary == 'actual_dispatch':
+        end = next(i for i, e in enumerate(events) if e['kind'] == 'tool_requested' and e['payload']['name'] == 'supersede')
+    corpus = load_episode_corpus()
+    scenario = next(s for s in corpus['scenarios'] if s['id'] == report['scenario_id'])
+    config = {'episode_id': 'validation-test', 'execution_path': 'test_injected', 'scenario': scenario,
+        'task': scenario['tasks'][0], 'limits': {**events[0]['payload']['limits'], 'wall_time_seconds': 2.0},
+        'effective_time': corpus['effective_time'], 'previous_answers': None,
+        'snapshot_directory': str(tmp_path / 'absent-model'), 'authority_directory': str(tmp_path / 'validation-authority'),
+        'consumer_profile': RECOVERY_CONSUMER_PROFILE, 'test_prepared': report['prepared'], 'test_events': events[1:end + 1]}
+    observed = _supervise(config, worker_target=_validation_interruption_worker)
+    terminal = observed['terminal']
+    assert terminal['consumer_profile'] == observed['events'][0]['payload']['consumer_profile'] == RECOVERY_CONSUMER_PROFILE
+    assert terminal['status'] == ('runner_error' if boundary == 'foreign_v2' else 'timeout')
+    assert terminal['usage_unknown'] and terminal['effects_unknown'] and not terminal['success']
+    retained = [e for e in observed['events'] if e['kind'] == 'tool_validation_rejected']
+    assert len(retained) == (0 if boundary in ('before_rejection', 'foreign_v2') else 1)
+    failed = [e for e in observed['events'] if e['kind'] == 'tool_failed']
+    assert len(failed) == (1 if boundary == 'actual_dispatch' else 0)
+    validate_episode_events(observed['events'])

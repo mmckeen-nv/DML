@@ -212,3 +212,17 @@ def test_v2_and_v1_terminal_summaries_cannot_be_pooled(tmp_path):
     old.pop('consumer_profile')
     with pytest.raises(AgentEpisodeError, match='protocol'):
         summarize_episode_outcomes([old, report['terminal']])
+
+
+def test_v3_summary_preserves_profile_and_rejects_v2_pooling(tmp_path):
+    from copy import deepcopy
+    from daystrom_dml.contracts.agent_episode import RECOVERY_CONSUMER_PROFILE, VALIDATION_CONSUMER_PROFILE
+    from test_agent_episode_runtime import recovery_case
+    report, _, _ = recovery_case(tmp_path)
+    terminal = report['terminal']
+    summary = summarize_episode_outcomes([terminal])
+    assert terminal['consumer_profile'] == summary['consumer_profile'] == RECOVERY_CONSUMER_PROFILE
+    other = deepcopy(terminal)
+    other.update(episode_id='another-episode', consumer_profile=VALIDATION_CONSUMER_PROFILE)
+    with pytest.raises(AgentEpisodeError, match='consumer profiles'):
+        summarize_episode_outcomes([terminal, other])

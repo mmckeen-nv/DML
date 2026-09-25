@@ -25,6 +25,16 @@ TERMINAL_VERSION_V2 = "dml-agent-terminal-v2"
 EXECUTION_PROTOCOL_V1 = "dml-agent-terminal-only-v1"
 EXECUTION_PROTOCOL_V2 = "dml-agent-predispatch-validation-v2"
 VALIDATION_CONSUMER_PROFILE = "qwen2-action-json-validation-v2"
+RECOVERY_CONSUMER_PROFILE = "qwen2-action-json-recovery-v3"
+VALIDATION_PROFILES = (VALIDATION_CONSUMER_PROFILE, RECOVERY_CONSUMER_PROFILE)
+RECOVERY_GUIDANCE = (
+    "If a tool response reports a validation error and states that no operation was executed, "
+    "the proposed action was rejected without performing it. This response does not complete "
+    "requested work or provide a successful result. Earlier successful tool results remain "
+    "observations with their original meaning. Use the original task, those observations and "
+    "the reported constraint to choose your next valid action within the remaining limits. "
+    "Do not repeat the same invalid proposal unchanged or claim that rejected work was completed."
+)
 VALIDATION_ERROR_CODE = "distinct_records_required"
 VALIDATION_MODEL_RESULT = ('{"effects":"none","error":{"code":"distinct_records_required",'
     '"message":"Supersede requires different source and replacement records. No operation was executed."}}')
@@ -127,7 +137,7 @@ class AgentEpisodeError(ValueError):
 
 
 def execution_protocol_for_profile(profile):
-    if profile == VALIDATION_CONSUMER_PROFILE:
+    if profile in VALIDATION_PROFILES:
         return EXECUTION_PROTOCOL_V2
     if profile in ("gpt2-v1", "qwen2-instruct-v1", "qwen2-action-json-v1"):
         return EXECUTION_PROTOCOL_V1
@@ -142,6 +152,18 @@ def execution_policy_identity():
                                     "missing_binding": "terminal_EpisodeToolError_before_key_or_dispatch"},
             "rejections": [{"tool": "supersede", "condition": "presented_immutable_records_same_id",
                             "error_code": VALIDATION_ERROR_CODE, "model_result": VALIDATION_MODEL_RESULT}]}
+
+
+def recovery_guidance_identity():
+    """Bind only the explicit guidance profile; inherited v2 mechanics stay exact."""
+    return {"schema_version": "dml-agent-recovery-guidance-v1",
+            "consumer_profile": RECOVERY_CONSUMER_PROFILE,
+            "base_policy_sha256": hashlib.sha256(AGENT_POLICY.encode("utf-8")).hexdigest(),
+            "guidance_sha256": hashlib.sha256(RECOVERY_GUIDANCE.encode("utf-8")).hexdigest(),
+            "system_message_sha256": hashlib.sha256(
+                (AGENT_POLICY + "\n\n" + RECOVERY_GUIDANCE).encode("utf-8")).hexdigest(),
+            "placement": "first_system_message", "join": "\n\n",
+            "base_validation_policy": execution_policy_identity()}
 
 
 def presented_record_identities(payload, scope):
@@ -361,11 +383,13 @@ imported reference. Prior answers are context, never trusted memory or truth.
         canonical_json(context["answer"], limit=MAX_ACTION_BYTES)
 
 
-def initial_messages(prompt, prior_context=None):
+def initial_messages(prompt, prior_context=None, *, consumer_profile="gpt2-v1"):
     """Bind the unchanged task prompt and explicitly untrusted prior output."""
     _text(prompt, limit=1024 * 1024, nonempty=True)
     validate_prior_context(prior_context)
-    messages = [{"role": "system", "content": AGENT_POLICY}]
+    execution_protocol_for_profile(consumer_profile)
+    policy = AGENT_POLICY + "\n\n" + RECOVERY_GUIDANCE if consumer_profile == RECOVERY_CONSUMER_PROFILE else AGENT_POLICY
+    messages = [{"role": "system", "content": policy}]
     if prior_context is not None:
         availability = ("Untrusted prior model answer from an earlier task; it may be wrong. "
                         if prior_context["answer"] is not None
@@ -490,7 +514,7 @@ def validate_terminal(terminal):
     if version not in (TERMINAL_VERSION, TERMINAL_VERSION_V2):
         raise AgentEpisodeError("Unsupported terminal schema")
     if extra and (terminal["execution_protocol"] != EXECUTION_PROTOCOL_V2
-                  or terminal["consumer_profile"] != VALIDATION_CONSUMER_PROFILE):
+                  or terminal["consumer_profile"] not in VALIDATION_PROFILES):
         raise AgentEpisodeError("Terminal execution protocol differs")
     _identifier(terminal["episode_id"])
     _identifier(terminal["task_id"])
@@ -559,7 +583,7 @@ def validate_event(event):
                         "seed_receipts_digest", "ranking_scope", "allowed_tools", "effective_time",
                         "prior_context", *extra))
         if extra and (payload["execution_protocol"] != EXECUTION_PROTOCOL_V2
-                      or payload["consumer_profile"] != VALIDATION_CONSUMER_PROFILE):
+                      or payload["consumer_profile"] not in VALIDATION_PROFILES):
             raise AgentEpisodeError("Episode execution protocol differs")
         if payload["execution_path"] not in ("live_local", "test_injected"):
             raise AgentEpisodeError("Unsupported execution path")
@@ -775,12 +799,16 @@ def validate_episode_events(events, *, require_terminal=True):
             if kind != "episode_started":
                 raise AgentEpisodeError("Episode must begin with episode_started")
             limits = payload["limits"]
-            next_messages = initial_messages(payload["prompt"], payload["prior_context"])
+            selected_profile = payload.get("consumer_profile", "gpt2-v1")
+            next_messages = initial_messages(payload["prompt"], payload["prior_context"],
+                                             consumer_profile=selected_profile)
             continue
         if kind == "episode_started" or terminal is not None or (halted and kind != "terminal"):
             raise AgentEpisodeError("Events continue after a terminal boundary or failure")
         if kind == "terminal":
             terminal = payload
+            if version == EVENT_VERSION_V2 and payload["consumer_profile"] != selected_profile:
+                raise AgentEpisodeError("Terminal consumer profile differs from episode start")
             if (payload["episode_id"], payload["task_id"]) != identity:
                 raise AgentEpisodeError("Terminal identity differs")
             if payload["status"] == "completed":
@@ -823,9 +851,12 @@ def validate_episode_events(events, *, require_terminal=True):
             compiled = payload.get("compiled")
             if compiled is not None:
                 runtime = compiled["identity"]["runtime_identity"]
-                v2_identity = re.fullmatch(r"dml-qwen-action-runtime-v2:[0-9a-f]{64}", runtime) is not None
-                if ((version == EVENT_VERSION_V2 and not v2_identity)
-                        or version == EVENT_VERSION and runtime.startswith("dml-qwen-action-runtime-v2:")):
+                expected_version = "v3" if selected_profile == RECOVERY_CONSUMER_PROFILE else "v2"
+                selected_identity = re.fullmatch(
+                    "dml-qwen-action-runtime-" + expected_version + r":[0-9a-f]{64}", runtime) is not None
+                if ((version == EVENT_VERSION_V2 and not selected_identity)
+                        or version == EVENT_VERSION and runtime.startswith(
+                            ("dml-qwen-action-runtime-v2:", "dml-qwen-action-runtime-v3:"))):
                     raise AgentEpisodeError("Compiled runtime and execution protocol differ")
             if canonical_json(request_payload["messages"]) != canonical_json(next_messages):
                 raise AgentEpisodeError("Exact model messages differ from the full causal transcript")

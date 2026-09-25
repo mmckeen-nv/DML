@@ -75,8 +75,9 @@ class ValidationScriptedConsumer(ScriptedConsumer):
             output_token_count=2, output_ids=(5, 6), text=canonical(action))
 
 
-def validation_case(tmp_path, *, repeated=False, limits=None, prepare_hook=None, execute_hook=None):
-    from daystrom_dml.contracts.agent_episode import EXECUTION_PROTOCOL_V2, VALIDATION_CONSUMER_PROFILE
+def validation_case(tmp_path, *, repeated=False, limits=None, prepare_hook=None, execute_hook=None,
+                    consumer_profile="qwen2-action-json-validation-v2", consumer_factory=ValidationScriptedConsumer):
+    from daystrom_dml.contracts.agent_episode import EXECUTION_PROTOCOL_V2
     scenario = next(s for s in load_episode_corpus()["scenarios"] if s["id"] == "superseded_preference")
     task = scenario["tasks"][0]
     directory = tmp_path / "validation-authority"
@@ -102,7 +103,7 @@ def validation_case(tmp_path, *, repeated=False, limits=None, prepare_hook=None,
         for key, fact in task["truth"].items()]}
     actions = [tool(query="preference", top_k=1), invalid]
     actions += [invalid] * 5 if repeated else [tool(query="preference", top_k=10), valid, final(answer)]
-    consumer = ValidationScriptedConsumer(actions)
+    consumer = consumer_factory(actions)
     if prepare_hook:
         original = bridge.prepare
         bridge.prepare = lambda name, arguments, **kw: prepare_hook(bridge, original, name, arguments, kw)
@@ -112,10 +113,10 @@ def validation_case(tmp_path, *, repeated=False, limits=None, prepare_hook=None,
     try:
         report = run_episode_with_test_dependencies(consumer=consumer, toolbox=bridge, task=task, scenario=scenario,
             seed_records=values["seed_records"], current_records=lambda: _read_records(directory),
-            consumer_profile=VALIDATION_CONSUMER_PROFILE, episode_id="validation-test",
+            consumer_profile=consumer_profile, episode_id="validation-test",
             limits=limits or EpisodeLimits(output_tokens=16))
         report.update(prepared=values, current_records=_read_records(directory), scenario_id=scenario["id"],
-                      consumer_profile=VALIDATION_CONSUMER_PROFILE)
+                      consumer_profile=consumer_profile)
         return report, consumer, bridge
     finally:
         adapter.close()
@@ -614,3 +615,78 @@ def test_v2_recovery_next_request_respects_existing_budget(tmp_path, budget):
     assert len(admitted.dispatched) == 2
     assert sum(e['kind'] == 'tool_validation_rejected' for e in report['events']) == 1
     assert report['events'][-2]['kind'] == 'admission_rejected'
+
+
+class RecoveryScriptedConsumer(ValidationScriptedConsumer):
+    """Synthetic two-byte token accounting; real tokenizer controls are separate."""
+    def compile(self, messages, tools, *, output_reserved_tokens):
+        artifact = super().compile(messages, tools, output_reserved_tokens=output_reserved_tokens)
+        ids = tuple(canonical_json(self.requests[-1])[::2])
+        return replace(artifact, input_ids=ids, attention_mask=(1,) * len(ids),
+            identity=replace(artifact.identity, runtime_identity='dml-qwen-action-runtime-v3:' + 'b' * 64))
+
+
+def recovery_case(tmp_path, **options):
+    from daystrom_dml.contracts.agent_episode import RECOVERY_CONSUMER_PROFILE
+    return validation_case(tmp_path, consumer_profile=RECOVERY_CONSUMER_PROFILE,
+                           consumer_factory=RecoveryScriptedConsumer, **options)
+
+
+def test_v3_guidance_is_in_every_charged_request_and_model_still_owns_recovery(tmp_path):
+    from daystrom_dml.contracts import agent_episode as contract
+    report, consumer, bridge = recovery_case(tmp_path)
+    assert report['terminal']['success'] is True
+    expected = contract.AGENT_POLICY + '\n\n' + contract.RECOVERY_GUIDANCE
+    assert all(request['messages'][0] == {'role': 'system', 'content': expected} for request in consumer.requests)
+    assert len(consumer.dispatched) == 5
+    assert report['terminal']['input_tokens'] == sum((len(canonical_json(request)) + 1) // 2 for request in consumer.requests)
+    assert set(bridge._keys) == {'episode:validation-test:tool-3'}
+    assert consumer.requests[2]['messages'][-1]['content'] == contract.VALIDATION_MODEL_RESULT
+    assert consumer.requests[2]['messages'][:4] == consumer.requests[1]['messages']
+    validate_episode_events(report['events'])
+
+
+@pytest.mark.parametrize('budget', ['input', 'transcript'])
+def test_v3_guidance_counts_against_original_limits_without_allowance(tmp_path, budget):
+    from daystrom_dml.contracts.agent_episode import RECOVERY_CONSUMER_PROFILE
+    task = next(s for s in load_episode_corpus()['scenarios'] if s['id'] == 'superseded_preference')['tasks'][0]
+    limits = EpisodeLimits(output_tokens=16)
+    old = build_episode_request(task, limits=limits)
+    new = build_episode_request(task, limits=limits, consumer_profile=RECOVERY_CONSUMER_PROFILE)
+    assert len(canonical_json(new)) > len(canonical_json(old))
+    maximum = (len(canonical_json(old)) + 1) // 2 if budget == 'input' else len(canonical_json(old))
+    limits = replace(limits, **{('max_input_tokens' if budget == 'input' else 'max_transcript_bytes'): maximum})
+    report, consumer, bridge = recovery_case(tmp_path, limits=limits)
+    assert report['terminal']['status'] == ('token_limit' if budget == 'input' else 'transcript_limit')
+    assert not consumer.dispatched and not bridge._keys
+    rejected = report['events'][-2]
+    assert rejected['kind'] == 'admission_rejected'
+    expected = (len(canonical_json(new)) + 1) // 2 if budget == 'input' else len(canonical_json(new))
+    assert rejected['payload']['observed'] == expected
+    assert rejected['payload']['maximum'] == maximum
+    assert report['terminal']['consumer_profile'] == RECOVERY_CONSUMER_PROFILE
+
+
+@pytest.mark.parametrize('error', ['compile', 'cross_profile'])
+def test_v3_compile_failure_or_cross_profile_consumer_retains_selected_boundary(tmp_path, error):
+    from daystrom_dml.contracts.agent_episode import RECOVERY_CONSUMER_PROFILE
+    factory = (lambda actions: RecoveryScriptedConsumer(actions, compile_error=ValueError('test refusal'))) if error == 'compile' else ValidationScriptedConsumer
+    report, consumer, bridge = validation_case(tmp_path, consumer_profile=RECOVERY_CONSUMER_PROFILE,
+                                               consumer_factory=factory)
+    assert report['events'][0]['payload']['consumer_profile'] == report['terminal']['consumer_profile'] == RECOVERY_CONSUMER_PROFILE
+    assert report['terminal']['status'] == ('model_error' if error == 'compile' else 'runner_error')
+    assert report['terminal']['usage_unknown'] is (error == 'cross_profile')
+    assert not consumer.dispatched and not bridge._keys
+    validate_episode_events(report['events'])
+
+
+def test_v3_model_can_still_finish_unsuccessfully_after_rejection_without_forced_work(tmp_path):
+    from daystrom_dml.contracts.agent_episode import RECOVERY_CONSUMER_PROFILE
+    def factory(actions):
+        return RecoveryScriptedConsumer([*actions[:2], final({'claims': []})])
+    report, consumer, bridge = validation_case(tmp_path, consumer_profile=RECOVERY_CONSUMER_PROFILE,
+                                               consumer_factory=factory)
+    assert report['terminal']['status'] == 'completed' and not report['terminal']['success']
+    assert len(consumer.dispatched) == 3 and not bridge._keys
+    assert sum(e['kind'] == 'tool_validation_rejected' for e in report['events']) == 1
+    assert not any(e['kind'] == 'tool_requested' and e['payload']['name'] == 'supersede' for e in report['events'])

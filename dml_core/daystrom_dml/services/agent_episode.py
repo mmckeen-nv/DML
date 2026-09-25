@@ -29,7 +29,7 @@ from ..contracts.agent_episode import (
     AgentEpisodeError, canonical_json, decode_json, make_event,
     initial_messages, parse_agent_action, validate_episode_events,
     validate_prior_context, validate_verifier,
-    EXECUTION_PROTOCOL_V1, EXECUTION_PROTOCOL_V2, VALIDATION_CONSUMER_PROFILE,
+    EXECUTION_PROTOCOL_V1, EXECUTION_PROTOCOL_V2, VALIDATION_CONSUMER_PROFILE, RECOVERY_CONSUMER_PROFILE,
     VALIDATION_ERROR_CODE, VALIDATION_MODEL_RESULT, execution_protocol_for_profile,
 )
 from ..contracts.model_input import ModelInputBudgetError
@@ -66,7 +66,8 @@ class EpisodeLimits:
 
 
 _POLICY = AGENT_POLICY
-CONSUMER_PROFILES = ("gpt2-v1", "qwen2-instruct-v1", "qwen2-action-json-v1", VALIDATION_CONSUMER_PROFILE)
+CONSUMER_PROFILES = ("gpt2-v1", "qwen2-instruct-v1", "qwen2-action-json-v1",
+                     VALIDATION_CONSUMER_PROFILE, RECOVERY_CONSUMER_PROFILE)
 
 
 def validate_consumer_profile(consumer_profile):
@@ -81,7 +82,7 @@ def _open_consumer(snapshot_directory, consumer_profile):
     if consumer_profile == "gpt2-v1":
         from .model_input import LocalTransformersInputConsumer
         return LocalTransformersInputConsumer(snapshot_directory)
-    if consumer_profile in ("qwen2-action-json-v1", VALIDATION_CONSUMER_PROFILE):
+    if consumer_profile in ("qwen2-action-json-v1", VALIDATION_CONSUMER_PROFILE, RECOVERY_CONSUMER_PROFILE):
         from .qwen_action_input import LocalQwenActionInputConsumer
         return LocalQwenActionInputConsumer(snapshot_directory, consumer_profile=consumer_profile)
     from .qwen_model_input import LocalQwenInputConsumer
@@ -127,21 +128,27 @@ def task_allowed_tools(task):
         value.get("state") == "superseded" for value in task.get("state_expectations", [])) else ("retrieve",)
 
 
-def build_episode_request(task, *, messages=None, limits=EpisodeLimits(), allowed_tools=None, prior_context=None):
+def build_episode_request(task, *, messages=None, limits=EpisodeLimits(), allowed_tools=None, prior_context=None,
+                          consumer_profile="gpt2-v1"):
     """Build the complete next request without truncation; useful for preflight."""
+    validate_consumer_profile(consumer_profile)
     allowed = task_allowed_tools(task) if allowed_tools is None else tuple(allowed_tools)
-    return {"messages": deepcopy(messages) if messages is not None else initial_messages(task["prompt"], prior_context),
+    return {"messages": deepcopy(messages) if messages is not None else initial_messages(
+                task["prompt"], prior_context, consumer_profile=consumer_profile),
         "tools": [tool for tool in episode_tool_definitions() if tool["function"]["name"] in allowed],
         "output_reserved_tokens": limits.output_tokens}
 
 
 def _run_loop(consumer, toolbox, *, task, limits, emit, prior_context=None,
-              execution_protocol=EXECUTION_PROTOCOL_V1):
+              execution_protocol=EXECUTION_PROTOCOL_V1, consumer_profile="gpt2-v1"):
     """Emit actual request/results; only admitted parsed model text selects work."""
     if (getattr(toolbox, "execution_protocol", EXECUTION_PROTOCOL_V1) != execution_protocol
             or execution_protocol == EXECUTION_PROTOCOL_V2 and type(toolbox) is not SelectedProfileEpisodeTools):
         raise AgentEpisodeError("Execution requires its selected trusted preparation bridge")
-    request = build_episode_request(task, limits=limits, allowed_tools=toolbox.allowed_tools, prior_context=prior_context)
+    if execution_protocol_for_profile(consumer_profile) != execution_protocol:
+        raise AgentEpisodeError("Selected consumer profile and execution protocol differ")
+    request = build_episode_request(task, limits=limits, allowed_tools=toolbox.allowed_tools, prior_context=prior_context,
+                                    consumer_profile=consumer_profile)
     messages, tools = request["messages"], request["tools"]
     input_tokens = output_tokens = 0
     retrieval_ms = 0.0
@@ -338,7 +345,7 @@ def run_episode_with_test_dependencies(*, consumer, toolbox, task: dict, scenari
     usage_unknown = False
     try:
         outcome = _run_loop(consumer, toolbox, task=task, limits=limits, emit=emit, prior_context=prior_context,
-                            execution_protocol=protocol)
+                            execution_protocol=protocol, consumer_profile=consumer_profile)
     except Exception:
         outcome = {"status": "runner_error", "answer": None, "retrieval_ms": None}
         usage_unknown = True
@@ -485,7 +492,8 @@ def _worker(connection, config):
             allowed_tools=task_allowed_tools(config["task"]), effective_time=config["effective_time"],
             execution_protocol=protocol)
         outcome = _run_loop(consumer, toolbox, task=config["task"], limits=limits, emit=emit,
-                            prior_context=config.get("prior_context"), execution_protocol=protocol)
+                            prior_context=config.get("prior_context"), execution_protocol=protocol,
+                            consumer_profile=consumer_profile)
         consumer.close()
         consumer = None
         adapter.close()
