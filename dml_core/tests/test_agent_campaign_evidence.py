@@ -466,3 +466,90 @@ def test_v2_known_failure_remains_failure_with_no_guidance_inference(tmp_path):
     assert evidence['summary']['consumer_profile'] == VALIDATION_CONSUMER_PROFILE
     assert all(event['payload']['request']['messages'][0]['content'] == AGENT_POLICY
                for episode in case[0]['episodes'] for event in episode['events'] if event['kind'] == 'model_requested')
+
+
+@pytest.fixture(scope='module')
+def qwen3_campaign(tmp_path_factory):
+    from daystrom_dml.contracts.agent_episode import QWEN3_CONSUMER_PROFILE
+    from daystrom_dml.services.qwen3_action_input import LocalQwen3ActionInputConsumer
+    from qwen3_model_input_fixture import create_qwen3_snapshot
+    directory = tmp_path_factory.mktemp('qwen3-campaign')
+    snapshot = create_qwen3_snapshot(directory / 'snapshot', context_window=8192)
+    with LocalQwen3ActionInputConsumer(snapshot.path, consumer_profile=QWEN3_CONSUMER_PROFILE) as consumer:
+        case = _synthetic_campaign_impl(directory, validation_consumer=consumer)
+    return case, snapshot.path
+
+
+def test_qwen3_full_scripted_campaign_replays_real_tokens_and_all_unchanged_gates(qwen3_campaign):
+    from daystrom_dml.contracts.agent_episode import QWEN3_CONSUMER_PROFILE, RECOVERY_CONSUMER_PROFILE, initial_messages
+    case, _ = qwen3_campaign
+    evidence = replay(case)
+    assert evidence['predeclared_gates_passed'] is True
+    assert evidence['summary']['consumer_profile'] == QWEN3_CONSUMER_PROFILE
+    assert evidence['schema_version'] == checker.EVIDENCE_VERSION_V2
+    assert not evidence['execution_authenticity_verified'] and not evidence['source_ci_qualified']
+    requests = [e['payload'] for episode in case[0]['episodes'] for e in episode['events'] if e['kind'] == 'model_requested']
+    old_system = initial_messages('same policy', consumer_profile=RECOVERY_CONSUMER_PROFILE)[0]
+    assert all(request['request']['messages'][0] == old_system for request in requests)
+    assert evidence['summary']['input_tokens'] == sum(len(request['compiled']['input_ids']) for request in requests)
+    assert sum(e['kind'] == 'tool_validation_rejected' for r in case[0]['episodes'] for e in r['events']) == 1
+    assert all(case[3].decode(request['compiled']['input_ids'], skip_special_tokens=False,
+               clean_up_tokenization_spaces=False).endswith('<think>\n\n</think>\n\n') for request in requests)
+
+
+@pytest.mark.parametrize('boundary', ['spec', 'report', 'start', 'terminal', 'summary', 'compiled', 'template'])
+def test_qwen3_campaign_cannot_mix_same_mechanics_with_qwen2_identity(qwen3_campaign, boundary):
+    from daystrom_dml.contracts.agent_episode import RECOVERY_CONSUMER_PROFILE
+    case, _ = qwen3_campaign
+    campaign, spec, identity, tokenizer = case
+    campaign, spec, identity = deepcopy(campaign), deepcopy(spec), deepcopy(identity)
+    if boundary == 'spec':
+        campaign['consumer_profile'] = spec['consumer_profile'] = RECOVERY_CONSUMER_PROFILE
+    elif boundary == 'report':
+        campaign['episodes'][0]['consumer_profile'] = RECOVERY_CONSUMER_PROFILE
+    elif boundary == 'start':
+        campaign['episodes'][0]['events'][0]['payload']['consumer_profile'] = RECOVERY_CONSUMER_PROFILE
+    elif boundary == 'terminal':
+        campaign['episodes'][0]['terminal']['consumer_profile'] = RECOVERY_CONSUMER_PROFILE
+    elif boundary == 'summary':
+        campaign['summary']['consumer_profile'] = RECOVERY_CONSUMER_PROFILE
+    elif boundary == 'compiled':
+        from daystrom_dml.contracts.agent_episode import _compiled
+        event = campaign['episodes'][0]['events'][1]
+        event['payload']['compiled']['identity']['runtime_identity'] = 'dml-qwen-action-runtime-v3:' + 'a' * 64
+        event['payload']['artifact_digest'] = _compiled(event['payload']['compiled']).artifact_digest
+    else:
+        from daystrom_dml.services.qwen_model_snapshot import QWEN_CHAT_TEMPLATE
+        tokenizer = deepcopy(tokenizer)
+        tokenizer.chat_template = QWEN_CHAT_TEMPLATE
+    with pytest.raises(ValueError):
+        checker.replay_campaign(campaign, spec, identity=identity, tokenizer=tokenizer)
+
+
+def test_qwen3_file_replay_admits_exact_shards_and_new_profile_source_inventory(qwen3_campaign, tmp_path):
+    from pathlib import Path
+    from daystrom_dml.contracts.agent_episode import QWEN3_CONSUMER_PROFILE
+    from daystrom_dml.services.qwen3_model_snapshot import REQUIRED_FILES
+    case, snapshot = qwen3_campaign
+    campaign, spec, identity, _ = case
+    campaign, spec = deepcopy(campaign), deepcopy(spec)
+    root = Path(__file__).resolve().parents[2]
+    source = checker._source_digests(consumer_profile=QWEN3_CONSUMER_PROFILE)
+    assert len(source) == 19 and len(checker._source_digests()) == 15
+    spec.update(producer_source_sha256=source, source_sha256={
+        'dml_core/' + name.replace('.', '/') + '.py': digest for name, digest in source.items()},
+        snapshot_sha256={name: checker.file_digest(snapshot / name) for name in REQUIRED_FILES | {'snapshot.json'}},
+        model_identity=identity)
+    campaign['source_sha256'] = source
+    spec_path, campaign_path = tmp_path / 'spec.json', tmp_path / 'campaign.json'
+    spec_path.write_text(json.dumps(spec))
+    campaign_path.write_text(json.dumps(campaign))
+    evidence = checker.verify_files(spec_path=spec_path, spec_sha256=checker.file_digest(spec_path),
+        campaign_path=campaign_path, snapshot_directory=snapshot, source_root=root)
+    assert evidence['predeclared_gates_passed'] is True
+    assert evidence['summary']['consumer_profile'] == QWEN3_CONSUMER_PROFILE
+    spec['snapshot_sha256'].pop('model-00002-of-00002.safetensors')
+    spec_path.write_text(json.dumps(spec))
+    with pytest.raises(ValueError, match='inventory'):
+        checker.verify_files(spec_path=spec_path, spec_sha256=checker.file_digest(spec_path),
+            campaign_path=campaign_path, snapshot_directory=snapshot, source_root=root)

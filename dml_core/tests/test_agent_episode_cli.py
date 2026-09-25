@@ -329,3 +329,16 @@ def test_v3_cli_rejects_cross_profile_error_report_even_with_matching_outer_labe
     assert episode['consumer_profile'] == episode['terminal']['consumer_profile'] == requested
     assert episode['rejected_raw_report']['terminal']['consumer_profile'] == other
     assert episode['runner_error_code'] == 'ValueError'
+
+
+def test_qwen3_cli_selects_new_source_inventory_and_preserves_all_failed_attempts(tmp_path, monkeypatch):
+    from daystrom_dml.contracts.agent_episode import QWEN3_CONSUMER_PROFILE
+    monkeypatch.setattr(cli, 'run_local_episode', failed_test_report)
+    assert cli.main(arguments(tmp_path, '--consumer-profile', QWEN3_CONSUMER_PROFILE)) == 1
+    campaign = json.loads((tmp_path / 'campaign.json').read_text())
+    assert campaign['consumer_profile'] == campaign['summary']['consumer_profile'] == QWEN3_CONSUMER_PROFILE
+    assert campaign['schema_version'] == cli.CAMPAIGN_VERSION_V2
+    assert len(campaign['source_sha256']) == 19 and len(cli._source_digests()) == 15
+    assert len(campaign['episodes']) == 9
+    assert all(r['terminal']['consumer_profile'] == QWEN3_CONSUMER_PROFILE for r in campaign['episodes'])
+    assert not campaign['raw_evidence_complete'] and not campaign['live_qualified']

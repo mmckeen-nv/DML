@@ -13,7 +13,7 @@ from pathlib import Path
 
 from daystrom_dml.contracts.agent_episode import (
     canonical_json, decode_json, validate_episode_events, presented_record_identities,
-    execution_protocol_for_profile, EXECUTION_PROTOCOL_V2, VALIDATION_CONSUMER_PROFILE, RECOVERY_CONSUMER_PROFILE, EVENT_VERSION_V2,
+    execution_protocol_for_profile, EXECUTION_PROTOCOL_V2, VALIDATION_CONSUMER_PROFILE, RECOVERY_CONSUMER_PROFILE, QWEN3_CONSUMER_PROFILE, EVENT_VERSION_V2,
 )
 from daystrom_dml.services.agent_episode import task_allowed_tools, validate_consumer_profile
 from daystrom_dml.services.episode_outcomes import build_terminal, summarize_episode_outcomes
@@ -155,7 +155,7 @@ def _replay_model(events, identity, tokenizer, consumer_profile):
             _require(_same(encoded["input_ids"], compiled["input_ids"])
                      and _same(encoded["attention_mask"], compiled["attention_mask"]),
                      "Recorded input tokens differ from independent tokenization")
-            if consumer_profile in ("qwen2-action-json-v1", VALIDATION_CONSUMER_PROFILE, RECOVERY_CONSUMER_PROFILE):
+            if consumer_profile in ("qwen2-action-json-v1", VALIDATION_CONSUMER_PROFILE, RECOVERY_CONSUMER_PROFILE, QWEN3_CONSUMER_PROFILE):
                 from daystrom_dml.services.agent_action_grammar import compile_action_grammar
                 import xgrammar as xgr
                 # Membership below separately rejects unused model rows. A
@@ -168,7 +168,7 @@ def _replay_model(events, identity, tokenizer, consumer_profile):
                 )
         elif event["kind"] == "model_completed":
             output_ids = payload["output_ids"]
-            if consumer_profile in {"qwen2-instruct-v1", "qwen2-action-json-v1", VALIDATION_CONSUMER_PROFILE, RECOVERY_CONSUMER_PROFILE}:
+            if consumer_profile in {"qwen2-instruct-v1", "qwen2-action-json-v1", VALIDATION_CONSUMER_PROFILE, RECOVERY_CONSUMER_PROFILE, QWEN3_CONSUMER_PROFILE}:
                 vocabulary = tokenizer.get_vocab()
                 allowed_ids = frozenset(vocabulary.values())
                 _require(all(type(token) is int and token in allowed_ids for token in output_ids),
@@ -177,7 +177,7 @@ def _replay_model(events, identity, tokenizer, consumer_profile):
                 _require(type(eos) is int and tokenizer.eos_token == "<|im_end|>"
                          and eos == tokenizer.eos_token_id and eos in tokenizer.all_special_ids,
                          "Qwen terminal EOS identity differs")
-                if consumer_profile in ("qwen2-action-json-v1", VALIDATION_CONSUMER_PROFILE, RECOVERY_CONSUMER_PROFILE):
+                if consumer_profile in ("qwen2-action-json-v1", VALIDATION_CONSUMER_PROFILE, RECOVERY_CONSUMER_PROFILE, QWEN3_CONSUMER_PROFILE):
                     _require(grammar_matcher is not None, "Constrained output lacks its request grammar")
                     special = {index for index, token in tokenizer.added_tokens_decoder.items() if token.special}
                     _require(all(token not in special - {eos} and grammar_matcher.accept_token(token)
@@ -311,22 +311,34 @@ def verify_files(*, spec_path, spec_sha256, campaign_path, snapshot_directory, s
     for relative, digest in spec["source_sha256"].items():
         path = (root / relative).resolve()
         _require(path.is_relative_to(root) and file_digest(path) == digest, "Frozen source differs: " + relative)
-    _require(_same(_source_digests(), spec["producer_source_sha256"]), "Executing producer sources differ")
+    consumer_profile = validate_consumer_profile(spec["consumer_profile"])
+    _require(_same(_source_digests(consumer_profile=consumer_profile), spec["producer_source_sha256"]),
+             "Executing producer sources differ")
     bundle = Path(snapshot_directory)
-    _require(set(spec["snapshot_sha256"]) == REQUIRED_FILES | {"snapshot.json"}, "Snapshot inventory differs")
+    required_files = REQUIRED_FILES
+    if consumer_profile == QWEN3_CONSUMER_PROFILE:
+        from daystrom_dml.services.qwen3_model_snapshot import REQUIRED_FILES as QWEN3_REQUIRED_FILES
+        required_files = QWEN3_REQUIRED_FILES
+    _require(set(spec["snapshot_sha256"]) == required_files | {"snapshot.json"}, "Snapshot inventory differs")
     for name, digest in spec["snapshot_sha256"].items():
         _require(file_digest(bundle / name) == digest, "Frozen snapshot bytes differ: " + name)
     campaign_bytes = Path(campaign_path).read_bytes()
     campaign = decode_json(campaign_bytes, limit=MAX_CAMPAIGN_BYTES)
     consumer_profile = validate_consumer_profile(spec["consumer_profile"])
-    if consumer_profile in {"qwen2-instruct-v1", "qwen2-action-json-v1", VALIDATION_CONSUMER_PROFILE, RECOVERY_CONSUMER_PROFILE}:
+    if consumer_profile == QWEN3_CONSUMER_PROFILE:
+        from daystrom_dml.services.qwen3_model_snapshot import verify_qwen3_snapshot
+        verify_snapshot = verify_qwen3_snapshot
+    elif consumer_profile in {"qwen2-instruct-v1", "qwen2-action-json-v1", VALIDATION_CONSUMER_PROFILE, RECOVERY_CONSUMER_PROFILE}:
         from daystrom_dml.services.qwen_model_snapshot import verify_qwen_snapshot
         verify_snapshot = verify_qwen_snapshot
     else:
         verify_snapshot = verify_local_snapshot
     with verify_snapshot(bundle) as snapshot:
         from transformers import PreTrainedTokenizerFast
-        if consumer_profile in ("qwen2-action-json-v1", VALIDATION_CONSUMER_PROFILE, RECOVERY_CONSUMER_PROFILE):
+        if consumer_profile == QWEN3_CONSUMER_PROFILE:
+            from daystrom_dml.services.qwen3_action_input import constrained_identity as qwen3_constrained_identity
+            identity = qwen3_constrained_identity(snapshot.identity, consumer_profile=consumer_profile).to_payload()
+        elif consumer_profile in ("qwen2-action-json-v1", VALIDATION_CONSUMER_PROFILE, RECOVERY_CONSUMER_PROFILE):
             from daystrom_dml.services.qwen_action_input import constrained_identity
             identity = constrained_identity(snapshot.identity, consumer_profile=consumer_profile).to_payload()
         else:

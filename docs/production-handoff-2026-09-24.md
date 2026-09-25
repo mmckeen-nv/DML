@@ -1,6 +1,56 @@
 # M7 continuation — updated 2026-09-25
 
-## Current work: attempt 11 guidance candidate
+## Current work: attempt 12 model and runtime comparison
+
+M7 remains **IN PROGRESS**. Attempt 11 completed all nine task terminals on
+published source `e08c38e3fc2fd73d94acd9f89461ed6f49db117f`: eight verifier
+successes, nineteen model calls, **20,576 known tokens** (19,362 input and 1,214
+output), and no unknown usage or effects. Both completed sequential replays
+match byte for byte and reject only `verified_model_owned_supersession`.
+The model again proposed self-supersession, received the trusted no-operation
+rejection, then finalized without the operation or a supporting citation. The
+[completion review](artifacts/agent-episode-live-completion-grader-review-attempt-11-isolated-2026-09-25.json)
+rejects M7 closure, releases only attempt 11's completed freeze, and closes the
+fixed guidance hypothesis as failed. No wording or placement iteration follows.
+
+[CI 338](https://github.com/mmckeen-nv/DML/actions/runs/36083908802) passed all
+**20 jobs on the first attempt** for that source. The
+[independent CI review](artifacts/agent-episode-ci-338-grader-review-2026-09-25.json)
+accepted **9.6/10**, including 941 mandatory model cases with zero skips, verified
+filesystem/concurrency evidence and production stress. Both broad suites passed
+4,796 cases with 341 declared skips. CI does not override the failed live gate.
+
+Attempt 12 is implemented in a distinct checkout after that full rejection
+and scoped release. It is a separately declared model/runtime capability comparison:
+`Qwen/Qwen3-1.7B`, revision `70d244cc86ccca08cf5af4e1e306ecf908b1ad5e`, under explicit
+profile `qwen3-action-json-nonthinking-bf16-v1`. Original BF16 shards and index remain
+the prepared weights, with ordinary isolated copies and complete tensor/alias
+verification. A new transport records and charges the explicit non-thinking prefix.
+The first system-message bytes, grammar, public tools, validation mechanics, tasks,
+verifier, budgets and live gates remain unchanged; old profiles and all 975 existing
+cases remain supported. No better behavior, memory fit or latency is assumed.
+
+The [full validation](artifacts/agent-episode-attempt-12-isolated-validation-2026-09-25-r2.json)
+passed **1,183 cases with zero skips, failures or errors**: all 975 retained cases
+plus 118 snapshot and 90 consumer controls. All **445 source hashes** remained
+unchanged; all three strict lint scopes and the maintained 82-file mypy scope passed.
+The first combined run stopped on two preparer typing errors after 859 passing cases.
+That failed receipt and its logs remain retained; a narrowly reviewed typing correction
+preceded this fresh full run. No trained-model attempt occurred during either validation.
+The [independent source review](artifacts/agent-episode-attempt-12-integrated-grader-review-2026-09-25.json)
+covers the corrected source and validation. Fresh exact-source CI remains required.
+Model acquisition additionally requires a reviewed helper and a fresh two-copy disk
+check with the existing 1 GiB reserve. Exact trained tensor proof, strict zero-generation
+admission, frozen specification review, one complete nine-task campaign and two
+sequential independent replays are still required. No successor model has been run.
+
+Original attempt 8 remains incomplete with its source and inputs frozen; attempts
+5–7 retain disclosed evidence gaps. PR #118 stays open and unmerged. Milestones
+1–6 are closed, M7–11 open and M12–13 deferred; 20 serial source gates plus foundations
+remain unchanged. DML remains alpha and `production_ready=false`. Raw events and logs
+stay local; published records remain compact. Earlier checkpoints below are historical.
+
+## Historical validated attempt 11 guidance candidate
 
 M7 remains **IN PROGRESS**. Attempt 10 completed all nine tasks on published
 source `443f444da6d1daa529b78c467cbe7652d40d4f1f`, with eight verifier successes,

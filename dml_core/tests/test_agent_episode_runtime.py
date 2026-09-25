@@ -690,3 +690,42 @@ def test_v3_model_can_still_finish_unsuccessfully_after_rejection_without_forced
     assert len(consumer.dispatched) == 3 and not bridge._keys
     assert sum(e['kind'] == 'tool_validation_rejected' for e in report['events']) == 1
     assert not any(e['kind'] == 'tool_requested' and e['payload']['name'] == 'supersede' for e in report['events'])
+
+
+class Qwen3ScriptedConsumer(RecoveryScriptedConsumer):
+    """Explicit synthetic plumbing only, without learned Qwen3 outputs."""
+    def compile(self, messages, tools, *, output_reserved_tokens):
+        artifact = super().compile(messages, tools, output_reserved_tokens=output_reserved_tokens)
+        return replace(artifact, identity=replace(artifact.identity,
+            runtime_identity='dml-qwen3-action-runtime-v1:' + 'c' * 64))
+
+
+def qwen3_case(tmp_path, **options):
+    from daystrom_dml.contracts.agent_episode import QWEN3_CONSUMER_PROFILE
+    return validation_case(tmp_path, consumer_profile=QWEN3_CONSUMER_PROFILE,
+                           consumer_factory=Qwen3ScriptedConsumer, **options)
+
+
+@pytest.mark.parametrize('mode', ['compile_error', 'wrong_consumer', 'input_limit', 'repeated_rejection'])
+def test_qwen3_episode_failures_keep_exact_selected_profile_and_existing_bounds(tmp_path, mode):
+    from daystrom_dml.contracts.agent_episode import QWEN3_CONSUMER_PROFILE, initial_messages
+    if mode == 'compile_error':
+        def factory(actions):
+            return Qwen3ScriptedConsumer(actions, compile_error=ValueError('synthetic refusal'))
+        report, consumer, _ = validation_case(tmp_path, consumer_profile=QWEN3_CONSUMER_PROFILE, consumer_factory=factory)
+        expected = 'model_error'
+    elif mode == 'wrong_consumer':
+        report, consumer, _ = validation_case(tmp_path, consumer_profile=QWEN3_CONSUMER_PROFILE,
+                                               consumer_factory=RecoveryScriptedConsumer)
+        expected = 'runner_error'
+    elif mode == 'input_limit':
+        report, consumer, _ = qwen3_case(tmp_path, limits=EpisodeLimits(output_tokens=16, max_input_tokens=1))
+        expected = 'token_limit'
+    else:
+        report, consumer, _ = qwen3_case(tmp_path, repeated=True)
+        expected = 'step_limit'
+    assert report['terminal']['status'] == expected
+    assert report['terminal']['consumer_profile'] == report['events'][0]['payload']['consumer_profile'] == QWEN3_CONSUMER_PROFILE
+    assert consumer.requests[0]['messages'][0] == initial_messages('x', consumer_profile=QWEN3_CONSUMER_PROFILE)[0]
+    assert len(consumer.dispatched) == (6 if mode == 'repeated_rejection' else 0)
+    validate_episode_events(report['events'])

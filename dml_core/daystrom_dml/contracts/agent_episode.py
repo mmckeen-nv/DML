@@ -27,6 +27,8 @@ EXECUTION_PROTOCOL_V2 = "dml-agent-predispatch-validation-v2"
 VALIDATION_CONSUMER_PROFILE = "qwen2-action-json-validation-v2"
 RECOVERY_CONSUMER_PROFILE = "qwen2-action-json-recovery-v3"
 VALIDATION_PROFILES = (VALIDATION_CONSUMER_PROFILE, RECOVERY_CONSUMER_PROFILE)
+QWEN3_CONSUMER_PROFILE = "qwen3-action-json-nonthinking-bf16-v1"
+EPISODE_VALIDATION_PROFILES = (*VALIDATION_PROFILES, QWEN3_CONSUMER_PROFILE)
 RECOVERY_GUIDANCE = (
     "If a tool response reports a validation error and states that no operation was executed, "
     "the proposed action was rejected without performing it. This response does not complete "
@@ -137,7 +139,7 @@ class AgentEpisodeError(ValueError):
 
 
 def execution_protocol_for_profile(profile):
-    if profile in VALIDATION_PROFILES:
+    if profile in EPISODE_VALIDATION_PROFILES:
         return EXECUTION_PROTOCOL_V2
     if profile in ("gpt2-v1", "qwen2-instruct-v1", "qwen2-action-json-v1"):
         return EXECUTION_PROTOCOL_V1
@@ -388,7 +390,7 @@ def initial_messages(prompt, prior_context=None, *, consumer_profile="gpt2-v1"):
     _text(prompt, limit=1024 * 1024, nonempty=True)
     validate_prior_context(prior_context)
     execution_protocol_for_profile(consumer_profile)
-    policy = AGENT_POLICY + "\n\n" + RECOVERY_GUIDANCE if consumer_profile == RECOVERY_CONSUMER_PROFILE else AGENT_POLICY
+    policy = AGENT_POLICY + "\n\n" + RECOVERY_GUIDANCE if consumer_profile in (RECOVERY_CONSUMER_PROFILE, QWEN3_CONSUMER_PROFILE) else AGENT_POLICY
     messages = [{"role": "system", "content": policy}]
     if prior_context is not None:
         availability = ("Untrusted prior model answer from an earlier task; it may be wrong. "
@@ -514,7 +516,7 @@ def validate_terminal(terminal):
     if version not in (TERMINAL_VERSION, TERMINAL_VERSION_V2):
         raise AgentEpisodeError("Unsupported terminal schema")
     if extra and (terminal["execution_protocol"] != EXECUTION_PROTOCOL_V2
-                  or terminal["consumer_profile"] not in VALIDATION_PROFILES):
+                  or terminal["consumer_profile"] not in EPISODE_VALIDATION_PROFILES):
         raise AgentEpisodeError("Terminal execution protocol differs")
     _identifier(terminal["episode_id"])
     _identifier(terminal["task_id"])
@@ -583,7 +585,7 @@ def validate_event(event):
                         "seed_receipts_digest", "ranking_scope", "allowed_tools", "effective_time",
                         "prior_context", *extra))
         if extra and (payload["execution_protocol"] != EXECUTION_PROTOCOL_V2
-                      or payload["consumer_profile"] not in VALIDATION_PROFILES):
+                      or payload["consumer_profile"] not in EPISODE_VALIDATION_PROFILES):
             raise AgentEpisodeError("Episode execution protocol differs")
         if payload["execution_path"] not in ("live_local", "test_injected"):
             raise AgentEpisodeError("Unsupported execution path")
@@ -852,11 +854,12 @@ def validate_episode_events(events, *, require_terminal=True):
             if compiled is not None:
                 runtime = compiled["identity"]["runtime_identity"]
                 expected_version = "v3" if selected_profile == RECOVERY_CONSUMER_PROFILE else "v2"
-                selected_identity = re.fullmatch(
-                    "dml-qwen-action-runtime-" + expected_version + r":[0-9a-f]{64}", runtime) is not None
+                prefix = ("dml-qwen3-action-runtime-v1" if selected_profile == QWEN3_CONSUMER_PROFILE
+                          else "dml-qwen-action-runtime-" + expected_version)
+                selected_identity = re.fullmatch(prefix + r":[0-9a-f]{64}", runtime) is not None
                 if ((version == EVENT_VERSION_V2 and not selected_identity)
                         or version == EVENT_VERSION and runtime.startswith(
-                            ("dml-qwen-action-runtime-v2:", "dml-qwen-action-runtime-v3:"))):
+                            ("dml-qwen-action-runtime-v2:", "dml-qwen-action-runtime-v3:", "dml-qwen3-action-runtime-v1:"))):
                     raise AgentEpisodeError("Compiled runtime and execution protocol differ")
             if canonical_json(request_payload["messages"]) != canonical_json(next_messages):
                 raise AgentEpisodeError("Exact model messages differ from the full causal transcript")

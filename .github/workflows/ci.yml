@@ -218,6 +218,10 @@ jobs:
           dml_core/daystrom_dml/services/qwen_pretrained_snapshot.py
           dml_core/daystrom_dml/services/agent_action_grammar.py
           dml_core/daystrom_dml/services/qwen_action_input.py
+          dml_core/daystrom_dml/services/qwen3_model_snapshot.py
+          dml_core/daystrom_dml/services/qwen3_pretrained_snapshot.py
+          dml_core/daystrom_dml/services/qwen3_model_input.py
+          dml_core/daystrom_dml/services/qwen3_action_input.py
           dml_core/scripts/agent_campaign_evidence.py
       - name: Record pinned runtime versions
         run: |
@@ -279,6 +283,10 @@ jobs:
           dml_core/tests/test_qwen_chat_template.py
           dml_core/tests/test_agent_action_grammar.py
           dml_core/tests/test_qwen_action_input.py
+          dml_core/tests/test_qwen3_model_snapshot.py
+          dml_core/tests/test_qwen3_pretrained_snapshot.py
+          dml_core/tests/test_qwen3_model_input.py
+          dml_core/tests/test_qwen3_action_input.py
           --junitxml=model-input-artifacts/model-input.xml
       - name: Require complete model-input and episode harness evidence without skipped tests
         run: |
@@ -301,6 +309,8 @@ jobs:
               "test_qwen_model_equivalence",
               "test_qwen_chat_template",
               "test_agent_action_grammar", "test_qwen_action_input",
+              "test_qwen3_model_snapshot", "test_qwen3_pretrained_snapshot",
+              "test_qwen3_model_input", "test_qwen3_action_input",
           }
           observed_modules = set()
           for case in report.iter("testcase"):

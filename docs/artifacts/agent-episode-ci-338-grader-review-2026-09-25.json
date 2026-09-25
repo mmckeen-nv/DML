@@ -1,0 +1,49 @@
+{
+  "accepted_for_exact_source_ci": true,
+  "compact_receipt_sha256": "e938d0bd886887d80d48f358b9118187c7e09a666753b20520ea30ef31d9b50d",
+  "findings": [],
+  "freeze_released": false,
+  "limitations": [
+    "No independent local semantic replay of the 48 concurrency histories; hashes and event envelopes were checked and the unchanged CI recorder accepted them.",
+    "Both recovery dirty flags remain true; exclusive dirty-path cause is unproven. Broad-suite skipped-case attribution is unavailable from aggregate logs.",
+    "One ordinary coordinator skip and one Python3.11 intentional-norm overflow warning remain recorded; mandatory model CPU and dedicated stress have zero skips.",
+    "Finite CI qualification does not prove fairness, arbitrary scheduler behavior, power-loss durability or trained model competence."
+  ],
+  "live_qualified": false,
+  "milestone_7_closed": false,
+  "production_ready": false,
+  "raw_scope": "Independently checked retained terminal API responses, five archive digests and relevant member digests, raw JUnit inventories, public Git blobs, actual mount observations and ordinary qualification receipts. Full-suite aggregate counts checked against logs.",
+  "recorded_at_utc": "2026-09-25T02:09:42.800257+00:00",
+  "reviewer": "/root/m7_grader",
+  "run_attempt": 1,
+  "run_id": 36083908802,
+  "run_number": 338,
+  "schema_version": "dml-agent-ci-grader-review-v1",
+  "score": 9.6,
+  "source_commit": "e08c38e3fc2fd73d94acd9f89461ed6f49db117f",
+  "source_tree": "9408378f0d66b9fc435536cb215bd7227d6a1ce4",
+  "tested_merge": "aa008946fec46606863b980de3731baab8f8345e",
+  "verified": {
+    "actual_same_root_ext4_barrier_only_readbacks": 3,
+    "complete_local_validation_published_source_blobs": 436,
+    "concurrency_history_hashes_and_event_envelopes": 48,
+    "concurrency_public_source_blobs": 217,
+    "cpu_exact_reviewed_ids_equal_803_plus_66_plus_22_plus_50": true,
+    "cpu_modules": 21,
+    "cpu_public_source_blobs": 373,
+    "dedicated_stress_clients": 256,
+    "dedicated_stress_junit_seconds": 24.012,
+    "filesystem_controls_per_linux_lane": 34,
+    "full_suites_each": {
+      "passed": 4796,
+      "skipped": 341
+    },
+    "linux_concurrency_cases": 359,
+    "linux_qualification_skips_failures_errors": 0,
+    "linux_recovery_cases_each": 460,
+    "mandatory_cpu_cases": 941,
+    "mandatory_cpu_skips_failures_errors": 0,
+    "retries": 0,
+    "terminal_jobs_success": 20
+  }
+}
