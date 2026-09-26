@@ -1,0 +1,35 @@
+{
+  "accepted_for_execution": false,
+  "accepted_for_source": true,
+  "base_commit": "a6f54953241ea644da1770dd86dc86ec6b7fda8f",
+  "blocking_findings": [],
+  "documentation_sha256": {
+    "docs/agent-episode-live-qualification-2026-09-20.md": "7d3a02e167eca7e69860fd168d5f81b5fdaf4d58751500b1d7edc11158c8bd9b",
+    "docs/production-handoff-2026-09-24.md": "5f21cdd5d94de88869d95218e66ce03cc3dab1e980e5caa5ebfae65d2bdaae08",
+    "docs/production-remaining-work-2026-09-18.md": "7fdbeb87403565cd0df4eb014b59dbdf14cb3ff10919a32da0b85a8907c1639d"
+  },
+  "independent_checks": [
+    "Exact source SHA matches previously accepted v2. AST outside _TOOL_DESCRIPTIONS is identical to public base; only retrieve and supersede values differ.",
+    "Generic guidance states read/final effects, observed mutation references, capped retrieval cardinality and persisted supersession truthfully. No fixture identifiers, expected answers, forced actions, hidden reads, parser repair, task/corpus/schema/AGENT_POLICY/verifier/gate/bound change.",
+    "Learned weights remain unchanged; descriptions deliberately change the declared action-runtime identity. Source behavior remains to be evaluated in a newly declared live experiment.",
+    "Current documentation preserves failed supersession, historical-only missing attempt-7 raw evidence, old CI timeout/retry limitation, open M7 and unmerged PR. Other milestone scope remains unchanged."
+  ],
+  "live_qualified": false,
+  "milestone_7_closed": false,
+  "production_ready": false,
+  "recorded_at_utc": "2026-09-24T22:43:39.740318+00:00",
+  "recovery_assessment_sha256": "81ff17d0218847d234870e0e30b55e8090c08272dbd460bc82a03dc57b9c534d",
+  "required_before_execution": [
+    "Fresh 436-source validation including CPU784/21 and separate filesystem34/1, both lint scopes and mypy, zero required skips/failures/errors.",
+    "Fresh verified model preparation/tensors and strict zero-generation admission.",
+    "Published exact source and independent approval of new recovery-suffixed specification before full one-shot campaign."
+  ],
+  "review_score": 9.6,
+  "reviewer": "/root/m7_grader",
+  "schema_version": "dml-agent-tool-guidance-source-grader-review-v1",
+  "scope": "One source file changes only two public tool description values. This fresh review verifies restored current source; it does not recreate the missing earlier review.",
+  "source_sha256": {
+    "dml_core/daystrom_dml/contracts/agent_episode.py": "7418cb1b59eea2b926f0503a9a7b393a2b712b0bb5cf4b02df8ad1414734eb09"
+  },
+  "validation_status": "Fresh complete integrated validation is pending; earlier missing validation and focused results are historical only and cannot substitute."
+}

@@ -1,0 +1,252 @@
+{
+  "cpu_evidence": {
+    "archive_sha256": "792f0c886bf12f2da0bcbea3aed0c4a8714022c37c6dbb4c717941287dfe6153",
+    "artifact_file_sha256": {
+      "dependencies.txt": "fe45b0a92b4fe11a5ef00471be274660ea40c7b462ddccd3b7c4724ac988fd78",
+      "model-input.xml": "9d1546437a2850e9a6d07466e6c5bc13ac1e65dd80acb93ae1bcced03f46c368",
+      "python.txt": "4c3569f5da09975434dd9fd9a91fadbc4367a91d8f3c3fab59e9241ab9ee4bd8",
+      "source-manifest.json": "18627e05794967300b7eb076f5a97f74fe22f8cea446f589f56cf677730d7b17"
+    },
+    "artifact_id": 10607306024,
+    "artifact_name": "model-input-cpu-evidence",
+    "duration_seconds": 53.955,
+    "errors": 0,
+    "failures": 0,
+    "independent_verification": "Root independently downloaded the artifact, verified the archive, JUnit and all 370 source-file hashes, fetched the tested merge commit, and confirmed its tree matches the reviewed source.",
+    "independent_verification_receipt_sha256": "4f729a46bcc80a249e44b9c5fc16b10474bd9816ce70ba21f5a1abb467f0a588",
+    "job_id": 106092918975,
+    "observed_module_test_counts": {
+      "dml_core.tests.test_agent_action_grammar": 35,
+      "dml_core.tests.test_agent_campaign_evidence": 33,
+      "dml_core.tests.test_agent_episode_adversarial": 74,
+      "dml_core.tests.test_agent_episode_cli": 28,
+      "dml_core.tests.test_agent_episode_contract": 71,
+      "dml_core.tests.test_agent_episode_runtime": 23,
+      "dml_core.tests.test_episode_outcomes": 23,
+      "dml_core.tests.test_episode_tools": 13,
+      "dml_core.tests.test_episode_verifiers": 69,
+      "dml_core.tests.test_model_input_adversarial": 57,
+      "dml_core.tests.test_model_input_contract": 109,
+      "dml_core.tests.test_model_input_integration": 7,
+      "dml_core.tests.test_model_input_runtime": 8,
+      "dml_core.tests.test_model_input_snapshot": 75,
+      "dml_core.tests.test_pretrained_snapshot": 45,
+      "dml_core.tests.test_qwen_action_input": 10,
+      "dml_core.tests.test_qwen_chat_template": 4,
+      "dml_core.tests.test_qwen_model_adversarial": 40,
+      "dml_core.tests.test_qwen_model_equivalence": 5,
+      "dml_core.tests.test_qwen_pretrained_snapshot": 31
+    },
+    "passed": 760,
+    "required_modules": 20,
+    "runtime": {
+      "apache-tvm-ffi": "0.1.12",
+      "jinja2": "3.1.6",
+      "python": "3.12.14",
+      "safetensors": "0.6.2",
+      "tokenizers": "0.22.0",
+      "torch": "2.8.0+cpu",
+      "transformers": "4.56.2",
+      "triton": "3.8.0",
+      "xgrammar": "0.2.7"
+    },
+    "skipped": 0,
+    "source_hash_mismatches": [],
+    "triton_scope": "Triton 3.8.0 was installed as a transitive dependency; the admitted execution and grammar mask backend remained CPU. This artifact records the resolved environment and does not establish GPU execution or a pinned Triton dependency.",
+    "verified_source_files": 370
+  },
+  "diagnostic_retries_requested_by_this_review": 0,
+  "evidence_scope": "exact_source_ci_and_fixture_harness_only",
+  "full_suite_skip_context": "The ordinary full-suite jobs install embedding dependencies rather than the exact model-input/agent-action runtime. Optional fixture admission requires exact CPU runtime and grammar dependency pins; the mandatory CPU lane separately executes all 760 tests with zero skips. Quiet full-suite logs do not report the complete per-test breakdown of the 250 skips; no complete skip-reason attribution is claimed.",
+  "full_suites": [
+    {
+      "conclusion": "success",
+      "downloaded_job_log_sha256": "2e88fc3940e5340d799f67b7c790e452fde9bfc37011fb4825b24d259f552a10",
+      "duration_seconds": 542.76,
+      "hygiene_smoke_passed": true,
+      "job_id": 106092918856,
+      "observed_optional_runtime": {
+        "safetensors": "0.8.0",
+        "tokenizers": "0.23.2",
+        "torch": "2.14.0",
+        "transformers": "5.17.0"
+      },
+      "passed": 4672,
+      "python": "3.10",
+      "skipped": 250,
+      "warnings": 1
+    },
+    {
+      "conclusion": "success",
+      "downloaded_job_log_sha256": "c489a47c670dbcd6363d570063153eaf57d0543c9c1382ce06e0e207284fa602",
+      "duration_seconds": 516.19,
+      "hygiene_smoke_passed": true,
+      "job_id": 106092918744,
+      "observed_optional_runtime": {
+        "safetensors": "0.8.0",
+        "tokenizers": "0.23.2",
+        "torch": "2.14.0",
+        "transformers": "5.17.0"
+      },
+      "passed": 4672,
+      "python": "3.11",
+      "skipped": 250,
+      "warnings": 2
+    }
+  ],
+  "jobs": [
+    {
+      "conclusion": "success",
+      "id": 106092918744,
+      "name": "lint-test (3.11)",
+      "status": "completed"
+    },
+    {
+      "conclusion": "success",
+      "id": 106092918824,
+      "name": "profile-filesystem-full",
+      "status": "completed"
+    },
+    {
+      "conclusion": "success",
+      "id": 106092918826,
+      "name": "profile-recovery (ubuntu-latest, 3.13)",
+      "status": "completed"
+    },
+    {
+      "conclusion": "success",
+      "id": 106092918833,
+      "name": "profile-concurrency (ubuntu-latest, full, 1,16,64,256)",
+      "status": "completed"
+    },
+    {
+      "conclusion": "success",
+      "id": 106092918840,
+      "name": "profile-concurrency (windows-latest, bounded, 1,16)",
+      "status": "completed"
+    },
+    {
+      "conclusion": "success",
+      "id": 106092918856,
+      "name": "lint-test (3.10)",
+      "status": "completed"
+    },
+    {
+      "conclusion": "success",
+      "id": 106092918858,
+      "name": "profile-concurrency (macos-latest, bounded, 1,16)",
+      "status": "completed"
+    },
+    {
+      "conclusion": "success",
+      "id": 106092918877,
+      "name": "profile-recovery (windows-latest, 3.10)",
+      "status": "completed"
+    },
+    {
+      "conclusion": "success",
+      "id": 106092918886,
+      "name": "cross-platform-portability (macos-latest, 3.13)",
+      "status": "completed"
+    },
+    {
+      "conclusion": "success",
+      "id": 106092918909,
+      "name": "production-evidence",
+      "status": "completed"
+    },
+    {
+      "conclusion": "success",
+      "id": 106092918922,
+      "name": "profile-recovery (windows-latest, 3.13)",
+      "status": "completed"
+    },
+    {
+      "conclusion": "success",
+      "id": 106092918924,
+      "name": "profile-recovery (macos-latest, 3.10)",
+      "status": "completed"
+    },
+    {
+      "conclusion": "success",
+      "id": 106092918935,
+      "name": "cross-platform-portability (ubuntu-latest, 3.13)",
+      "status": "completed"
+    },
+    {
+      "conclusion": "success",
+      "id": 106092918953,
+      "name": "cross-platform-portability (macos-latest, 3.10)",
+      "status": "completed"
+    },
+    {
+      "conclusion": "success",
+      "id": 106092918957,
+      "name": "cross-platform-portability (windows-latest, 3.13)",
+      "status": "completed"
+    },
+    {
+      "conclusion": "success",
+      "id": 106092918963,
+      "name": "cross-platform-portability (ubuntu-latest, 3.10)",
+      "status": "completed"
+    },
+    {
+      "conclusion": "success",
+      "id": 106092918975,
+      "name": "model-input-cpu",
+      "status": "completed"
+    },
+    {
+      "conclusion": "success",
+      "id": 106092919005,
+      "name": "profile-recovery (ubuntu-latest, 3.10)",
+      "status": "completed"
+    },
+    {
+      "conclusion": "success",
+      "id": 106092919020,
+      "name": "cross-platform-portability (windows-latest, 3.10)",
+      "status": "completed"
+    },
+    {
+      "conclusion": "success",
+      "id": 106092919033,
+      "name": "profile-recovery (macos-latest, 3.13)",
+      "status": "completed"
+    }
+  ],
+  "observed_job_counts": {
+    "cancelled": 0,
+    "failure": 0,
+    "pending": 0,
+    "success": 20,
+    "total": 20
+  },
+  "qualification_boundary": {
+    "current_public_source_acceptance": "rejected_pending_supervised_worker_cleanup_repair",
+    "current_public_source_grade": 9.2,
+    "milestone_7_closed": false,
+    "production_ready": false,
+    "reason": "CI success does not resolve the observed surviving-supervisor scratch leak or satisfy the complete pretrained nine-task campaign gates. The reviewed cleanup candidate still requires integration, final combined validation and a fresh qualifying campaign.",
+    "separate_isolated_cleanup_repair": {
+      "grade": 9.6,
+      "integrated_into_tested_source": false,
+      "path": "docs/artifacts/agent-episode-worker-cleanup-review-2026-09-20.json",
+      "sha256": "9ebb21ccbf182967224fd0fb294e9232fec615baff366046d8e666efe3325558"
+    },
+    "source_blocker_review": {
+      "path": "docs/artifacts/agent-episode-worker-cleanup-blocker-review-2026-09-20.json",
+      "sha256": "f9208ec744d2a7f6f1272ff083972ec4051740a4efdebc16bec2709bcbeb9e59"
+    },
+    "trained_live_qualified": false
+  },
+  "recorded_at_utc": "2026-09-20T14:44:35.022054+00:00",
+  "run_id": 35516379118,
+  "run_number": 329,
+  "run_url": "https://github.com/mmckeen-nv/DML/actions/runs/35516379118",
+  "schema_version": "dml-agent-episode-ci-receipt-v1",
+  "source_commit": "da526eb58d7556c455b2b534f9261cc68f74becf",
+  "tested_commit": "772726df7a5dd2c1038d65565cf2640d3ae225ca",
+  "tested_tree": "57e7fda56cb2dbb2aef5b0a265367dd20da39a7b"
+}

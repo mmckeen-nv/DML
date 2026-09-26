@@ -1,0 +1,77 @@
+{
+  "schema_version": "dml-feature-review-v1",
+  "feature": "bounded-projection-retry-scheduling-and-worker-ownership",
+  "base_commit": "899da3d8bf1140235c2361ae5c71c325e0df2703",
+  "reviewed_at": "2026-09-14",
+  "reviewer": "independent grading agent, separate from worker builder and adapter integration agent",
+  "minimum_accepted_score": 9.5,
+  "review_history": [
+    {
+      "score": 9.3,
+      "decision": "rejected",
+      "findings": [
+        "Backend exception formatting or attribute lookup under the lifecycle condition could kill the worker with apparently running status or prevent bounded close",
+        "Validate adapter timeout range before terminal lifecycle mutation"
+      ]
+    },
+    {
+      "score": 9.5,
+      "decision": "accepted",
+      "resolution": "Error classification and type introspection execute outside the lifecycle condition while the attempt remains in flight; classification failures become permanent faults with safe telemetry. Timeout validation precedes lifecycle changes. Blocking and raising formatter/property/metaclass regressions pass."
+    },
+    {
+      "score": 9.5,
+      "decision": "accepted",
+      "resolution": "Independent portability harness review: POSIX SIGKILL waits for signal termination with distinct failure fallback; strict -9 oracle retained. Seven corrected crash cases pass. Runtime sources unchanged; new exact-commit CI required."
+    }
+  ],
+  "score": 9.5,
+  "decision": "accepted",
+  "category_scores": {
+    "scheduling": 9.6,
+    "lifecycle": 9.5,
+    "authority_and_recovery": 9.5,
+    "observability": 9.4,
+    "tests": 9.6,
+    "maintainability": 9.4
+  },
+  "source_sha256": {
+    "dml_core/daystrom_dml/services/projection_worker.py": "f7eef191f8d30e0102b2af8409a66ae90d6de1f542d320aa8a3cedbb91552dce",
+    "dml_core/daystrom_dml/dml_adapter.py": "f3fa31a81ad7a90b240ee5e7be210be0197f4923e7f232d309214246d545f38d",
+    "dml_core/tests/test_projection_worker.py": "fa9126cf410287eacfd50b97408fa4d20d853c9c63c20297aca2e01382b782f3",
+    "dml_core/tests/test_projection_worker_integration.py": "14a0e9bdcb3e090a80a8e3454f71732afd9ca0392188c75059d10517377f964b",
+    "dml_core/tests/test_projection_worker_recovery.py": "3ea87f9203a831d872cd808736943d08ea931d04f5452348cda4c2219ae0f23d",
+    "dml_core/tests/test_projection_worker_adversarial.py": "9f66e50dbfa704d2ef3e1edff6331a5f61b46158bc4b41bdb260d1552d93ac85"
+  },
+  "verification": {
+    "independent_focused": "105 passed, zero skipped across four worker harness files",
+    "unit_cases": 79,
+    "adapter_integration_cases": 15,
+    "process_kill_cases": 7,
+    "independent_adversarial_cases": 4,
+    "coalesced_wake_start_requests": 256,
+    "full_suite": "1318 passed, 9 optional-dependency skips, 2 warnings in 56.55s",
+    "ruff": "passed",
+    "mypy": "48 maintained files passed; local Python target 3.12",
+    "hermes_hygiene": "passed",
+    "portability_correction": "7 independently rerun crash cases passed after harness-only macOS signal-delivery race correction"
+  },
+  "limitations": [
+    "Feature-specific engineering review, not whole-platform production certification",
+    "SQLite qualified backend; existing FAISS and automatic context routing excluded",
+    "No durable per-operation outbox or cross-process scheduling lease",
+    "Runtime counters and pinned observations are not durable decision replay or perpetual freshness",
+    "Backend calls and exception introspection cannot be cancelled; bounded close reports incomplete drain",
+    "Retry frequency is bounded per worker; attempts may continue indefinitely and independent workers are not globally rate-limited",
+    "Full snapshot/history verification cost remains; no growing-store or real-agent performance qualification",
+    "Final exact-commit CI is a separate integration gate recorded in the PR"
+  ],
+  "ci_history": [
+    {
+      "commit": "1e82d70b93fb9eb62638c3e2e73eb1732626569b",
+      "run_id": 34834065203,
+      "decision": "rejected",
+      "finding": "macOS3.13 worker SIGKILL raced unconditional fallback exit in seven harness cases; strict signal assertion failed. Both full/lint/type jobs and production-evidence passed; sibling platform jobs canceled."
+    }
+  ]
+}

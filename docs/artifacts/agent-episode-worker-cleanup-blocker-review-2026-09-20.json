@@ -1,0 +1,58 @@
+{
+  "active_frozen_specification": {
+    "path": "docs/artifacts/agent-episode-live-spec-attempt-4-2026-09-20.json",
+    "sha256": "5b4e70f02bf3d45e80dd2d714f7fdb63e6d569748769c666b11f7ded47ac016d"
+  },
+  "campaign_boundary": {
+    "attempt_4_preserved_and_running": true,
+    "attempt_4_source_or_specification_changed": false,
+    "next_full_campaign_required": "Attempt 4 independently lacks the required actual model-owned supersession; a new complete qualifying campaign is necessary regardless of this cleanup defect. Integrate the reviewed repair before that next freeze.",
+    "old_campaign_will_not_be_retagged_as_repaired_source": true,
+    "preflight_model_generations_before_verified_cleanup": 0
+  },
+  "decision": "rejected_pending_supervised_worker_cleanup_repair",
+  "finding": {
+    "independent_evidence_assessment": "The retained preflight record binds all four copied file hashes to the unchanged frozen native snapshot and records matching timestamps. It reports one verified abandoned same-user copy removed before launch, with historical bundles and authority/evidence preserved. The reviewer independently inspected the receipt and source; the already-removed directory cannot be reinspected.",
+    "mechanism": "Snapshot admission creates child-owned TemporaryDirectory copies in global temporary storage. The surviving supervisor terminates or kills the worker but owns no path to reclaim. Abrupt termination bypasses child finalizers. Repeated supervised timeouts can therefore exhaust disk.",
+    "observed": "Attempt 3 reached its fixed 300-second worker deadline and left a sealed private model snapshot. The abandoned model file alone is 6,174,895,536 bytes; the next campaign preflight stopped for insufficient free disk before any model invocation.",
+    "scope": "This is the responsibility of a surviving supervisor that deliberately stops its child. It is distinct from deferred whole-parent-crash reclamation and is not excused by that limitation.",
+    "severity": "blocking_resource_lifecycle_defect",
+    "source_inspection": [
+      "services/agent_episode.py:_supervise terminates and joins children without scratch ownership or reclamation.",
+      "services/qwen_model_snapshot.py:verify_qwen_snapshot creates dml-qwen-input temporary copies.",
+      "services/model_input_snapshot.py:verify_local_snapshot creates dml-model-input temporary copies."
+    ]
+  },
+  "historical_evidence_mutated": false,
+  "milestone": 7,
+  "milestone_7_closed": false,
+  "minimum_acceptable_score": 9.5,
+  "prior_review": {
+    "path": "docs/artifacts/agent-episode-action-review-2026-09-20.json",
+    "sha256": "1c661cb04a6d4d920aa269a18983870590a30f37d376b92af026007efe4b021e"
+  },
+  "production_ready": false,
+  "recorded_at_utc": "2026-09-20T14:31:56.634591+00:00",
+  "required_repair": [
+    "Parent creates and owns one unique private scratch directory per worker; temporary snapshot copies in that child are confined beneath it without modifying caller source snapshots or persistent authority.",
+    "After completion, startup failure, timeout, malformed transport or explicit worker death, confirm the child is dead before reclaiming only this owned directory. Never glob or reclaim unrelated temporary directories.",
+    "Handle sealed read-only files/directories safely; do not follow symlink escapes or touch sibling, authority, source or historical evidence sentinels.",
+    "An unconfirmed child death or cleanup failure must produce an explicit failed runner outcome while retaining observed events and truthful known/unknown accounting.",
+    "Meaningful controls must exercise real spawned termination after an admitted private snapshot exists, ordinary completion and startup failure, isolation sentinels, and injected cleanup/unconfirmed-death failures.",
+    "Review the narrow repair, validate unchanged source hashes and required CI, then include it in the next frozen full campaign. Parent death remains a separately documented limitation."
+  ],
+  "retained_preflight_evidence": {
+    "path": "docs/artifacts/agent-episode-live-preflight-attempt-4-2026-09-20.json",
+    "sha256": "1023436074856b52d622b875cfc42b822531772034a23b6807c4355c5ce5a367"
+  },
+  "reviewer": "independent delegated m7_final_grader",
+  "schema_version": "dml-independent-source-blocker-review-v1",
+  "score": 9.2,
+  "score_scope": "Current source acceptance reassessed after a concrete resource-lifecycle defect was observed. Prior reviews remain immutable historical assessments, not final acceptance despite new evidence.",
+  "source": {
+    "commit": "da526eb58d7556c455b2b534f9261cc68f74becf",
+    "supervisor_sha256": "66bd312ebc818d8cd78773623aab04b8844547d4d9bf51d2b3bd90a08055dde1",
+    "tree": "57e7fda56cb2dbb2aef5b0a265367dd20da39a7b"
+  },
+  "trained_live_qualified": false
+}

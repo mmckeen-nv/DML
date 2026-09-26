@@ -1,0 +1,50 @@
+{
+  "schema_version": "dml-agent-episode-windows-review-v1",
+  "recorded_at": "2026-09-20",
+  "review_scope": "CI326 Windows test parameter identifiers only",
+  "parent_source": "f29befba8a45eecc359fa2edba26f619485099a1",
+  "reviewed_files": {
+    "dml_core/tests/test_agent_episode_contract.py": "ae25fb19bacb9308cc714cb352ff89acaabb77d4f773a9c4092e57691d3ad6ce"
+  },
+  "independent_review": {
+    "reviewer": "m7_final_grader",
+    "score": 9.8,
+    "threshold": 9.5,
+    "accepted": true,
+    "blocking_findings": [],
+    "method": "Compared AST with parent source after removing the sole ids keyword; all ten malformed payloads and assertions unchanged. Independently parsed retained focused JUnit."
+  },
+  "rejected_ci": {
+    "run_id": 35500751139,
+    "run_number": 326,
+    "url": "https://github.com/mmckeen-nv/DML/actions/runs/35500751139",
+    "source": "f29befba8a45eecc359fa2edba26f619485099a1",
+    "jobs": {
+      "success": 18,
+      "failure": 1,
+      "cancelled": 1
+    },
+    "failure_job": 106051965773,
+    "cancelled_job": 106051965741,
+    "cause": "Pytest put the 65,537-character oversized-input parameter into PYTEST_CURRENT_TEST, exceeding the Windows environment-variable limit before the case body executed."
+  },
+  "repair": "Explicit bounded case IDs preserve all adversarial payloads and assertions.",
+  "local_evidence": {
+    "focused": {
+      "passed": 151,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "junit_sha256": "f13a1259d7f0b29347df9a06270018435838ecda33e90dabf91e913dd76a6e55"
+    },
+    "collected_portability_cases": 2924,
+    "max_current_test_utf16_units": 2156,
+    "windows_variable_limit_utf16_units": 32767,
+    "oversized_case_node_id_characters": 99,
+    "ruff": "passed"
+  },
+  "limitations": [
+    "Local validation was Linux CPython 3.12; native Windows CI is pending at review freeze.",
+    "This repair does not establish trained-model campaign qualification or close milestone 7."
+  ]
+}

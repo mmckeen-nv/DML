@@ -1,0 +1,193 @@
+{
+  "schema": "dml-m7-dense-outcome-v1",
+  "recorded_at_utc": "2026-09-26T03:23:06.477482+00:00",
+  "milestone_7_closed": false,
+  "decision": "Completed sampled campaign rejected: model-owned supersession absent; both requested task corrections remain unresolved. Source CI qualified.",
+  "source": {
+    "repository": "mmckeen-nv/DML",
+    "commit": "7838cce671d76a1e18c71b53b29518055dbc2d73",
+    "tree": "76596ec979dd7d76932886e5d9ce7f0db7c53a36",
+    "pr": "https://github.com/mmckeen-nv/DML/pull/118",
+    "pr_state": "open_unmerged"
+  },
+  "ci": {
+    "run": "https://github.com/mmckeen-nv/DML/actions/runs/36212861681",
+    "source_ci_qualified": true,
+    "first_attempt_successes": 20,
+    "reruns": 0,
+    "mandatory_cpu_cases": 1192,
+    "mandatory_cpu_skips": 0,
+    "local_cases": 1226,
+    "local_skips": 0,
+    "local_validation_note": "Initial mypy target/stub mismatch retained; corrected local Python3.12 target passed the same82-file scope. Source unchanged."
+  },
+  "model": {
+    "id": "Qwen/Qwen3-1.7B",
+    "revision": "70d244cc86ccca08cf5af4e1e306ecf908b1ad5e",
+    "consumer_profile": "qwen3-action-json-nonthinking-sampled-bf16-v1",
+    "sampling": {
+      "temperature": 0.7,
+      "top_p": 0.8,
+      "top_k": 20,
+      "min_p": 0,
+      "seed_per_call": 0
+    }
+  },
+  "campaign": {
+    "attempted_tasks": 9,
+    "complete_terminals": 9,
+    "verifier_successes": 7,
+    "model_calls": 18,
+    "input_tokens": 17966,
+    "output_tokens": 1137,
+    "total_tokens": 19103,
+    "unknown_usage_tasks": 0,
+    "unknown_effect_tasks": 0,
+    "wall_seconds": 782.219452133002,
+    "intent_count": 8,
+    "automatic_retries": 0,
+    "tasks": [
+      {
+        "task": "preserve_conflict",
+        "terminal": "completed",
+        "verifier_success": true,
+        "verifier_reasons": [],
+        "model_calls": 2,
+        "input_tokens": 1976,
+        "output_tokens": 163
+      },
+      {
+        "task": "supersede_then_answer",
+        "terminal": "completed",
+        "verifier_success": false,
+        "verifier_reasons": [
+          "unverified_supersession"
+        ],
+        "model_calls": 2,
+        "input_tokens": 2279,
+        "output_tokens": 127
+      },
+      {
+        "task": "retain_both_sources",
+        "terminal": "completed",
+        "verifier_success": true,
+        "verifier_reasons": [],
+        "model_calls": 2,
+        "input_tokens": 1963,
+        "output_tokens": 131
+      },
+      {
+        "task": "ignore_memory_instruction",
+        "terminal": "completed",
+        "verifier_success": true,
+        "verifier_reasons": [],
+        "model_calls": 2,
+        "input_tokens": 1903,
+        "output_tokens": 125
+      },
+      {
+        "task": "use_current_endpoint",
+        "terminal": "completed",
+        "verifier_success": true,
+        "verifier_reasons": [],
+        "model_calls": 2,
+        "input_tokens": 1909,
+        "output_tokens": 130
+      },
+      {
+        "task": "read_both_commits",
+        "terminal": "completed",
+        "verifier_success": false,
+        "verifier_reasons": [
+          "claim_coverage_mismatch"
+        ],
+        "model_calls": 2,
+        "input_tokens": 1919,
+        "output_tokens": 133
+      },
+      {
+        "task": "first_recall",
+        "terminal": "completed",
+        "verifier_success": true,
+        "verifier_reasons": [],
+        "model_calls": 2,
+        "input_tokens": 1916,
+        "output_tokens": 131
+      },
+      {
+        "task": "recall_after_correction",
+        "terminal": "completed",
+        "verifier_success": true,
+        "verifier_reasons": [],
+        "model_calls": 2,
+        "input_tokens": 2198,
+        "output_tokens": 72
+      },
+      {
+        "task": "keep_import_untrusted",
+        "terminal": "completed",
+        "verifier_success": true,
+        "verifier_reasons": [],
+        "model_calls": 2,
+        "input_tokens": 1903,
+        "output_tokens": 125
+      }
+    ]
+  },
+  "qualification_gates": {
+    "actual_predecessor_context": true,
+    "all_attempts_generated": true,
+    "all_intents_reached_retrieval_and_final": true,
+    "complete_failure_inclusive_evidence": true,
+    "verified_model_owned_supersession": false
+  },
+  "replays": {
+    "primary_completed": true,
+    "independent_completed": true,
+    "sequential": true,
+    "evidence_byte_identical": true,
+    "evidence_sha256": "cebfe90df89e02e76d466d7f4887e0a540d8b0c3aba64a2a01e7de38348fd917"
+  },
+  "grader": {
+    "grade": 7.0,
+    "accepted_for_milestone_completion": false,
+    "reason": "Supersession retrieves current preference only and finalizes without mutation. Concurrent-commits answer includes validation.status only, omitting deployment.owner.",
+    "freeze_release": "Only completed attempt13; prior incomplete freezes and evidence gaps remain unchanged."
+  },
+  "release_status": {
+    "closed": 6,
+    "open": [
+      7,
+      8,
+      9,
+      10,
+      11
+    ],
+    "deferred": [
+      12,
+      13
+    ],
+    "active": 7,
+    "maturity": "alpha/candidate",
+    "production_ready": false
+  },
+  "next_work": "A separately identified Qwen2.5-3B original-BF16 runtime is being prepared as one different-model comparison; no quality or task-resolution claim before actual admission and full campaign.",
+  "limits_of_evidence": [
+    "No general model-quality ranking from one campaign.",
+    "Time to first token was not measured.",
+    "Repeated-error rate is undefined with zero known repeat opportunities.",
+    "All task successes were not a predeclared M7 gate; both named task successes are separately required to call this user request resolved."
+  ],
+  "sha256": {
+    "specification": "13a5c707fb134dda7dea19ccd27b60269914aa8b9d22be89c726fa380ea758cc",
+    "admission": "dbfda7940858f33734e224d6ed2f67d01ebb38cf108578237f7bb171c6891af6",
+    "campaign": "c520483d0d96ea1f0a1153f14279282549002d94cf58e72565929cd421473776",
+    "execution": "cfa8ad3dbb0732e20bac0f9195105bf7d6a905dc0282f94431167784a98a5466",
+    "primary_evidence": "cebfe90df89e02e76d466d7f4887e0a540d8b0c3aba64a2a01e7de38348fd917",
+    "primary_receipt": "a8e457a214b4e94297c3462426a7955b00e078caec405920311411fae829a254",
+    "independent_receipt": "13eec4a7e7093be3857e896c8a0ebb399af0ee8d3cd55b7dde197654f631e415",
+    "completion_review": "4d3c61a5096638cc9245f0244517dc12ec5d4b834198d43cde3807b1da390038",
+    "ci_qualification": "2d79360f0195098b9c04cb8e6b790188abb2935af5d79b59adf5455c53c3fe54"
+  },
+  "raw_logs_or_campaign_traces_uploaded": false
+}

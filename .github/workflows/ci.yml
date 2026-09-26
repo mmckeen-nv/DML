@@ -13,11 +13,24 @@ jobs:
       matrix:
         python-version: ["3.10", "3.11"]
     env:
+      OPENBLAS_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
       DML_CI_RUFF_TARGETS: >-
         dml_core/daystrom_dml/personality_matrix.py
         dml_core/daystrom_dml/config.py
         dml_core/daystrom_dml/settings.py
         dml_core/daystrom_dml/context
+        dml_core/daystrom_dml/services
+        dml_core/daystrom_dml/journal.py
+        dml_core/daystrom_dml/atomic_io.py
+        dml_core/daystrom_dml/store_lock.py
+        dml_core/daystrom_dml/persistence.py
+        dml_core/daystrom_dml/checkpoint.py
+        dml_core/daystrom_dml/contracts/retention.py
+        dml_core/daystrom_dml/contracts/profile.py
+        dml_core/daystrom_dml/contracts/production.py
+        dml_core/daystrom_dml/contracts/model_input.py
+        dml_core/daystrom_dml/contracts/agent_episode.py
         integrations/hermes/plugins/daystrom_dml
         dml_core/daystrom_dml/tests/test_dml.py
       DML_CI_MYPY_TARGETS: >-
@@ -25,12 +38,22 @@ jobs:
         dml_core/daystrom_dml/config.py
         dml_core/daystrom_dml/settings.py
         dml_core/daystrom_dml/context
+        dml_core/daystrom_dml/services
         dml_mcp/dml_mcp_server.py
+        dml_core/daystrom_dml/journal.py
+        dml_core/daystrom_dml/checkpoint.py
+        dml_core/daystrom_dml/contracts/retention.py
+        dml_core/daystrom_dml/contracts/profile.py
+        dml_core/daystrom_dml/contracts/production.py
+        dml_core/daystrom_dml/contracts/model_input.py
+        dml_core/daystrom_dml/contracts/agent_episode.py
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
+      - name: Require patched SQLite runtime
+        run: python .github/scripts/prepare_sqlite.py
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
@@ -53,18 +76,99 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
+        if: runner.os != 'macOS'
         with:
           python-version: ${{ matrix.python-version }}
+      - name: Provision Homebrew CPython with dynamic SQLite on macOS
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          DML_PYTHON_MINOR: ${{ matrix.python-version }}
+        run: |
+          case "$DML_PYTHON_MINOR" in 3.10|3.13) ;; *) exit 1 ;; esac
+          brew install "python@$DML_PYTHON_MINOR"
+          python_prefix=$(brew --prefix "python@$DML_PYTHON_MINOR")
+          "$python_prefix/bin/python$DML_PYTHON_MINOR" -m venv "$RUNNER_TEMP/dml-python"
+          echo "$RUNNER_TEMP/dml-python/bin" >> "$GITHUB_PATH"
+      - name: Require patched SQLite runtime
+        run: python .github/scripts/prepare_sqlite.py --expected-python ${{ matrix.python-version }}
       - name: Install portability-test dependencies
         run: python -m pip install -e .[faiss] pytest httpx2
       - name: Verify locks, atomic persistence, rollback, RAG recovery, and wrapper paths
         env:
           PYTHONPATH: dml_core
           DML_SKIP_VENV_REEXEC: "1"
+          OPENBLAS_NUM_THREADS: "1"
+          OMP_NUM_THREADS: "1"
         run: >-
           python -m pytest
           dml_core/tests/test_store_lock.py
           dml_core/tests/test_atomic_io.py
+          dml_core/tests/test_production_foundations.py
+          dml_core/tests/test_journal_hardening.py
+          dml_core/tests/test_checkpoint_hardening.py
+          dml_core/tests/test_receipt_ingestion.py
+          dml_core/tests/test_receipt_adapter.py
+          dml_core/tests/test_receipt_embedding_contract.py
+          dml_core/tests/test_projection.py
+          dml_core/tests/test_projection_queries.py
+          dml_core/tests/test_projection_delta.py
+          dml_core/tests/test_projection_delta_integration.py
+          dml_core/tests/test_projection_worker.py
+          dml_core/tests/test_projection_worker_integration.py
+          dml_core/tests/test_projection_worker_recovery.py
+          dml_core/tests/test_projection_worker_adversarial.py
+          dml_core/tests/test_journal_outbox.py
+          dml_core/tests/test_outbox_delivery.py
+          dml_core/tests/test_outbox_integration.py
+          dml_core/tests/test_outbox_recovery.py
+          dml_core/tests/test_outbox_adversarial.py
+          dml_core/tests/test_outbox_migration.py
+          dml_core/tests/test_migrated_outbox_delivery.py
+          dml_core/tests/test_outbox_migration_integration.py
+          dml_core/tests/test_outbox_migration_recovery.py
+          dml_core/tests/test_migration_adversarial.py
+          dml_core/tests/test_receipt_retirement.py
+          dml_core/tests/test_retirement_integration.py
+          dml_core/tests/test_retirement_recovery.py
+          dml_core/tests/test_retirement_adversarial.py
+          dml_core/tests/test_receipt_supersession.py
+          dml_core/tests/test_supersession_integration.py
+          dml_core/tests/test_supersession_recovery.py
+          dml_core/tests/test_supersession_adversarial.py
+          dml_core/tests/test_receipt_update.py
+          dml_core/tests/test_content_update_integration.py
+          dml_core/tests/test_content_update_recovery.py
+          dml_core/tests/test_content_update_adversarial.py
+          dml_core/tests/test_receipt_promotion.py
+          dml_core/tests/test_promotion_integration.py
+          dml_core/tests/test_promotion_recovery.py
+          dml_core/tests/test_promotion_adversarial.py
+          dml_core/tests/test_retention.py
+          dml_core/tests/test_retention_integration.py
+          dml_core/tests/test_retention_recovery.py
+          dml_core/tests/test_retention_adversarial.py
+          dml_core/tests/test_retrieval_service.py
+          dml_core/tests/test_context_service.py
+          dml_core/tests/test_retrieval_context_integration.py
+          dml_core/tests/test_retrieval_context_adversarial.py
+          dml_core/tests/test_transaction_service.py
+          dml_core/tests/test_persistence_service.py
+          dml_core/tests/test_transaction_integration.py
+          dml_core/tests/test_transaction_recovery.py
+          dml_core/tests/test_transaction_adversarial.py
+          dml_core/tests/test_production_profile.py
+          dml_core/tests/test_production_profile_config.py
+          dml_core/tests/test_production_profile_integration.py
+          dml_core/tests/test_production_profile_api.py
+          dml_core/tests/test_production_profile_adversarial.py
+          dml_core/tests/test_model_input_contract.py
+          dml_core/tests/test_model_input_snapshot.py
+          dml_core/tests/test_agent_episode_contract.py
+          dml_core/tests/test_episode_outcomes.py
+          dml_core/tests/test_episode_verifiers.py
+          dml_core/tests/test_adversarial_memory.py
+          dml_core/tests/test_outcome_metrics.py
           dml_core/tests/test_fail_closed_persistence.py
           dml_core/tests/test_rag_store.py
           dml_core/daystrom_dml/tests/test_performance.py
@@ -73,3 +177,458 @@ jobs:
           dml_core/daystrom_dml/tests/context/test_working_set.py
           openclaw-wrapper/tests/test_dml_memory.py
           -q
+
+  model-input-cpu:
+    runs-on: ubuntu-latest
+    env:
+      OPENBLAS_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+      TOKENIZERS_PARALLELISM: "false"
+      REQUIRE_MODEL_INPUT_TESTS: "1"
+      DML_SKIP_VENV_REEXEC: "1"
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Require patched SQLite runtime
+        run: python .github/scripts/prepare_sqlite.py
+      - name: Install pinned CPU model-input dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install torch==2.8.0 --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install '.[agent-action,dev]'
+      - name: Strict lint of exact model-input surfaces
+        run: ruff check dml_core/daystrom_dml/contracts/model_input.py dml_core/daystrom_dml/services/model_input.py dml_core/daystrom_dml/services/model_input_snapshot.py
+      - name: Strict lint of agent episode companion
+        run: >-
+          ruff check
+          dml_core/daystrom_dml/contracts/agent_episode.py
+          dml_core/daystrom_dml/services/agent_episode.py
+          dml_core/daystrom_dml/services/episode_tools.py
+          dml_core/daystrom_dml/services/episode_outcomes.py
+          dml_core/daystrom_dml/services/episode_verifiers.py
+          dml_core/scripts/agent_episodes.py
+          dml_core/daystrom_dml/services/pretrained_snapshot.py
+          dml_core/daystrom_dml/services/qwen_model_snapshot.py
+          dml_core/daystrom_dml/services/qwen_model_input.py
+          dml_core/daystrom_dml/services/qwen_pretrained_snapshot.py
+          dml_core/daystrom_dml/services/agent_action_grammar.py
+          dml_core/daystrom_dml/services/qwen_action_input.py
+          dml_core/daystrom_dml/services/qwen3_model_snapshot.py
+          dml_core/daystrom_dml/services/qwen3_pretrained_snapshot.py
+          dml_core/daystrom_dml/services/qwen3_model_input.py
+          dml_core/daystrom_dml/services/qwen3_action_input.py
+          dml_core/daystrom_dml/services/qwen2_bf16_model_snapshot.py
+          dml_core/daystrom_dml/services/qwen2_bf16_pretrained_snapshot.py
+          dml_core/daystrom_dml/services/qwen2_bf16_model_input.py
+          dml_core/daystrom_dml/services/qwen2_bf16_action_input.py
+          dml_core/scripts/agent_campaign_evidence.py
+      - name: Record pinned runtime versions
+        run: |
+          mkdir -p model-input-artifacts
+          python -m pip freeze > model-input-artifacts/dependencies.txt
+          python --version > model-input-artifacts/python.txt
+      - name: Bind model-input and episode evidence to exact source
+        env:
+          DML_REVIEWED_PR_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          import subprocess
+
+          def git(*args):
+              return subprocess.check_output(["git", *args], text=True).strip()
+
+          tracked = subprocess.check_output(["git", "ls-files", "-z"]).decode().split("\0")
+          configuration = {".github/workflows/ci.yml", ".github/scripts/prepare_qualification_filesystem.py", "pyproject.toml", "setup.py", "mypy.ini", "ruff.toml"}
+          paths = sorted(path for path in tracked if path and (
+              path.startswith(("dml_core/daystrom_dml/", "dml_core/tests/", "dml_core/scripts/"))
+              or path in configuration))
+          manifest = {
+              "schema_version": "dml-episode-ci-source-v1",
+              "evidence_scope": "source_and_fixture_harness_only",
+              "trained_model_qualification": False,
+              "reviewed_pr_head": os.environ["DML_REVIEWED_PR_HEAD"],
+              "tested_commit": git("rev-parse", "HEAD"),
+              "tested_tree": git("rev-parse", "HEAD^{tree}"),
+              "files": {path: hashlib.sha256(Path(path).read_bytes()).hexdigest() for path in paths},
+          }
+          Path("model-input-artifacts/source-manifest.json").write_text(
+              json.dumps(manifest, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+          PY
+      - name: Verify model-input CPU execution and bounded episode harness
+        run: >-
+          python -m pytest
+          dml_core/tests/test_model_input_contract.py
+          dml_core/tests/test_model_input_snapshot.py
+          dml_core/tests/test_model_input_runtime.py
+          dml_core/tests/test_model_input_integration.py
+          dml_core/tests/test_model_input_adversarial.py
+          dml_core/tests/test_agent_episode_contract.py
+          dml_core/tests/test_episode_outcomes.py
+          dml_core/tests/test_episode_verifiers.py
+          dml_core/tests/test_agent_episode_adversarial.py
+          dml_core/tests/test_agent_episode_runtime.py
+          dml_core/tests/test_episode_tools.py
+          dml_core/tests/test_agent_episode_cli.py
+          dml_core/tests/test_pretrained_snapshot.py
+          dml_core/tests/test_agent_campaign_evidence.py
+          dml_core/tests/test_qwen_model_adversarial.py
+          dml_core/tests/test_qwen_pretrained_snapshot.py
+          dml_core/tests/test_qwen_coder_pretrained_snapshot.py
+          dml_core/tests/test_qwen_model_equivalence.py
+          dml_core/tests/test_qwen_chat_template.py
+          dml_core/tests/test_agent_action_grammar.py
+          dml_core/tests/test_qwen_action_input.py
+          dml_core/tests/test_qwen3_model_snapshot.py
+          dml_core/tests/test_qwen3_pretrained_snapshot.py
+          dml_core/tests/test_qwen3_model_input.py
+          dml_core/tests/test_qwen3_action_input.py
+          dml_core/tests/test_qwen3_sampled_action_input.py
+          dml_core/tests/test_qwen3_sampled_profile.py
+          dml_core/tests/test_qwen2_bf16_model_snapshot.py
+          dml_core/tests/test_qwen2_bf16_pretrained_snapshot.py
+          dml_core/tests/test_qwen2_bf16_model_input.py
+          dml_core/tests/test_qwen2_bf16_action_input.py
+          dml_core/tests/test_qwen2_bf16_profile.py
+          --junitxml=model-input-artifacts/model-input.xml
+      - name: Require complete model-input and episode harness evidence without skipped tests
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+          report = ET.parse(Path("model-input-artifacts/model-input.xml")).getroot()
+          counts = {name: len(list(report.iter(name))) for name in ("testcase", "failure", "error", "skipped")}
+          required_modules = {
+              "test_model_input_contract", "test_model_input_snapshot", "test_model_input_runtime",
+              "test_model_input_integration", "test_model_input_adversarial",
+              "test_agent_episode_contract", "test_episode_outcomes",
+              "test_episode_verifiers", "test_agent_episode_adversarial",
+              "test_agent_episode_runtime", "test_episode_tools",
+              "test_agent_episode_cli",
+              "test_pretrained_snapshot", "test_agent_campaign_evidence",
+              "test_qwen_model_adversarial",
+              "test_qwen_pretrained_snapshot",
+              "test_qwen_coder_pretrained_snapshot",
+              "test_qwen_model_equivalence",
+              "test_qwen_chat_template",
+              "test_agent_action_grammar", "test_qwen_action_input",
+              "test_qwen3_model_snapshot", "test_qwen3_pretrained_snapshot",
+              "test_qwen3_model_input", "test_qwen3_action_input",
+              "test_qwen3_sampled_action_input", "test_qwen3_sampled_profile",
+              "test_qwen2_bf16_model_snapshot", "test_qwen2_bf16_pretrained_snapshot",
+              "test_qwen2_bf16_model_input", "test_qwen2_bf16_action_input", "test_qwen2_bf16_profile",
+          }
+          observed_modules = set()
+          for case in report.iter("testcase"):
+              observed_modules.update(required_modules.intersection(case.get("classname", "").split(".")))
+          print(counts)
+          if counts["testcase"] <= 0 or any(counts[name] for name in ("failure", "error", "skipped")):
+              raise SystemExit("Required model-input evidence must contain passing tests and zero skips")
+          if observed_modules != required_modules:
+              raise SystemExit("Missing required model-input test modules: " + ", ".join(sorted(required_modules - observed_modules)))
+          PY
+      - name: Preserve exact model-input evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: model-input-cpu-evidence
+          path: model-input-artifacts/
+
+  production-evidence:
+    runs-on: ubuntu-latest
+    env:
+      OPENBLAS_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+      DML_SKIP_VENV_REEXEC: "1"
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - name: Require patched SQLite runtime
+        run: python .github/scripts/prepare_sqlite.py
+      - name: Install CPU evidence dependencies
+        run: python -m pip install .[server,dev]
+      - name: Stress 256 concurrent journal clients
+        env:
+          DML_STRESS_CLIENTS: "256"
+        run: python -m pytest dml_core/tests/test_production_foundations.py::test_concurrent_clients_use_compare_and_swap_without_lost_updates --junitxml=production-artifacts/concurrency.xml
+      - name: Stress 256 clients retrying one receipt key
+        env:
+          DML_STRESS_CLIENTS: "256"
+        run: python -m pytest dml_core/tests/test_receipt_ingestion.py::test_same_key_thread_clients_commit_one_receipt --junitxml=production-artifacts/receipt-concurrency.xml
+      - name: Stress 256 duplicate projection publishers
+        env:
+          DML_STRESS_CLIENTS: "256"
+        run: python -m pytest dml_core/tests/test_projection.py::test_concurrent_duplicate_publishers_publish_one_target_revision --junitxml=production-artifacts/projection-concurrency.xml
+      - name: Stress 256 duplicate delta deliveries
+        env:
+          DML_STRESS_CLIENTS: "256"
+        run: python -m pytest dml_core/tests/test_projection_delta.py::test_duplicate_concurrent_deliveries_commit_once --junitxml=production-artifacts/delta-concurrency.xml
+      - name: Stress 256 ordered outbox consumers
+        env:
+          DML_STRESS_CLIENTS: "256"
+        run: python -m pytest dml_core/tests/test_outbox_delivery.py::test_concurrent_duplicate_delivery_commits_each_event_once --junitxml=production-artifacts/outbox-concurrency.xml
+      - name: Stress 256 migrated outbox consumers
+        env:
+          DML_STRESS_CLIENTS: "256"
+        run: python -m pytest dml_core/tests/test_migrated_outbox_delivery.py::test_concurrent_baseline_binding_and_replay_commits_once --junitxml=production-artifacts/migrated-outbox-concurrency.xml
+      - name: Stress 256 simultaneous retirement clients
+        env:
+          DML_STRESS_CLIENTS: "256"
+        run: python -m pytest dml_core/tests/test_retirement_recovery.py::test_simultaneous_retirement_clients_commit_one_transition --junitxml=production-artifacts/retirement-concurrency.xml
+      - name: Stress 256 simultaneous supersession clients
+        env:
+          DML_STRESS_CLIENTS: "256"
+        run: python -m pytest dml_core/tests/test_supersession_recovery.py::test_simultaneous_supersession_clients_commit_one_transition --junitxml=production-artifacts/supersession-concurrency.xml
+      - name: Stress 256 simultaneous content-update clients
+        env:
+          DML_STRESS_CLIENTS: "256"
+        run: python -m pytest dml_core/tests/test_content_update_recovery.py::test_simultaneous_content_update_clients_commit_one_transition --junitxml=production-artifacts/content-update-concurrency.xml
+      - name: Stress 256 simultaneous promotion clients
+        env:
+          DML_STRESS_CLIENTS: "256"
+        run: python -m pytest dml_core/tests/test_promotion_recovery.py::test_simultaneous_promotion_clients_commit_one_transition --junitxml=production-artifacts/promotion-concurrency.xml
+      - name: Stress 256 simultaneous retention readers
+        env:
+          DML_STRESS_CLIENTS: "256"
+        run: python -m pytest dml_core/tests/test_retention_recovery.py::test_simultaneous_retention_readers_leave_authority_unchanged --junitxml=production-artifacts/retention-concurrency.xml
+      - name: Stress 256 mixed transaction clients
+        env:
+          DML_TRANSACTION_CLIENTS: "256"
+        run: python -m pytest dml_core/tests/test_transaction_recovery.py::test_mixed_adapter_clients_preserve_independent_committed_history --junitxml=production-artifacts/transaction-concurrency.xml
+      - name: Record serial recovery harness outcomes
+        run: python -m pytest dml_core/tests/test_journal_hardening.py dml_core/tests/test_checkpoint_hardening.py dml_core/tests/test_receipt_ingestion.py dml_core/tests/test_receipt_adapter.py dml_core/tests/test_receipt_embedding_contract.py dml_core/tests/test_projection.py dml_core/tests/test_projection_queries.py dml_core/tests/test_projection_delta.py dml_core/tests/test_projection_delta_integration.py dml_core/tests/test_projection_worker.py dml_core/tests/test_projection_worker_integration.py dml_core/tests/test_projection_worker_recovery.py dml_core/tests/test_projection_worker_adversarial.py dml_core/tests/test_journal_outbox.py dml_core/tests/test_outbox_delivery.py dml_core/tests/test_outbox_integration.py dml_core/tests/test_outbox_recovery.py dml_core/tests/test_outbox_adversarial.py dml_core/tests/test_outbox_migration.py dml_core/tests/test_migrated_outbox_delivery.py dml_core/tests/test_outbox_migration_integration.py dml_core/tests/test_outbox_migration_recovery.py dml_core/tests/test_migration_adversarial.py dml_core/tests/test_receipt_retirement.py dml_core/tests/test_retirement_integration.py dml_core/tests/test_retirement_recovery.py dml_core/tests/test_retirement_adversarial.py dml_core/tests/test_receipt_supersession.py dml_core/tests/test_supersession_integration.py dml_core/tests/test_supersession_recovery.py dml_core/tests/test_supersession_adversarial.py dml_core/tests/test_receipt_update.py dml_core/tests/test_content_update_integration.py dml_core/tests/test_content_update_recovery.py dml_core/tests/test_content_update_adversarial.py dml_core/tests/test_receipt_promotion.py dml_core/tests/test_promotion_integration.py dml_core/tests/test_promotion_recovery.py dml_core/tests/test_promotion_adversarial.py dml_core/tests/test_retention.py dml_core/tests/test_retention_integration.py dml_core/tests/test_retention_recovery.py dml_core/tests/test_retention_adversarial.py --junitxml=production-artifacts/recovery.xml
+      - name: Verify scoped retrieval and context boundary
+        run: python -m pytest dml_core/tests/test_retrieval_service.py dml_core/tests/test_context_service.py dml_core/tests/test_retrieval_context_integration.py dml_core/tests/test_retrieval_context_adversarial.py --junitxml=production-artifacts/retrieval-context.xml
+      - name: Verify transaction and persistence coordination
+        run: python -m pytest dml_core/tests/test_transaction_service.py dml_core/tests/test_persistence_service.py dml_core/tests/test_transaction_integration.py dml_core/tests/test_transaction_recovery.py dml_core/tests/test_transaction_adversarial.py --junitxml=production-artifacts/transaction-coordinator.xml
+      - name: Verify supported production profile admission
+        run: python -m pytest dml_core/tests/test_production_profile.py dml_core/tests/test_production_profile_config.py dml_core/tests/test_production_profile_integration.py dml_core/tests/test_production_profile_api.py dml_core/tests/test_production_profile_adversarial.py --junitxml=production-artifacts/production-profile.xml
+      - name: Compare independent baseline on 1000 offline turns
+        run: python -m scripts.production_baseline --turns 1000 --output production-artifacts/baseline.json
+      - name: Measure journal history validation cost
+        run: python -m scripts.journal_history_benchmark --output production-artifacts/journal-history.json
+      - name: Preserve evidence without treating simulation as agent success
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-evidence
+          path: production-artifacts/
+
+  profile-recovery:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python-version: ["3.10", "3.13"]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    env:
+      OPENBLAS_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      DML_SKIP_VENV_REEXEC: "1"
+      DML_RECOVERY_BASETEMP: profile-recovery-work/stores
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        if: runner.os != 'macOS'
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Provision Homebrew CPython with dynamic SQLite on macOS
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          DML_PYTHON_MINOR: ${{ matrix.python-version }}
+        run: |
+          case "$DML_PYTHON_MINOR" in 3.10|3.13) ;; *) exit 1 ;; esac
+          brew install "python@$DML_PYTHON_MINOR"
+          python_prefix=$(brew --prefix "python@$DML_PYTHON_MINOR")
+          "$python_prefix/bin/python$DML_PYTHON_MINOR" -m venv "$RUNNER_TEMP/dml-python"
+          echo "$RUNNER_TEMP/dml-python/bin" >> "$GITHUB_PATH"
+      - name: Require patched SQLite runtime
+        run: python .github/scripts/prepare_sqlite.py --expected-python ${{ matrix.python-version }}
+      - name: Install recovery evidence dependencies
+        run: python -m pip install -e .[server,dev]
+      - name: Lint recovery evidence and CI bootstrap
+        run: >-
+          ruff check dml_core/scripts/profile_recovery_evidence.py .github/scripts/prepare_sqlite.py
+          .github/scripts/prepare_qualification_filesystem.py dml_core/tests/test_ci_qualification_filesystem.py
+      - name: Verify filesystem setup fault controls
+        if: runner.os == 'Linux'
+        run: python -m pytest dml_core/tests/test_ci_qualification_filesystem.py -q
+      - name: Prepare the actual Linux recovery filesystem
+        if: runner.os == 'Linux'
+        run: python .github/scripts/prepare_qualification_filesystem.py prepare --kind recovery
+      - name: Qualify profile recovery on the measured test filesystem
+        run: >-
+          python -m pytest -p scripts.profile_recovery_evidence
+          dml_core/tests/test_production_profile_recovery.py
+          dml_core/tests/test_profile_recovery_campaign.py
+          dml_core/tests/test_profile_storage_faults.py
+          dml_core/tests/test_authority_backup.py
+          dml_core/tests/test_crash_qualification_adversarial.py
+          dml_core/tests/test_profile_recovery_evidence.py
+          --basetemp="${{ env.DML_RECOVERY_BASETEMP }}"
+          --junitxml=profile-recovery-artifacts/recovery.xml
+          --recovery-evidence=profile-recovery-artifacts/evidence.json
+          --require-recovery-filesystem
+      - name: Preserve measured recovery evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: profile-recovery-${{ matrix.os }}-py${{ matrix.python-version }}
+          path: profile-recovery-artifacts/
+      - name: Remove owned Linux recovery test directory
+        if: always() && runner.os == 'Linux'
+        run: python .github/scripts/prepare_qualification_filesystem.py cleanup --kind recovery
+
+  profile-concurrency:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            mode: full
+            scales: "1,16,64,256"
+          - os: macos-latest
+            mode: bounded
+            scales: "1,16"
+          - os: windows-latest
+            mode: bounded
+            scales: "1,16"
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    env:
+      OPENBLAS_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      DML_SKIP_VENV_REEXEC: "1"
+      DML_CONCURRENCY_SCALES: ${{ matrix.scales }}
+      DML_CONCURRENCY_HISTORY_DIR: ${{ github.workspace }}/profile-concurrency-artifacts/histories
+      DML_CONCURRENCY_BASETEMP: profile-concurrency-work/stores
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        if: runner.os != 'macOS'
+        with:
+          python-version: "3.12"
+      - name: Provision Homebrew CPython with dynamic SQLite on macOS
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          brew install python@3.12
+          python_prefix=$(brew --prefix python@3.12)
+          "$python_prefix/bin/python3.12" -m venv "$RUNNER_TEMP/dml-python"
+          echo "$RUNNER_TEMP/dml-python/bin" >> "$GITHUB_PATH"
+      - name: Require patched SQLite runtime
+        run: python .github/scripts/prepare_sqlite.py --expected-python 3.12
+      - name: Install concurrency evidence dependencies
+        run: python -m pip install -e .[server,dev]
+      - name: Lint concurrency evidence and fixtures
+        run: >-
+          ruff check
+          dml_core/scripts/profile_concurrency_evidence.py
+          dml_core/tests/profile_concurrency_fixture.py
+          dml_core/tests/profile_concurrency_http_fixture.py
+          dml_core/tests/test_profile_concurrency.py
+          dml_core/tests/test_profile_concurrency_http.py
+          dml_core/tests/test_profile_concurrency_runtime.py
+          dml_core/tests/test_profile_concurrency_adversarial.py
+          dml_core/tests/test_profile_concurrency_evidence.py
+          .github/scripts/prepare_qualification_filesystem.py
+          dml_core/tests/test_ci_qualification_filesystem.py
+      - name: Verify filesystem setup fault controls
+        if: runner.os == 'Linux'
+        run: python -m pytest dml_core/tests/test_ci_qualification_filesystem.py -q
+      - name: Prepare the actual Linux concurrency filesystem
+        if: runner.os == 'Linux'
+        run: python .github/scripts/prepare_qualification_filesystem.py prepare --kind concurrency
+      - name: Qualify concurrent histories and uncertain acknowledgements
+        run: >-
+          python -m pytest -p scripts.profile_concurrency_evidence
+          dml_core/tests/test_profile_concurrency.py
+          dml_core/tests/test_profile_concurrency_http.py
+          dml_core/tests/test_profile_concurrency_runtime.py
+          dml_core/tests/test_profile_concurrency_adversarial.py
+          dml_core/tests/test_profile_concurrency_evidence.py
+          --basetemp="${{ env.DML_CONCURRENCY_BASETEMP }}"
+          --junitxml=profile-concurrency-artifacts/concurrency.xml
+          --concurrency-evidence=profile-concurrency-artifacts/evidence.json
+          --concurrency-mode=${{ matrix.mode }}
+      - name: Preserve measured concurrency evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: profile-concurrency-${{ matrix.os }}-${{ matrix.mode }}
+          path: profile-concurrency-artifacts/
+      - name: Remove owned Linux concurrency test directory
+        if: always() && runner.os == 'Linux'
+        run: python .github/scripts/prepare_qualification_filesystem.py cleanup --kind concurrency
+
+  profile-filesystem-full:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      OPENBLAS_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      DML_SKIP_VENV_REEXEC: "1"
+      REQUIRE_FILESYSTEM_FULL_TESTS: "1"
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Require patched SQLite runtime
+        run: python .github/scripts/prepare_sqlite.py
+      - name: Install filesystem test dependencies
+        run: python -m pip install -e .[server,dev]
+      - name: Provision a bounded disposable ext4 volume
+        shell: bash
+        run: |
+          volume_dir=$(mktemp -d "$RUNNER_TEMP/dml-enospc.XXXXXX")
+          mkdir "$volume_dir/mount"
+          truncate -s 128M "$volume_dir/disk.img"
+          mkfs.ext4 -q -F -m 0 "$volume_dir/disk.img"
+          echo "RECOVERY_ENOSPC_VOLUME=$volume_dir" >> "$GITHUB_ENV"
+          echo "RECOVERY_ENOSPC_MOUNT=$volume_dir/mount" >> "$GITHUB_ENV"
+          sudo mount -o loop "$volume_dir/disk.img" "$volume_dir/mount"
+          sudo chown "$USER" "$volume_dir/mount"
+          python -c 'import pathlib,sys; (pathlib.Path(sys.argv[1])/".dml-ci-enospc-volume").write_bytes(b"dml-ci-enospc-v1\n")' "$volume_dir/mount"
+      - name: Require real filesystem ENOSPC recovery for every mutation
+        run: >-
+          python -m pytest dml_core/tests/test_profile_filesystem_full.py
+          --junitxml=filesystem-full-artifacts/filesystem-full.xml
+      - name: Require all fifteen real disk-full cases without skips
+        run: |
+          python - <<'PY'
+          import xml.etree.ElementTree as ET
+          root = ET.parse("filesystem-full-artifacts/filesystem-full.xml").getroot()
+          counts = {key: len(list(root.iter(key))) for key in ("testcase", "failure", "error", "skipped")}
+          print(counts)
+          if counts != {"testcase": 15, "failure": 0, "error": 0, "skipped": 0}:
+              raise SystemExit("Real filesystem qualification requires all 15 passing cases")
+          PY
+      - name: Preserve filesystem failure evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: profile-ext4-enospc
+          path: filesystem-full-artifacts/
+      - name: Unmount disposable volume
+        if: always()
+        shell: bash
+        run: |
+          if [ -n "${RECOVERY_ENOSPC_MOUNT:-}" ] && mountpoint -q "$RECOVERY_ENOSPC_MOUNT"; then
+            sudo umount "$RECOVERY_ENOSPC_MOUNT"
+          fi

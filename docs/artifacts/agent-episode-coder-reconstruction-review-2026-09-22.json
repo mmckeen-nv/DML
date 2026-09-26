@@ -1,0 +1,80 @@
+{
+  "acceptance_boundaries": {
+    "historical_evidence_mutated": false,
+    "milestone_7_closed": false,
+    "model_admitted": false,
+    "pr_merge_authorized": false,
+    "production_ready": false,
+    "trained_live_qualified": false
+  },
+  "actual_payload_observation": {
+    "all_five_named_payloads_independently_hashed": true,
+    "all_named_payload_sizes_and_hashes_match_new_built_in_pins": true,
+    "learned_tensor_values_prepared_and_verified_by_reviewer": false,
+    "operational_blocker": "Four additional hidden partial files observed in the newly acquired raw directory. Parent is preserving them and establishing a fresh exact inventory; no source inventory gate is relaxed.",
+    "raw_directory_exact_inventory_at_first_check": false,
+    "zero_generation_consumer_admitted_by_reviewer": false
+  },
+  "base_commit": "0d4364d116d75ed24b60e441845518b47f39ad57",
+  "decision": "accepted_scoped_source_revision",
+  "findings": [
+    "Original model ID, revision, source pins, preparer signature and provenance schema remain separate and unchanged. The Coder model has a second exact built-in source profile and explicit schema; no public caller-defined pins, arbitrary model selector or fallback is introduced.",
+    "Both built-in pin maps are read-only. Each public preparer captures immutable model ID, revision, provenance schema and tuple pin entries before preparation I/O; global rebinding during source copy cannot rewrite that call provenance.",
+    "The common pipeline still verifies exact source inventory, bytes, safe tensor loading, admitted configuration, learned tensor coverage, finite CPU BF16 values, exact BF16/F32 round trips, serialized bytes, strict private snapshot verification and owned-output cleanup.",
+    "Source pin and normalization implementation remain in one normalizer module included in normalizer_sha256. ASTs of normalize_state and tensor_digest are identical to the base source.",
+    "Independent controls exercise distinct model provenance and tensor bytes, immutable pins and no public overrides, bidirectional source substitution rejection before tensor load, mid-copy profile rebinding, unchanged architecture ceilings, and failed-publication cleanup preserving input.",
+    "CI includes the new test module in both mandatory execution and complete required-module accounting. No prior gate is removed; corpus, policy, tools, grammar, verifier and runtime consumer are untouched by this patch."
+  ],
+  "historical_review": {
+    "current_bytes_match_historical_reviewed_hashes": false,
+    "historical_score_reused": false,
+    "path": "docs/artifacts/agent-episode-coder-preparer-review-2026-09-20.json",
+    "sha256": "420ab920a96da87c40b9447a3a74b7044804c61e14a7dc846b8422199284d3ce"
+  },
+  "integrated_main_files_match_reviewed_worktree": true,
+  "minimum_acceptable_score": 9.5,
+  "recorded_at_utc": "2026-09-22T06:58:30.305177+00:00",
+  "required_next_steps": [
+    "Resolve the fresh raw-directory inventory without deleting unknown partials or relaxing exact-inventory admission.",
+    "Run and retain actual complete pinned-payload preparation provenance; independently verify tensor coverage and dtype round trips before model admission.",
+    "Require strict zero-generation action-consumer admission and a fresh model/source freeze before new corpus generation.",
+    "Preserve prior failed/unreplayable attempts, unchanged qualification gates and required final-source CI; keep PR118 unmerged and M7 open."
+  ],
+  "reviewed_files_sha256": {
+    ".github/workflows/ci.yml": "8946ad9987718ba50d2530c7baae3856c87d7ef23fd3f46e73f928e8a05afa86",
+    "dml_core/daystrom_dml/services/qwen_pretrained_snapshot.py": "40b50ab3005b69f875385468643bea65784894bea04bdf1552758b0a6042b4bb",
+    "dml_core/tests/test_qwen_coder_pretrained_snapshot.py": "5c275366d5e6c8eabf66900c3022aecc1722f57d34e005b4fc1e972d0892a952"
+  },
+  "reviewer": "independent delegated m7_recovery_review",
+  "schema_version": "dml-independent-coder-reconstruction-review-v1",
+  "scope": "Reconstructed exact-source Coder preparer, immutable per-call source binding, six new controls, mandatory CI inclusion; fresh review bound to current bytes.",
+  "score": 9.5,
+  "score_basis": "No blocking source defects found in the bounded change after direct diff/AST inspection and six independently executed behavioral controls. Acceptance applies only to these hashed files; actual trained tensor preparation, consumer admission, qualification campaign and final-source CI are separate gates.",
+  "source_blockers": [],
+  "source_pin_boundary": "Coder pins match retained independent historical source-pin inventory. This review does not claim fresh official metadata retrieval or authenticity beyond those retained pins.",
+  "validation": {
+    "builder_original_plus_new_controls_observed_junit": {
+      "errors": 0,
+      "failures": 0,
+      "sha256": "e2106a3e15b226ff62f7cc9168737bdf9d7769c2f8fc9494be83f7a2bff0f635",
+      "skipped": 0,
+      "source_path": "/workspace/scratch/c79340404ab9/coder-focused.xml",
+      "tests": 37
+    },
+    "builder_static_checks_reported": "Ruff for normalizer/new tests, mypy for normalizer and git diff --check passed; this reviewer directly inspected source and tests but did not rerun redundant static tools.",
+    "counts_overlap": true,
+    "full_mandatory_suite_boundary": "Parent reports 780 CPU cases with zero skips, both lint scopes and maintained mypy passed; final validation receipt and final-source CI remain separate evidence.",
+    "independent_ast_unchanged": [
+      "normalize_state",
+      "tensor_digest"
+    ],
+    "independent_new_controls": {
+      "errors": 0,
+      "failures": 0,
+      "path": "docs/artifacts/agent-episode-coder-reconstruction-independent-tests-2026-09-22.xml",
+      "sha256": "7a98a3e11b3a8bb5d0a6dcb043975368924dbd258648f599b2fb8b597f1a0732",
+      "skipped": 0,
+      "tests": 6
+    }
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "automatic_retries": 0,
+  "campaign_sha256": "f9229c20615526225d7ca7dac5438120f225eb251b970f730a621b3c1e899fe5",
+  "changed_source_files": [],
+  "elapsed_seconds": 1021.0355876659996,
+  "exit_code": 1,
+  "finished_utc": "2026-09-20T13:58:24.364394+00:00",
+  "log_sha256": "e1b5abeaba67e8c69c8541f664607fc820bd6348011aded101f0c9ab02e4026b",
+  "schema_version": "dml-agent-campaign-execution-receipt-v1",
+  "source_commit": "2915b65290315e4eead5ee05bbb5179e31cfc189",
+  "source_files_verified": 429,
+  "source_tree": "4846330e9ea97ba156467d973fda90c488857b1b",
+  "specification_sha256": "aa8aa676f8b2c5e42a8432f16e9b55bc26fbb3716a3940bd197870752266439e",
+  "started_utc": "2026-09-20T13:41:23.328757+00:00"
+}

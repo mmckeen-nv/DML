@@ -1,0 +1,94 @@
+{
+  "generator_commit": "8a08efa0976677ac813597956f87c19543be6ac8",
+  "schema_version": 2,
+  "head_revision": 4,
+  "source_store_id": "dc650c022bf94459bcfcfc93b0fd563a",
+  "scope": {
+    "tenant_id": "fixture-tenant",
+    "client_id": null,
+    "session_id": "fixture-session",
+    "instance_id": null
+  },
+  "receipts": [
+    {
+      "schema_version": 1,
+      "store_id": "dc650c022bf94459bcfcfc93b0fd563a",
+      "revision": 1,
+      "key": "first-request",
+      "request_digest": "c28330f8a6e0079233f07c2bfcff4a2397fa449d49ebba8b90290378471b209a",
+      "result": {
+        "memory": {
+          "embedding": [
+            1.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "fidelity": 1.0,
+          "id": 0,
+          "level": 0,
+          "meta": {
+            "client_id": null,
+            "instance_id": null,
+            "session_id": "fixture-session",
+            "tenant_id": "fixture-tenant"
+          },
+          "salience": 1.0,
+          "schema_version": 1,
+          "text": "Legacy preference: blue",
+          "timestamp": 1700000000.0
+        }
+      },
+      "scope": {
+        "client_id": null,
+        "instance_id": null,
+        "session_id": "fixture-session",
+        "tenant_id": "fixture-tenant"
+      }
+    },
+    {
+      "schema_version": 1,
+      "store_id": "dc650c022bf94459bcfcfc93b0fd563a",
+      "revision": 2,
+      "key": "second-request",
+      "request_digest": "b51f84826b223ccb8ad6f263e80ac3ade1a836e5047a42eb647259dafcb37f00",
+      "result": {
+        "memory": {
+          "embedding": [
+            1.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "fidelity": 1.0,
+          "id": 1,
+          "level": 0,
+          "meta": {
+            "client_id": null,
+            "instance_id": null,
+            "session_id": "fixture-session",
+            "tenant_id": "fixture-tenant"
+          },
+          "salience": 1.0,
+          "schema_version": 1,
+          "text": "Remember the stable second fact",
+          "timestamp": 1700000001.0
+        }
+      },
+      "scope": {
+        "client_id": null,
+        "instance_id": null,
+        "session_id": "fixture-session",
+        "tenant_id": "fixture-tenant"
+      }
+    }
+  ],
+  "fixture_sha256": "054c8691516ee44f9bcee84716539cf1ffe7f6cef7054f4dc1cfed187a075797",
+  "historical_live_changes": [
+    "append first",
+    "append second",
+    "update first and metadata boolean",
+    "delete first and metadata integer"
+  ],
+  "reader_sha256": "f3db12707a260765462961bdbed2b9d00a80887ec2c0071421d4795b41a4759e"
+}

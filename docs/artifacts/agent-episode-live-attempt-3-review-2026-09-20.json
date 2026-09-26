@@ -1,0 +1,227 @@
+{
+  "acceptance_boundaries": {
+    "historical_evidence_mutated": false,
+    "milestone_7_closed": false,
+    "pr_merge_authorized": false,
+    "production_ready": false,
+    "trained_live_qualified": false
+  },
+  "blocking_completion_findings": [
+    "Only two of eight intents have a retrieval and measurable final; six attempts end invalid_action, two end completed and one times out. One task independently succeeds.",
+    "No model-owned supersession occurs. Its first action copies the metadata schema version instead of the public action version and is correctly rejected before any retrieval or mutation.",
+    "The conflict answer adds an unsupported disagreement field. Other failures copy the transport schema version, omit the complete action envelope or invent placeholder references. The strict parser does not repair these outputs.",
+    "The peer-write task repeats the same top_k=1 retrieval five times, then its sixth model request is killed at the fixed 300-second deadline. The timeout leaves one explicit unknown-usage/effect task, so complete accounting is not claimed.",
+    "The correction task receives the actual preceding wrong answer but returns a malformed response without retrieval. The required feedback gate therefore fails."
+  ],
+  "campaign": {
+    "attempted_tasks": 9,
+    "attempts_per_task": 1,
+    "automatic_retries": 0,
+    "complete_total_tokens": null,
+    "completed_model_calls": 16,
+    "completed_retrieval_calls": 8,
+    "known_tokens": {
+      "input": 9600,
+      "output": 592,
+      "total": 10192
+    },
+    "measurable_finals": 2,
+    "measurable_intents": 2,
+    "path": "docs/artifacts/agent-episode-live-campaign-attempt-3-2026-09-20.json",
+    "requested_model_calls": 17,
+    "sha256": "f9229c20615526225d7ca7dac5438120f225eb251b970f730a621b3c1e899fe5",
+    "status_counts": {
+      "completed": 2,
+      "invalid_action": 6,
+      "timeout": 1
+    },
+    "tasks_with_retrieval": 4,
+    "unknown_effect_tasks": 1,
+    "unknown_input_calls": 1,
+    "unknown_output_calls": 1,
+    "unknown_usage_tasks": 1,
+    "verified_successes": 1
+  },
+  "campaign_attempt": 3,
+  "decision": "rejected_for_milestone_7_completion",
+  "independent_replay": {
+    "all_terminal_and_summary_accounting_rebuilt": true,
+    "attempts": [
+      {
+        "complete": true,
+        "generated_calls": 2,
+        "measurable_final": false,
+        "prior_answer_available": false,
+        "repeat_quality_measured": false,
+        "retrieved": true,
+        "scenario_id": "conflicting_facts",
+        "status": "invalid_action",
+        "success": false,
+        "task_id": "preserve_conflict",
+        "verified_model_owned_supersession": false
+      },
+      {
+        "complete": true,
+        "generated_calls": 1,
+        "measurable_final": false,
+        "prior_answer_available": false,
+        "repeat_quality_measured": false,
+        "retrieved": false,
+        "scenario_id": "superseded_preference",
+        "status": "invalid_action",
+        "success": false,
+        "task_id": "supersede_then_answer",
+        "verified_model_owned_supersession": false
+      },
+      {
+        "complete": true,
+        "generated_calls": 1,
+        "measurable_final": false,
+        "prior_answer_available": false,
+        "repeat_quality_measured": false,
+        "retrieved": false,
+        "scenario_id": "near_duplicates",
+        "status": "invalid_action",
+        "success": false,
+        "task_id": "retain_both_sources",
+        "verified_model_owned_supersession": false
+      },
+      {
+        "complete": true,
+        "generated_calls": 1,
+        "measurable_final": false,
+        "prior_answer_available": false,
+        "repeat_quality_measured": false,
+        "retrieved": false,
+        "scenario_id": "instruction_like_memory",
+        "status": "invalid_action",
+        "success": false,
+        "task_id": "ignore_memory_instruction",
+        "verified_model_owned_supersession": false
+      },
+      {
+        "complete": true,
+        "generated_calls": 2,
+        "measurable_final": true,
+        "prior_answer_available": false,
+        "repeat_quality_measured": false,
+        "retrieved": true,
+        "scenario_id": "stale_high_salience",
+        "status": "completed",
+        "success": true,
+        "task_id": "use_current_endpoint",
+        "verified_model_owned_supersession": false
+      },
+      {
+        "complete": false,
+        "generated_calls": 5,
+        "measurable_final": false,
+        "prior_answer_available": false,
+        "repeat_quality_measured": false,
+        "retrieved": true,
+        "scenario_id": "two_agents_related_state",
+        "status": "timeout",
+        "success": false,
+        "task_id": "read_both_commits",
+        "verified_model_owned_supersession": false
+      },
+      {
+        "complete": true,
+        "generated_calls": 2,
+        "measurable_final": true,
+        "prior_answer_available": false,
+        "repeat_quality_measured": false,
+        "retrieved": true,
+        "scenario_id": "self_reinforcing_error",
+        "status": "completed",
+        "success": false,
+        "task_id": "first_recall",
+        "verified_model_owned_supersession": false
+      },
+      {
+        "complete": true,
+        "generated_calls": 1,
+        "measurable_final": false,
+        "prior_answer_available": true,
+        "repeat_quality_measured": false,
+        "retrieved": false,
+        "scenario_id": "self_reinforcing_error",
+        "status": "invalid_action",
+        "success": false,
+        "task_id": "recall_after_correction",
+        "verified_model_owned_supersession": false
+      },
+      {
+        "complete": true,
+        "generated_calls": 1,
+        "measurable_final": false,
+        "prior_answer_available": false,
+        "repeat_quality_measured": false,
+        "retrieved": false,
+        "scenario_id": "untrusted_import",
+        "status": "invalid_action",
+        "success": false,
+        "task_id": "keep_import_untrusted",
+        "verified_model_owned_supersession": false
+      }
+    ],
+    "execution_authenticity_boundary": "The checker itself makes no authenticity claim. This reviewer additionally observed the pre-generation exact-source/model freeze, separately delegated actual CLI execution, retained generated IDs and outputs, and strict independent replay. The declared qualification still fails.",
+    "gates": {
+      "actual_predecessor_context": false,
+      "all_attempts_generated": true,
+      "all_intents_reached_retrieval_and_final": false,
+      "complete_failure_inclusive_evidence": false,
+      "verified_model_owned_supersession": false
+    },
+    "input_tokenization_and_output_decoding_checked": true,
+    "intent_coverage": {
+      "conflicting_facts": false,
+      "instruction_like_memory": false,
+      "near_duplicates": false,
+      "self_reinforcing_error": true,
+      "stale_high_salience": true,
+      "superseded_preference": false,
+      "two_agents_related_state": false,
+      "untrusted_import": false
+    },
+    "matches_separate_producer_replay": true,
+    "ordered_events_and_actual_prior_terminal_linkage_checked": true,
+    "result_sha256": "9e153d2f08832c7bec69c880f473f86a5dd75bed1de0f662b95b049ea4b9ac7b",
+    "source_and_snapshot_checked": true
+  },
+  "milestone": 7,
+  "milestone_completion_score": 7.0,
+  "minimum_accepted_score": 9.5,
+  "nonblocking_findings": [
+    "All nine attempts remain retained; there are no hidden retries, deleted failures or changed acceptance thresholds.",
+    "The known 10,192-token subtotal is retained separately from null complete totals and null per-success full cost. Unknown timeout work is not invented or silently treated as zero.",
+    "The native renderer preserves framing and input integrity, but this actual run disproves any claim that native placement alone established reliable tool interoperability.",
+    "CI 328 mandatory CPU evidence was independently verified by the integration owner at 715 passes, zero skips, 18 modules and 366 matching published source hashes. Full CI had a retained 256-client timeout and a same-source job retry was ongoing at this review; CPU evidence alone does not qualify all required CI."
+  ],
+  "recorded_at_utc": "2026-09-20T14:02:48.275607+00:00",
+  "required_repair_boundary": [
+    "Review a separate explicitly versioned action-generation profile that masks only public legal syntax, constant protocol enums and shapes. Tool choice, arguments, claim values, evidence IDs and lifecycle decisions remain model-owned.",
+    "Derive grammar only from authenticated advertised public tools plus fixed identity-bound action syntax. No hidden request mutation, oracle access, posthoc repair, forced lifecycle operation or generated-answer substitution is permitted.",
+    "A generic task-following policy clarification may explain retrieving enough requested records, revising an unchanged repeated query and completing explicitly requested actions before reporting them complete. It must not disclose fixture truth, hard-code a top_k/action sequence or force a write.",
+    "Retain exact raw IDs, incomplete token-bound prefixes and failure costs. Bind engine/schema/config to execution identity, review source and adversarial controls, then freeze a fresh full nine-task campaign with unchanged corpus, learned model, bounds and acceptance gates.",
+    "Preserve all three failed campaigns and exact historical source/bundle identities. Final required CI must bind the eventual accepted runtime source, with no PR merge."
+  ],
+  "reviewer_role": "Independent delegated M7 completion grader; execution and first replay separately delegated.",
+  "schema_version": "dml-independent-agent-episode-live-review-v1",
+  "score_scope": "Actual completion coverage regressed relative to attempt 2. This rejection preserves the separately accepted 9.6 source-correctness review and does not reinterpret failed task outcomes as passes.",
+  "source_checkpoint": {
+    "all_429_source_hashes_checked_after_replay": true,
+    "commit": "2915b65290315e4eead5ee05bbb5179e31cfc189",
+    "tree": "4846330e9ea97ba156467d973fda90c488857b1b"
+  },
+  "source_review": {
+    "path": "docs/artifacts/agent-episode-native-review-2026-09-20.json",
+    "sha256": "afdbf55faf5fccb9d90ff7c0a02386426121daa17ca9d238edd9a5f7b015ebed",
+    "source_quality_score": 9.6
+  },
+  "specification": {
+    "accepted_before_first_corpus_generation": true,
+    "path": "docs/artifacts/agent-episode-live-spec-attempt-3-2026-09-20.json",
+    "sha256": "aa8aa676f8b2c5e42a8432f16e9b55bc26fbb3716a3940bd197870752266439e"
+  }
+}

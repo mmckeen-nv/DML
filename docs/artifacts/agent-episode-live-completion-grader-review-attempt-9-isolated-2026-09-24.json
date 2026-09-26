@@ -1,0 +1,84 @@
+{
+  "accepted_for_m7_completion": false,
+  "actual_model_calls": 18,
+  "all_nine_attempt_reports_retained_and_match_campaign": true,
+  "attempted_tasks": 9,
+  "campaign_id": "m7-qwen2-coder-action-json-2026-09-24-isolated-attempt-9",
+  "campaign_sha256": "cb73c968adcb030809f923bce57633caff8314a953ae1f97b7bb894a390901e6",
+  "ci": {
+    "accepted_for_same_source": true,
+    "grader_review_sha256": "a60537a1a5670999bdc42dedcc69151007536839af94fb5c927e9433217c30f4",
+    "jobs_successful": 20,
+    "run_attempt": 1,
+    "run_id": 36073124885
+  },
+  "completed_tasks": 8,
+  "evidence_review_score": 9.6,
+  "execution_sha256": "178c8258a6eef463f2502de7c091f1d9f2c434b91dd473d34e6ad33e92bb34c6",
+  "failed_gates": [
+    "all_intents_reached_retrieval_and_final",
+    "complete_failure_inclusive_evidence",
+    "verified_model_owned_supersession"
+  ],
+  "failure": {
+    "historical_failure_reinterpretation_permitted": false,
+    "observed_behavior": "Model retrieved with top_k1, then proposed supersede with the same observed r1 for source and replacement. Adapter raised ValueError; terminal tool_error has no final answer and conservatively retains unknown effects.",
+    "report_sha256": "51a2494464e1a3d305363d1ecda331098b61318b0fa59908abdb669cce9a8f22",
+    "task_id": "supersede_then_answer",
+    "verified_model_owned_supersession": false
+  },
+  "freeze_release_scope": "Only completed attempt9 in DML-attempt9-isolated after producer and both sequential data replays finished. Original attempt8 inputs remain frozen; its completion and global process termination are not established. Preserve every attempt9 raw artifact and exact reviewed Git source for attribution.",
+  "freeze_released": true,
+  "gates": {
+    "actual_predecessor_context": true,
+    "all_attempts_generated": true,
+    "all_intents_reached_retrieval_and_final": false,
+    "complete_failure_inclusive_evidence": false,
+    "verified_model_owned_supersession": false
+  },
+  "independent_replays_byte_identical": true,
+  "known_input_tokens": 16374,
+  "known_output_tokens": 1151,
+  "known_total_tokens": 17525,
+  "limitations": [
+    "Data replay checks retained evidence, tokenization, causality and task gates; it does not independently authenticate execution. Supervised start/execution receipts provide separate provenance.",
+    "All9 reports are present, but the failed task retains unknown effects and no measurable final; complete_failure_inclusive_evidence is false under the unchanged gate.",
+    "Contradiction and false-memory aggregate rates remain null because one task lacks a measurable final. Repeated-error rate remains null with zero measured prior-error opportunities. TTFT was not measured.",
+    "Original attempt8 remains incomplete with unknown full totals/effects and unreleased completion freeze. Historical5/6/7 retention limitations remain explicit.",
+    "Source/fixture CI acceptance cannot satisfy failed live model gates. No production readiness, fairness, hardware durability or comparative baseline advantage is claimed."
+  ],
+  "live_qualified": false,
+  "milestone_7_closed": false,
+  "predeclared_live_gates_passed": false,
+  "production_ready": false,
+  "qualification_status": "rejected",
+  "raw_evidence_complete": false,
+  "recorded_at_utc": "2026-09-25T00:09:23.968037+00:00",
+  "replay_paths": {
+    "independent": "/workspace/scratch/c79340404ab9/DML-attempt9-isolated/docs/artifacts/agent-episode-live-evidence-attempt-9-isolated-independent-2026-09-24.json",
+    "primary": "/workspace/scratch/c79340404ab9/DML-attempt9-isolated/docs/artifacts/agent-episode-live-evidence-attempt-9-isolated-primary-2026-09-24.json"
+  },
+  "replay_receipt_sha256": {
+    "independent": "3c68decf62178e43bd785b4042023adf6417e45a04ec4de1ba19fbb8edc2032e",
+    "primary": "7a230296fb851378f59f127d4b2d1ea51a396f1ce58715501645fed503219826"
+  },
+  "replay_sha256": {
+    "independent": "ec2629bf111b72ad3ab879aa5acaf3b06243ea4a8df4c8f4762d037a8540ea0f",
+    "primary": "ec2629bf111b72ad3ab879aa5acaf3b06243ea4a8df4c8f4762d037a8540ea0f"
+  },
+  "reviewer": "/root/m7_grader",
+  "schema_version": "dml-agent-live-completion-grader-review-v1",
+  "sequential_replays_completed": true,
+  "source_commit": "2a2fb0891d14213c5a593157aab64a1d5ea41834",
+  "source_runtime_model_verified_before_and_after_both_replays": true,
+  "source_tree": "f561775378753e2f2b049aeda7d2b8bbd0e694e5",
+  "specification_sha256": "39ae720f1ae52d4520e3091acc89ff15f1c0654468d2dca377511497cdc1d7a8",
+  "status_counts": {
+    "completed": 8,
+    "tool_error": 1
+  },
+  "successful_tasks": 8,
+  "terminal_count": 9,
+  "unknown_effect_tasks": 1,
+  "unknown_usage_tasks": 0
+}

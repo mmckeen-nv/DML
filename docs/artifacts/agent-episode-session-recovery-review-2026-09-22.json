@@ -1,0 +1,150 @@
+{
+  "acceptance_boundaries": {
+    "historical_evidence_mutated": false,
+    "milestone_7_closed": false,
+    "model_admitted": false,
+    "pr_merge_authorized": false,
+    "production_ready": false,
+    "source_revision_accepted": false,
+    "trained_live_qualified": false
+  },
+  "attempt_disposition": {
+    "attempted_task_count": null,
+    "campaign_completed": null,
+    "campaign_process_termination_confirmed": false,
+    "complete_token_totals": null,
+    "completed_task_count": null,
+    "contemporaneous_narrative_boundary": "PR or conversation observations may be retained with attribution, but cannot replace missing raw events or establish final counters, outputs, termination cause, or independent replay.",
+    "effects_totals": null,
+    "finished_utc": null,
+    "independent_replay_completed": false,
+    "known_token_totals": null,
+    "qualification": "not_qualified",
+    "raw_evidence_complete": false,
+    "session_interruption_reported": true,
+    "status": "unreplayable_missing_raw_evidence_in_current_workspace",
+    "synthetic_terminal_events_created": false,
+    "termination_cause": null
+  },
+  "base_commit": "0d4364d116d75ed24b60e441845518b47f39ad57",
+  "bounded_prevention": {
+    "existing_behavior": "run_campaign atomically publishes and fsyncs report.json after every returned episode, with no-overwrite protection. The final campaign manifest is published only after all tasks return.",
+    "m10_replay_scope_added": false,
+    "next_attempt_requirement": "Use a fresh workspace evidence directory outside /tmp, retain completed reports and the original freeze, and persist/archive available raw evidence before an execution environment is discarded.",
+    "remaining_boundary": "_supervise retains the active episode frames in memory. Completed reports outside /tmp reduce loss on temporary-directory reset but do not make the active episode restart-safe or guarantee workspace persistence."
+  },
+  "campaign_attempt": 5,
+  "campaign_id": "m7-qwen2-action-json-2026-09-20-attempt-5",
+  "decision": "release_source_integration_hold_only_preserve_unreplayable_attempt",
+  "direct_local_observations": {
+    "missing_paths": [
+      {
+        "exists": false,
+        "is_symlink": false,
+        "path": "/tmp/dml-m7-live-qwen-20260920-attempt-5",
+        "role": "completed_episode_work_directory"
+      },
+      {
+        "exists": false,
+        "is_symlink": false,
+        "path": "/workspace/scratch/ad6cdef78c95/DML-core/docs/artifacts/agent-episode-live-campaign-attempt-5-2026-09-20.json",
+        "role": "campaign_output"
+      },
+      {
+        "exists": false,
+        "is_symlink": false,
+        "path": "/tmp/dml-m7-qwen/prepared-native/bundle",
+        "role": "prepared_model_bundle"
+      },
+      {
+        "exists": false,
+        "is_symlink": false,
+        "path": "/tmp/dml-m7-grammar-deps",
+        "role": "grammar_dependencies"
+      },
+      {
+        "exists": false,
+        "is_symlink": false,
+        "path": "/workspace/scratch/ad6cdef78c95/DML-core/docs/artifacts/agent-episode-live-execution-attempt-5-2026-09-20.json",
+        "role": "execution_receipt"
+      },
+      {
+        "exists": false,
+        "is_symlink": false,
+        "path": "/workspace/scratch/ad6cdef78c95/DML-core/docs/artifacts/agent-episode-live-evidence-attempt-5-2026-09-20.json",
+        "role": "independent_replay_output"
+      }
+    ],
+    "process_check": {
+      "global_quiescence_proven": false,
+      "matching_campaign_or_replay_processes": [],
+      "method": "Read executable arguments and command names from the available /proc PID namespace; exclude checker and ancestor shells.",
+      "pid_namespace": "pid:[4026532375]",
+      "scope_limitation": "The available PID namespace is the current command sandbox. This is not proof that the former session or another execution namespace has no processes.",
+      "visible_processes": [
+        {
+          "comm": "codex",
+          "pid": 1
+        },
+        {
+          "comm": "bash",
+          "pid": 2
+        },
+        {
+          "comm": "python",
+          "pid": 5
+        }
+      ]
+    },
+    "source_files_reviewed": {
+      "dml_core/daystrom_dml/services/agent_episode.py": "65e8fc06a95e827a48e667da7abc0181d162e4d371b2764fd4912417c1668c69",
+      "dml_core/scripts/agent_episodes.py": "9a781fb1b97ab927a10087ff47478a71cef74868a9ac992b837756716877cf78"
+    }
+  },
+  "historical_hold_disposition": {
+    "condition_claimed_satisfied": false,
+    "not_permitted_by_this_review": [
+      "Recreate or overwrite attempt-5 artifacts as if they were its original outputs.",
+      "Reuse the attempt-5 identity or silently rerun its tasks.",
+      "Modify or clean up historical runtime paths or deduplicate historical assets based on the namespace-limited process check.",
+      "Claim historical completion/replay, trained admission, milestone completion, production readiness, or merge approval."
+    ],
+    "permitted": "Review and integrate new source, validate it, and prepare a distinctly identified future campaign using fresh paths, a new source/model freeze, and unchanged qualification gates.",
+    "rationale": "The frozen attempt lacks its raw outputs and required runtime assets in the recovered workspace. The historical finish/replay condition cannot currently be performed. Source work can proceed without modifying the frozen specification or representing missing evidence as success.",
+    "retained_historical_reviews": [
+      {
+        "path": "docs/artifacts/agent-episode-coder-candidate-assessment-2026-09-20.json",
+        "sha256": "33fc817faa502b64fefcb80e6bc3c0ef8b6b618d3701ae85fc6ff17e5a173db1"
+      },
+      {
+        "path": "docs/artifacts/agent-episode-coder-preparer-review-2026-09-20.json",
+        "sha256": "420ab920a96da87c40b9447a3a74b7044804c61e14a7dc846b8422199284d3ce"
+      },
+      {
+        "path": "docs/artifacts/agent-episode-coder-transport-review-2026-09-20.json",
+        "sha256": "6b66485b2578beaa1332d16ac33ed16bd326103a54be8a02b6b3df71f9572bdd"
+      }
+    ],
+    "superseded_operationally_only": true,
+    "unsatisfied_condition": "Finish all attempt-5 tasks and both sequential replays before releasing the freeze."
+  },
+  "numeric_source_score": null,
+  "recorded_at_utc": "2026-09-22T06:53:42.412701+00:00",
+  "required_followup": [
+    "Fresh independent review and meaningful tests for any reconstructed Coder preparer source; historical review scores are not portable to changed bytes.",
+    "New trained-payload provenance and strict zero-generation admission before any new live campaign.",
+    "Preserve the existing corpus, ordered tasks, one attempt per task, limits, grammar, policy, verifiers and acceptance gates.",
+    "Retain all historical failed campaigns and attempt-5 evidence-loss disposition; no automatic retry or best-output selection.",
+    "Keep PR 118 unmerged and milestone 7 open until actual predeclared qualification and final-source CI pass."
+  ],
+  "retained_specification": {
+    "frozen_utc": "2026-09-20T14:55:15.690416+00:00",
+    "path": "docs/artifacts/agent-episode-live-spec-attempt-5-2026-09-20.json",
+    "sha256": "46177ba2958f1a1c18927d6c6761d2c5250a0abc4eb9e7bb57aded831e9d2ad0",
+    "unchanged_by_review": true
+  },
+  "reviewer": "independent delegated m7_recovery_review",
+  "schema_version": "dml-independent-session-recovery-review-v1",
+  "scope": "Evidence availability and operational freeze disposition after a frozen session; no reconstructed output, model admission, source implementation acceptance or live qualification.",
+  "score_boundary": "This operational evidence review does not assign an implementation score or waive the required independent source score of at least 9.5."
+}

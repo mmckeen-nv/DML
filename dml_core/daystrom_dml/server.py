@@ -37,6 +37,7 @@ from structlog.stdlib import ProcessorFormatter
 
 from . import utils, visualizer_bridge
 from .auth import BearerAuthMiddleware
+from .config import load_config as _load_server_config
 from .dml_adapter import DMLAdapter
 from .frontier_pipeline import FrontierCompressionPipeline, FrontierPipelineConfig
 from .ingestion_limits import IngestionBudget, IngestionLimitExceeded, IngestionLimits
@@ -147,6 +148,12 @@ def _load_local_env_files() -> None:
 
 _load_local_env_files()
 
+# The browser/demo server exposes unreceipted and experimental operations. Refuse
+# profile selection before the module constructs its global adapter or visualizer.
+_SERVER_SETTINGS = _load_server_config()
+if getattr(_SERVER_SETTINGS, "production_profile", None) is not None:
+    raise ValueError("Production profile is available only through dml-provider, not dml-server")
+
 @asynccontextmanager
 async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
     _auto_launch_visualizer()
@@ -159,7 +166,7 @@ if WEB_DIR.exists():
     app.mount("/static", StaticFiles(directory=WEB_DIR), name="static")
 
 ADAPTER_LOCK = Lock()
-adapter = DMLAdapter(start_aging_loop=False)
+adapter = DMLAdapter(_validated_settings=_SERVER_SETTINGS, start_aging_loop=False)
 SERVICE_START_TIME = time.time()
 SEEDED_INFERENCE_SCENARIOS: set[str] = set()
 

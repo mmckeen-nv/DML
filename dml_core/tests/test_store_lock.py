@@ -9,14 +9,26 @@ import time
 
 import pytest
 
-from daystrom_dml.store_lock import store_write_lock
+from daystrom_dml.store_lock import StoreLockTimeout, store_write_lock
 
 
 def test_two_writers_cannot_hold_same_store_lock(tmp_path: Path):
     with store_write_lock(tmp_path, operation="writer-one", timeout_ms=0):
-        with pytest.raises(TimeoutError):
+        with pytest.raises(StoreLockTimeout) as caught:
             with store_write_lock(tmp_path, operation="writer-two", timeout_ms=0):
                 pass
+        assert type(caught.value) is StoreLockTimeout
+        assert isinstance(caught.value, TimeoutError)
+
+
+def test_timeout_after_acquisition_retains_unknown_body_outcome_and_releases_lock(tmp_path: Path):
+    failure = TimeoutError("admitted operation timed out")
+    with pytest.raises(TimeoutError) as caught:
+        with store_write_lock(tmp_path, operation="admitted-timeout", timeout_ms=0):
+            raise failure
+    assert caught.value is failure and not isinstance(caught.value, StoreLockTimeout)
+    with store_write_lock(tmp_path, operation="after-body-timeout", timeout_ms=0):
+        pass
 
 
 def test_store_lock_releases_after_exception(tmp_path: Path):

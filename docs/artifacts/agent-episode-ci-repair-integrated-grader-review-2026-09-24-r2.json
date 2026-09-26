@@ -1,0 +1,32 @@
+{
+  "accepted_for_publication": true,
+  "blocking_findings": [],
+  "independent_checks": {
+    "all5_retained_log_hashes_verified": true,
+    "all_actual_source_hashes_match": true,
+    "both_raw_junit_hashes_counts_and_modules_verified": true,
+    "both_strict_lints_and_mypy_exit_zero": true,
+    "errors": 0,
+    "failures": 0,
+    "filesystem_control_modules": 1,
+    "original_model_cases": 784,
+    "original_model_modules": 21,
+    "separate_filesystem_control_cases": 34,
+    "skipped": 0,
+    "source_and_inventory_unchanged": true,
+    "source_manifest_files": 436
+  },
+  "limits": [
+    "Source and integrated-validation acceptance only. Actual new published-source CI, new-source strict admission, independently reviewed freeze and complete genuine live/replay gates remain required.",
+    "All raw logs remain local; publication uses compact hash-bound receipts under user instruction."
+  ],
+  "live_qualified": false,
+  "milestone_7_closed": false,
+  "production_ready": false,
+  "recorded_at_utc": "2026-09-24T15:14:15.741099+00:00",
+  "reviewer": "/root/m7_grader",
+  "schema_version": "dml-m7-integrated-r2-grader-review-v1",
+  "source_review_score": 9.6,
+  "source_review_sha256": "e0288f86c1798172636be87f3c1a042f1663e05767211838a6504da1bbdb64b8",
+  "validation_receipt_sha256": "1bb28318d0df63f537c89648f24ef1c31bb63440dc6fb5243afe23239bf4baa6"
+}
