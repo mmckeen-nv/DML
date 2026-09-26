@@ -287,6 +287,8 @@ jobs:
           dml_core/tests/test_qwen3_pretrained_snapshot.py
           dml_core/tests/test_qwen3_model_input.py
           dml_core/tests/test_qwen3_action_input.py
+          dml_core/tests/test_qwen3_sampled_action_input.py
+          dml_core/tests/test_qwen3_sampled_profile.py
           --junitxml=model-input-artifacts/model-input.xml
       - name: Require complete model-input and episode harness evidence without skipped tests
         run: |
@@ -311,6 +313,7 @@ jobs:
               "test_agent_action_grammar", "test_qwen_action_input",
               "test_qwen3_model_snapshot", "test_qwen3_pretrained_snapshot",
               "test_qwen3_model_input", "test_qwen3_action_input",
+              "test_qwen3_sampled_action_input", "test_qwen3_sampled_profile",
           }
           observed_modules = set()
           for case in report.iter("testcase"):

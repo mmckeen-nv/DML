@@ -20,7 +20,7 @@ import uuid
 
 from daystrom_dml.atomic_io import _sync_directory
 from daystrom_dml.contracts.agent_episode import (
-    make_event, validate_episode_events, execution_protocol_for_profile, EXECUTION_PROTOCOL_V2, QWEN3_CONSUMER_PROFILE,
+    make_event, validate_episode_events, execution_protocol_for_profile, EXECUTION_PROTOCOL_V2, QWEN3_CONSUMER_PROFILES,
 )
 from daystrom_dml.services.agent_episode import (
     CONSUMER_PROFILES, EpisodeLimits, _started, run_local_episode, validate_consumer_profile,
@@ -76,7 +76,7 @@ def _source_digests(*, consumer_profile="gpt2-v1"):
     for name in ("model_input", "model_input_snapshot", "pretrained_snapshot", "qwen_model_input",
                  "qwen_model_snapshot", "qwen_pretrained_snapshot", "qwen_action_input", "agent_action_grammar"):
         files["daystrom_dml.services." + name] = Path(runner.__file__).with_name(name + ".py")
-    if consumer_profile == QWEN3_CONSUMER_PROFILE:
+    if consumer_profile in QWEN3_CONSUMER_PROFILES:
         for name in ("qwen3_pretrained_snapshot", "qwen3_model_snapshot", "qwen3_model_input", "qwen3_action_input"):
             files["daystrom_dml.services." + name] = Path(runner.__file__).with_name(name + ".py")
     files["scripts.agent_campaign_evidence"] = Path(__file__).with_name("agent_campaign_evidence.py")

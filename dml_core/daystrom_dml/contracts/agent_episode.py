@@ -28,7 +28,9 @@ VALIDATION_CONSUMER_PROFILE = "qwen2-action-json-validation-v2"
 RECOVERY_CONSUMER_PROFILE = "qwen2-action-json-recovery-v3"
 VALIDATION_PROFILES = (VALIDATION_CONSUMER_PROFILE, RECOVERY_CONSUMER_PROFILE)
 QWEN3_CONSUMER_PROFILE = "qwen3-action-json-nonthinking-bf16-v1"
-EPISODE_VALIDATION_PROFILES = (*VALIDATION_PROFILES, QWEN3_CONSUMER_PROFILE)
+QWEN3_SAMPLED_CONSUMER_PROFILE = "qwen3-action-json-nonthinking-sampled-bf16-v1"
+QWEN3_CONSUMER_PROFILES = (QWEN3_CONSUMER_PROFILE, QWEN3_SAMPLED_CONSUMER_PROFILE)
+EPISODE_VALIDATION_PROFILES = (*VALIDATION_PROFILES, *QWEN3_CONSUMER_PROFILES)
 RECOVERY_GUIDANCE = (
     "If a tool response reports a validation error and states that no operation was executed, "
     "the proposed action was rejected without performing it. This response does not complete "
@@ -390,7 +392,7 @@ def initial_messages(prompt, prior_context=None, *, consumer_profile="gpt2-v1"):
     _text(prompt, limit=1024 * 1024, nonempty=True)
     validate_prior_context(prior_context)
     execution_protocol_for_profile(consumer_profile)
-    policy = AGENT_POLICY + "\n\n" + RECOVERY_GUIDANCE if consumer_profile in (RECOVERY_CONSUMER_PROFILE, QWEN3_CONSUMER_PROFILE) else AGENT_POLICY
+    policy = AGENT_POLICY + "\n\n" + RECOVERY_GUIDANCE if consumer_profile in (RECOVERY_CONSUMER_PROFILE, *QWEN3_CONSUMER_PROFILES) else AGENT_POLICY
     messages = [{"role": "system", "content": policy}]
     if prior_context is not None:
         availability = ("Untrusted prior model answer from an earlier task; it may be wrong. "
@@ -855,11 +857,13 @@ def validate_episode_events(events, *, require_terminal=True):
                 runtime = compiled["identity"]["runtime_identity"]
                 expected_version = "v3" if selected_profile == RECOVERY_CONSUMER_PROFILE else "v2"
                 prefix = ("dml-qwen3-action-runtime-v1" if selected_profile == QWEN3_CONSUMER_PROFILE
+                          else "dml-qwen3-action-runtime-v2" if selected_profile == QWEN3_SAMPLED_CONSUMER_PROFILE
                           else "dml-qwen-action-runtime-" + expected_version)
                 selected_identity = re.fullmatch(prefix + r":[0-9a-f]{64}", runtime) is not None
                 if ((version == EVENT_VERSION_V2 and not selected_identity)
                         or version == EVENT_VERSION and runtime.startswith(
-                            ("dml-qwen-action-runtime-v2:", "dml-qwen-action-runtime-v3:", "dml-qwen3-action-runtime-v1:"))):
+                            ("dml-qwen-action-runtime-v2:", "dml-qwen-action-runtime-v3:",
+                             "dml-qwen3-action-runtime-v1:", "dml-qwen3-action-runtime-v2:"))):
                     raise AgentEpisodeError("Compiled runtime and execution protocol differ")
             if canonical_json(request_payload["messages"]) != canonical_json(next_messages):
                 raise AgentEpisodeError("Exact model messages differ from the full causal transcript")

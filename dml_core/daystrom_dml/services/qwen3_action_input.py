@@ -1,14 +1,17 @@
-"""Explicit Qwen3 non-thinking BF16 action profile; legacy profiles stay exact."""
+"""Explicit Qwen3 non-thinking BF16 action profiles; legacy profiles stay exact."""
 from __future__ import annotations
 
+from contextlib import contextmanager, nullcontext
 from dataclasses import replace
 import hashlib
 import hmac
 import re
+from threading import Lock
 
 from ..contracts.model_input import CompiledModelInput, ModelInputError, ModelInputRequest
 from ..contracts.agent_episode import (
-    QWEN3_CONSUMER_PROFILE, recovery_guidance_identity, initial_messages,
+    QWEN3_CONSUMER_PROFILE, QWEN3_CONSUMER_PROFILES, QWEN3_SAMPLED_CONSUMER_PROFILE,
+    recovery_guidance_identity, initial_messages,
 )
 from .agent_action_grammar import (
     ActionLogitsProcessor, MAX_BOUND_REQUESTS, action_schema, compile_action_grammar, policy_identity,
@@ -19,16 +22,53 @@ from .qwen3_model_input import LocalQwen3InputConsumer
 
 
 CONSUMER_PROFILE = QWEN3_CONSUMER_PROFILE
+_SAMPLED_CPU_RNG_LOCK = Lock()
+
+
+def sampling_policy_identity():
+    """One declared candidate per request; nonce and task never choose the seed.
+
+    The base runtime binds inherited generation settings. These exact overrides
+    select the vendor's non-thinking sampling configuration. The full effective
+    GenerationConfig is also covered by the consumer's live fingerprint.
+    """
+    return {"schema_version": "dml-qwen3-nonthinking-sampling-v1",
+            "generation_overrides": {"do_sample": True, "temperature": 0.7,
+                "top_p": 0.8, "top_k": 20, "min_p": 0.0,
+                "num_beams": 1, "num_beam_groups": 1, "num_return_sequences": 1,
+                "typical_p": 1.0, "epsilon_cutoff": 0.0, "eta_cutoff": 0.0,
+                "renormalize_logits": False},
+            "processor_order": ["authenticated_action_grammar", "temperature", "top_k", "top_p", "min_p"],
+            "seed": 0, "seed_scope": "reset_cpu_default_generator_each_execute",
+            "rng_restore": "torch.random.fork_rng(devices=[])",
+            "rng_lock": "process_global_sampled_profile_generation_only",
+            "selection": "one_multinomial_candidate_no_retry_or_reranking"}
+
+
+@contextmanager
+def _sampled_cpu_rng(torch, seed):
+    """Serialize this profile's CPU sampling and restore on every exit.
+
+    This lock coordinates these consumers, not unrelated external RNG users.
+    Seeding only the CPU generator leaves accelerator RNGs untouched.
+    """
+    with _SAMPLED_CPU_RNG_LOCK, torch.random.fork_rng(devices=[]):
+        torch.random.default_generator.manual_seed(seed)
+        yield
 
 
 def constrained_identity(base_identity, *, consumer_profile):
     """Explicit architecture, unchanged grammar and inherited policy composition."""
-    if (consumer_profile != CONSUMER_PROFILE
+    if (consumer_profile not in QWEN3_CONSUMER_PROFILES
             or re.fullmatch(r"dml-qwen3-model-input-runtime-v1:[0-9a-f]{64}", base_identity.runtime_identity) is None):
         raise ModelInputError("Qwen3 action profile requires its explicit profile and base runtime")
     policy = {"consumer_profile": consumer_profile, "base_runtime_identity": base_identity.runtime_identity,
               **policy_identity(), "inherited_guidance_policy": recovery_guidance_identity()}
-    return replace(base_identity, runtime_identity="dml-qwen3-action-runtime-v1:" + hashlib.sha256(
+    version = "v1"
+    if consumer_profile == QWEN3_SAMPLED_CONSUMER_PROFILE:
+        version = "v2"
+        policy["sampling_policy"] = sampling_policy_identity()
+    return replace(base_identity, runtime_identity="dml-qwen3-action-runtime-" + version + ":" + hashlib.sha256(
         _json_bytes(policy)).hexdigest())
 
 
@@ -41,11 +81,13 @@ class LocalQwen3ActionInputConsumer(LocalQwen3InputConsumer):
     """
 
     def __init__(self, snapshot_directory, *, consumer_profile):
-        if consumer_profile != CONSUMER_PROFILE:
+        if consumer_profile not in QWEN3_CONSUMER_PROFILES:
             raise ModelInputError("Unknown constrained action profile")
         self._consumer_profile = consumer_profile
         self._recovery_guidance = recovery_guidance_identity()
         self._grammar_policy = policy_identity()
+        self._sampling_policy = (sampling_policy_identity()
+                                 if consumer_profile == QWEN3_SAMPLED_CONSUMER_PROFILE else None)
         self._bound_requests: dict[str, bytes] = {}
         super().__init__(snapshot_directory)
         try:
@@ -56,6 +98,13 @@ class LocalQwen3ActionInputConsumer(LocalQwen3InputConsumer):
             self.close()
             raise
 
+    def _generation_config(self, output_tokens):
+        config = super()._generation_config(output_tokens)
+        if self._consumer_profile == QWEN3_SAMPLED_CONSUMER_PROFILE:
+            for name, value in sampling_policy_identity()["generation_overrides"].items():
+                setattr(config, name, value)
+        return config
+
     def _validate_runtime(self):
         super()._validate_runtime()
         if self._grammar_policy != policy_identity():
@@ -63,6 +112,9 @@ class LocalQwen3ActionInputConsumer(LocalQwen3InputConsumer):
         guidance = recovery_guidance_identity()
         if self._recovery_guidance != guidance:
             raise ModelInputError("Action recovery guidance identity changed")
+        if (self._consumer_profile == QWEN3_SAMPLED_CONSUMER_PROFILE
+                and self._sampling_policy != sampling_policy_identity()):
+            raise ModelInputError("Qwen3 sampling policy identity changed")
         if self._identity != constrained_identity(self._base_action_identity, consumer_profile=self._consumer_profile):
             raise ModelInputError("Action profile and compiled runtime identity differ")
 
@@ -111,7 +163,9 @@ class LocalQwen3ActionInputConsumer(LocalQwen3InputConsumer):
                                                   artifact.output_reserved_tokens)
                 inputs = torch.tensor([artifact.input_ids], dtype=torch.long, device="cpu")
                 mask = torch.tensor([artifact.attention_mask], dtype=torch.long, device="cpu")
-                with torch.inference_mode(), torch.autocast(device_type="cpu", enabled=False):
+                rng = (_sampled_cpu_rng(torch, self._sampling_policy["seed"])
+                       if self._sampling_policy is not None else nullcontext())
+                with rng, torch.inference_mode(), torch.autocast(device_type="cpu", enabled=False):
                     output = self._model.generate(
                         input_ids=inputs, attention_mask=mask,
                         generation_config=self._generation_config(artifact.output_reserved_tokens),

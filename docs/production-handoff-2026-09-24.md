@@ -1,4 +1,15 @@
-# M7 continuation — updated 2026-09-25
+# M7 continuation — updated 2026-09-26
+
+M7 remains **IN PROGRESS**. Attempt 12 recovery3 completed on `88b76025` with nine terminals, seven verifier successes, 18 model calls and **19,002 known tokens**, with no unknown usage or effects. The model retrieved one record and finalized too early in both failed tasks: it never performed the requested supersession, and it omitted `validation.status` after the peer writes. Both sequential evidence replays are byte-identical and reject the required model-owned supersession gate. Independent completion grade: **7.0/10, rejected**. Only recovery3's completed freeze was released; older incomplete freezes and disclosed evidence gaps remain.
+
+[Compact actual outcome](artifacts/agent-episode-attempt-12-recovery3-outcome-2026-09-25.json) retains every task result, failure, cost and evidence hash. CI339 qualified exact source with 18 original successes and two diagnostic successes. The original production lock timeout and Python 3.11 cancellation remain recorded, including unpinned dependency drift; diagnostics do not establish their causes.
+
+Attempt 13 introduces the separate `qwen3-action-json-nonthinking-sampled-bf16-v1` candidate. It uses Qwen's recommended non-thinking sampling settings (temperature 0.7, top_p 0.8, top_k 20, min_p 0), with fixed CPU seed 0 per call and restored RNG state. The legacy greedy profile, learned weights, full messages, tools, syntax grammar, tasks, verifiers, limits and acceptance gates remain unchanged. The two failures establish a model planning problem, not a demonstrated runtime defect; improved behavior is unproven until a fresh campaign completes. There is one candidate and one full nine-task campaign, with no seed or parameter sweep, selective retry or automatic action repair. See the [sampled profile contract](qwen3-sampled-action-v1.md).
+
+[Local source validation](artifacts/agent-episode-attempt-13-source-validation-2026-09-26.json) passed all **1,226 cases** (1,183 retained plus 43 new), zero skips/failures/errors, three lint scopes and the maintained 82-file mypy scope. All 521 nondocumentation file hashes stayed unchanged. The initial local mypy invocation used the repository's Python 3.10 default against installed Python 3.12-only NumPy stubs; its failure is retained. Correcting the local target to 3.12 passed without a source change or repeating tests. Fresh CI still checks actual supported Python environments. Exact-source CI, admission, frozen declaration and two evidence replays must establish the new candidate's result. M7 stays open, PR118 stays unmerged, and `production_ready=false`.
+
+## Historical attempt 12 preparation
+
 
 ## Current work: attempt 12 model and runtime comparison
 
