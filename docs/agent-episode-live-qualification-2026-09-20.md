@@ -1,5 +1,19 @@
 # Milestone 7 live qualification record
 
+M7 remains **IN PROGRESS**. Attempt 13 completed on `7838cce671d76a1e18c71b53b29518055dbc2d73` with nine terminals, seven verifier successes, 18 model calls and **19,103 known tokens** (17,966 input + 1,137 output), with no unknown usage or effects. Fixed-seed sampling did not resolve either requested task. Supersession retrieved only the current preference and finalized without mutation. The concurrent-commits task retrieved only `validation.status` and omitted `deployment.owner` from its final answer.
+
+Both actual sequential evidence replays are byte-identical (`cebfe90df89e02e76d466d7f4887e0a540d8b0c3aba64a2a01e7de38348fd917`) and reject `verified_model_owned_supersession`. Independent completion grade: **7.0/10, rejected**. Only attempt 13's completed freeze is released; older incomplete freezes and evidence gaps remain. The [compact actual outcome](artifacts/agent-episode-attempt-13-outcome-2026-09-26.json) retains every task result, failure, cost and evidence hash. Both named tasks must succeed before their correction is claimed; the original milestone gates remain unchanged.
+
+[CI340](https://github.com/mmckeen-nv/DML/actions/runs/36212861681) qualified exact source with **20/20 first-attempt successes**, including 1,192 mandatory CPU cases with zero skips. Independent CI grade: **9.6/10**. Source qualification does not override the live rejection. Prior CI339 diagnostic results, original failures and dependency drift remain in the retained history.
+
+Attempt 14 prepares a separate `qwen2-action-json-sampled-bf16-v1` candidate using `Qwen/Qwen2.5-3B-Instruct`, immutable revision `aa8e72537993ba99e69dfaafa59ed015b17504d1`. This changes model family, learned weights and tokenizer transport as well as parameter count; it is not a pure capacity comparison or a proven improvement. It retains original BF16 weights, the fixed sampling settings from attempt 13, task prompts, public tools, grammar, verifiers, budgets and gates. The model's research license limits this candidate to evaluation. Short-input fit under 8 GiB requires measured admission; full 32K-context fit is not claimed.
+
+[Attempt 14 local source validation](artifacts/agent-episode-attempt-14-source-validation-2026-09-26.json) passed **1,457 tests** (1,226 retained + 231 new), zero skips/failures/errors, all three strict lint scopes and the maintained 82-file mypy scope with the actual Python 3.12 target. All **531 nondocumentation file hashes** remained unchanged. Synthetic runtime tests establish implementation behavior; live task correction is still unproven.
+
+Reviewed source, fresh exact-source CI, independent tensor proof, zero-generation admission, a declaration frozen before generation, one complete nine-task campaign and two sequential evidence replays are required. No seed search, selective retry, forced action or automatic answer repair is introduced. M7 stays open, PR118 stays unmerged, and `production_ready=false`. See the [new profile contract](qwen2-bf16-action-v1.md).
+
+## Historical attempt 13 preparation
+
 M7 remains **IN PROGRESS**. Attempt 12 recovery3 completed on `88b76025` with nine terminals, seven verifier successes, 18 model calls and **19,002 known tokens**, with no unknown usage or effects. The model retrieved one record and finalized too early in both failed tasks: it never performed the requested supersession, and it omitted `validation.status` after the peer writes. Both sequential evidence replays are byte-identical and reject the required model-owned supersession gate. Independent completion grade: **7.0/10, rejected**. Only recovery3's completed freeze was released; older incomplete freezes and disclosed evidence gaps remain.
 
 [Compact actual outcome](artifacts/agent-episode-attempt-12-recovery3-outcome-2026-09-25.json) retains every task result, failure, cost and evidence hash. CI339 qualified exact source with 18 original successes and two diagnostic successes. The original production lock timeout and Python 3.11 cancellation remain recorded, including unpinned dependency drift; diagnostics do not establish their causes.
@@ -482,6 +496,8 @@ independent qualification record, rather than editing producer output, establish
 acceptance after all gates pass.
 
 ## Closure and next milestone
+
+Attempt 13 is complete and rejected: no model-owned supersession occurred, and the concurrent-commits answer is also incomplete. Attempt 14 remains a candidate pending source qualification, admission and actual full evidence. The current count remains **six closed, five open and two deferred**, with M7 active.
 
 Until genuine corpus evidence, independent review and final-source CI pass,
 milestone 7 remains open and no milestone 8 work is credited. Once those gates

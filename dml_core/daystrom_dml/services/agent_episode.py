@@ -30,6 +30,7 @@ from ..contracts.agent_episode import (
     initial_messages, parse_agent_action, validate_episode_events,
     validate_prior_context, validate_verifier,
     EXECUTION_PROTOCOL_V1, EXECUTION_PROTOCOL_V2, VALIDATION_CONSUMER_PROFILE, RECOVERY_CONSUMER_PROFILE, QWEN3_CONSUMER_PROFILES,
+    QWEN2_BF16_SAMPLED_CONSUMER_PROFILE,
     VALIDATION_ERROR_CODE, VALIDATION_MODEL_RESULT, execution_protocol_for_profile,
 )
 from ..contracts.model_input import ModelInputBudgetError
@@ -67,7 +68,8 @@ class EpisodeLimits:
 
 _POLICY = AGENT_POLICY
 CONSUMER_PROFILES = ("gpt2-v1", "qwen2-instruct-v1", "qwen2-action-json-v1",
-                     VALIDATION_CONSUMER_PROFILE, RECOVERY_CONSUMER_PROFILE, *QWEN3_CONSUMER_PROFILES)
+                     VALIDATION_CONSUMER_PROFILE, RECOVERY_CONSUMER_PROFILE, *QWEN3_CONSUMER_PROFILES,
+                     QWEN2_BF16_SAMPLED_CONSUMER_PROFILE)
 
 
 def validate_consumer_profile(consumer_profile):
@@ -79,6 +81,9 @@ def validate_consumer_profile(consumer_profile):
 
 def _open_consumer(snapshot_directory, consumer_profile):
     validate_consumer_profile(consumer_profile)
+    if consumer_profile == QWEN2_BF16_SAMPLED_CONSUMER_PROFILE:
+        from .qwen2_bf16_action_input import LocalQwen2BF16ActionInputConsumer
+        return LocalQwen2BF16ActionInputConsumer(snapshot_directory, consumer_profile=consumer_profile)
     if consumer_profile in QWEN3_CONSUMER_PROFILES:
         from .qwen3_action_input import LocalQwen3ActionInputConsumer
         return LocalQwen3ActionInputConsumer(snapshot_directory, consumer_profile=consumer_profile)

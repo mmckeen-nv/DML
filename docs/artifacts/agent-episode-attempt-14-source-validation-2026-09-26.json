@@ -1,0 +1,43 @@
+{
+  "counts": {
+    "error": 0,
+    "failure": 0,
+    "skipped": 0,
+    "testcase": 1457
+  },
+  "full_receipt_sha256": "dec3a3adb4038e6f9f528780f191e206f5e9d63652f4936e8ae6719375f30c9d",
+  "junit_sha256": "fbe05f5517d0fcbd8567dd0eb01744ca2041d674c20b263818670cb495780925",
+  "live_qualified": false,
+  "milestone_7_closed": false,
+  "module_count": 33,
+  "passed": true,
+  "raw_logs_uploaded": false,
+  "recorded_at_utc": "2026-09-26T03:30:46.788238+00:00",
+  "schema_version": "dml-attempt14-source-validation-v1",
+  "source_base_commit": "7838cce671d76a1e18c71b53b29518055dbc2d73",
+  "source_file_count": 531,
+  "source_unchanged": true,
+  "trained_model_generations": 0,
+  "validation": {
+    "Strict lint of agent episode companion": {
+      "exit_code": 0,
+      "log_sha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18"
+    },
+    "Strict lint of exact model-input surfaces": {
+      "exit_code": 0,
+      "log_sha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18"
+    },
+    "mypy": {
+      "exit_code": 0,
+      "log_sha256": "df74d8742d55e39e627c45b4d2bf089e2eac8efd70ffe0e3f28007de67d5addd"
+    },
+    "pytest": {
+      "exit_code": 0,
+      "log_sha256": "c6415bb41ff2c2acbb1c1fdf654fe523152a5661cb6e0bac8e48f8bab227ddcb"
+    },
+    "ruff": {
+      "exit_code": 0,
+      "log_sha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18"
+    }
+  }
+}
