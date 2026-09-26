@@ -6,9 +6,11 @@ than replacing the transaction implementation under test.
 """
 from __future__ import annotations
 
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from copy import deepcopy
+import os
 from pathlib import Path
+import sqlite3
 
 import numpy as np
 import pytest
@@ -19,6 +21,7 @@ from daystrom_dml.dml_adapter import (
     PersistenceCommitError,
     PersistenceRollbackError,
 )
+from daystrom_dml.journal import JournalIntegrityError
 from daystrom_dml.services.outbox_migration import upgrade_outbox_journal
 from daystrom_dml.store_lock import store_write_lock
 
@@ -128,6 +131,76 @@ def test_refresh_precedes_rollback_snapshot_and_provider(factory, profile):
     assert reader.refresh_if_changed() is False
     assert reader.durability_status() == {"status": "ok", "failures": {}}
     assert texts(factory(profile, writer.storage_dir)) == ["base", "peer"]
+
+
+def test_legacy_journal_refresh_reuses_one_verified_payload_and_refreshes_rag(factory, monkeypatch):
+    writer = factory("j1")
+    writer.ingest("base")
+    reader = factory("j1", writer.storage_dir)
+    writer.ingest("peer")
+    read = reader._journal._read_snapshot
+    revisions = []
+
+    def count_verified_read(connection):
+        result = read(connection)
+        revisions.append(result[0])
+        return result
+
+    monkeypatch.setattr(reader._journal, "_read_snapshot", count_verified_read)
+    with reader.mutation_transaction("refresh-once"):
+        assert_owned(reader)
+        assert texts(reader) == ["base", "peer"]
+        assert reader._last_observed_state[0] == writer._journal.revision == 2
+        assert reader.rag_store.export_state() == writer.rag_store.export_state()
+    assert revisions == [2], "A journal refresh must reuse the already verified payload and revision"
+    with reader.mutation_transaction("refresh-unchanged"):
+        assert texts(reader) == ["base", "peer"]
+    assert revisions == [2, 2], "An unchanged revision still requires one fresh full validation"
+
+
+@pytest.mark.parametrize("fault", ["same_revision_corruption", "missing_journal"])
+def test_legacy_journal_refresh_rejects_invalid_authority(factory, fault):
+    adapter = factory("j1")
+    adapter.ingest("base")
+    observed = adapter._last_observed_state
+    if fault == "same_revision_corruption":
+        stamp = adapter._journal.path.stat()
+        with closing(sqlite3.connect(adapter._journal.path)) as connection, connection:
+            revision = connection.execute("SELECT revision FROM state").fetchone()[0]
+            connection.execute("UPDATE decisions SET checksum = ?", ("0" * 64,))
+            assert connection.execute("SELECT revision FROM state").fetchone()[0] == revision
+        os.utime(adapter._journal.path, ns=(stamp.st_atime_ns, stamp.st_mtime_ns))
+        assert adapter._journal.path.stat().st_mtime_ns == observed[1]
+    else:
+        adapter._journal.path.unlink()
+    entered = False
+    with pytest.raises(JournalIntegrityError):
+        with adapter.mutation_transaction("reject-invalid-authority"):
+            entered = True
+    assert not entered
+    assert adapter._last_observed_state == observed
+    assert texts(adapter) == ["base"]
+    if fault == "missing_journal":
+        assert not adapter._journal.path.exists()
+
+
+@pytest.mark.parametrize("profile", ["json", "jsonl"])
+def test_file_refresh_retains_adapter_stamp_callback(factory, monkeypatch, profile):
+    writer = factory(profile)
+    writer.ingest("base")
+    reader = factory(profile, writer.storage_dir)
+    writer.ingest("peer")
+    stamp, calls = reader._state_stamp, []
+
+    def observed_stamp():
+        value = stamp()
+        calls.append(value)
+        return value
+
+    monkeypatch.setattr(reader, "_state_stamp", observed_stamp)
+    with reader.mutation_transaction("file-refresh"):
+        assert texts(reader) == ["base", "peer"]
+    assert calls == [stamp()]
 
 
 def test_ownership_refresh_is_reentrant_and_outer_operation_survives(factory, monkeypatch):
