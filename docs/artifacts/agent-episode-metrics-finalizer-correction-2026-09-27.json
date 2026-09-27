@@ -1,0 +1,175 @@
+{
+  "actual_model_generations": 0,
+  "baseline_ci_qualified": false,
+  "baseline_ci_run": 36331022633,
+  "baseline_commit": "cb37774b00f810ab976da2e99e8fb2299049e055",
+  "fresh_source_ci_required": true,
+  "local_python": "3.12.14",
+  "milestone_7_closed": false,
+  "prometheus_client": "0.26.0",
+  "raw_logs_uploaded": false,
+  "recorded_at_utc": "2026-09-27T16:41:04.950686+00:00",
+  "regression": {
+    "baseline_commit": "cb37774b00f810ab976da2e99e8fb2299049e055",
+    "files": {
+      "dml_core/daystrom_dml/metrics.py": "08bb1f4280d7f857fd40aa665e96de8e676b424159b2110a0a4c6a8fd5c341b0",
+      "dml_core/tests/test_metrics_reentrancy.py": "5ec2e2204729fad614ea33270f490a3b7788dc86e35cc6dd476213965a85a05a"
+    },
+    "focused_impact": {
+      "cases": 20,
+      "command": [
+        "/workspace/scratch/c79340404ab9/dml-diagnostic-venv-20260927/bin/python",
+        "-m",
+        "pytest",
+        "-o",
+        "addopts=",
+        "-q",
+        "dml_core/tests/test_metrics.py",
+        "dml_core/tests/test_metrics_reentrancy.py",
+        "dml_core/tests/test_mcp_server.py",
+        "dml_core/tests/test_outcome_metrics.py",
+        "--junitxml=/workspace/scratch/c79340404ab9/m7-resume/ci-stall-20260927/metrics-finalizer-impact.xml"
+      ],
+      "elapsed_seconds": 1.395414403000359,
+      "errors": 0,
+      "failures": 0,
+      "junit_sha256": "51298c45c810d676bc079ac2dd2298f6018f23113de61dc6eea9bcf108b70761",
+      "log_sha256": "b0a679190bd48331e44d57f70107d41e95a0e253b8776f7d0b029aff8c322081",
+      "passed": 14,
+      "returncode": 0,
+      "skips": [
+        {
+          "name": "test_cold_tool_discovery_does_not_construct_adapter",
+          "reason": "mcp extra is unavailable"
+        },
+        {
+          "name": "test_background_preload_failure_does_not_hide_tools",
+          "reason": "mcp extra is unavailable"
+        },
+        {
+          "name": "test_mcp_fetch_rejects_cross_tenant",
+          "reason": "mcp extra is unavailable"
+        },
+        {
+          "name": "test_mcp_ingest_propagates_scope_into_metadata",
+          "reason": "mcp extra is unavailable"
+        },
+        {
+          "name": "test_mcp_ingest_cross_tenant_isolation",
+          "reason": "mcp extra is unavailable"
+        },
+        {
+          "name": "test_mcp_fetch_enforces_stored_secondary_scope",
+          "reason": "mcp extra is unavailable"
+        }
+      ],
+      "whole_command_timeout_seconds": 180
+    },
+    "reproduction": {
+      "command_argv": [
+        "/workspace/scratch/c79340404ab9/dml-diagnostic-venv-20260927/bin/python",
+        "-c",
+        "<exact _FINALIZER_REENTRY constant from dml_core/tests/test_metrics_reentrancy.py>"
+      ],
+      "cwd": "/workspace/scratch/c79340404ab9/DML-metrics-fix-20260927",
+      "environment": "Inherited os.environ with PYTHONPATH replaced by the exact source root below; subprocess timeout=5, capture_output=True, text=True; subprocess.run kills and waits for its child on TimeoutExpired.",
+      "interpreter": "/workspace/scratch/c79340404ab9/dml-diagnostic-venv-20260927/bin/python",
+      "script_extraction": "ast.literal_eval of the module-level _FINALIZER_REENTRY assignment",
+      "script_sha256": "02f15c2b2e309c3a51d81fa8eb7fd0185476fe3d01e31ee0ce5af101c042024e"
+    },
+    "results": [
+      {
+        "PYTHONPATH": "/workspace/scratch/c79340404ab9/DML-current-20260927/dml_core",
+        "elapsed_seconds": 5.008191766999971,
+        "label": "baseline",
+        "metrics_py_sha256": "28b038df5c5610fc4c510dd87d42f219c0e9859fc01e2caf07cbc250b24299f8",
+        "owned_child_killed_and_waited": true,
+        "returncode": null,
+        "source_root": "/workspace/scratch/c79340404ab9/DML-current-20260927",
+        "timed_out": true,
+        "timeout_seconds": 5
+      },
+      {
+        "PYTHONPATH": "/workspace/scratch/c79340404ab9/DML-metrics-fix-20260927/dml_core",
+        "elapsed_seconds": 0.305599730999802,
+        "label": "fixed",
+        "metrics_py_sha256": "08bb1f4280d7f857fd40aa665e96de8e676b424159b2110a0a4c6a8fd5c341b0",
+        "returncode": 0,
+        "source_root": "/workspace/scratch/c79340404ab9/DML-metrics-fix-20260927",
+        "stderr_sha256": "6552ce362e0f8db1821ea68c96495f8988df151984169c550622b228d60a4742",
+        "stdout": "finalizer cleanup and subsequent metrics completed\n",
+        "timed_out": false
+      }
+    ],
+    "schema": "dml-metrics-finalizer-regression-v1",
+    "script_sha256": "02f15c2b2e309c3a51d81fa8eb7fd0185476fe3d01e31ee0ce5af101c042024e"
+  },
+  "schema_version": "dml-metrics-finalizer-correction-validation-v1",
+  "static_checks": {
+    "results": [
+      {
+        "command": [
+          "/workspace/scratch/c79340404ab9/dml-diagnostic-venv-20260927/bin/python",
+          "-m",
+          "ruff",
+          "check",
+          "--select",
+          "E,F",
+          "--ignore",
+          "E501,F401",
+          "dml_core/daystrom_dml/personality_matrix.py",
+          "dml_core/daystrom_dml/config.py",
+          "dml_core/daystrom_dml/settings.py",
+          "dml_core/daystrom_dml/context",
+          "dml_core/daystrom_dml/services",
+          "dml_core/daystrom_dml/journal.py",
+          "dml_core/daystrom_dml/atomic_io.py",
+          "dml_core/daystrom_dml/store_lock.py",
+          "dml_core/daystrom_dml/persistence.py",
+          "dml_core/daystrom_dml/checkpoint.py",
+          "dml_core/daystrom_dml/contracts/retention.py",
+          "dml_core/daystrom_dml/contracts/profile.py",
+          "dml_core/daystrom_dml/contracts/production.py",
+          "dml_core/daystrom_dml/contracts/model_input.py",
+          "dml_core/daystrom_dml/contracts/agent_episode.py",
+          "integrations/hermes/plugins/daystrom_dml",
+          "dml_core/daystrom_dml/tests/test_dml.py",
+          "dml_core/daystrom_dml/metrics.py",
+          "dml_core/tests/test_metrics_reentrancy.py"
+        ],
+        "exit_code": 0,
+        "log_sha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18",
+        "seconds": 0.033074835999286734,
+        "summary": "All checks passed!\n"
+      },
+      {
+        "command": [
+          "/workspace/scratch/c79340404ab9/dml-diagnostic-venv-20260927/bin/python",
+          "-m",
+          "mypy",
+          "--python-version",
+          "3.12",
+          "dml_core/daystrom_dml/personality_matrix.py",
+          "dml_core/daystrom_dml/config.py",
+          "dml_core/daystrom_dml/settings.py",
+          "dml_core/daystrom_dml/context",
+          "dml_core/daystrom_dml/services",
+          "dml_mcp/dml_mcp_server.py",
+          "dml_core/daystrom_dml/journal.py",
+          "dml_core/daystrom_dml/checkpoint.py",
+          "dml_core/daystrom_dml/contracts/retention.py",
+          "dml_core/daystrom_dml/contracts/profile.py",
+          "dml_core/daystrom_dml/contracts/production.py",
+          "dml_core/daystrom_dml/contracts/model_input.py",
+          "dml_core/daystrom_dml/contracts/agent_episode.py",
+          "dml_core/daystrom_dml/metrics.py"
+        ],
+        "exit_code": 0,
+        "log_sha256": "8aa2a670e99b97b104db15d820d272b85f5c097f29d001347c63f3978b27a1b5",
+        "seconds": 3.9375728500008336,
+        "summary": "dml_core/daystrom_dml/services/qwen_action_input.py:54: note: By default the bodies of untyped functions are not checked, consider using --check-untyped-defs  [annotation-unchecked]\ndml_core/daystrom_dml/services/qwen3_action_input.py:91: note: By default the bodies of untyped functions are not checked, consider using --check-untyped-defs  [annotation-unchecked]\ndml_core/daystrom_dml/services/qwen2_bf16_action_input.py:90: note: By default the bodies of untyped functions are not checked, consider using --check-untyped-defs  [annotation-unchecked]\nmypy.ini: note: unused section(s): [mypy-tests.*]\nSuccess: no issues found in 87 source files\n"
+      }
+    ],
+    "schema_version": "dml-metrics-static-validation-v1"
+  }
+}

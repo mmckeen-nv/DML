@@ -1,5 +1,9 @@
 # Finite production release plan
 
+Current continuation: [handoff updated September 27](production-handoff-2026-09-24.md). M7 remains open. CI343 ended with 19 successes and one Python 3.11 cancellation; its stack trace demonstrates reentrant Prometheus telemetry during adapter finalization. The telemetry correction requires fresh CI. Recovered model bytes, independent tensor proof and zero-generation admission passed, but no new model campaign ran. Both task failures remain unresolved; six milestones are closed, five open and two deferred.
+
+### Historical CI342 continuation
+
 Current continuation: [handoff updated September 27](production-handoff-2026-09-24.md). M7 remains open. CI342 finished with 19 successes and one Python 3.11 job cancelled at its six-hour limit. A bounded 72-case diagnostic did not reproduce the stall. The next source adds CI test names, stack dumps and a 45-minute job limit; fresh CI and recovered model qualification remain required. Both model task failures remain unresolved; six milestones are closed, five open and two deferred.
 
 ### Historical September 26 continuation

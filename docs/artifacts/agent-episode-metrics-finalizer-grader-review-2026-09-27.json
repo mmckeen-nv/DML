@@ -1,0 +1,92 @@
+{
+  "accepted_for_generation": false,
+  "accepted_for_publication": true,
+  "baseline_commit": "cb37774b00f810ab976da2e99e8fb2299049e055",
+  "baseline_source_binding": {
+    "path": "/workspace/scratch/c79340404ab9/m7-resume/ci-stall-20260927/published-source-binding.json",
+    "sha256": "87b288754a195feec20702b4797ec56056d3909cbbcafa845bba453afc5f0db4"
+  },
+  "ci343_rejection": {
+    "path": "/workspace/scratch/c79340404ab9/m7-resume/ci-stall-20260927/ci/grader-ci-rejection-review.json",
+    "sha256": "a48b2d068faeedafce1bf72fb93a2ccd1510f331aaeca4c8f26bf482e440f1e2"
+  },
+  "decision": "Accept narrow demonstrated deadlock correction for publication and fresh full CI. This is source review, not task success or live qualification.",
+  "grade": 9.7,
+  "independent_review": [
+    "Read actual terminal CI343 dump and independently fetched terminal API: 19 successes and one cancelled required Python3.11 lane; no rerun.",
+    "Observed same-thread Prometheus label child creation -> adapter finalizer -> cleanup/refresh -> nested operation labels lock.",
+    "Thread-local guard starts before metrics, skips nested telemetry only, resets in finally and retains ordinary exceptions/concurrent threads; collection also guarded.",
+    "Real Prometheus lock and real DMLAdapter destructor/store-close regression directly exercises the failure; exact script digest and source hashes verified against receipts.",
+    "Unchanged baseline reaches bounded 5.008-second timeout; same script completes on corrected source in 0.306 seconds with actual cleanup and subsequent metrics asserted.",
+    "Reviewed four targeted tests for finalizer reentry, exception reset, cross-metric/thread independence and scrape recursion.",
+    "Actual four-module XML has 14 pass and six pre-existing optional MCP skips, zero failure/error; root maintained Ruff and 87-file mypy scope pass.",
+    "All 802 baseline tracked files compared: only metrics.py and three documented status files differ; model/preparer/tokenizer/policy/grammar/corpus/gates/budgets and workflow unchanged.",
+    "All seven final path hashes/lengths match manifest; compact validation exactly embeds actual receipts; git diff --check passes.",
+    "Docs preserve failed CI343 and undiagnosed CI342, actual original-source zero-generation admission/freeze, unresolved two tasks and open M7. No raw logs/model assets published."
+  ],
+  "milestone_7_closed": false,
+  "post_publication_requirement": "Verify actual published commit/tree and exact full path/hash delta in a separate compact attestation before any unchanged-model preparation reuse; avoid self-referential commit hashes in this published review.",
+  "production_ready": false,
+  "recorded_at_utc": "2026-09-27T16:42:34.749915+00:00",
+  "review_manifest": {
+    "path": "/workspace/scratch/c79340404ab9/m7-resume/metrics-deadlock-20260927/review-manifest.json",
+    "sha256": "7923ad1489feeaabe4c55e4b44e9781785ccc1a31676f785d2cee61237ad9520"
+  },
+  "reviewed_paths": {
+    "dml_core/daystrom_dml/metrics.py": {
+      "bytes": 6691,
+      "sha256": "08bb1f4280d7f857fd40aa665e96de8e676b424159b2110a0a4c6a8fd5c341b0"
+    },
+    "dml_core/tests/test_metrics_reentrancy.py": {
+      "bytes": 5573,
+      "sha256": "5ec2e2204729fad614ea33270f490a3b7788dc86e35cc6dd476213965a85a05a"
+    },
+    "docs/agent-episode-live-qualification-2026-09-20.md": {
+      "bytes": 53015,
+      "sha256": "ebc7fe3da6a7aa47077a461c83c19056fe75c3471ebdc5a2aeb47d62c653163c"
+    },
+    "docs/artifacts/agent-episode-ci343-deadlock-2026-09-27.json": {
+      "bytes": 11646,
+      "sha256": "e0112dce756689d15331a43e24930c86cb9a06757f5c3e0d082977af831a2f5d"
+    },
+    "docs/artifacts/agent-episode-metrics-finalizer-correction-2026-09-27.json": {
+      "bytes": 7880,
+      "sha256": "91bef10395ccb7b3c67b03c1d2accddecc4ed31e6e0d97077fcbba316d665d36"
+    },
+    "docs/production-handoff-2026-09-24.md": {
+      "bytes": 33054,
+      "sha256": "33cec29eac281220493cbac1a7cbca6714da32a4afcee342a655b4336794e4bf"
+    },
+    "docs/production-remaining-work-2026-09-18.md": {
+      "bytes": 36530,
+      "sha256": "7a19ef54911705d0693b8cd7e215c18bdec4876215e8b540c4a2908eef812fb2"
+    }
+  },
+  "reviewer": "/root/supervisor_grader",
+  "schema_version": "dml-independent-metrics-finalizer-source-review-v1",
+  "scope": "Seven exact manifest paths plus this review may be published. Only production change is metrics.py; one new regression module and compact status/evidence updates.",
+  "source_ci_qualified": false,
+  "validation": {
+    "broad_model_tests_repeated_locally": false,
+    "errors": 0,
+    "failures": 0,
+    "focused_xml": {
+      "path": "/workspace/scratch/c79340404ab9/m7-resume/ci-stall-20260927/metrics-finalizer-impact.xml",
+      "sha256": "51298c45c810d676bc079ac2dd2298f6018f23113de61dc6eea9bcf108b70761"
+    },
+    "local_prometheus_client": "0.26.0",
+    "local_python": "3.12.14",
+    "optional_mcp_skips": 6,
+    "passed": 14,
+    "reason": "Model/protocol source unchanged; targeted impact validates instrumentation and callers. New full supported-version CI remains required.",
+    "red_green_receipt": {
+      "path": "/workspace/scratch/c79340404ab9/m7-resume/ci-stall-20260927/metrics-finalizer-red-green.json",
+      "sha256": "e64a58890cf1aa46e81d8bb3ca28d14b17251785f78c4410592677ce08bcb6e9"
+    },
+    "static_receipt": {
+      "path": "/workspace/scratch/c79340404ab9/m7-resume/metrics-deadlock-20260927/root-static-validation.json",
+      "sha256": "7e0a36899f0f0d9fa2da059bb448fb9e9346d1201a1eefe004b8137196bf1ded"
+    },
+    "typechecked_files": 87
+  }
+}
