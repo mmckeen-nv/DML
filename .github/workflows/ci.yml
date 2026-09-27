@@ -9,6 +9,7 @@ on:
 jobs:
   lint-test:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     strategy:
       matrix:
         python-version: ["3.10", "3.11"]
@@ -64,7 +65,7 @@ jobs:
         run: mypy $DML_CI_MYPY_TARGETS
       - name: DML core and Hermes hardening tests
         run: |
-          pytest dml_core/daystrom_dml/tests dml_core/tests integrations/hermes/tests openclaw-wrapper/tests
+          pytest -vv -o faulthandler_timeout=120 dml_core/daystrom_dml/tests dml_core/tests integrations/hermes/tests openclaw-wrapper/tests
           python integrations/hermes/plugins/daystrom_dml/smoke_hygiene.py
 
   cross-platform-portability:

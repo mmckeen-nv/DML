@@ -1,5 +1,9 @@
 # Finite production release plan
 
+Current continuation: [handoff updated September 27](production-handoff-2026-09-24.md). M7 remains open. CI342 finished with 19 successes and one Python 3.11 job cancelled at its six-hour limit. A bounded 72-case diagnostic did not reproduce the stall. The next source adds CI test names, stack dumps and a 45-minute job limit; fresh CI and recovered model qualification remain required. Both model task failures remain unresolved; six milestones are closed, five open and two deferred.
+
+### Historical September 26 continuation
+
 Current continuation: [handoff updated September 26](production-handoff-2026-09-24.md). M7 remains open. Original attempt 14 was blocked by CI341 ownership timeout before any trained-model campaign. Revision 2 removes a demonstrated duplicate journal validation; local impact and unchanged256-client tests pass. Fresh corrected-source CI/admission and the full model campaign remain required. Attempt 13 retains seven of nine successes and both failed tasks. Six milestones remain closed, five open and two deferred.
 
 Originally recorded 2026-09-18; completed milestone status reconciled **2026-09-22**
