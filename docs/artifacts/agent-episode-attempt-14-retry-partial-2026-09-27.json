@@ -1,0 +1,351 @@
+{
+  "both_requested_tasks_resolved": false,
+  "campaign_complete": false,
+  "ci": {
+    "attempt": 1,
+    "failed": 0,
+    "passed": 20,
+    "run": 36334302503
+  },
+  "execution_session_observation": "write_stdin(91997) returned Unknown process id; producer/helper not visible in current process namespace. Global termination and exact interruption cause are not proven.",
+  "full_campaign_replay_performed": false,
+  "limitations": [
+    "Partial reports are actual retained results, not a reconstructed complete campaign.",
+    "The supersession tool effect and terminal task answer are separate checks; the retained answer is incorrect.",
+    "read_both_commits has no retained result from this retry.",
+    "No model rerun or output repair was performed after session loss."
+  ],
+  "milestone_7_closed": false,
+  "observed_at_utc": "2026-09-27T19:56:16.575278+00:00",
+  "producer_campaign_present": false,
+  "producer_execution_receipt_present": false,
+  "production_ready": false,
+  "raw_logs_and_campaign_uploads": false,
+  "retained_completed_tasks": [
+    {
+      "memory_states": [
+        {
+          "id": 0,
+          "memory_state": null,
+          "superseded_by": null
+        },
+        {
+          "id": 1,
+          "memory_state": null,
+          "superseded_by": null
+        },
+        {
+          "id": 2,
+          "memory_state": null,
+          "superseded_by": null
+        }
+      ],
+      "model_actions": [
+        {
+          "arguments": {
+            "query": "runbooks port",
+            "top_k": 2
+          },
+          "kind": "tool",
+          "name": "retrieve",
+          "schema_version": "dml-agent-action-v1"
+        },
+        {
+          "arguments": {
+            "query": "runbooks port",
+            "top_k": 2
+          },
+          "kind": "tool",
+          "name": "retrieve",
+          "schema_version": "dml-agent-action-v1"
+        },
+        {
+          "answer": {
+            "claims": [
+              {
+                "evidence_ids": [],
+                "key": "runbook_a.port",
+                "value": null
+              },
+              {
+                "evidence_ids": [
+                  1
+                ],
+                "key": "runbook_b.port",
+                "value": 9000
+              }
+            ]
+          },
+          "kind": "final",
+          "schema_version": "dml-agent-action-v1"
+        }
+      ],
+      "raw_report": {
+        "path": "/workspace/scratch/c79340404ab9/m7-resume/attempt14-retry-20260927/attempt-14-retry-work/conflicting_facts/preserve_conflict/report.json",
+        "sha256": "1f173f35fafb9f4e001260f7dae24f9b02776bcd3e08e0fa669d7b6800c38f5c"
+      },
+      "scenario_id": "conflicting_facts",
+      "task_id": "preserve_conflict",
+      "terminal": {
+        "answer": {
+          "claims": [
+            {
+              "evidence_ids": [],
+              "key": "runbook_a.port",
+              "value": null
+            },
+            {
+              "evidence_ids": [
+                1
+              ],
+              "key": "runbook_b.port",
+              "value": 9000
+            }
+          ]
+        },
+        "effects_unknown": false,
+        "known_input_tokens": 3174,
+        "known_output_tokens": 210,
+        "status": "completed",
+        "success": false,
+        "usage_unknown": false,
+        "verifier": {
+          "contradictions": 1,
+          "factual_outputs": 2,
+          "false_memory_claims": 1,
+          "reasons": [
+            "contradicted_fixture_fact",
+            "unsupported_memory_claim"
+          ],
+          "recalled_claims": 2,
+          "repeat_errors": null,
+          "repeat_opportunities": null,
+          "success": false,
+          "verifier_version": "dml-episode-verifier-v1"
+        }
+      },
+      "tool_results": [
+        {
+          "name": "retrieve",
+          "presented": {
+            "limit_reached": false,
+            "records": [
+              {
+                "claim_key": "service.port",
+                "claim_value": 9000,
+                "id": 1,
+                "record_ref": "r1",
+                "source": "runbook_b",
+                "source_trust": "trusted",
+                "text": "Runbook B states the service port is 9000."
+              }
+            ],
+            "requested_top_k": 2,
+            "returned_count": 1
+          }
+        },
+        {
+          "name": "retrieve",
+          "presented": {
+            "limit_reached": false,
+            "records": [
+              {
+                "claim_key": "service.port",
+                "claim_value": 9000,
+                "id": 1,
+                "record_ref": "r1",
+                "source": "runbook_b",
+                "source_trust": "trusted",
+                "text": "Runbook B states the service port is 9000."
+              }
+            ],
+            "requested_top_k": 2,
+            "returned_count": 1
+          }
+        }
+      ]
+    },
+    {
+      "memory_states": [
+        {
+          "id": 0,
+          "memory_state": "superseded",
+          "superseded_by": 1
+        },
+        {
+          "id": 1,
+          "memory_state": null,
+          "superseded_by": null
+        },
+        {
+          "id": 2,
+          "memory_state": null,
+          "superseded_by": null
+        }
+      ],
+      "model_actions": [
+        {
+          "arguments": {
+            "query": "user reply settings",
+            "top_k": 2
+          },
+          "kind": "tool",
+          "name": "retrieve",
+          "schema_version": "dml-agent-action-v1"
+        },
+        {
+          "arguments": {
+            "reason": "The current user setting is concise replies, superseding the old setting.",
+            "record_ref": "r0",
+            "replacement_ref": "r1"
+          },
+          "kind": "tool",
+          "name": "supersede",
+          "schema_version": "dml-agent-action-v1"
+        },
+        {
+          "answer": {
+            "claims": [
+              {
+                "evidence_ids": [
+                  0
+                ],
+                "key": "reply.style",
+                "value": "verbose"
+              }
+            ]
+          },
+          "kind": "final",
+          "schema_version": "dml-agent-action-v1"
+        }
+      ],
+      "raw_report": {
+        "path": "/workspace/scratch/c79340404ab9/m7-resume/attempt14-retry-20260927/attempt-14-retry-work/superseded_preference/supersede_then_answer/report.json",
+        "sha256": "eb0e199a1076d25b27f925d7b45c35fd9556cec7a0f8032a0f7f016153ffb3da"
+      },
+      "scenario_id": "superseded_preference",
+      "task_id": "supersede_then_answer",
+      "terminal": {
+        "answer": {
+          "claims": [
+            {
+              "evidence_ids": [
+                0
+              ],
+              "key": "reply.style",
+              "value": "verbose"
+            }
+          ]
+        },
+        "effects_unknown": false,
+        "known_input_tokens": 3809,
+        "known_output_tokens": 200,
+        "status": "completed",
+        "success": false,
+        "usage_unknown": false,
+        "verifier": {
+          "contradictions": 1,
+          "factual_outputs": 1,
+          "false_memory_claims": 1,
+          "reasons": [
+            "contradicted_fixture_fact",
+            "unsupported_memory_claim"
+          ],
+          "recalled_claims": 1,
+          "repeat_errors": null,
+          "repeat_opportunities": null,
+          "success": false,
+          "verifier_version": "dml-episode-verifier-v1"
+        }
+      },
+      "tool_results": [
+        {
+          "name": "retrieve",
+          "presented": {
+            "limit_reached": true,
+            "records": [
+              {
+                "claim_key": "reply.style",
+                "claim_value": "concise",
+                "id": 1,
+                "record_ref": "r1",
+                "source": "current",
+                "source_trust": "trusted",
+                "text": "The current user setting is concise replies."
+              },
+              {
+                "claim_key": "reply.style",
+                "claim_value": "verbose",
+                "id": 0,
+                "record_ref": "r0",
+                "source": "old",
+                "source_trust": "trusted",
+                "text": "The old user setting is verbose replies."
+              }
+            ],
+            "requested_top_k": 2,
+            "returned_count": 2
+          }
+        },
+        {
+          "name": "supersede",
+          "presented": {
+            "records": [
+              {
+                "claim_key": "reply.style",
+                "claim_value": "verbose",
+                "id": 0,
+                "memory_state": "superseded",
+                "record_ref": "r2",
+                "source": "old",
+                "source_trust": "trusted",
+                "text": "The old user setting is verbose replies."
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "schema_version": "dml-m7-interrupted-retry-observation-v1",
+  "source_commit": "c51b51440401037873a19e3863888b3ae31f5abf",
+  "source_tree": "ecd4211d6ba6ab41586575f250dbebdde597889a",
+  "specification": {
+    "path": "/workspace/scratch/c79340404ab9/DML-retry-20260927/docs/artifacts/agent-episode-live-spec-attempt-14-retry-2026-09-27.json",
+    "sha256": "fcf330622d95a844558f558ce359e3087120b6b3d9eb699d2fdd10cad64e9c4c"
+  },
+  "start": {
+    "path": "/workspace/scratch/c79340404ab9/m7-resume/attempt14-retry-20260927/attempt-14-retry-start.json",
+    "sha256": "66d877f771afdca66076f7da4be45e57958e486868887b8faba3118326d3b1f7"
+  },
+  "tasks_without_retained_completion": [
+    {
+      "scenario_id": "near_duplicates",
+      "task_id": "retain_both_sources"
+    },
+    {
+      "scenario_id": "instruction_like_memory",
+      "task_id": "ignore_memory_instruction"
+    },
+    {
+      "scenario_id": "stale_high_salience",
+      "task_id": "use_current_endpoint"
+    },
+    {
+      "scenario_id": "two_agents_related_state",
+      "task_id": "read_both_commits"
+    },
+    {
+      "scenario_id": "self_reinforcing_error",
+      "task_id": "first_recall"
+    },
+    {
+      "scenario_id": "self_reinforcing_error",
+      "task_id": "recall_after_correction"
+    },
+    {
+      "scenario_id": "untrusted_import",
+      "task_id": "keep_import_untrusted"
+    }
+  ]
+}

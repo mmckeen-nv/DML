@@ -209,7 +209,7 @@ def presented_record_identities(payload, scope):
         for record in owned:
             public = {"id": record["id"], "text": record["text"], "record_ref": reference}
             public.update({key: record["meta"][key] for key in (
-                "source", "claim_key", "claim_value", "source_trust", "memory_state") if key in record["meta"]})
+                "source", "claim_key", "claim_value", "source_trust", "memory_state", "superseded_by") if key in record["meta"]})
             if canonical_json(public) == canonical_json(item):
                 matches[canonical_json(record)] = record["id"]
         if len(matches) != 1:

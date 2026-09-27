@@ -76,6 +76,8 @@ def _observations(events):
                    and item.get("text") == record["text"]
                    and all(_same(item[key], record["meta"].get(key)) for key in (
                        "source", "claim_key", "claim_value", "source_trust", "memory_state") if key in item)
+                   and ("superseded_by" in item) == ("superseded_by" in record["meta"])
+                   and _same(item.get("superseded_by"), record["meta"].get("superseded_by"))
                    for item in displayed):
                 observations.append({"sequence": event["sequence"], "task_id": event["task_id"],
                                      "operation": payload["name"], "record": deepcopy(record)})

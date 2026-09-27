@@ -1,5 +1,9 @@
 # Finite production release plan
 
+Current continuation: [handoff updated September 27](production-handoff-2026-09-24.md). CI344 passed 20/20 on `c51b5144`. The subsequent nine-task retry lost its execution session after two retained failures; supersession persisted correctly but its final answer used the old value. The complete campaign is unavailable, and `read_both_commits` has no retained result. A receipt-backed `superseded_by` projection correction needs fresh CI and model qualification. M7 stays open: six closed, five open, two deferred.
+
+## Historical continuation notices
+
 Current continuation: [handoff updated September 27](production-handoff-2026-09-24.md). M7 remains open. CI343 ended with 19 successes and one Python 3.11 cancellation; its stack trace demonstrates reentrant Prometheus telemetry during adapter finalization. The telemetry correction requires fresh CI. Recovered model bytes, independent tensor proof and zero-generation admission passed, but no new model campaign ran. Both task failures remain unresolved; six milestones are closed, five open and two deferred.
 
 ### Historical CI342 continuation

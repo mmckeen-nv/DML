@@ -281,6 +281,8 @@ def _observed(events):
                    and item["id"] == record["id"] and item.get("text") == record["text"]
                    and all(item.get(key) == record["meta"].get(key) for key in (
                        "source", "claim_key", "claim_value", "source_trust", "memory_state") if key in item)
+                   and ("superseded_by" in item) == ("superseded_by" in record["meta"])
+                   and canonical_json(item.get("superseded_by")) == canonical_json(record["meta"].get("superseded_by"))
                    for item in records):
                 observed.append({"sequence": event["sequence"], "task_id": event["task_id"],
                                  "operation": payload["name"], "record": deepcopy(record)})

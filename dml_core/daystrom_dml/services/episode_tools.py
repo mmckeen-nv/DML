@@ -213,7 +213,9 @@ class SelectedProfileEpisodeTools:
     @staticmethod
     def _public(record: dict, reference: str | None) -> dict:
         result = {"id": record["id"], "text": record["text"], "record_ref": reference}
-        for name in ("source", "claim_key", "claim_value", "source_trust", "memory_state"):
+        # Keep the committed replacement relationship with the changed source.
+        # This is receipt data, not a new observation of the replacement record.
+        for name in ("source", "claim_key", "claim_value", "source_trust", "memory_state", "superseded_by"):
             if name in record["meta"]:
                 result[name] = deepcopy(record["meta"][name])
         return result

@@ -1,0 +1,136 @@
+{
+  "accepted_for_generation": false,
+  "accepted_for_publication": true,
+  "additional_exact_grader_review_file_expected": "docs/artifacts/agent-episode-supersession-projection-grader-2026-09-27.json",
+  "base_commit": "c51b51440401037873a19e3863888b3ae31f5abf",
+  "base_tree": "ecd4211d6ba6ab41586575f250dbebdde597889a",
+  "behavior": [
+    "The public changed-record projection includes superseded_by already present in the acknowledged receipt metadata.",
+    "Canonical exact reference validation binds its presence and value to the full owned record, rejecting integer/boolean confusion and other alterations.",
+    "Live and independent replay observation helpers now apply matching presence and canonical-value checks.",
+    "No replacement record or citation is manufactured; no extra read, implicit retrieval expansion, answer repair, or tool action is inserted.",
+    "Existing immutable reference ledger and mutation idempotency remain intact."
+  ],
+  "compatibility_boundary": "New v2 displays must include superseded_by when the acknowledged record contains it. Historical c51 reports are preserved unchanged and must be replayed with their original frozen source; they are not silently migrated to this projection. The corresponding v1 observation check is also tightened, so historical replay remains source-bound.",
+  "decision": "Accept receipt-backed public supersession relationship correction for publication; fresh exact-source CI and independently reviewed campaign evidence remain required.",
+  "grade": 9.5,
+  "independent_checks": {
+    "all_806_frozen_original_source_files_unchanged": true,
+    "all_candidate_nonapproved_paths_match_original": true,
+    "complete_manifest_hashes_and_sizes": true,
+    "four_production_diffs_reviewed": true,
+    "git_diff_check": true,
+    "new_generic_regressions_reviewed": 13,
+    "no_raw_logs_weights_or_campaigns_in_manifest": true,
+    "three_status_documents_and_five_compact_records_reviewed": true,
+    "tracked_and_untracked_change_set_equals_manifest": true
+  },
+  "limitations": [
+    "This corrects information omitted from the API result; the evidence does not establish that omission as the cause of the wrong final answer.",
+    "The change does not itself establish read_both_commits success or either requested task resolved.",
+    "Supported-version CI has not yet tested this exact revised source; CI344 qualifies c51 only.",
+    "Local test-only cache isolation and Python3.12 type-check target are disclosed in the bound validation receipts.",
+    "M7 closure still requires actual complete failure-inclusive evidence, both sequential replays, unchanged source gates and success of both user-requested tasks."
+  ],
+  "live_qualified": false,
+  "milestone_7_closed": false,
+  "preserved_history": {
+    "full_campaign_completed": false,
+    "global_worker_termination_proven": false,
+    "interrupted_retry_review": {
+      "path": "/workspace/scratch/c79340404ab9/m7-resume/attempt14-retry-20260927/grader-interruption-review.json",
+      "sha256": "c1a2fc5c64094223f93918d4ed5b7b3a13a3073823e56d110595a56dc09e2d9a"
+    },
+    "successful_supersession_effect_does_not_equal_task_success": true
+  },
+  "production_ready": false,
+  "publication_manifest": {
+    "path": "/workspace/scratch/c79340404ab9/m7-resume/supersession-result-fix-20260927/publication-manifest.json",
+    "sha256": "7b7cda4425ddb55447bf511d943bed2fb1116f24b30f87c10a72341a5d55750b"
+  },
+  "recorded_at_utc": "2026-09-27T20:09:50.890210+00:00",
+  "reviewed_files": {
+    "dml_core/daystrom_dml/contracts/agent_episode.py": {
+      "bytes": 58922,
+      "sha256": "456f34017d3594be2594244a9d5a36ef998565365033c2a6006eb591256641ef"
+    },
+    "dml_core/daystrom_dml/services/agent_episode.py": {
+      "bytes": 42610,
+      "sha256": "f88475944683ae859c6c961d7a920cbd83ba7c2123faa0c3005849ad2fd8601c"
+    },
+    "dml_core/daystrom_dml/services/episode_tools.py": {
+      "bytes": 15838,
+      "sha256": "e002c910306385a63ffb17198a222b1401622738f6b526af2b28f2669500076c"
+    },
+    "dml_core/scripts/agent_campaign_evidence.py": {
+      "bytes": 25787,
+      "sha256": "efe4d79e3bf395d496bc1f5e18ac0fbe1e020046cafa2690181edc1aeae8d4e3"
+    },
+    "dml_core/tests/test_episode_supersession_projection.py": {
+      "bytes": 10872,
+      "sha256": "4594aa5637a9234d495109d46aad80c9a8541457483cc7251818aca7270910e2"
+    },
+    "docs/agent-episode-live-qualification-2026-09-20.md": {
+      "bytes": 55320,
+      "sha256": "3a6b91192d728e6eb9acecd96dd93e300155313ae798e9ccc2e12307c9af9c26"
+    },
+    "docs/artifacts/agent-episode-attempt-14-retry-grader-2026-09-27.json": {
+      "bytes": 5380,
+      "sha256": "c1a2fc5c64094223f93918d4ed5b7b3a13a3073823e56d110595a56dc09e2d9a"
+    },
+    "docs/artifacts/agent-episode-attempt-14-retry-partial-2026-09-27.json": {
+      "bytes": 10253,
+      "sha256": "e6f2ae8d246dd1383844a102b14740f6c9a8a912f0c7f8e2926c9b3e26e87187"
+    },
+    "docs/artifacts/agent-episode-ci344-qualification-2026-09-27.json": {
+      "bytes": 3421,
+      "sha256": "820020d456759e1c35f3a29066af7950faa954eb3e8690ec022733f97ab7f745"
+    },
+    "docs/artifacts/agent-episode-supersession-projection-followup-2026-09-27.json": {
+      "bytes": 3108,
+      "sha256": "9121ac016784902515b5ec26f8efc1eb81661f4e607091a49eb9a490da763fd4"
+    },
+    "docs/artifacts/agent-episode-supersession-projection-validation-2026-09-27.json": {
+      "bytes": 4273,
+      "sha256": "e4a4d11393f3c3280aed56daf86950b782ee39f726ed6a21ccc0b7efad890a3b"
+    },
+    "docs/production-handoff-2026-09-24.md": {
+      "bytes": 36431,
+      "sha256": "ae1d29e699fda8fffbf70a9fb3aa3a6db8dbcaa0b853883586ac109f026d23ed"
+    },
+    "docs/production-remaining-work-2026-09-18.md": {
+      "bytes": 37083,
+      "sha256": "dc0ba756ad04846ed4ef2706f2cbb8fb7b500df44d5fcc566b48b7af3be0c59e"
+    }
+  },
+  "reviewer": "independent supervisor/grader",
+  "schema_version": "dml-supersession-projection-source-review-v1",
+  "scope": "The exact 13-path manifest plus this unchanged review only. No merge or model execution authorization.",
+  "source_ci_qualified": false,
+  "unchanged_contracts": [
+    "First system policy and tool descriptions",
+    "Model weights/tokenizer/generation configuration/fixed seed",
+    "Retrieval behavior and returned-record selection",
+    "Corpus, task prompts, limits and predeclared milestone gates",
+    "No all-nine-success requirement added"
+  ],
+  "validation": {
+    "baseline_missing_relationship_regression_failed_as_expected": true,
+    "duplicate_test_runs_by_grader": 0,
+    "final_followup": {
+      "path": "/workspace/scratch/c79340404ab9/m7-resume/supersession-result-fix-20260927/projection-focused-validation.json",
+      "sha256": "9121ac016784902515b5ec26f8efc1eb81661f4e607091a49eb9a490da763fd4"
+    },
+    "final_followup_passed": 84,
+    "final_followup_scope": "13 projection regressions plus 71 campaign evidence cases.",
+    "mypy_four_source_files_python_3_12_passed": true,
+    "new_learned_model_generations": 0,
+    "prior_focused_scope": {
+      "path": "/workspace/scratch/c79340404ab9/m7-resume/supersession-result-fix-20260927/projection-code-validation.json",
+      "sha256": "e4a4d11393f3c3280aed56daf86950b782ee39f726ed6a21ccc0b7efad890a3b"
+    },
+    "prior_passed": 281,
+    "prior_scope_limitation": "The 281-pass run preceded the final independent observer alignment and follow-up assertions.",
+    "ruff_changed_five_files_passed": true
+  }
+}
