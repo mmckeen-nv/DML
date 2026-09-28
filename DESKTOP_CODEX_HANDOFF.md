@@ -2,6 +2,8 @@
 
 ## Current status
 
+The newer native-tools-v5 recovery development qualification failed both declared cases (0/2), despite both offline evidence replays passing. The source case truncated before exercising recovery; the replacement case recovered a verified conflict, retrieved fresh state, committed a model-owned supersession and read back, but reached the step limit without a final answer. No new nine-task campaign was frozen or launched. Exact-source [CI 36468583308](https://github.com/mmckeen-nv/DML/actions/runs/36468583308) passed all 21 jobs on `68fdc74`; it does not override failed live qualification. See [v5 recovery qualification](docs/artifacts/native-vllm-v5-recovery-qualification-outcome-2026-09-28.json).
+
 M7 remains open: the frozen remote `nemotron-remote-vllm-native-tools-v4` candidate completed all nine tasks once, with eight passes. `supersede_then_answer` failed with `tool_error`; `read_both_commits` passed. Both sequential evidence replays completed and matched byte for byte. Execution source: `e970252d1b2afff582fd741f137cb4334e95a06c`; recorded usage: 30,713 input + 1,363 output tokens; no unknown usage or effects; stable serving epoch.
 
 The model committed a supersession, received its acknowledgment and readback, then repeated the stale mutation. The gateway rejected `ReceiptLifecycleConflict` with no additional effects; no final answer followed. No discarded valid tool call, missing feedback or replay defect was found. See the [compact verified outcome](docs/artifacts/native-vllm-m7-outcome-2026-09-28.json).

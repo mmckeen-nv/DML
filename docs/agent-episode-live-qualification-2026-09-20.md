@@ -2,6 +2,8 @@
 
 M7 remains open. The remote native-tools-v4 candidate completed nine tasks once (eight passed); `supersede_then_answer` failed and `read_both_commits` passed. Both sequential evidence replays completed and matched byte for byte. See the [current milestone ledger](production-remaining-work-2026-09-18.md) and [compact verified outcome](artifacts/native-vllm-m7-outcome-2026-09-28.json). Nothing is merged; `production_ready=false`.
 
+The newer native-tools-v5 recovery development qualification failed both declared cases (0/2), despite both offline evidence replays passing. The source case truncated before exercising recovery; the replacement case recovered a verified conflict, retrieved fresh state, committed a model-owned supersession and read back, but reached the step limit without a final answer. No new nine-task campaign was frozen or launched. Exact-source [CI 36468583308](https://github.com/mmckeen-nv/DML/actions/runs/36468583308) passed all 21 jobs on `68fdc74`; it does not override failed live qualification. See [v5 recovery qualification](artifacts/native-vllm-v5-recovery-qualification-outcome-2026-09-28.json).
+
 ## Historical candidate records
 
 The original records below are preserved and do not supersede the current status linked above.

@@ -1,7 +1,10 @@
 # DML milestone status and M7 execution plan
-As of September 28, 2026. Latest completed candidate: remote Nemotron native-tools-v4.
+As of September 28, 2026. Latest full campaign: remote Nemotron native-tools-v4; latest recovery qualification: native-tools-v5, 0/2.
 
 ## Current position
+
+The newer native-tools-v5 recovery development qualification failed both declared cases (0/2), despite both offline evidence replays passing. The source case truncated before exercising recovery; the replacement case recovered a verified conflict, retrieved fresh state, committed a model-owned supersession and read back, but reached the step limit without a final answer. No new nine-task campaign was frozen or launched. Exact-source [CI 36468583308](https://github.com/mmckeen-nv/DML/actions/runs/36468583308) passed all 21 jobs on `68fdc74`; it does not override failed live qualification. See [v5 recovery qualification](artifacts/native-vllm-v5-recovery-qualification-outcome-2026-09-28.json).
+
 **13 milestones: 6 closed, 5 open for the first release, 2 deferred.** M7 remains active. The frozen `nemotron-remote-vllm-native-tools-v4` candidate completed nine tasks once: eight passed; `supersede_then_answer` failed with `tool_error`; `read_both_commits` passed. Both sequential evidence replays completed and matched byte for byte. The named-task failure and two original failed gates prevent closure. Nothing is merged; `production_ready=false`.
 
 Execution source: `e970252d1b2afff582fd741f137cb4334e95a06c`. Recorded usage: 30,713 input + 1,363 output tokens; no unknown usage or effects; serving epoch remained stable. Earlier campaigns and development diagnostics remain separate, retained and nonresumable. The remote profile is a new model/runtime candidate with explicit native protocol extensions; it does not inherit the old local profile's exact-token guarantees.

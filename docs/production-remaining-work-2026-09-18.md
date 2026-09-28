@@ -1,5 +1,7 @@
 # Current M7 status — September 28, 2026
 
+The newer native-tools-v5 recovery development qualification failed both declared cases (0/2), despite both offline evidence replays passing. The source case truncated before exercising recovery; the replacement case recovered a verified conflict, retrieved fresh state, committed a model-owned supersession and read back, but reached the step limit without a final answer. No new nine-task campaign was frozen or launched. Exact-source [CI 36468583308](https://github.com/mmckeen-nv/DML/actions/runs/36468583308) passed all 21 jobs on `68fdc74`; it does not override failed live qualification. See [v5 recovery qualification](artifacts/native-vllm-v5-recovery-qualification-outcome-2026-09-28.json).
+
 **Six milestones closed (M1–6), five first-release gates open (M7–11), two deferred (M12–13). M7 remains open.** The separately frozen `nemotron-remote-vllm-native-tools-v4` candidate completed all nine tasks once: eight passed; `supersede_then_answer` ended in `tool_error`; `read_both_commits` passed. The failed named task prevents M7 closure. Both sequential evidence replays completed, matched byte for byte, and confirmed complete authentic evidence with failed acceptance gates.
 
 Execution source was `e970252d1b2afff582fd741f137cb4334e95a06c`. Recorded usage is 30,713 input and 1,363 output tokens, with no unknown usage or effects and a stable serving epoch. Keep the completed run and every earlier failed attempt unchanged; do not retry tasks or weaken gates. Raw evidence remains on the station. Nothing is merged; `production_ready=false`. [Current milestone plan](bare-metal-milestone-plan-2026-09-28.md); [desktop handoff](../DESKTOP_CODEX_HANDOFF.md).
@@ -7,6 +9,10 @@ Execution source was `e970252d1b2afff582fd741f137cb4334e95a06c`. Recorded usage 
 ## Native-v4 completed attempt — September 28, 2026
 
 The [compact verified outcome](artifacts/native-vllm-m7-outcome-2026-09-28.json) binds frozen source, pinned model/runtime, all nine task results, usage and evidence hashes. Both checker invocations exited 1 because `all_intents_reached_retrieval_and_final` and `verified_model_owned_supersession` failed; evidence integrity passed. The first supersession committed, but the model repeated its stale mutation after acknowledgment/readback, received `ReceiptLifecycleConflict` with no additional effects, and emitted no final answer. A committed mutation alone does not satisfy the original completed-task gate. No transport/evidence defect was found. The four successful development diagnostics did not generalize to this required campaign behavior.
+
+## Native-v5 recovery qualification — September 28, 2026
+
+Eight model calls consumed 17,335 input and 1,163 output tokens, with no HTTP/model errors or timeouts and a stable serving epoch. One genuine stale-replacement conflict was proven before any save; its failed key remained absent. One source-case completion truncated at the unchanged 256-token cap. Both cases lacked a final answer. The first source response supplied nonempty native reasoning, whose raw binding and subsequent history replay passed. Recovery branch coverage is distinct from successful qualification. Source `68fdc74b7afbddadc79b3beabf49f5c859ea0d47` adds only a type annotation after retained predecessor CI failure; corrected exact-source CI passed all 21 jobs. The [v5 recovery qualification](artifacts/native-vllm-v5-recovery-qualification-outcome-2026-09-28.json) preserves source/test scopes, both replay hashes and station-only evidence references.
 
 ## Historical records
 

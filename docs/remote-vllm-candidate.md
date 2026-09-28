@@ -200,6 +200,8 @@ retain their exact default schema, and other profiles reject that marker.
 
 ## Native v5 lifecycle recovery candidate
 
+The newer native-tools-v5 recovery development qualification failed both declared cases (0/2), despite both offline evidence replays passing. The source case truncated before exercising recovery; the replacement case recovered a verified conflict, retrieved fresh state, committed a model-owned supersession and read back, but reached the step limit without a final answer. No new nine-task campaign was frozen or launched. Exact-source [CI 36468583308](https://github.com/mmckeen-nv/DML/actions/runs/36468583308) passed all 21 jobs on `68fdc74`; it does not override failed live qualification. See [v5 recovery qualification](artifacts/native-vllm-v5-recovery-qualification-outcome-2026-09-28.json). Eight calls used 17,335 input and 1,163 output tokens; no HTTP/model errors or timeouts occurred. Both replayed all eight raw calls and authority/history paths, including one nonempty reasoning response. The unchanged 256-token output cap and six-step budget remain binding.
+
 `nemotron-remote-vllm-native-tools-v5` separately versions recovery from a
 verified stale record decision. V4's completed 8/9 campaign remains unchanged;
 its repeated stale mutation and terminal failure are not retroactively recovered.
