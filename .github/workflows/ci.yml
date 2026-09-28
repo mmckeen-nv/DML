@@ -676,6 +676,13 @@ jobs:
       - name: Lint remote consumer and synthetic qualification
         run: >-
           ruff check
+          dml_core/daystrom_dml/services/receipt_conflict_boundary.py
+          dml_core/tests/test_receipt_conflict_boundary.py
+          dml_core/tests/test_native_recovery_v5.py
+          dml_core/scripts/native_recovery_suite.py
+          dml_core/scripts/native_recovery_synthetic.py
+          dml_core/tests/test_native_recovery_suite.py
+          dml_core/tests/test_native_recovery_synthetic.py
           dml_core/daystrom_dml/services/remote_vllm_action_input.py
           dml_core/scripts/remote_vllm_synthetic.py
           dml_core/scripts/native_dml_synthetic.py
@@ -692,6 +699,10 @@ jobs:
       - name: Verify remote contracts without endpoint or model generation
         run: >-
           python -m pytest -o addopts= -q
+          dml_core/tests/test_receipt_conflict_boundary.py
+          dml_core/tests/test_native_recovery_v5.py
+          dml_core/tests/test_native_recovery_suite.py
+          dml_core/tests/test_native_recovery_synthetic.py
           dml_core/tests/test_remote_vllm_action_input.py
           dml_core/tests/test_remote_vllm_json_renderer.py
           dml_core/tests/test_remote_episode_integration.py

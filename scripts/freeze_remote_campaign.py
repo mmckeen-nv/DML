@@ -74,7 +74,7 @@ def main(argv=None):
     root, source = args.candidate_root.resolve(), args.source_root.resolve()
     run = root / "campaign-once"
     sys.path.insert(0, str(source / "dml_core"))
-    from daystrom_dml.contracts.agent_episode import REMOTE_VLLM_JSON_CONSUMER_PROFILE, NATIVE_REMOTE_VLLM_CONSUMER_PROFILES, execution_protocol_for_profile
+    from daystrom_dml.contracts.agent_episode import REMOTE_VLLM_JSON_CONSUMER_PROFILE, NATIVE_REMOTE_VLLM_CONSUMER_PROFILES, NATIVE_REMOTE_VLLM_V5_CONSUMER_PROFILE, execution_protocol_for_profile
     from daystrom_dml.services.agent_episode import EpisodeLimits
     from daystrom_dml.services.episode_verifiers import load_episode_corpus
     from daystrom_dml.services.remote_vllm_action_input import verify_remote_manifest, RemoteVLLMActionInputConsumer, EXACT_TOKEN_LIMITATIONS
@@ -104,6 +104,13 @@ def main(argv=None):
         if profile in NATIVE_REMOTE_VLLM_CONSUMER_PROFILES:
             required |= {"dml_core/daystrom_dml/services/native_remote_vllm_action_input.py",
                          "dml_core/scripts/native_dml_synthetic.py"}
+        if profile == NATIVE_REMOTE_VLLM_V5_CONSUMER_PROFILE:
+            required |= {"dml_core/daystrom_dml/services/receipt_conflict_boundary.py",
+                         "dml_core/daystrom_dml/services/receipt_lifecycle.py",
+                         "dml_core/daystrom_dml/services/receipt_supersession.py",
+                         "dml_core/daystrom_dml/journal.py",
+                         "dml_core/scripts/native_recovery_suite.py",
+                         "dml_core/scripts/native_recovery_synthetic.py"}
         if not required <= sources.keys():
             raise ValueError("V2 freeze requires tracked renderer, synthetic qualification and freeze sources")
     snapshots = {p.name: digest(p) for p in bundle.iterdir() if p.is_file()}

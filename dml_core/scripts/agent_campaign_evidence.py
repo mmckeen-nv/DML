@@ -13,7 +13,7 @@ from pathlib import Path
 import re
 
 from daystrom_dml.contracts.agent_episode import (
-    canonical_json, decode_json, validate_episode_events, presented_record_identities,
+    canonical_json, decode_json, validate_episode_events, presented_record_identities, validate_precommit_conflict_proof,
     parse_agent_action, AgentEpisodeError, NATIVE_REMOTE_VLLM_CONSUMER_PROFILES,
     execution_protocol_for_profile, EXECUTION_PROTOCOL_V2, VALIDATION_CONSUMER_PROFILE, RECOVERY_CONSUMER_PROFILE,
     QWEN3_CONSUMER_PROFILE, QWEN3_CONSUMER_PROFILES, QWEN2_BF16_SAMPLED_CONSUMER_PROFILE, QWEN3_GGUF_CONSUMER_PROFILE, EVENT_VERSION_V2, REMOTE_VLLM_CONSUMER_PROFILES,
@@ -142,6 +142,12 @@ def _replay_presented_authority(events, prepared):
             ledger.update(identities)
             pending = None
         elif event["kind"] == "tool_failed":
+            if "recovery_proof" in payload:
+                _require(pending is not None, "Recovery failure lacks dispatched authority")
+                validate_precommit_conflict_proof(payload["recovery_proof"], request=pending["payload"],
+                    scope=scope, ledger=ledger)
+                _require(payload["recovery_proof"]["key"] == "episode:" + event["episode_id"] + ":" + event["call_id"],
+                    "Recovery proof idempotency key differs from dispatched authority")
             pending = None
 
 

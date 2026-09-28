@@ -27,6 +27,27 @@ class EpisodeToolError(ValueError):
     """An action cannot be admitted to this episode's tool authority."""
 
 
+class EpisodeToolConflictRejected(EpisodeToolError):
+    """Exact bridge-owned precommit rejection; arbitrary adapter errors never qualify."""
+
+    def __init__(self, owner, prepared, proof, original):
+        super().__init__(str(original))
+        self._owner = owner
+        self._prepared = prepared
+        self._proof = canonical_json(proof)
+        self.original_error_code = type(original).__name__
+        self.original_error_message = str(original)
+
+    @property
+    def proof(self):
+        return json.loads(self._proof)
+
+    @property
+    def model_result(self):
+        from ..contracts.agent_episode import PRECOMMIT_CONFLICT_MODEL_RESULT
+        return PRECOMMIT_CONFLICT_MODEL_RESULT
+
+
 class EpisodeToolValidationRejected(EpisodeToolError):
     """One bridge-owned, proven no-dispatch rejection; never an adapter error."""
 
@@ -99,7 +120,8 @@ class SelectedProfileEpisodeTools:
     def __init__(self, adapter, *, scope: dict, episode_id: str,
                  seed_receipts: Sequence[dict] = (), source_trust: str = "untrusted",
                  observation_records: Sequence[dict] = (), allowed_tools=None,
-                 effective_time=2000000000, execution_protocol=EXECUTION_PROTOCOL_V1):
+                 effective_time=2000000000, execution_protocol=EXECUTION_PROTOCOL_V1,
+                 recover_precommit_conflicts=False):
         if adapter.production_profile_id != PROFILE_ID:
             raise EpisodeToolError("Episode tools require the selected receipt profile")
         if type(episode_id) is not str or not episode_id or len(episode_id.encode("utf-8")) > 128:
@@ -120,6 +142,10 @@ class SelectedProfileEpisodeTools:
         if execution_protocol not in (EXECUTION_PROTOCOL_V1, EXECUTION_PROTOCOL_V2):
             raise EpisodeToolError("Unknown execution protocol")
         self.execution_protocol = execution_protocol
+        if type(recover_precommit_conflicts) is not bool or (recover_precommit_conflicts and execution_protocol != EXECUTION_PROTOCOL_V2):
+            raise EpisodeToolError("Precommit recovery requires explicit validated-protocol opt-in")
+        self.recover_precommit_conflicts = recover_precommit_conflicts
+        self._conflict_rejections = {}
         self._presentation_ledger: dict[str, tuple[int, bytes]] = {}
         self._rejection_owner = object()
         self._records: dict[str, dict] = {}
@@ -243,7 +269,60 @@ class SelectedProfileEpisodeTools:
                 return reference, deepcopy(record)
         return None
 
+    def owns_conflict_rejection(self, error, prepared):
+        if (type(self) is not SelectedProfileEpisodeTools or type(error) is not EpisodeToolConflictRejected
+                or not self.recover_precommit_conflicts or error._owner is not self._rejection_owner
+                or error._prepared is not prepared):
+            return False
+        registered = self._conflict_rejections.get(id(error))
+        valid = (registered is not None and registered[0] is error
+                 and registered[1] is prepared and registered[2] == error._proof
+                 and registered[3:] == (error.original_error_code, error.original_error_message))
+        if valid:
+            del self._conflict_rejections[id(error)]
+        return valid
+
     def execute(self, prepared: PreparedEpisodeTool) -> tuple[dict, str]:
+        if (not self.recover_precommit_conflicts or prepared.name not in ("retire", "supersede")):
+            return self._execute(prepared)
+        if self._prepared.get(id(prepared)) is not prepared:
+            raise EpisodeToolError("Only this bridge's prepared actions may execute")
+        from ..dml_adapter import DMLAdapter
+        from .receipt_conflict_boundary import ReceiptConflictBoundary, ReceiptPreconditionConflict
+        from .receipt_lifecycle import canonical_retirement_request
+        from .receipt_supersession import canonical_supersession_request
+        # A custom adapter cannot manufacture evidence for a trusted service path.
+        if type(self._adapter) is not DMLAdapter:
+            return self._execute(prepared)
+        arguments = prepared.arguments
+        source = self._record(arguments['record_ref'])
+        fields = {**self._scope, 'expected_memory_digest': _digest(source), 'reason': arguments['reason']}
+        if prepared.name == 'supersede':
+            replacement = self._record(arguments['replacement_ref'])
+            request, digest = canonical_supersession_request(source['id'], replacement_memory_id=replacement['id'],
+                expected_replacement_digest=_digest(replacement), **fields)
+        else:
+            request, digest = canonical_retirement_request(source['id'], **fields)
+        boundary = ReceiptConflictBoundary(journal=self._adapter._journal, operation=prepared.name,
+            request_digest=digest, key=prepared.idempotency_key, scope=self._scope)
+        try:
+            with boundary:
+                return self._execute(prepared)
+        except ReceiptPreconditionConflict as original:
+            proof = boundary.authenticate(original)
+            if proof is None:
+                raise
+            proof['references'] = {name: {'record_ref': arguments[name], 'record_id': self._record(arguments[name])['id'],
+                'memory_digest': _digest(self._record(arguments[name]))}
+                for name in ('record_ref', 'replacement_ref') if name in arguments}
+            if proof['request_digest'] != digest or proof['scope'] != request['scope']:
+                raise EpisodeToolError("Owned precommit proof differs from dispatched request") from original
+            error = EpisodeToolConflictRejected(self._rejection_owner, prepared, proof, original)
+            self._conflict_rejections[id(error)] = (error, prepared, error._proof,
+                error.original_error_code, error.original_error_message)
+            raise error from original
+
+    def _execute(self, prepared: PreparedEpisodeTool) -> tuple[dict, str]:
         if self._prepared.get(id(prepared)) is not prepared:
             raise EpisodeToolError("Only this bridge's prepared actions may execute")
         name, arguments = prepared.name, prepared.arguments

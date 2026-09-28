@@ -15,7 +15,7 @@ from threading import RLock
 
 from ..contracts.agent_episode import (
     AgentEpisodeError, NATIVE_REMOTE_VLLM_CONSUMER_PROFILE, NATIVE_REMOTE_VLLM_V2_CONSUMER_PROFILE,
-    NATIVE_REMOTE_VLLM_V3_CONSUMER_PROFILE, NATIVE_REMOTE_VLLM_V4_CONSUMER_PROFILE, canonical_json,
+    NATIVE_REMOTE_VLLM_V3_CONSUMER_PROFILE, NATIVE_REMOTE_VLLM_V4_CONSUMER_PROFILE, NATIVE_REMOTE_VLLM_V5_CONSUMER_PROFILE, canonical_json,
     initial_messages, native_action_text, native_policy_identity, parse_agent_action,
 )
 from ..contracts.model_input import (
@@ -35,7 +35,10 @@ NATIVE_ACTION_POLICY = 'single-native-call-or-original-final-json-v1'
 V2_CONSUMER_PROFILE = NATIVE_REMOTE_VLLM_V2_CONSUMER_PROFILE
 V3_CONSUMER_PROFILE = NATIVE_REMOTE_VLLM_V3_CONSUMER_PROFILE
 V4_CONSUMER_PROFILE = NATIVE_REMOTE_VLLM_V4_CONSUMER_PROFILE
-PROSE_CONSUMER_PROFILES = (V2_CONSUMER_PROFILE, V3_CONSUMER_PROFILE, V4_CONSUMER_PROFILE)
+V5_CONSUMER_PROFILE = NATIVE_REMOTE_VLLM_V5_CONSUMER_PROFILE
+REASONING_CONSUMER_PROFILES = (V4_CONSUMER_PROFILE, V5_CONSUMER_PROFILE)
+NATIVE_V5_ACTION_POLICY = "single-native-call-or-original-final-json-bound-native-reasoning-precommit-recovery-v5"
+PROSE_CONSUMER_PROFILES = (V2_CONSUMER_PROFILE, V3_CONSUMER_PROFILE, V4_CONSUMER_PROFILE, V5_CONSUMER_PROFILE)
 NATIVE_V2_ACTION_POLICY = 'single-native-call-with-bound-nonauthoritative-prose-or-original-final-json-serving-whitespace-null-v2.1'
 NATIVE_V3_ACTION_POLICY = 'single-native-call-with-bound-nonauthoritative-prose-or-original-final-json-serving-whitespace-null-completion-v3'
 NATIVE_V4_ACTION_POLICY = 'single-native-call-or-original-final-json-bound-native-reasoning-v4'
@@ -84,7 +87,7 @@ def verify_native_manifest(directory, *, consumer_profile=CONSUMER_PROFILE):
     manifest = verify_remote_manifest(directory)
     if (manifest.get('consumer_profile') != consumer_profile
             or manifest.get('rendering_policy') != NATIVE_RENDERING_POLICY
-            or manifest.get('action_projection_policy') != (NATIVE_V4_ACTION_POLICY if consumer_profile == V4_CONSUMER_PROFILE else NATIVE_V3_ACTION_POLICY if consumer_profile == V3_CONSUMER_PROFILE else NATIVE_V2_ACTION_POLICY if consumer_profile == V2_CONSUMER_PROFILE else NATIVE_ACTION_POLICY)
+            or manifest.get('action_projection_policy') != (NATIVE_V5_ACTION_POLICY if consumer_profile == V5_CONSUMER_PROFILE else NATIVE_V4_ACTION_POLICY if consumer_profile == V4_CONSUMER_PROFILE else NATIVE_V3_ACTION_POLICY if consumer_profile == V3_CONSUMER_PROFILE else NATIVE_V2_ACTION_POLICY if consumer_profile == V2_CONSUMER_PROFILE else NATIVE_ACTION_POLICY)
             or manifest['files']['chat-template.jinja'] != NATIVE_TEMPLATE_SHA256):
         raise ModelInputError('Native candidate requires its pinned template and explicit native protocol')
     return manifest
@@ -93,19 +96,20 @@ def verify_native_manifest(directory, *, consumer_profile=CONSUMER_PROFILE):
 def native_identity(manifest, *, consumer_profile=CONSUMER_PROFILE):
     base = remote_identity(manifest)
     policy = {'base_identity': base.to_payload(), 'native_action_policy': native_policy_identity(consumer_profile=consumer_profile),
-              'native_protocol': ({**NATIVE_PROTOCOL_POLICY, 'projection': NATIVE_V4_ACTION_POLICY if consumer_profile == V4_CONSUMER_PROFILE else NATIVE_V3_ACTION_POLICY if consumer_profile == V3_CONSUMER_PROFILE else NATIVE_V2_ACTION_POLICY,
+              'native_protocol': ({**NATIVE_PROTOCOL_POLICY, 'projection': NATIVE_V5_ACTION_POLICY if consumer_profile == V5_CONSUMER_PROFILE else NATIVE_V4_ACTION_POLICY if consumer_profile == V4_CONSUMER_PROFILE else NATIVE_V3_ACTION_POLICY if consumer_profile == V3_CONSUMER_PROFILE else NATIVE_V2_ACTION_POLICY,
                   'accompanying_prose': 'exact_prefix_matches_native_content_only_whitespace_suffix_no_authority',
                   'prefix_normalization': 'vllm020_engine_serving_whitespace_only_prefix_to_null_v1',
                   'xml_delimiters': 'exactly_one_complete_call_no_stray_or_nested_control_delimiters'}
                   if consumer_profile in PROSE_CONSUMER_PROFILES else NATIVE_PROTOCOL_POLICY), 'exact_token_limitations': NATIVE_EXACT_TOKEN_LIMITATIONS,
               'all_turn_grammar_removed': True}
-    if consumer_profile == V4_CONSUMER_PROFILE:
+    if consumer_profile in REASONING_CONSUMER_PROFILES:
         policy['reasoning_admission'] = {'no_thinking_request': 'advisory',
             'segmentation': 'optional_exact_leading_opener_single_closer_nonempty_suffix',
             'metadata': 'exact_raw_prefix_equals_api_reasoning_never_action_authority',
             'controls': 'think_ids12_13_exact_text_counts_role_id10_forbidden',
             'fallback': 'no_empty_suffix_promotion'}
-    prefix = ('dml-remote-vllm-native-tools-runtime-v4:' if consumer_profile == V4_CONSUMER_PROFILE else
+    prefix = ('dml-remote-vllm-native-tools-runtime-v5:' if consumer_profile == V5_CONSUMER_PROFILE else
+              'dml-remote-vllm-native-tools-runtime-v4:' if consumer_profile == V4_CONSUMER_PROFILE else
               'dml-remote-vllm-native-tools-runtime-v3:' if consumer_profile == V3_CONSUMER_PROFILE else
               'dml-remote-vllm-native-tools-runtime-v2:' if consumer_profile == V2_CONSUMER_PROFILE else
               'dml-remote-vllm-native-tools-runtime-v1:')
@@ -228,7 +232,7 @@ def _bound_reasoning_suffix(message, text):
 
 def project_native_message(message, visible_text, tools, finish_reason, *, consumer_profile=CONSUMER_PROFILE):
     """Keep malformed native actions as quality failures with known raw usage."""
-    if consumer_profile == V4_CONSUMER_PROFILE:
+    if consumer_profile in REASONING_CONSUMER_PROFILES:
         try:
             visible_text = _bound_reasoning_suffix(message, visible_text)
         except NativeProjectionError as exc:
@@ -327,8 +331,8 @@ class NativeRemoteVLLMActionInputConsumer(RemoteVLLMActionInputConsumer):
         self.last_exchange = None
         request = ModelInputRequest.from_payload({'messages': messages, 'tools': [] if tools is None else tools,
             'output_reserved_tokens': output_reserved_tokens,
-            **({'message_policy': 'native-reasoning-metadata-v1'} if self._consumer_profile == V4_CONSUMER_PROFILE else {})},
-            allow_native_reasoning=self._consumer_profile == V4_CONSUMER_PROFILE)
+            **({'message_policy': 'native-reasoning-metadata-v1'} if self._consumer_profile in REASONING_CONSUMER_PROFILES else {})},
+            allow_native_reasoning=self._consumer_profile in REASONING_CONSUMER_PROFILES)
         if request.messages[0] != initial_messages('profile binding', consumer_profile=self._consumer_profile)[0]:
             raise ModelInputError('Native profile requires its exact system policy')
         action_schema(request.tools)
@@ -388,7 +392,7 @@ class NativeRemoteVLLMActionInputConsumer(RemoteVLLMActionInputConsumer):
         if (special_positions != allowed_positions
                 or (choice['finish_reason'] != 'length' and not allowed_positions)):
             action_text, action_error = None, 'NativeProjectionError: Native output contains forbidden special tokens or lacks terminal EOS'
-        elif self._consumer_profile == V4_CONSUMER_PROFILE and (10 in output
+        elif self._consumer_profile in REASONING_CONSUMER_PROFILES and (10 in output
                 or output.count(12) != raw_text.count('<think>')
                 or output.count(13) != raw_text.count('</think>')):
             action_text, action_error = None, 'NativeProjectionError: Native reasoning or role control IDs contradict raw delimiters'

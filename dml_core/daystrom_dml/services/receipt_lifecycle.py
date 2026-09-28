@@ -121,6 +121,8 @@ def retire_receipted(journal: JournalStateStore, *, request: dict, request_diges
     may be retried, but a changed target always requires a new caller decision.
     The ingestion and retirement APIs share the same scoped key namespace.
     """
+    from .receipt_conflict_boundary import note_save_entered, reject_stale_record
+
     request = _validated_request(request, request_digest)
     scope = request["scope"]
     existing = journal.lookup_receipt(scope=scope, key=key, request_digest=request_digest)
@@ -144,7 +146,10 @@ def retire_receipted(journal: JournalStateStore, *, request: dict, request_diges
             assert record is not None
             prior_digest = memory_digest(record)
             if prior_digest != request["expected_memory_digest"]:
-                raise ReceiptLifecycleConflict("Memory changed since the retirement decision")
+                reject_stale_record(journal, operation="retire", request_digest=request_digest,
+                    key=key, scope=scope, revision=revision, snapshot=payload, record=record,
+                    expected_digest=request["expected_memory_digest"], record_role="target",
+                    message="Memory changed since the retirement decision")
             state = str(meta.get("memory_state") or meta.get("lifecycle_state") or "").strip().lower()
             if state == "deleted" or "retirement_decision" in meta:
                 raise ReceiptLifecycleConflict("Memory already has a retirement state or decision")
@@ -154,6 +159,7 @@ def retire_receipted(journal: JournalStateStore, *, request: dict, request_diges
                                            "reason": request["reason"]}
             validate_snapshot(payload)
             try:
+                note_save_entered(journal, operation="retire", request_digest=request_digest, key=key, scope=scope)
                 receipt = journal.save_with_receipt(payload, scope=scope, key=key,
                     request_digest=request_digest, result={"memory": record},
                     expected_revision=revision, operation="retire-receipt-v1")

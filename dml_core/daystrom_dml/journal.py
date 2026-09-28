@@ -780,8 +780,27 @@ class JournalStateStore:
             self._read_snapshot(connection)
             return self._lookup_receipt(connection, scope, key, request_digest)
 
+    def observe_precommit_receipt_absence(self, *, scope: dict, key: str,
+                                         request_digest: str, revision: int,
+                                         snapshot: dict) -> bool:
+        """Observe a validated snapshot and absent key in one read transaction.
+
+        Used only by the opt-in invocation rejection proof. It makes no claim
+        about later external commits and never changes or reconciles a receipt.
+        """
+        self._require_receipts()
+        scope, key, request_digest = _receipt_identity(scope, key, request_digest)
+        with self._connect() as connection:
+            connection.execute("BEGIN")
+            observed_revision, observed, _ = self._read_snapshot(connection)
+            receipt = self._lookup_receipt(connection, scope, key, request_digest)
+            return (receipt is None and observed_revision == revision
+                    and _encode(observed) == _encode(snapshot))
+
     def save(self, payload: dict, *, expected_revision: int | None = None,
              operation: str = "persist") -> None:
+        from .services.receipt_conflict_boundary import note_journal_save_entered
+        note_journal_save_entered(self)
         self._save(payload, expected_revision=expected_revision, operation=operation)
 
     def save_with_receipt(self, payload: dict, *, scope: dict, key: str,
@@ -792,6 +811,8 @@ class JournalStateStore:
         A retry lookup precedes CAS inside the write transaction. ``result`` must
         contain exactly ``memory``, equal to an item in the committed snapshot.
         """
+        from .services.receipt_conflict_boundary import note_journal_save_entered
+        note_journal_save_entered(self)
         self._require_receipts()
         scope, key, request_digest = _receipt_identity(scope, key, request_digest)
         spec = _decode(_encode({"scope": scope, "key": key, "request_digest": request_digest, "result": result}))
@@ -801,6 +822,8 @@ class JournalStateStore:
 
     def _save(self, payload: dict, *, expected_revision: int | None = None,
               operation: str = "persist", receipt_spec: dict | None = None) -> dict | None:
+        from .services.receipt_conflict_boundary import note_journal_save_entered
+        note_journal_save_entered(self)
         if expected_revision is not None and (type(expected_revision) is not int or expected_revision < 0):
             raise ValueError("expected_revision must be a nonnegative integer")
         if not isinstance(operation, str) or not operation.strip():

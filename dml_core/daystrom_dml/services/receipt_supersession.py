@@ -111,6 +111,8 @@ def supersede_receipted(journal: JournalStateStore, *, request: dict,
     Other memories may change during bounded rebases. The full scoped key
     namespace is shared with ingestion and retirement.
     """
+    from .receipt_conflict_boundary import note_save_entered, reject_stale_record
+
     request = _validated_request(request, request_digest)
     scope = request["scope"]
     existing = journal.lookup_receipt(scope=scope, key=key, request_digest=request_digest)
@@ -135,9 +137,15 @@ def supersede_receipted(journal: JournalStateStore, *, request: dict,
                     raise ReceiptMemoryNotFound("Memory is not available in the requested scope")
             assert source is not None and replacement is not None
             if memory_digest(source) != request["expected_memory_digest"]:
-                raise ReceiptLifecycleConflict("Source memory changed since the supersession decision")
+                reject_stale_record(journal, operation="supersede", request_digest=request_digest,
+                    key=key, scope=scope, revision=revision, snapshot=payload, record=source,
+                    expected_digest=request["expected_memory_digest"], record_role="source",
+                    message="Source memory changed since the supersession decision")
             if memory_digest(replacement) != request["expected_replacement_digest"]:
-                raise ReceiptLifecycleConflict("Replacement memory changed since the supersession decision")
+                reject_stale_record(journal, operation="supersede", request_digest=request_digest,
+                    key=key, scope=scope, revision=revision, snapshot=payload, record=replacement,
+                    expected_digest=request["expected_replacement_digest"], record_role="replacement",
+                    message="Replacement memory changed since the supersession decision")
             source_meta, replacement_meta = source["meta"], replacement["meta"]
             if _has_decision(source_meta) or _states(source_meta) & {"deleted", "retired", "superseded"}:
                 raise ReceiptLifecycleConflict("Source memory already has a retirement or supersession state or decision")
@@ -150,6 +158,7 @@ def supersede_receipted(journal: JournalStateStore, *, request: dict,
             source_meta["supersession_decision"] = _decision(request)
             validate_snapshot(payload)
             try:
+                note_save_entered(journal, operation="supersede", request_digest=request_digest, key=key, scope=scope)
                 receipt = journal.save_with_receipt(payload, scope=scope, key=key,
                     request_digest=request_digest, result={"memory": source},
                     expected_revision=revision, operation="supersede-receipt-v1")

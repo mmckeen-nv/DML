@@ -92,6 +92,12 @@ def _source_digests(*, consumer_profile="gpt2-v1"):
         files["daystrom_dml.services.remote_vllm_action_input"] = Path(runner.__file__).with_name("remote_vllm_action_input.py")
     if consumer_profile in NATIVE_REMOTE_VLLM_CONSUMER_PROFILES:
         files["daystrom_dml.services.native_remote_vllm_action_input"] = Path(runner.__file__).with_name("native_remote_vllm_action_input.py")
+    from daystrom_dml.contracts.agent_episode import NATIVE_REMOTE_VLLM_V5_CONSUMER_PROFILE
+    if consumer_profile == NATIVE_REMOTE_VLLM_V5_CONSUMER_PROFILE:
+        for name in ("receipt_conflict_boundary", "receipt_lifecycle", "receipt_supersession"):
+            files["daystrom_dml.services." + name] = Path(runner.__file__).with_name(name + ".py")
+        files["daystrom_dml.contracts.model_input"] = Path(contract.__file__).with_name("model_input.py")
+        files["daystrom_dml.journal"] = Path(runner.__file__).parents[1] / "journal.py"
     files["scripts.agent_campaign_evidence"] = Path(__file__).with_name("agent_campaign_evidence.py")
     return {name: hashlib.sha256(path.read_bytes()).hexdigest() for name, path in files.items()}
 

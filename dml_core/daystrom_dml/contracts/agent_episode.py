@@ -38,7 +38,9 @@ NATIVE_REMOTE_VLLM_CONSUMER_PROFILE = "nemotron-remote-vllm-native-tools-v1"
 NATIVE_REMOTE_VLLM_V2_CONSUMER_PROFILE = "nemotron-remote-vllm-native-tools-v2"
 NATIVE_REMOTE_VLLM_V3_CONSUMER_PROFILE = "nemotron-remote-vllm-native-tools-v3"
 NATIVE_REMOTE_VLLM_V4_CONSUMER_PROFILE = "nemotron-remote-vllm-native-tools-v4"
-NATIVE_REMOTE_VLLM_CONSUMER_PROFILES = (NATIVE_REMOTE_VLLM_CONSUMER_PROFILE, NATIVE_REMOTE_VLLM_V2_CONSUMER_PROFILE, NATIVE_REMOTE_VLLM_V3_CONSUMER_PROFILE, NATIVE_REMOTE_VLLM_V4_CONSUMER_PROFILE)
+NATIVE_REMOTE_VLLM_V5_CONSUMER_PROFILE = "nemotron-remote-vllm-native-tools-v5"
+NATIVE_REASONING_CONSUMER_PROFILES = (NATIVE_REMOTE_VLLM_V4_CONSUMER_PROFILE, NATIVE_REMOTE_VLLM_V5_CONSUMER_PROFILE)
+NATIVE_REMOTE_VLLM_CONSUMER_PROFILES = (NATIVE_REMOTE_VLLM_CONSUMER_PROFILE, NATIVE_REMOTE_VLLM_V2_CONSUMER_PROFILE, NATIVE_REMOTE_VLLM_V3_CONSUMER_PROFILE, NATIVE_REMOTE_VLLM_V4_CONSUMER_PROFILE, NATIVE_REMOTE_VLLM_V5_CONSUMER_PROFILE)
 REMOTE_VLLM_CONSUMER_PROFILES = (REMOTE_VLLM_CONSUMER_PROFILE, REMOTE_VLLM_JSON_CONSUMER_PROFILE, *NATIVE_REMOTE_VLLM_CONSUMER_PROFILES)
 EPISODE_VALIDATION_PROFILES = (*VALIDATION_PROFILES, *QWEN3_CONSUMER_PROFILES,
                                QWEN2_BF16_SAMPLED_CONSUMER_PROFILE, QWEN3_GGUF_CONSUMER_PROFILE, *REMOTE_VLLM_CONSUMER_PROFILES)
@@ -51,6 +53,9 @@ RECOVERY_GUIDANCE = (
     "Do not repeat the same invalid proposal unchanged or claim that rejected work was completed."
 )
 VALIDATION_ERROR_CODE = "distinct_records_required"
+PRECOMMIT_CONFLICT_ERROR_CODE = "stale_record_reference"
+PRECOMMIT_CONFLICT_MODEL_RESULT = ('{"effects":"none","error":{"code":"stale_record_reference",'
+    '"message":"The operation was rejected because a referenced record changed. No operation was executed. Previously returned records may be stale."}}')
 VALIDATION_MODEL_RESULT = ('{"effects":"none","error":{"code":"distinct_records_required",'
     '"message":"Supersede requires different source and replacement records. No operation was executed."}}')
 MAX_ACTION_BYTES = 64 * 1024
@@ -215,16 +220,20 @@ def native_policy_identity(*, consumer_profile=NATIVE_REMOTE_VLLM_CONSUMER_PROFI
             "normalization": "single-native-call-or-unmodified-final-json-v1",
             "all_turn_json_grammar": False, "parallel_tool_calls": False,
             "mixed_content_and_calls": ("retain-nonauthoritative-content" if consumer_profile != NATIVE_REMOTE_VLLM_CONSUMER_PROFILE else "reject"), "reasoning": "disabled-reject-nonempty"}
-    if consumer_profile in (NATIVE_REMOTE_VLLM_V3_CONSUMER_PROFILE, NATIVE_REMOTE_VLLM_V4_CONSUMER_PROFILE):
+    if consumer_profile in (NATIVE_REMOTE_VLLM_V3_CONSUMER_PROFILE, NATIVE_REMOTE_VLLM_V4_CONSUMER_PROFILE, NATIVE_REMOTE_VLLM_V5_CONSUMER_PROFILE):
         identity["completion_guidance"] = {"policy": "acknowledged-state-completion-v1",
             "text": NATIVE_COMPLETION_GUIDANCE,
             "sha256": hashlib.sha256(NATIVE_COMPLETION_GUIDANCE.encode()).hexdigest(),
             "placement": "append-to-system-message", "join": "\n\n"}
-    if consumer_profile == NATIVE_REMOTE_VLLM_V4_CONSUMER_PROFILE:
+    if consumer_profile in NATIVE_REASONING_CONSUMER_PROFILES:
         identity["task_step_guidance"] = {"text": NATIVE_TASK_STEP_GUIDANCE,
             "sha256": hashlib.sha256(NATIVE_TASK_STEP_GUIDANCE.encode()).hexdigest(), "placement": "append-to-system-message"}
         identity["reasoning"] = "bound-native-metadata-no-authority-v4"
         identity["reasoning_history"] = "api-reasoning-to-template-reasoning_content-exact-v1"
+    if consumer_profile == NATIVE_REMOTE_VLLM_V5_CONSUMER_PROFILE:
+        identity["precommit_conflict_recovery"] = {"policy": "owned-stale-cas-before-any-save-v1",
+            "operations": ["supersede", "retire"], "model_result": PRECOMMIT_CONFLICT_MODEL_RESULT,
+            "continuation": "model-chosen-next-step-existing-budgets-no-automatic-retry"}
     return identity
 
 
@@ -245,9 +254,9 @@ def native_system_policy(*, consumer_profile=NATIVE_REMOTE_VLLM_CONSUMER_PROFILE
         prefix = prefix.replace("Emit at most one function call per turn and no accompanying prose. ",
             "Emit at most one function call per turn. Any accompanying assistant prose is non-authoritative commentary, not a final answer, a tool result, or evidence. ")
     policy = prefix + "A final action has exactly" + AGENT_POLICY.split("A final action has exactly", 1)[1] + "\n\n" + RECOVERY_GUIDANCE
-    if consumer_profile in (NATIVE_REMOTE_VLLM_V3_CONSUMER_PROFILE, NATIVE_REMOTE_VLLM_V4_CONSUMER_PROFILE):
+    if consumer_profile in (NATIVE_REMOTE_VLLM_V3_CONSUMER_PROFILE, NATIVE_REMOTE_VLLM_V4_CONSUMER_PROFILE, NATIVE_REMOTE_VLLM_V5_CONSUMER_PROFILE):
         policy += "\n\n" + NATIVE_COMPLETION_GUIDANCE
-    return policy + "\n\n" + NATIVE_TASK_STEP_GUIDANCE if consumer_profile == NATIVE_REMOTE_VLLM_V4_CONSUMER_PROFILE else policy
+    return policy + "\n\n" + NATIVE_TASK_STEP_GUIDANCE if consumer_profile in NATIVE_REASONING_CONSUMER_PROFILES else policy
 
 
 def native_action_text(message, *, consumer_profile=NATIVE_REMOTE_VLLM_CONSUMER_PROFILE):
@@ -264,9 +273,9 @@ def native_action_text(message, *, consumer_profile=NATIVE_REMOTE_VLLM_CONSUMER_
     for key in ("reasoning", "reasoning_content"):
         if message.get(key) is not None:
             _text(message[key])
-    if consumer_profile == NATIVE_REMOTE_VLLM_V4_CONSUMER_PROFILE and message.get("reasoning") is not None and message.get("reasoning_content") is not None and message["reasoning"] != message["reasoning_content"]:
+    if consumer_profile in NATIVE_REASONING_CONSUMER_PROFILES and message.get("reasoning") is not None and message.get("reasoning_content") is not None and message["reasoning"] != message["reasoning_content"]:
         raise AgentEpisodeError("Native reasoning aliases disagree")
-    rejected_fields = ("refusal",) if consumer_profile == NATIVE_REMOTE_VLLM_V4_CONSUMER_PROFILE else ("reasoning", "reasoning_content", "refusal")
+    rejected_fields = ("refusal",) if consumer_profile in NATIVE_REASONING_CONSUMER_PROFILES else ("reasoning", "reasoning_content", "refusal")
     if any(message.get(key) not in (None, "") for key in rejected_fields):
         raise AgentEpisodeError("Native nonthinking profile rejects reasoning or refusal")
     content = message.get("content")
@@ -304,7 +313,7 @@ def native_feedback_messages(message, name, arguments, model_result, *, consumer
         raise AgentEpisodeError("Native feedback differs from decoded model action")
     assistant = {"role": "assistant", "content": message.get("content") or "",
                  "tool_calls": deepcopy(message["tool_calls"])}
-    if consumer_profile == NATIVE_REMOTE_VLLM_V4_CONSUMER_PROFILE:
+    if consumer_profile in NATIVE_REASONING_CONSUMER_PROFILES:
         for key in ("reasoning", "reasoning_content"):
             if key in message:
                 assistant[key] = message[key]
@@ -312,6 +321,89 @@ def native_feedback_messages(message, name, arguments, model_result, *, consumer
             assistant["reasoning_content"] = message["reasoning"]
     return [assistant, {"role": "tool", "tool_call_id": message["tool_calls"][0]["id"],
                         "name": name, "content": model_result}]
+
+
+def validate_precommit_conflict_proof(proof, *, request=None, scope=None, ledger=None):
+    """Replay a recorded proof, never mint live ownership from serialized fields."""
+    from ..persistence import validate_record, validate_snapshot
+    from ..services.receipt_lifecycle import canonical_retirement_request, memory_digest
+    from ..services.receipt_supersession import canonical_supersession_request
+    _keys(proof, ("schema_version", "operation", "phase", "request_digest", "key", "scope",
+        "snapshot_revision", "snapshot_digest", "snapshot", "record_role", "record_id",
+        "expected_memory_digest", "observed_memory_digest", "observed_record", "save_entered", "receipt_absent_at_snapshot", "references"))
+    if (proof["schema_version"] != "dml-precommit-conflict-v1"
+            or proof["operation"] not in ("supersede", "retire")
+            or proof["phase"] != "validated_scoped_snapshot_before_first_save"
+            or proof["save_entered"] is not False or proof["receipt_absent_at_snapshot"] is not True):
+        raise AgentEpisodeError("Unlisted precommit conflict boundary")
+    roles = ("source", "replacement") if proof["operation"] == "supersede" else ("target",)
+    if proof["record_role"] not in roles:
+        raise AgentEpisodeError("Unlisted conflict record role")
+    _integer(proof["snapshot_revision"])
+    _integer(proof["record_id"])
+    for field in ("snapshot_digest", "request_digest", "expected_memory_digest", "observed_memory_digest"):
+        if type(proof[field]) is not str or re.fullmatch(r"[0-9a-f]{64}", proof[field]) is None:
+            raise AgentEpisodeError("Invalid conflict digest")
+    try:
+        validate_snapshot(proof["snapshot"])
+        validate_record(proof["observed_record"])
+        digest = hashlib.sha256(json.dumps(proof["snapshot"], sort_keys=True,
+            separators=(",", ":"), allow_nan=False).encode()).hexdigest()
+        observed = memory_digest(proof["observed_record"])
+    except (TypeError, ValueError, KeyError) as exc:
+        raise AgentEpisodeError("Invalid conflict snapshot") from exc
+    if (digest != proof["snapshot_digest"] or observed != proof["observed_memory_digest"]
+            or observed == proof["expected_memory_digest"]
+            or proof["observed_record"]["id"] != proof["record_id"]
+            or not any(canonical_json(record) == canonical_json(proof["observed_record"])
+                       for record in proof["snapshot"]["items"])):
+        raise AgentEpisodeError("Conflict snapshot does not establish stale record")
+    if type(proof["scope"]) is not dict or set(proof["scope"]) != {"tenant_id", "client_id", "session_id", "instance_id"}:
+        raise AgentEpisodeError("Conflict requires complete scope")
+    if any(canonical_json(proof["observed_record"]["meta"].get(key)) != canonical_json(value)
+           for key, value in proof["scope"].items()):
+        raise AgentEpisodeError("Conflict record escaped scope")
+    fields = ("record_ref", "replacement_ref") if proof["operation"] == "supersede" else ("record_ref",)
+    _keys(proof["references"], fields)
+    for field in fields:
+        reference = proof["references"][field]
+        _keys(reference, ("record_ref", "record_id", "memory_digest"))
+        _identifier(reference["record_ref"])
+        _integer(reference["record_id"])
+        if type(reference["memory_digest"]) is not str or re.fullmatch(r"[0-9a-f]{64}", reference["memory_digest"]) is None:
+            raise AgentEpisodeError("Invalid original reference digest")
+        if ledger is not None:
+            identity = ledger.get(reference["record_ref"])
+            if identity is None or identity[0] != reference["record_id"] or memory_digest(decode_json(identity[1])) != reference["memory_digest"]:
+                raise AgentEpisodeError("Conflict reference was not previously presented")
+    for field in fields:
+        reference = proof["references"][field]
+        matches = [record for record in proof["snapshot"]["items"] if record["id"] == reference["record_id"]]
+        if len(matches) != 1 or any(canonical_json(matches[0]["meta"].get(key)) != canonical_json(value)
+                                   for key, value in proof["scope"].items()):
+            raise AgentEpisodeError("Conflict snapshot lacks both scoped original record IDs")
+        if (proof["record_role"] == "replacement" and field == "record_ref"
+                and memory_digest(matches[0]) != reference["memory_digest"]):
+            raise AgentEpisodeError("Replacement conflict cannot bypass the earlier source precondition")
+    failed = proof["references"]["replacement_ref" if proof["record_role"] == "replacement" else "record_ref"]
+    if failed["record_id"] != proof["record_id"] or failed["memory_digest"] != proof["expected_memory_digest"]:
+        raise AgentEpisodeError("Conflict differs from original immutable precondition")
+    if scope is not None and canonical_json(proof["scope"]) != canonical_json(scope):
+        raise AgentEpisodeError("Conflict scope differs from episode")
+    if request is not None:
+        if (proof["operation"] != request["name"] or proof["key"] != request["idempotency_key"]
+                or any(proof["references"][field]["record_ref"] != request["arguments"][field] for field in fields)):
+            raise AgentEpisodeError("Conflict differs from dispatched proposal")
+        source = proof["references"]["record_ref"]
+        kwargs = {"expected_memory_digest": source["memory_digest"], "reason": request["arguments"]["reason"], **proof["scope"]}
+        if proof["operation"] == "supersede":
+            replacement = proof["references"]["replacement_ref"]
+            _, expected = canonical_supersession_request(source["record_id"],
+                replacement_memory_id=replacement["record_id"], expected_replacement_digest=replacement["memory_digest"], **kwargs)
+        else:
+            _, expected = canonical_retirement_request(source["record_id"], **kwargs)
+        if expected != proof["request_digest"]:
+            raise AgentEpisodeError("Conflict request digest differs from proposal")
 
 
 def presented_record_identities(payload, scope):
@@ -852,7 +944,15 @@ def validate_event(event):
         _text(payload["model_result"], limit=1024 * 1024)
         _number(payload["latency_ms"])
     elif kind == "tool_failed":
-        _keys(payload, ("name", "error_code", "effects", "latency_ms"))
+        _keys(payload, ("name", "error_code", "effects", "latency_ms"), ("error_message", "recovery_proof", "model_result"))
+        if "error_message" in payload:
+            _text(payload["error_message"], limit=1024 * 1024)
+        if "recovery_proof" in payload or "model_result" in payload:
+            if (version != EVENT_VERSION_V2 or payload.get("model_result") != PRECOMMIT_CONFLICT_MODEL_RESULT
+                    or payload.get("error_code") != "ReceiptPreconditionConflict" or "error_message" not in payload
+                    or payload["effects"] != "none"):
+                raise AgentEpisodeError("Unlisted recovery failure payload")
+            validate_precommit_conflict_proof(payload.get("recovery_proof"))
         _text(payload["name"], limit=128, nonempty=True)
         _text(payload["error_code"], limit=1024, nonempty=True)
         if payload["effects"] not in ("none", "unknown"):
@@ -1007,7 +1107,8 @@ def validate_episode_events(events, *, require_terminal=True):
             if compiled is not None:
                 runtime = compiled["identity"]["runtime_identity"]
                 expected_version = "v3" if selected_profile == RECOVERY_CONSUMER_PROFILE else "v2"
-                prefix = ("dml-remote-vllm-native-tools-runtime-v4" if selected_profile == NATIVE_REMOTE_VLLM_V4_CONSUMER_PROFILE
+                prefix = ("dml-remote-vllm-native-tools-runtime-v5" if selected_profile == NATIVE_REMOTE_VLLM_V5_CONSUMER_PROFILE
+                          else "dml-remote-vllm-native-tools-runtime-v4" if selected_profile == NATIVE_REMOTE_VLLM_V4_CONSUMER_PROFILE
                           else "dml-remote-vllm-native-tools-runtime-v3" if selected_profile == NATIVE_REMOTE_VLLM_V3_CONSUMER_PROFILE
                           else "dml-remote-vllm-native-tools-runtime-v2" if selected_profile == NATIVE_REMOTE_VLLM_V2_CONSUMER_PROFILE
                           else "dml-remote-vllm-native-tools-runtime-v1" if selected_profile == NATIVE_REMOTE_VLLM_CONSUMER_PROFILE
@@ -1027,7 +1128,7 @@ def validate_episode_events(events, *, require_terminal=True):
                              "dml-remote-vllm-action-runtime-v1:", "dml-remote-vllm-action-runtime-v2:",
                              "dml-remote-vllm-native-tools-runtime-v1:", "dml-remote-vllm-native-tools-runtime-v2:", "dml-remote-vllm-native-tools-runtime-v3:", "dml-remote-vllm-native-tools-runtime-v4:"))):
                     raise AgentEpisodeError("Compiled runtime and execution protocol differ")
-            expected_message_policy = "native-reasoning-metadata-v1" if selected_profile == NATIVE_REMOTE_VLLM_V4_CONSUMER_PROFILE else None
+            expected_message_policy = "native-reasoning-metadata-v1" if selected_profile in NATIVE_REASONING_CONSUMER_PROFILES else None
             if (request_payload.get("message_policy") != expected_message_policy
                     or expected_message_policy is None and "message_policy" in request_payload):
                 raise AgentEpisodeError("Request reasoning metadata policy differs from native profile")
@@ -1203,7 +1304,21 @@ def validate_episode_events(events, *, require_terminal=True):
                 if selected_profile in NATIVE_REMOTE_VLLM_CONSUMER_PROFILES:
                     next_messages = [*previous_request["request"]["messages"], *native_feedback_messages(
                         completed_model["payload"]["native_message"], payload["name"], pending["payload"]["arguments"], payload["model_result"], consumer_profile=selected_profile)]
+            elif "recovery_proof" in payload:
+                if selected_profile != NATIVE_REMOTE_VLLM_V5_CONSUMER_PROFILE:
+                    raise AgentEpisodeError("Recovery failure is exclusive to native v5")
+                validate_precommit_conflict_proof(payload["recovery_proof"], request=pending["payload"],
+                    scope=events[0]["payload"]["scope"], ledger=ledger)
+                feedback_id = completed_model["payload"]["native_tool_call_id"]
+                presented.append((feedback_id, payload["model_result"]))
+                next_messages = [*previous_request["request"]["messages"], *native_feedback_messages(
+                    completed_model["payload"]["native_message"], payload["name"], pending["payload"]["arguments"],
+                    payload["model_result"], consumer_profile=selected_profile)]
             else:
+                if selected_profile != NATIVE_REMOTE_VLLM_V5_CONSUMER_PROFILE and "error_message" in payload:
+                    raise AgentEpisodeError("Extended failure payload is exclusive to native v5")
+                if selected_profile == NATIVE_REMOTE_VLLM_V5_CONSUMER_PROFILE and payload["effects"] != "unknown":
+                    raise AgentEpisodeError("Unproved native v5 failure has unknown effects")
                 halted = True
                 halt_kind = "tool_failed"
             pending = None

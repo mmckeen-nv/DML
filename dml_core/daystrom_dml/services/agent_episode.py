@@ -32,10 +32,11 @@ from ..contracts.agent_episode import (
     EXECUTION_PROTOCOL_V1, EXECUTION_PROTOCOL_V2, VALIDATION_CONSUMER_PROFILE, RECOVERY_CONSUMER_PROFILE, QWEN3_CONSUMER_PROFILES,
     QWEN2_BF16_SAMPLED_CONSUMER_PROFILE, QWEN3_GGUF_CONSUMER_PROFILE, REMOTE_VLLM_CONSUMER_PROFILES,
     VALIDATION_ERROR_CODE, VALIDATION_MODEL_RESULT, execution_protocol_for_profile,
-    NATIVE_REMOTE_VLLM_CONSUMER_PROFILES, NATIVE_REMOTE_VLLM_V4_CONSUMER_PROFILE, native_feedback_messages,
+    NATIVE_REMOTE_VLLM_CONSUMER_PROFILES, NATIVE_REASONING_CONSUMER_PROFILES, NATIVE_REMOTE_VLLM_V5_CONSUMER_PROFILE,
+    PRECOMMIT_CONFLICT_MODEL_RESULT, native_feedback_messages,
 )
 from ..contracts.model_input import ModelInputBudgetError
-from .episode_tools import EpisodeToolValidationRejected, SelectedProfileEpisodeTools, episode_tool_definitions
+from .episode_tools import EpisodeToolConflictRejected, EpisodeToolValidationRejected, SelectedProfileEpisodeTools, episode_tool_definitions
 from .episode_outcomes import build_terminal
 
 
@@ -155,7 +156,7 @@ def build_episode_request(task, *, messages=None, limits=EpisodeLimits(), allowe
                 task["prompt"], prior_context, consumer_profile=consumer_profile),
         "tools": [tool for tool in episode_tool_definitions() if tool["function"]["name"] in allowed],
         "output_reserved_tokens": limits.output_tokens,
-        **({"message_policy": "native-reasoning-metadata-v1"} if consumer_profile == NATIVE_REMOTE_VLLM_V4_CONSUMER_PROFILE else {})}
+        **({"message_policy": "native-reasoning-metadata-v1"} if consumer_profile in NATIVE_REASONING_CONSUMER_PROFILES else {})}
 
 
 def _run_loop(consumer, toolbox, *, task, limits, emit, prior_context=None,
@@ -174,7 +175,7 @@ def _run_loop(consumer, toolbox, *, task, limits, emit, prior_context=None,
     for step in range(limits.max_steps):
         request = {"messages": deepcopy(messages), "tools": deepcopy(tools),
                    "output_reserved_tokens": limits.output_tokens}
-        if consumer_profile == NATIVE_REMOTE_VLLM_V4_CONSUMER_PROFILE:
+        if consumer_profile in NATIVE_REASONING_CONSUMER_PROFILES:
             request["message_policy"] = "native-reasoning-metadata-v1"
         if len(canonical_json(request)) > limits.max_transcript_bytes:
             emit("admission_rejected", "admission-" + str(step), {"step": step, "limit": "transcript_bytes",
@@ -281,8 +282,22 @@ def _run_loop(consumer, toolbox, *, task, limits, emit, prior_context=None,
             duration = _elapsed(before)
             if prepared.name == "retrieve":
                 retrieval_ms += duration
-            emit("tool_failed", tool_id, {"name": prepared.name, "error_code": type(exc).__name__,
-                "effects": _tool_effects(exc, prepared.name), "latency_ms": duration})
+            if (consumer_profile == NATIVE_REMOTE_VLLM_V5_CONSUMER_PROFILE
+                    and type(exc) is EpisodeToolConflictRejected
+                    and type(toolbox) is SelectedProfileEpisodeTools
+                    and SelectedProfileEpisodeTools.owns_conflict_rejection(toolbox, exc, prepared)):
+                emit("tool_failed", tool_id, {"name": prepared.name,
+                    "error_code": exc.original_error_code, "error_message": exc.original_error_message,
+                    "effects": "none", "latency_ms": duration, "recovery_proof": exc.proof,
+                    "model_result": PRECOMMIT_CONFLICT_MODEL_RESULT})
+                messages.extend(native_feedback_messages(native_message, prepared.name, prepared.arguments,
+                    PRECOMMIT_CONFLICT_MODEL_RESULT, consumer_profile=consumer_profile))
+                continue
+            failure = {"name": prepared.name, "error_code": type(exc).__name__,
+                "effects": _tool_effects(exc, prepared.name), "latency_ms": duration}
+            if consumer_profile == NATIVE_REMOTE_VLLM_V5_CONSUMER_PROFILE:
+                failure.update(error_message=str(exc), effects="unknown")
+            emit("tool_failed", tool_id, failure)
             return {"status": "tool_error", "answer": None, "retrieval_ms": retrieval_ms}
         duration = _elapsed(before)
         if prepared.name == "retrieve":
@@ -535,7 +550,8 @@ def _worker(connection, config):
             episode_id=config["episode_id"], seed_receipts=prepared["seed_receipts"],
             observation_records=list(prepared["seed_records"].values()),
             allowed_tools=task_allowed_tools(config["task"]), effective_time=config["effective_time"],
-            execution_protocol=protocol)
+            execution_protocol=protocol,
+            recover_precommit_conflicts=consumer_profile == NATIVE_REMOTE_VLLM_V5_CONSUMER_PROFILE)
         outcome = _run_loop(consumer, toolbox, task=config["task"], limits=limits, emit=emit,
                             prior_context=config.get("prior_context"), execution_protocol=protocol,
                             consumer_profile=consumer_profile)

@@ -197,3 +197,45 @@ of production retrieval quality or selection based on model outcomes. Actual
 model-query leakage still disqualifies dependency evidence. Native v4 alone opts
 into the digest-bound `native-reasoning-metadata-v1` request policy; old requests
 retain their exact default schema, and other profiles reject that marker.
+
+## Native v5 lifecycle recovery candidate
+
+`nemotron-remote-vllm-native-tools-v5` separately versions recovery from a
+verified stale record decision. V4's completed 8/9 campaign remains unchanged;
+its repeated stale mutation and terminal failure are not retroactively recovered.
+The model, native template, sampling, system guidance, retrieval, authorization,
+final claims/citations contract, corpus, budgets and acceptance gates stay fixed.
+
+Recovery is limited to supersession source/replacement or retirement target
+full-record digest mismatches found in a validated, same-scope snapshot under
+write ownership before any save attempt in that invocation. An invocation-owned
+proof must bind the exact exception, request, operation key, scope, expected and
+observed digests, and snapshot revision. An exception name or `effects:none`
+label alone is insufficient: `ReceiptLifecycleConflict` also occurs while
+validating existing or post-commit receipts.
+
+The rejected action and authentic error remain failure evidence. Structured tool
+feedback explicitly says that the attempted operation did not execute; it grants
+no new record authority and does not count as a successful operation. The model
+chooses its next action within the remaining original steps, input/output tokens,
+transcript size and wall time. No automatic mutation retry, operation-ID
+replacement, action substitution, error suppression or final-answer repair is
+permitted. Earlier profiles preserve their terminal behavior and identities.
+
+Update/promotion conflicts, eligibility failures, authorization violations,
+missing records, receipt-validation errors, unresolved dispatches, integrity
+failures and unknown commit effects remain terminal. Unproven lifecycle errors
+cannot authorize recovery. This candidate requires independently reviewed
+regressions, predeclared noncorpus live recovery evidence, exact-source CI and a
+new approved freeze before another complete nine-task campaign.
+
+The recovery development suite declares two external peer-update cases, one for
+each supersession record. A real peer update occurs only after the model has
+retrieved the original references; it preserves the claim value and record
+eligibility while changing the immutable record digest. The peer receipt and
+initial fixture remain separate evidence. A separately labeled verifier baseline
+applies only that authenticated, predeclared update; the original verifier is
+unchanged. Qualification requires an actual classified conflict followed by the
+model's own retrieval, supersession, read-back and valid cited final. No conflict
+means the recovery branch is unqualified. Retirement is covered by controlled
+journal regressions, not claimed as live-qualified by these two cases.
