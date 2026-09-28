@@ -55,3 +55,24 @@ def test_publish_never_overwrites_terminal(tmp_path):
     with pytest.raises(FileExistsError):
         module.publish(path, {"status": "completed"})
     assert json.loads(path.read_text())["status"] == "interrupted"
+
+
+def test_frozen_limits_survive_real_producer_cli_serialization(tmp_path, monkeypatch):
+    """A numerically equal int/float previously invalidated a completed replay."""
+    from dataclasses import asdict
+    from scripts import agent_episodes
+    monkeypatch.syspath_prepend(str(SCRIPT.parent))
+    from freeze_remote_campaign import declared_limits
+    captured = {}
+
+    def capture(**kwargs):
+        captured.update(asdict(kwargs["limits"]))
+        return {"summary": {"attempted_tasks": 0, "completed_tasks": 0}, "episodes": []}
+
+    monkeypatch.setattr(agent_episodes, "run_campaign", capture)
+    args = ["--snapshot-directory", str(tmp_path / "snapshot"),
+            "--work-directory", str(tmp_path / "episodes"), "--output", str(tmp_path / "campaign.json")]
+    for name, value in declared_limits().items():
+        args += ["--" + name.replace("_", "-"), str(value)]
+    assert agent_episodes.main(args) == 0
+    assert json.dumps(captured, sort_keys=True) == json.dumps(declared_limits(), sort_keys=True)

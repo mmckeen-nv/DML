@@ -13,6 +13,13 @@ import time
 from durable_campaign import digest, publish
 
 
+def declared_limits():
+    """Use the same JSON number types as the producer's argument parser."""
+    return dict(max_steps=6, output_tokens=256, max_input_tokens=32768,
+        max_output_tokens=1536, max_transcript_bytes=262144, max_event_bytes=4194304,
+        max_episode_bytes=16777216, wall_time_seconds=300.0)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--candidate-root", type=Path, required=True)
@@ -45,9 +52,7 @@ def main():
             if path.is_file() and path.suffix != ".pyc":
                 runtime_files[str(path)] = digest(path)
     publish(root / "runtime-inventory.json", {"versions": versions, "files": runtime_files})
-    limits = EpisodeLimits(max_steps=6, output_tokens=256, max_input_tokens=32768,
-        max_output_tokens=1536, max_transcript_bytes=262144, max_event_bytes=4194304,
-        max_episode_bytes=16777216, wall_time_seconds=300)
+    limits = EpisodeLimits(**declared_limits())
     profile = REMOTE_VLLM_CONSUMER_PROFILE
     spec = {"schema_version": SPEC_VERSION_V2, "consumer_profile": profile,
         "execution_protocol": execution_protocol_for_profile(profile), "acceptance": GATES,
