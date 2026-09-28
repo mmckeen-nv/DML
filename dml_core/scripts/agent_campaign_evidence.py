@@ -16,7 +16,7 @@ from daystrom_dml.contracts.agent_episode import (
     canonical_json, decode_json, validate_episode_events, presented_record_identities, validate_precommit_conflict_proof,
     parse_agent_action, AgentEpisodeError, NATIVE_REMOTE_VLLM_CONSUMER_PROFILES,
     execution_protocol_for_profile, EXECUTION_PROTOCOL_V2, VALIDATION_CONSUMER_PROFILE, RECOVERY_CONSUMER_PROFILE,
-    QWEN3_CONSUMER_PROFILE, QWEN3_CONSUMER_PROFILES, QWEN2_BF16_SAMPLED_CONSUMER_PROFILE, QWEN3_GGUF_CONSUMER_PROFILE, EVENT_VERSION_V2, REMOTE_VLLM_CONSUMER_PROFILES,
+    QWEN3_CONSUMER_PROFILE, QWEN3_CONSUMER_PROFILES, QWEN2_BF16_SAMPLED_CONSUMER_PROFILE, QWEN3_GGUF_CONSUMER_PROFILES, QWEN3_GGUF_ARM64_CONSUMER_PROFILE, EVENT_VERSION_V2, REMOTE_VLLM_CONSUMER_PROFILES,
 )
 from daystrom_dml.services.agent_episode import task_allowed_tools, validate_consumer_profile
 from daystrom_dml.services.episode_outcomes import build_terminal, summarize_episode_outcomes
@@ -215,8 +215,9 @@ def _replay_model(events, identity, tokenizer, consumer_profile):
     validate_consumer_profile(consumer_profile)
     if consumer_profile in REMOTE_VLLM_CONSUMER_PROFILES:
         return _replay_remote_model(events, identity, tokenizer)
-    if consumer_profile in (*QWEN3_CONSUMER_PROFILES, QWEN2_BF16_SAMPLED_CONSUMER_PROFILE, QWEN3_GGUF_CONSUMER_PROFILE):
-        prefix = ("dml-qwen3-gguf-action-runtime-v1:" if consumer_profile == QWEN3_GGUF_CONSUMER_PROFILE
+    if consumer_profile in (*QWEN3_CONSUMER_PROFILES, QWEN2_BF16_SAMPLED_CONSUMER_PROFILE, *QWEN3_GGUF_CONSUMER_PROFILES):
+        prefix = ("dml-qwen3-gguf-arm64-action-runtime-v1:" if consumer_profile == QWEN3_GGUF_ARM64_CONSUMER_PROFILE
+                  else "dml-qwen3-gguf-action-runtime-v1:" if consumer_profile in QWEN3_GGUF_CONSUMER_PROFILES
                   else "dml-qwen2-bf16-action-runtime-v1:" if consumer_profile == QWEN2_BF16_SAMPLED_CONSUMER_PROFILE
                   else "dml-qwen3-action-runtime-v1:" if consumer_profile == QWEN3_CONSUMER_PROFILE
                   else "dml-qwen3-action-runtime-v2:")
@@ -238,7 +239,7 @@ def _replay_model(events, identity, tokenizer, consumer_profile):
                      and _same(encoded["attention_mask"], compiled["attention_mask"]),
                      "Recorded input tokens differ from independent tokenization")
             if consumer_profile in ("qwen2-action-json-v1", VALIDATION_CONSUMER_PROFILE, RECOVERY_CONSUMER_PROFILE,
-                                    *QWEN3_CONSUMER_PROFILES, QWEN2_BF16_SAMPLED_CONSUMER_PROFILE, QWEN3_GGUF_CONSUMER_PROFILE):
+                                    *QWEN3_CONSUMER_PROFILES, QWEN2_BF16_SAMPLED_CONSUMER_PROFILE, *QWEN3_GGUF_CONSUMER_PROFILES):
                 from daystrom_dml.services.agent_action_grammar import compile_action_grammar
                 import xgrammar as xgr
                 # Membership below separately rejects unused model rows. A
@@ -252,7 +253,7 @@ def _replay_model(events, identity, tokenizer, consumer_profile):
         elif event["kind"] == "model_completed":
             output_ids = payload["output_ids"]
             if consumer_profile in {"qwen2-instruct-v1", "qwen2-action-json-v1", VALIDATION_CONSUMER_PROFILE, RECOVERY_CONSUMER_PROFILE,
-                                    *QWEN3_CONSUMER_PROFILES, QWEN2_BF16_SAMPLED_CONSUMER_PROFILE, QWEN3_GGUF_CONSUMER_PROFILE}:
+                                    *QWEN3_CONSUMER_PROFILES, QWEN2_BF16_SAMPLED_CONSUMER_PROFILE, *QWEN3_GGUF_CONSUMER_PROFILES}:
                 vocabulary = tokenizer.get_vocab()
                 allowed_ids = frozenset(vocabulary.values())
                 _require(all(type(token) is int and token in allowed_ids for token in output_ids),
@@ -262,7 +263,7 @@ def _replay_model(events, identity, tokenizer, consumer_profile):
                          and eos == tokenizer.eos_token_id and eos in tokenizer.all_special_ids,
                          "Qwen terminal EOS identity differs")
                 if consumer_profile in ("qwen2-action-json-v1", VALIDATION_CONSUMER_PROFILE, RECOVERY_CONSUMER_PROFILE,
-                                        *QWEN3_CONSUMER_PROFILES, QWEN2_BF16_SAMPLED_CONSUMER_PROFILE, QWEN3_GGUF_CONSUMER_PROFILE):
+                                        *QWEN3_CONSUMER_PROFILES, QWEN2_BF16_SAMPLED_CONSUMER_PROFILE, *QWEN3_GGUF_CONSUMER_PROFILES):
                     _require(grammar_matcher is not None, "Constrained output lacks its request grammar")
                     special = {index for index, token in tokenizer.added_tokens_decoder.items() if token.special}
                     _require(all(token not in special - {eos} and grammar_matcher.accept_token(token)
@@ -426,7 +427,7 @@ def verify_files(*, spec_path, spec_sha256, campaign_path, snapshot_directory, s
                         if consumer_profile in NATIVE_REMOTE_VLLM_CONSUMER_PROFILES else
                         "request schema and parser-accepted actions; rejected outputs remain failures; token-wise masks and prefix membership are not independently attested")}
     required_files = REQUIRED_FILES
-    if consumer_profile == QWEN3_GGUF_CONSUMER_PROFILE:
+    if consumer_profile in QWEN3_GGUF_CONSUMER_PROFILES:
         from daystrom_dml.services.qwen3_gguf_model_snapshot import REQUIRED_FILES as QWEN3_GGUF_REQUIRED_FILES
         required_files = QWEN3_GGUF_REQUIRED_FILES
     elif consumer_profile == QWEN2_BF16_SAMPLED_CONSUMER_PROFILE:
@@ -441,7 +442,7 @@ def verify_files(*, spec_path, spec_sha256, campaign_path, snapshot_directory, s
     campaign_bytes = Path(campaign_path).read_bytes()
     campaign = decode_json(campaign_bytes, limit=MAX_CAMPAIGN_BYTES)
     consumer_profile = validate_consumer_profile(spec["consumer_profile"])
-    if consumer_profile == QWEN3_GGUF_CONSUMER_PROFILE:
+    if consumer_profile in QWEN3_GGUF_CONSUMER_PROFILES:
         from daystrom_dml.services.qwen3_gguf_model_snapshot import verify_qwen3_gguf_snapshot
         verify_snapshot = verify_qwen3_gguf_snapshot
     elif consumer_profile == QWEN2_BF16_SAMPLED_CONSUMER_PROFILE:
@@ -457,7 +458,7 @@ def verify_files(*, spec_path, spec_sha256, campaign_path, snapshot_directory, s
         verify_snapshot = verify_local_snapshot
     with verify_snapshot(bundle) as snapshot:
         from transformers import PreTrainedTokenizerFast
-        if consumer_profile == QWEN3_GGUF_CONSUMER_PROFILE:
+        if consumer_profile in QWEN3_GGUF_CONSUMER_PROFILES:
             from daystrom_dml.services.qwen3_gguf_action_input import constrained_identity as qwen3_gguf_identity
             identity = qwen3_gguf_identity(snapshot.identity, consumer_profile=consumer_profile).to_payload()
         elif consumer_profile == QWEN2_BF16_SAMPLED_CONSUMER_PROFILE:

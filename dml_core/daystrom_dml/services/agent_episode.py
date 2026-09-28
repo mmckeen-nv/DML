@@ -30,7 +30,7 @@ from ..contracts.agent_episode import (
     initial_messages, parse_agent_action, validate_episode_events,
     validate_prior_context, validate_verifier,
     EXECUTION_PROTOCOL_V1, EXECUTION_PROTOCOL_V2, VALIDATION_CONSUMER_PROFILE, RECOVERY_CONSUMER_PROFILE, QWEN3_CONSUMER_PROFILES,
-    QWEN2_BF16_SAMPLED_CONSUMER_PROFILE, QWEN3_GGUF_CONSUMER_PROFILE, REMOTE_VLLM_CONSUMER_PROFILES,
+    QWEN2_BF16_SAMPLED_CONSUMER_PROFILE, QWEN3_GGUF_CONSUMER_PROFILES, REMOTE_VLLM_CONSUMER_PROFILES,
     VALIDATION_ERROR_CODE, VALIDATION_MODEL_RESULT, execution_protocol_for_profile,
     NATIVE_REMOTE_VLLM_CONSUMER_PROFILES, NATIVE_REASONING_CONSUMER_PROFILES, NATIVE_RECOVERY_CONSUMER_PROFILES, NATIVE_REMOTE_VLLM_V6_CONSUMER_PROFILE,
     native_budget_messages,
@@ -72,7 +72,7 @@ class EpisodeLimits:
 _POLICY = AGENT_POLICY
 CONSUMER_PROFILES = ("gpt2-v1", "qwen2-instruct-v1", "qwen2-action-json-v1",
                      VALIDATION_CONSUMER_PROFILE, RECOVERY_CONSUMER_PROFILE, *QWEN3_CONSUMER_PROFILES,
-                     QWEN2_BF16_SAMPLED_CONSUMER_PROFILE, QWEN3_GGUF_CONSUMER_PROFILE, *REMOTE_VLLM_CONSUMER_PROFILES)
+                     QWEN2_BF16_SAMPLED_CONSUMER_PROFILE, *QWEN3_GGUF_CONSUMER_PROFILES, *REMOTE_VLLM_CONSUMER_PROFILES)
 
 
 def validate_consumer_profile(consumer_profile):
@@ -90,7 +90,7 @@ def _open_consumer(snapshot_directory, consumer_profile):
     if consumer_profile in REMOTE_VLLM_CONSUMER_PROFILES:
         from .remote_vllm_action_input import RemoteVLLMActionInputConsumer
         return RemoteVLLMActionInputConsumer(snapshot_directory, consumer_profile=consumer_profile)
-    if consumer_profile == QWEN3_GGUF_CONSUMER_PROFILE:
+    if consumer_profile in QWEN3_GGUF_CONSUMER_PROFILES:
         from .qwen3_gguf_action_input import LocalQwen3GGUFActionInputConsumer
         return LocalQwen3GGUFActionInputConsumer(snapshot_directory, consumer_profile=consumer_profile)
     if consumer_profile == QWEN2_BF16_SAMPLED_CONSUMER_PROFILE:

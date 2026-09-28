@@ -5,12 +5,13 @@ from contextlib import contextmanager
 from dataclasses import replace
 import hashlib
 import hmac
+import platform
 import re
 from threading import Lock
 
 from ..contracts.model_input import CompiledModelInput, ModelInputError, ModelInputRequest
 from ..contracts.agent_episode import (
-    QWEN3_GGUF_CONSUMER_PROFILE,
+    QWEN3_GGUF_CONSUMER_PROFILE, QWEN3_GGUF_ARM64_CONSUMER_PROFILE, QWEN3_GGUF_CONSUMER_PROFILES,
     recovery_guidance_identity, initial_messages,
 )
 from .agent_action_grammar import (
@@ -22,6 +23,7 @@ from .qwen3_gguf_model_input import LocalQwen3GGUFInputConsumer, backend_identit
 
 
 CONSUMER_PROFILE = QWEN3_GGUF_CONSUMER_PROFILE
+ARM64_CONSUMER_PROFILE = QWEN3_GGUF_ARM64_CONSUMER_PROFILE
 _SAMPLED_CPU_RNG_LOCK = Lock()
 
 
@@ -60,16 +62,26 @@ def _sampled_cpu_rng(torch, seed):
         yield
 
 
+def _arm64_platform():
+    if platform.system() != "Linux" or platform.machine() != "aarch64":
+        raise ModelInputError("ARM64 Qwen3 GGUF profile requires Linux aarch64")
+    return {"system": "Linux", "machine": "aarch64", "device": "cpu"}
+
+
 def constrained_identity(base_identity, *, consumer_profile):
     """Explicit architecture, unchanged grammar and inherited policy composition."""
-    if (consumer_profile != CONSUMER_PROFILE
+    if (consumer_profile not in QWEN3_GGUF_CONSUMER_PROFILES
             or re.fullmatch(r"dml-qwen3-gguf-model-input-runtime-v1:[0-9a-f]{64}", base_identity.runtime_identity) is None):
         raise ModelInputError("Qwen3 GGUF action profile requires its explicit profile and base runtime")
     policy = {"consumer_profile": consumer_profile, "base_runtime_identity": base_identity.runtime_identity,
               **policy_identity(), "inherited_guidance_policy": recovery_guidance_identity()}
     policy["sampling_policy"] = sampling_policy_identity()
     policy["backend_identity"] = backend_identity()
-    return replace(base_identity, runtime_identity="dml-qwen3-gguf-action-runtime-v1:" + hashlib.sha256(
+    prefix = "dml-qwen3-gguf-action-runtime-v1:"
+    if consumer_profile == ARM64_CONSUMER_PROFILE:
+        policy["host_architecture"] = _arm64_platform()
+        prefix = "dml-qwen3-gguf-arm64-action-runtime-v1:"
+    return replace(base_identity, runtime_identity=prefix + hashlib.sha256(
         _json_bytes(policy)).hexdigest())
 
 
@@ -82,8 +94,10 @@ class LocalQwen3GGUFActionInputConsumer(LocalQwen3GGUFInputConsumer):
     """
 
     def __init__(self, snapshot_directory, *, consumer_profile):
-        if consumer_profile != CONSUMER_PROFILE:
+        if consumer_profile not in QWEN3_GGUF_CONSUMER_PROFILES:
             raise ModelInputError("Unknown constrained action profile")
+        if consumer_profile == ARM64_CONSUMER_PROFILE:
+            _arm64_platform()
         self._consumer_profile = consumer_profile
         self._recovery_guidance = recovery_guidance_identity()
         self._grammar_policy = policy_identity()
