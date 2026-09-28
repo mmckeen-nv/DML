@@ -1,19 +1,20 @@
 # Desktop Codex handoff: DML bare-metal testing
 
-Start here on branch `test/bare-metal-m7`. This branch includes every tracked file from PR118 source `8677d1cce8e003ab8f9ea9e66ac18918a448ad87` plus testing/handoff documentation. It is an integration candidate, not a production release. Nothing is merged to main.
+## Current status
+
+M7 remains open: the frozen remote `nemotron-remote-vllm-native-tools-v4` candidate completed all nine tasks once, with eight passes. `supersede_then_answer` failed with `tool_error`; `read_both_commits` passed. Both sequential evidence replays completed and matched byte for byte. Execution source: `e970252d1b2afff582fd741f137cb4334e95a06c`; recorded usage: 30,713 input + 1,363 output tokens; no unknown usage or effects; stable serving epoch.
+
+The model committed a supersession, received its acknowledgment and readback, then repeated the stale mutation. The gateway rejected `ReceiptLifecycleConflict` with no additional effects; no final answer followed. No discarded valid tool call, missing feedback or replay defect was found. See the [compact verified outcome](docs/artifacts/native-vllm-m7-outcome-2026-09-28.json).
+
+M1–6 remain closed, M7–11 open, M12–13 deferred. No merge or production-readiness claim is made. Preserve the completed run and all earlier attempts; do not selectively retry tasks or change acceptance gates. Raw evidence stays on the station. See the [current milestone plan](docs/bare-metal-milestone-plan-2026-09-28.md) and [authoritative ledger](docs/production-remaining-work-2026-09-18.md).
 
 ## Paste into desktop Codex
 
-> Read DESKTOP_CODEX_HANDOFF.md and docs/bare-metal-milestone-plan-2026-09-28.md first. Use implementation subagents and an independent grader, with one supervisor owning launches. Inventory this machine, set up the pinned Linux CPU environment, run source tests and establish durable local execution. Download and verify the official pinned Qwen3-8B Q4_K_M model outside the repository. Prepare and admit it on this host, then create and independently review a new host-bound campaign specification before generation. Run the complete nine-task evaluation once, then primary and independent data-only replays. Preserve failures and interrupted history; do not selectively retry tasks, change evaluation gates or merge. Keep weights and raw evidence off GitHub; publish only a small outcome summary. M7 closes only with both named tasks passing and all original gates satisfied. Work through setup autonomously and report an actual missing host capability if blocked.
+> Read the current milestone plan and ledger first. Preserve the frozen remote candidate source and raw evidence. Use the completed primary and independent evidence reviews and compact outcome; retain the failed named task. No further campaign execution is authorized by this status update. M7 cannot close while `supersede_then_answer` fails. No new generation, selective retry, changed gate or merge is implied by this handoff.
 
-## Where we stand
+## Historical CPU setup instructions
 
-- M1–6 closed; M7 active; M8–11 open; M12–13 deferred. Exact names/acceptance are in the companion plan.
-- Upstream implementation CI346 passed 20/20 first-attempt jobs; model-input lane 1,469 tests / zero skips, including 46 GGUF cases. This is historical source evidence, not qualification of your machine or this new documentation commit.
-- The official Qwen3-8B Q4_K_M CPU consumer is implemented, including exact input IDs, action grammar, fixed sampling, bounded request-owned KV and evidence replay. Existing model profiles and all earlier production foundations are present.
-- Attempt15 was interrupted after one retained success, `preserve_conflict` (2 calls, 1,948 input +95 output tokens). Both `supersede_then_answer` and `read_both_commits` have no retained terminal results. No complete campaign/execution receipt; cause unknown. Do not resume or overwrite that attempt.
-- The previous completed Qwen2.5-3B campaign passed six of nine tasks but failed both named tasks. A bigger model is not yet proof of resolution.
-- PR118 remains open; production_ready=false. Raw prior campaign data and transient workspace lifecycle helpers are NOT packaged here. Their absence must not be filled with reconstructed historical evidence.
+The Qwen-specific instructions below are retained from the original testing handoff. They describe a different candidate and are not the current remote campaign configuration or a launch instruction. Current remote profile mechanics are documented in [remote-vllm-candidate.md](docs/remote-vllm-candidate.md).
 
 ## 1. Clone and inventory
 

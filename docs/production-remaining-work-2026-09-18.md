@@ -1,10 +1,16 @@
-# Current testing handoff — September 28, 2026
+# Current M7 status — September 28, 2026
 
-**Six milestones closed (M1–6), five first-release gates open (M7–11), two deferred (M12–13).** M7 is active. This testing branch contains the complete PR118 implementation at `8677d1cce8e003ab8f9ea9e66ac18918a448ad87`, with a desktop bare-metal handoff. [Start here](../DESKTOP_CODEX_HANDOFF.md); [current milestone/execution plan](bare-metal-milestone-plan-2026-09-28.md).
+**Six milestones closed (M1–6), five first-release gates open (M7–11), two deferred (M12–13). M7 remains open.** The separately frozen `nemotron-remote-vllm-native-tools-v4` candidate completed all nine tasks once: eight passed; `supersede_then_answer` ended in `tool_error`; `read_both_commits` passed. The failed named task prevents M7 closure. Both sequential evidence replays completed, matched byte for byte, and confirmed complete authentic evidence with failed acceptance gates.
 
-CI346 passed 20/20 first-attempt jobs on that implementation. Qwen3-8B official Q4_K_M preparation/admission and pre-generation review passed in the prior workspace. Attempt15 subsequently interrupted after one retained `preserve_conflict` success; no complete campaign or execution receipt exists. Both `supersede_then_answer` and `read_both_commits` remain unresolved. Preserve that attempt unchanged. The cause is unknown, and no new desktop run is claimed.
+Execution source was `e970252d1b2afff582fd741f137cb4334e95a06c`. Recorded usage is 30,713 input and 1,363 output tokens, with no unknown usage or effects and a stable serving epoch. Keep the completed run and every earlier failed attempt unchanged; do not retry tasks or weaken gates. Raw evidence remains on the station. Nothing is merged; `production_ready=false`. [Current milestone plan](bare-metal-milestone-plan-2026-09-28.md); [desktop handoff](../DESKTOP_CODEX_HANDOFF.md).
 
-Next: verify the actual persistent host, install the pinned CPU runtime, qualify durable execution, create a freshly reviewed host-bound declaration, then run the full nine-task campaign and both sequential replays. The new branch is for testing; historical CI is not host qualification. PR118 remains unmerged and `production_ready=false`. No raw logs or model files are included. Older dated sections below remain historical and do not supersede this status.
+## Native-v4 completed attempt — September 28, 2026
+
+The [compact verified outcome](artifacts/native-vllm-m7-outcome-2026-09-28.json) binds frozen source, pinned model/runtime, all nine task results, usage and evidence hashes. Both checker invocations exited 1 because `all_intents_reached_retrieval_and_final` and `verified_model_owned_supersession` failed; evidence integrity passed. The first supersession committed, but the model repeated its stale mutation after acknowledgment/readback, received `ReceiptLifecycleConflict` with no additional effects, and emitted no final answer. A committed mutation alone does not satisfy the original completed-task gate. No transport/evidence defect was found. The four successful development diagnostics did not generalize to this required campaign behavior.
+
+## Historical records
+
+The dated records below retain their original candidate-specific statements and do not supersede the current status above.
 
 ## Historical model-upgrade record
 

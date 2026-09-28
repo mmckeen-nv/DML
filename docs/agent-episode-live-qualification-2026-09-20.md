@@ -1,3 +1,11 @@
+# Current status pointer — September 28, 2026
+
+M7 remains open. The remote native-tools-v4 candidate completed nine tasks once (eight passed); `supersede_then_answer` failed and `read_both_commits` passed. Both sequential evidence replays completed and matched byte for byte. See the [current milestone ledger](production-remaining-work-2026-09-18.md) and [compact verified outcome](artifacts/native-vllm-m7-outcome-2026-09-28.json). Nothing is merged; `production_ready=false`.
+
+## Historical candidate records
+
+The original records below are preserved and do not supersede the current status linked above.
+
 # M7 model upgrade — September 28, 2026 UTC
 
 M7 remains **IN PROGRESS**. The completed relation candidate on `8c792ae39514624ca6ec28392daa6a67b4dba857` passed exact-source CI345 (20/20 first-attempt jobs) but failed live qualification: nine completed terminals, six successes, three failures, 20 model calls and 21,986 tokens. Both independent sequential data replays matched byte for byte. Supersession persisted correctly but the model answered with the retired value; both related commits were retrieved but the answer added unsupported citation IDs; the conflicting-runbooks answer omitted A. Both requested tasks remain unresolved. The [compact completed outcome](artifacts/agent-episode-attempt-14-relation-outcome-2026-09-27.json) preserves the actual results and hashes. Earlier interrupted evidence remains separate and nonresumable.

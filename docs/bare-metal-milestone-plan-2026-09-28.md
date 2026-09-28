@@ -1,13 +1,12 @@
 # DML milestone status and M7 execution plan
-As of September 28, 2026, 08:02 MDT. Planning baseline; no campaign launched by this plan.
+As of September 28, 2026. Latest completed candidate: remote Nemotron native-tools-v4.
 
 ## Current position
-**13 milestones: 6 closed, 5 open for the first release, 2 deferred.** M7 is active. These are acceptance gates, not five untouched implementations. PR118 remains open and unmerged; production_ready=false.
+**13 milestones: 6 closed, 5 open for the first release, 2 deferred.** M7 remains active. The frozen `nemotron-remote-vllm-native-tools-v4` candidate completed nine tasks once: eight passed; `supersede_then_answer` failed with `tool_error`; `read_both_commits` passed. Both sequential evidence replays completed and matched byte for byte. The named-task failure and two original failed gates prevent closure. Nothing is merged; `production_ready=false`.
 
-Published code: `8677d1cce8e003ab8f9ea9e66ac18918a448ad87`; tree `6f0084e5b769b0f8e4a075e8832b87d44cba5a56`.
-Qwen3-8B official Q4_K_M integration, native admission and independent pre-generation review passed. CI346: 20/20 first-attempt jobs; model-input lane 1,469 passes, zero skips. Local impact: 139 passes.
+Execution source: `e970252d1b2afff582fd741f137cb4334e95a06c`. Recorded usage: 30,713 input + 1,363 output tokens; no unknown usage or effects; serving epoch remained stable. Earlier campaigns and development diagnostics remain separate, retained and nonresumable. The remote profile is a new model/runtime candidate with explicit native protocol extensions; it does not inherit the old local profile's exact-token guarantees.
 
-Attempt15 is interrupted, not completed: one retained successful task (`preserve_conflict`), two known calls and 2,043 known tokens. Both `supersede_then_answer` and `read_both_commits` have no retained terminal results. Unretained work is unknown; interruption cause is unproven. The upgrade has not established overall model improvement or M7 closure. Preserve attempt15 unchanged and nonresumable.
+The [compact verified outcome](artifacts/native-vllm-m7-outcome-2026-09-28.json) records the failed gates `all_intents_reached_retrieval_and_final` and `verified_model_owned_supersession`. The model repeated a stale supersession after the first mutation committed and readback was provided; the gateway rejected it without additional effects, and no final answer followed. Both replays passed integrity checks; their exit 1 reflects failed acceptance.
 
 ## Milestone ledger
 | # | Milestone | Status and remaining acceptance |
@@ -18,7 +17,7 @@ Attempt15 is interrupted, not completed: one retained successful task (`preserve
 | 4 | Qualify crash recovery and supported filesystems | Closed at gate 18; CI320 17/17, six measured environments, 15 real ENOSPC cases. No physical power-loss claim. |
 | 5 | Complete persisted-format and migration coverage | Closed by reconciliation September 19. Credit existing foundations and gates 3, 8 and 18; do not reopen or recount. |
 | 6 | Qualify mixed-operation concurrency | Closed at gate 19; CI324 20/20, 96 independently verified platform histories. |
-| 7 | Wire live-agent semantic and outcome harness | ACTIVE. Source integration and CI passed; complete, durable trained-model evaluation and independent evidence acceptance still required. Both named tasks must pass. |
+| 7 | Wire live-agent semantic and outcome harness | ACTIVE. Native-tools-v4 completed nine tasks once (8 pass); `supersede_then_answer` failed, `read_both_commits` passed. Both evidence replays matched; two original gates failed. Both named tasks and all original gates must pass before closure. |
 | 8 | Demonstrate fair baseline value | OPEN. Independent durable baseline exists. Freeze fairness/thresholds; run paired held-out no-memory/baseline/DML comparison with equal resources, confidence intervals and quality/latency gates. |
 | 9 | Run continuous 1k/10k lanes and 100k campaign | OPEN. Offline runner exists. Provision recurring live lanes and complete 100k-turn campaign with growing-store, recovery and quality/latency evidence. |
 | 10 | Deliver durable decision replay and audit export/retention | OPEN. Mutation decisions/response traces exist. Demonstrate complete product decision/context reconstruction across restart, export/access controls and bounded retention. |
@@ -26,8 +25,8 @@ Attempt15 is interrupted, not completed: one retained successful task (`preserve
 | 12 | Extract remaining legacy retrieval/lifecycle orchestration | DEFERRED beyond first release. Preserve behavior and ownership while extracting remaining legacy boundaries. |
 | 13 | Audit native-KV restore identity end to end | DEFERRED beyond first release. Validate all restore/import/continuation identity dimensions and supported hardware/runtime combinations. Native KV restore remains experimental. |
 
-## M7 work sequence
-These are work packages under M7, not additional milestones.
+## Historical M7 execution plan
+The following Qwen CPU plan predates the completed remote Nemotron candidate. Its acceptance gates and ownership rules remain applicable; its prospective host/model instructions are historical, not authorization to rerun. These are work packages under M7, not additional milestones.
 
 | Step | Owner | Work and evidence required before advancing |
 |---|---|---|

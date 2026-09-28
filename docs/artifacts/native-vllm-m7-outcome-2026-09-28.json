@@ -1,0 +1,210 @@
+{
+  "automatic_retry": false,
+  "candidate": {
+    "consumer_profile": "nemotron-remote-vllm-native-tools-v4",
+    "container_image_id": "sha256:bf05c8a0d56f7ed2fe279e0c0c876dd2bb813dd34702d975fa6ab640860ce825",
+    "endpoint": "http://192.168.50.91:8000/v1",
+    "limits": {
+      "max_episode_bytes": 16777216,
+      "max_event_bytes": 4194304,
+      "max_input_tokens": 32768,
+      "max_output_tokens": 1536,
+      "max_steps": 6,
+      "max_transcript_bytes": 262144,
+      "output_tokens": 256,
+      "wall_time_seconds": 300.0
+    },
+    "loaded_revision_attestation_scope": "host-observed verified artifact selection and successful native model loading; no cryptographic GPU tensor attestation",
+    "model_identity": {
+      "chat_template_digest": "575fb74f54ed264df9047d0ecce3c98938aae953fb4f50356675706264cbb68a",
+      "model_digest": "3c7e663b7da6f464970833f2b54d829bddae7c4dad2d706651943536476f6553",
+      "model_window_tokens": 262144,
+      "runtime_identity": "dml-remote-vllm-native-tools-runtime-v4:cccb6a78f265a947856ca04848ecd8c1429152e3afac30e093527418b8451100",
+      "tokenizer_digest": "783cf409177cc761837e822c69729b50199eadc05478e81def544ff31972d8cb"
+    },
+    "model_repository": "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4",
+    "model_revision": "ff433f5493e25d631c9f12b5d55c674229923d02",
+    "reasoning_parser_sha256": "f7fc71d1697ed79931787cf7485ee297365a41c3442cc1e05e6ebab43e0a39c1",
+    "sampling": {
+      "frequency_penalty": 0.0,
+      "ignore_eos": false,
+      "min_p": 0.0,
+      "n": 1,
+      "presence_penalty": 0.0,
+      "repetition_penalty": 1.0,
+      "seed": 0,
+      "skip_special_tokens": true,
+      "spaces_between_special_tokens": false,
+      "stream": false,
+      "temperature": 0.7,
+      "top_k": 20,
+      "top_p": 0.8
+    },
+    "served_model": "nvidia/nemotron-3-super",
+    "server_runtime_versions": {
+      "tokenizers": "0.22.2",
+      "torch": "2.11.0+cu130",
+      "transformers": "5.6.2",
+      "vllm": "0.20.0",
+      "xgrammar": "0.1.33"
+    },
+    "timeout_seconds": 60
+  },
+  "date": "2026-09-28",
+  "decision": "complete_authentic_candidate_attempt_acceptance_failed_M7_remains_open",
+  "evidence_sha256": {
+    "campaign.json": "2273d9f956f77b7e983b0b33047d2dfb661f61d80682af5f499a5bb597907f84",
+    "freeze.json": "f984ae3cc7e3accc70ea708efce0047dda30af9dd9e51f1f7722194ad44f02ac",
+    "independent-evidence-replay.json": "b05daf323698039250fda5aa84cae4a770e39fb632e662e329d8975f5c9b2cf1",
+    "independent-final-campaign-review.json": "28ccfdd0a2e6d905d6010a7bd217c139b80f41625a0139794eaeaa9a2739732f",
+    "launch-preflight.json": "f6e70e9877d94e3520d627bef9e6b4e163074684fd47c435dd3c404194bbfa0e",
+    "lifecycle/qualification.json": "6d920ca96a095877a9b0b3073fb50d2d0ef806dca6f6a63ceb382d1a339bdc45",
+    "post-epoch.json": "99ebce83c0408622a43f01a8599630799559074093415d4d19f898fb917a0225",
+    "primary-evidence-replay.json": "b05daf323698039250fda5aa84cae4a770e39fb632e662e329d8975f5c9b2cf1",
+    "source-preservation-audit.json": "32a5df89c44d0ba3504422a122af6ff6b66a7e70bc53834d1a34c684285526bb",
+    "spec.json": "1bb9721c2c97edb0d5e613e2234548d756efae2402cc98d06f7437bc2186de31",
+    "terminal.json": "a6911dd5703575385da2bb4f32bba33af47459b7a9454c37d84022fbbfae77ff"
+  },
+  "execution": {
+    "actual_nonempty_reasoning_outputs": 0,
+    "attempted_tasks": 9,
+    "epoch_stable": true,
+    "input_tokens": 30713,
+    "model_calls": 21,
+    "model_errors": 0,
+    "output_tokens": 1363,
+    "passed_tasks": 8,
+    "timeouts": 0,
+    "tool_errors": 1,
+    "unknown_effect_tasks": 0,
+    "unknown_usage_tasks": 0
+  },
+  "gates": {
+    "actual_predecessor_context": true,
+    "all_attempts_generated": true,
+    "all_intents_reached_retrieval_and_final": false,
+    "complete_failure_inclusive_evidence": true,
+    "verified_model_owned_supersession": false
+  },
+  "latency_ms": {
+    "p50": 14149.505506999049,
+    "p95": 33273.3272330006,
+    "p99": 33273.3272330006,
+    "samples": 9,
+    "unknown_tasks": 0
+  },
+  "m7_closed": false,
+  "merged": false,
+  "milestones": {
+    "closed": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6
+    ],
+    "deferred": [
+      12,
+      13
+    ],
+    "open": [
+      7,
+      8,
+      9,
+      10,
+      11
+    ]
+  },
+  "production_ready": false,
+  "replays": {
+    "byte_identical": true,
+    "independent_exit_code": 1,
+    "integrity_pass": true,
+    "primary_exit_code": 1,
+    "reason_for_exit_1": "original acceptance gates failed; not replay corruption"
+  },
+  "schema_version": "dml-compact-native-m7-outcome-v1",
+  "scope_limits": [
+    "HTTP/token evidence supports retained execution binding, not internal engine tensor/mask/sampler/KV attestation",
+    "zero live nonempty reasoning outputs; no live reasoning-path claim",
+    "4of4 development synthetic success did not generalize to required campaign supersession behavior",
+    "No all-turn JSON grammar or independently attested per-token masks/prefix membership",
+    "Host-observed pinned model bytes/startup; not cryptographic GPU tensor proof",
+    "Timeout does not prove server cancellation; TTFT unavailable",
+    "Raw prompts, responses, reports and journals remain on station; compact summary only"
+  ],
+  "selective_rerun": false,
+  "source_ci": {
+    "scope": "frozen execution source; not a later documentation commit",
+    "url": "https://github.com/mmckeen-nv/DML/actions/runs/36460045287"
+  },
+  "source_commit": "e970252d1b2afff582fd741f137cb4334e95a06c",
+  "station_evidence_root": "/home/nvidia/dml-debug/nemotron-native-dml-v4-20260928",
+  "supersession_diagnosis": "First original model-owned r0->r1 supersession committed and returned new r2 receipt plus state superseded; subsequent readback and authentic acknowledgment both present in final model request. Model repeated identical stale r0->r1 using a distinct operation ID; gateway rejected ReceiptLifecycleConflict with effects none; no final answer. No discarded valid tool call or missing feedback found.",
+  "tasks": [
+    {
+      "generated_calls": 2,
+      "measurable_final": true,
+      "status": "completed",
+      "success": true,
+      "task_id": "preserve_conflict"
+    },
+    {
+      "generated_calls": 4,
+      "measurable_final": false,
+      "status": "tool_error",
+      "success": false,
+      "task_id": "supersede_then_answer"
+    },
+    {
+      "generated_calls": 2,
+      "measurable_final": true,
+      "status": "completed",
+      "success": true,
+      "task_id": "retain_both_sources"
+    },
+    {
+      "generated_calls": 2,
+      "measurable_final": true,
+      "status": "completed",
+      "success": true,
+      "task_id": "ignore_memory_instruction"
+    },
+    {
+      "generated_calls": 2,
+      "measurable_final": true,
+      "status": "completed",
+      "success": true,
+      "task_id": "use_current_endpoint"
+    },
+    {
+      "generated_calls": 2,
+      "measurable_final": true,
+      "status": "completed",
+      "success": true,
+      "task_id": "read_both_commits"
+    },
+    {
+      "generated_calls": 2,
+      "measurable_final": true,
+      "status": "completed",
+      "success": true,
+      "task_id": "first_recall"
+    },
+    {
+      "generated_calls": 3,
+      "measurable_final": true,
+      "status": "completed",
+      "success": true,
+      "task_id": "recall_after_correction"
+    },
+    {
+      "generated_calls": 2,
+      "measurable_final": true,
+      "status": "completed",
+      "success": true,
+      "task_id": "keep_import_untrusted"
+    }
+  ]
+}
