@@ -1,0 +1,222 @@
+{
+  "cases": [
+    {
+      "baseline": {
+        "failure": "Omitted second required fact",
+        "model_calls": 2,
+        "passed": false,
+        "status": "completed"
+      },
+      "case": "paired_records",
+      "native": {
+        "failure": "EOS-terminated bare tool name/arguments object lacks required native tool-call envelope; rejected without repair",
+        "model_calls": 2,
+        "passed": false,
+        "status": "invalid_action"
+      }
+    },
+    {
+      "baseline": {
+        "model_calls": 3,
+        "passed": true,
+        "status": "completed"
+      },
+      "case": "dependent_feedback",
+      "native": {
+        "model_calls": 3,
+        "passed": true,
+        "status": "completed"
+      }
+    },
+    {
+      "baseline": {
+        "failure": "Three retrieves then final, no mutation",
+        "model_calls": 4,
+        "passed": false,
+        "status": "completed"
+      },
+      "case": "live_supersession",
+      "native": {
+        "model_calls": 4,
+        "passed": true,
+        "sequence": [
+          "retrieve",
+          "supersede",
+          "retrieve",
+          "final"
+        ],
+        "status": "completed"
+      }
+    }
+  ],
+  "checks": {
+    "backend_unchanged": true,
+    "compile_preflight_cases": 6,
+    "compile_preflight_forward_calls": 0,
+    "compile_preflight_generation_calls": 0,
+    "focused_tests_failed": 0,
+    "focused_tests_passed": 41,
+    "gpu_admission": "Reused prior qualified CUDA runtime; no new admission forward in this comparison",
+    "independent_replay": {
+      "passed": true,
+      "responses_replayed": 18
+    },
+    "primary_replay": {
+      "checker_erratum": "Original checker failed because of mutable history aliasing; one deepcopy correction replayed existing evidence only. Original failed receipt retained.",
+      "frozen_files_checked": 22732,
+      "passed": true,
+      "responses_replayed": 18
+    },
+    "replay_status": "Both passed"
+  },
+  "classification": "bounded development diagnostic; not M7 qualification",
+  "design": {
+    "arms": [
+      "baseline",
+      "native"
+    ],
+    "automatic_retries": 0,
+    "cases": 3,
+    "episodes_attempted_once": 6,
+    "fresh_authority_per_episode": true,
+    "order": "baseline then native for each case",
+    "scope": "Combined template, response-format, history serialization, grammar and termination admission sensitivity; native requires terminal EOS while baseline retains original complete-JSON-at-cap acceptance. Not isolated causal attribution.",
+    "selection": "same predeclared fixtures in both arms"
+  },
+  "evidence_sha256": {
+    "compact-comparison-summary.json": "0c67023dd0cb1a8e605a8bafc92a2102c2e74a6dbb40363f28b52ac89108571f",
+    "comparison-once/freeze.json": "1e8707dad5cb01bacb16a90eae69677e639f65c5e8fb84091dc3efbcc30e21f5",
+    "compile-preflight-v2.json": "8c9c9f2a30611ba385d55989d03a20b8c67931089678e62b9856c801597f65ef",
+    "focused-tests.log": "d4559260d44ffb4c43ec46feb2ac0f9c29f75378132d3ae3df90172fce3a5858",
+    "gpu-live-monitor/baseline-continuity.json": "f12bd74f8754697e9d3d4d95401901feac42ce955fa372acc8bd43c8f2ae4086",
+    "gpu-live-monitor/summary.json": "e3e488e89de5beb05e5ce6d0cc0957b35b12e709d0505b05c934a8c298d4fabb",
+    "independent-comparison-replay.json": "4869d98d9b01411d23172790e8d2555cd929a1f2526780626fd1a9bee492cbcd",
+    "independent-final-comparison-review.json": "bbd9d363a5a57e9b1f190264214f3de34750c4f3bd5c7ee730c376bf29c59d81",
+    "independent_live_approval": "afa5ec6c8ae1549bc3d1959aa4b111a6e5ec8816bcf5873877a19e7b073e374d",
+    "primary-comparison-replay-r2.json": "0d227f1bd64861274d614756f078621a61db91081158bbdc3f3d966653e28b62",
+    "primary-comparison-replay.json": "6830d9a4fd0eb82b0653cf30d4a9d4834278e88ad274df7cdee8dc9feb930ab6",
+    "primary-replay-erratum.json": "e7141420e0710dd16e4562a0496b25b43140b72877b5ff24f80484fda5bd5c68",
+    "protocol-identity-v2.json": "8fd5f10877998c3fc056a311597adfcb6a97ad9a72565f39c32076ebed3afad9",
+    "suite.json": "7c61a38d86beb2cc5f6895b8c8a95eeee5a54dfd99593dbc3855a40b0c1e703e",
+    "suite_payload": "134ea1d42e65923a9bd0a7903a8d1e883926b67835494cb9888f4cd89f43c474"
+  },
+  "gpu": {
+    "cuda": "13.1",
+    "device": "NVIDIA GB300",
+    "driver": "590.48.01",
+    "llama_cpp_python": "0.3.35",
+    "monitor_samples": 43,
+    "nemotron_matches_prelaunch_baseline": true,
+    "nemotron_mib_all_samples": 179890,
+    "nemotron_pid": 349594,
+    "observation_limit": "Periodic allocations and ancestry, not per-kernel trace.",
+    "postterminal_qwen_allocations_absent": true,
+    "torch": "2.8.0+cpu",
+    "worker_peak_mib_in_episode_order": [
+      5642,
+      5206,
+      5208,
+      5208,
+      5786,
+      5712
+    ],
+    "workers_observed": 6
+  },
+  "limits_per_episode": {
+    "episode_bytes": 16777216,
+    "event_bytes": 4194304,
+    "model_calls": 6,
+    "output_tokens_per_call": 256,
+    "total_input_tokens": 32768,
+    "total_output_tokens": 1536,
+    "transcript_bytes": 262144,
+    "wall_seconds": 300
+  },
+  "model": {
+    "quantization": "Q4_K_M",
+    "repository": "Qwen/Qwen3-8B-GGUF",
+    "revision": "7c41481f57cb95916b40956ab2f0b139b296d974",
+    "tokenizer_digest": "7edfd17627c6e211f4a8dd3969f3a756f9163b21c486504045fc3bcd1a84253d",
+    "tokenizer_repository": "Qwen/Qwen3-8B",
+    "tokenizer_revision": "b968826d9c46dd6066d109eabc6255188de91218",
+    "weights_sha256": "d98cdcbd03e17ce47681435b5150e34c1417f50b5c0019dd560e4882c5745785"
+  },
+  "next_investigation": "On fresh fixtures, separately predeclare a native-envelope grammar experiment admitting one native call OR the unchanged final JSON, preserving model choice and the same model. Future experiment only; no post hoc repair or current promotion.",
+  "preserved": [
+    "weights",
+    "CUDA backend",
+    "tokenizer rows",
+    "CPU Torch sampling",
+    "tool authorization and action validation",
+    "strict final claims/citation parser",
+    "retrieval implementation",
+    "original task verifier and case scorers",
+    "budgets",
+    "historical evidence"
+  ],
+  "protocols": {
+    "baseline": {
+      "all_turn_json_grammar": true,
+      "profile": "qwen3-8b-gguf-cuda-action-json-retrieval-v2",
+      "runtime_identity": "dml-qwen3-gguf-cuda-action-runtime-v2:e90c89598422819c97a67323243bb9c8c4547939bd70dcd133534cc133478fcd",
+      "template_sha256": "be79a58bcd06ee9d914bd82954d83e2179c87b1cadc684efd6f66e310f1fcad4"
+    },
+    "native": {
+      "all_turn_json_grammar": false,
+      "eos_required": true,
+      "history": "Native assistant tool call plus exact gateway feedback; raw text retained separately",
+      "native_ids": "Local tool-step IDs; vendor output has no call ID",
+      "one_native_xml_call_or_original_final_json": true,
+      "prose_repair": false,
+      "runtime_identity": "diagnostic-qwen3-native-tool-protocol-v1:44c82a1761f9e36715ae553a1fbae13e1e1cf62c9eec27d1855ae4522aa68948",
+      "template_sha256": "a55ee1b1660128b7098723e0abcd92caa0788061051c62d51cbe87d9cf1974d8"
+    }
+  },
+  "publication": "Compact metadata only; raw prompts, responses, token IDs, authority stores and journals remain on station.",
+  "repository_changes": "publication only",
+  "result": {
+    "baseline_passed": 1,
+    "cases_per_arm": 3,
+    "historical_nemotron_m7_result": "8/9; M7 open",
+    "native_passed": 2,
+    "new_m7_campaign_run": false,
+    "predeclared_native_promotion_threshold": "3/3; not met",
+    "production_readiness": false,
+    "promoted": false,
+    "replays": "Both passed all 18 responses"
+  },
+  "sampling": {
+    "min_p": 0,
+    "repetition_penalty": 1,
+    "reset": "per generation",
+    "sampler": "original CPU Torch multinomial; native arm removes action grammar only",
+    "seed": 0,
+    "temperature": 0.7,
+    "top_k": 20,
+    "top_p": 0.8
+  },
+  "schema_version": "dml-qwen3-protocol-comparison-summary-v1",
+  "source_commit": "37471b68a53cb052876409b5d02b5f08ffb175a8",
+  "source_unchanged": true,
+  "station_root": "/home/nvidia/dml-debug/qwen3-protocol-comparison-20260928",
+  "usage": {
+    "all_usage_known": true,
+    "baseline": {
+      "calls": 9,
+      "input_tokens": 13373,
+      "output_tokens": 405
+    },
+    "execution_errors": 0,
+    "input_tokens": 26613,
+    "model_calls": 18,
+    "native": {
+      "calls": 9,
+      "input_tokens": 13240,
+      "output_tokens": 454
+    },
+    "native_invalid_action_rejections": 1,
+    "output_tokens": 859,
+    "timeouts": 0,
+    "truncations": 0
+  }
+}
