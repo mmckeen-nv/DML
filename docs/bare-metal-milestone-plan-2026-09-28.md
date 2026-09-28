@@ -1,7 +1,9 @@
 # DML milestone status and M7 execution plan
-As of September 28, 2026. Latest full campaign: remote Nemotron native-tools-v4; latest qualification: Qwen3-8B CUDA completion candidate, 3/4.
+As of September 28, 2026. Latest full campaign: remote Nemotron native-tools-v4; latest qualification: Qwen3-8B CUDA retrieval-policy v2, planning 0/2 and readiness unrun.
 
 ## Current position
+
+The Qwen3-8B CUDA retrieval-policy v2 candidate failed both fresh read-only planning controls (**0/2**). Each finalized without covering both requested stored facts. The staged runner correctly left all four readiness cases unrun. Exact-source CI passed 21/21 on `37471b6`, with 1,589 model-input tests and zero skips. This guidance did not establish readiness; no new M7 campaign was frozen or launched. The original model/runtime, retrieval, validation, budgets and acceptance gates remain unchanged. [Compact v2 outcome](artifacts/qwen3-gguf-retrieval-v2-outcome-2026-09-28.json).
 
 The separately versioned Qwen3-8B CUDA completion candidate also passed **3/4** fresh predeclared noncorpus controls. GPU admission and live process evidence confirmed inference on the GB300. Supersession failed: the model attempted to supersede the current record with itself, received an authentic predispatch rejection with no effects, raised the retrieval cap without changing the query, and finalized without finding or superseding the old record. All four cited finals were valid, but the required mutation was absent. Exact-source CI passed 21/21 on `a3fb6f7`; the run used 12 calls with no execution errors or timeouts. The 4/4 readiness requirement was not met. No new campaign was frozen or launched, and M7 remains open. [Compact GPU outcome](artifacts/qwen3-gguf-cuda-qualification-outcome-2026-09-28.json).
 

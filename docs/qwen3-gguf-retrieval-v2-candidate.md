@@ -47,3 +47,34 @@ Replay it twice and retain every failure. Original M7 gates, including both
 named tasks, determine closure. A candidate policy is not a demonstrated fix
 until the required live outcomes pass. Publish only compact outcomes and hashes;
 raw evidence stays on the station.
+
+## Retained outcome
+
+Source `37471b68a53cb052876409b5d02b5f08ffb175a8` passed exact-source CI
+(21/21 jobs; 1,589 model-input tests, zero skips). The independently approved
+staged run failed the planning stage **0/2**. Both cases returned an incomplete
+final after one retrieval. The four readiness cases remained unrun under the
+predeclared gate. No new M7 campaign was frozen or launched.
+
+The first case used a subject-based query with `top_k=1`, observed only the
+current record and finalized with only its fact. The old-fact requirement was
+still present in both rendered requests. DML retained the final and correctly
+reported `claim_coverage_mismatch`; it did not repair or complete the answer.
+This policy candidate has not established complete retrieval planning. A valid
+single cited claim is insufficient for a task requiring two distinct facts.
+
+Historical CPU and GPU v1 replay preserved all 22 earlier completions and both
+3/4 outcomes. The admitted GPU backend, weights, tokenizer, template, sampler
+and original gates remained unchanged. A station admission-reporting script
+error was retained and corrected before live execution: four nonsampled
+forward probes occurred across two attempts, with zero generation in admission.
+The live run was not retried. See the
+[compact outcome](artifacts/qwen3-gguf-retrieval-v2-outcome-2026-09-28.json).
+
+Primary and independent evidence replay verified all four live completions and
+the staged gate. Independently decoding each input-token sequence confirmed both
+requested facts remained in both calls for each case, with authentic feedback.
+The two cases used 5,130 input and 209 output tokens over 89.82 summed episode
+seconds, without errors, timeouts, unknown usage or validation rejections. The
+evidence supports an incomplete-answer policy/model failure in these traces;
+it does not establish that the pinned model could never perform the task.
