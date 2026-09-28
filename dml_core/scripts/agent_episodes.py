@@ -21,7 +21,7 @@ import uuid
 from daystrom_dml.atomic_io import _sync_directory
 from daystrom_dml.contracts.agent_episode import (
     make_event, validate_episode_events, execution_protocol_for_profile, EXECUTION_PROTOCOL_V2, QWEN3_CONSUMER_PROFILES,
-    QWEN2_BF16_SAMPLED_CONSUMER_PROFILE, QWEN3_GGUF_CONSUMER_PROFILE,
+    QWEN2_BF16_SAMPLED_CONSUMER_PROFILE, QWEN3_GGUF_CONSUMER_PROFILE, REMOTE_VLLM_CONSUMER_PROFILE,
 )
 from daystrom_dml.services.agent_episode import (
     CONSUMER_PROFILES, EpisodeLimits, _started, run_local_episode, validate_consumer_profile,
@@ -88,6 +88,8 @@ def _source_digests(*, consumer_profile="gpt2-v1"):
         for name in ("qwen3_gguf_pretrained_snapshot", "qwen3_gguf_model_snapshot",
                      "qwen3_gguf_model_input", "qwen3_gguf_action_input"):
             files["daystrom_dml.services." + name] = Path(runner.__file__).with_name(name + ".py")
+    if consumer_profile == REMOTE_VLLM_CONSUMER_PROFILE:
+        files["daystrom_dml.services.remote_vllm_action_input"] = Path(runner.__file__).with_name("remote_vllm_action_input.py")
     files["scripts.agent_campaign_evidence"] = Path(__file__).with_name("agent_campaign_evidence.py")
     return {name: hashlib.sha256(path.read_bytes()).hexdigest() for name, path in files.items()}
 
@@ -97,7 +99,7 @@ def _interrupted_report(scenario, task, limits, exc, elapsed_ms, *, prior_contex
     """Account for an unexpected runner escape without inventing lost events."""
     ident = "episode-" + uuid.uuid4().hex
     protocol = execution_protocol_for_profile(consumer_profile)
-    events = [_started(ident, task, scenario["scope"], limits, "live_local", prior_context=prior_context,
+    events = [_started(ident, task, scenario["scope"], limits, "live_remote" if consumer_profile == REMOTE_VLLM_CONSUMER_PROFILE else "live_local", prior_context=prior_context,
                        consumer_profile=consumer_profile)]
     verdict = {"verifier_version": VERIFIER_VERSION, "success": False,
                "reasons": ["runner_escaped_before_report"], "contradictions": None,
@@ -157,7 +159,7 @@ def run_campaign(*, snapshot_directory, work_directory, output, limits,
             validate_episode_events(report["events"])
             if report["events"][-1]["payload"] != report["terminal"]:
                 raise ValueError("Returned terminal differs from raw event")
-            if report["terminal"]["execution_path"] != "live_local":
+            if report["terminal"]["execution_path"] != ("live_remote" if consumer_profile == REMOTE_VLLM_CONSUMER_PROFILE else "live_local"):
                 raise ValueError("CLI requires concrete local execution")
             if report.get("consumer_profile") != consumer_profile:
                 raise ValueError("Returned consumer profile differs from requested implementation")

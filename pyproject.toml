@@ -88,6 +88,13 @@ agent-action = [
     "xgrammar==0.2.7",
     "apache-tvm-ffi==0.1.12",
 ]
+remote-vllm = [
+    "transformers==4.56.2",
+    "tokenizers==0.22.0",
+    "safetensors==0.6.2",
+    "Jinja2==3.1.6",
+    "jsonschema==4.26.0",
+]
 agent-gguf = ["llama-cpp-python==0.3.35", "diskcache==5.6.3"]
 embeddings = ["sentence-transformers>=2.2"]
 faiss = ["faiss-cpu>=1.7"]

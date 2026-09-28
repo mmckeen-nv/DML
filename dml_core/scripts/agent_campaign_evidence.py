@@ -14,8 +14,9 @@ import re
 
 from daystrom_dml.contracts.agent_episode import (
     canonical_json, decode_json, validate_episode_events, presented_record_identities,
+    parse_agent_action, AgentEpisodeError,
     execution_protocol_for_profile, EXECUTION_PROTOCOL_V2, VALIDATION_CONSUMER_PROFILE, RECOVERY_CONSUMER_PROFILE,
-    QWEN3_CONSUMER_PROFILE, QWEN3_CONSUMER_PROFILES, QWEN2_BF16_SAMPLED_CONSUMER_PROFILE, QWEN3_GGUF_CONSUMER_PROFILE, EVENT_VERSION_V2,
+    QWEN3_CONSUMER_PROFILE, QWEN3_CONSUMER_PROFILES, QWEN2_BF16_SAMPLED_CONSUMER_PROFILE, QWEN3_GGUF_CONSUMER_PROFILE, EVENT_VERSION_V2, REMOTE_VLLM_CONSUMER_PROFILE,
 )
 from daystrom_dml.services.agent_episode import task_allowed_tools, validate_consumer_profile
 from daystrom_dml.services.episode_outcomes import build_terminal, summarize_episode_outcomes
@@ -144,8 +145,67 @@ def _replay_presented_authority(events, prepared):
             pending = None
 
 
+def _remote_grammar_status(events):
+    """Describe grammar evidence without dropping invalid model generations."""
+    from jsonschema import Draft202012Validator
+    from daystrom_dml.services.agent_action_grammar import action_schema
+    rows, tools = [], []
+    for event in events:
+        if event["kind"] == "model_requested":
+            tools = event["payload"]["request"]["tools"]
+        elif event["kind"] == "model_completed":
+            payload = event["payload"]
+            try:
+                value = decode_json(payload["text"])
+                schema_valid = Draft202012Validator(action_schema(tools)).is_valid(value)
+            except AgentEpisodeError:
+                schema_valid = False
+            try:
+                parse_agent_action(payload["text"])
+                action_valid = True
+            except AgentEpisodeError:
+                action_valid = False
+            rows.append({"call_id": event["call_id"], "complete_json_schema_valid": schema_valid,
+                         "action_parser_valid": action_valid, "token_prefix_proof": "unavailable"})
+    return rows
+
+
+def _replay_remote_model(events, identity, consumer):
+    """Offline tokenization and exchange consistency, never engine attestation."""
+    generated = 0
+    for event in events:
+        payload = event["payload"]
+        if event["kind"] == "model_requested":
+            compiled, request = payload["compiled"], payload["request"]
+            _require(_same(compiled["identity"], identity), "Remote identity differs from frozen candidate")
+            artifact = consumer.compile(request["messages"], request["tools"],
+                                        output_reserved_tokens=request["output_reserved_tokens"])
+            _require(_same(list(artifact.input_ids), compiled["input_ids"])
+                     and _same(list(artifact.attention_mask), compiled["attention_mask"]),
+                     "Remote prompt IDs differ from independent frozen tokenization")
+        elif event["kind"] == "model_completed":
+            _require(consumer.decode_output(payload["output_ids"]) == payload["text"],
+                     "Remote output text differs from returned token IDs")
+            consumer.validate_exchange(compiled, request, payload["remote_evidence"], payload)
+            # Accepted actions must satisfy the same request-owned schema.
+            # Independently parser-rejected text remains failed task evidence;
+            # HTTP IDs cannot prove intermediate grammar masks or prefixes.
+            try:
+                action = parse_agent_action(payload["text"])
+            except AgentEpisodeError:
+                pass
+            else:
+                from jsonschema import Draft202012Validator
+                from daystrom_dml.services.agent_action_grammar import action_schema
+                Draft202012Validator(action_schema(request["tools"])).validate(action)
+            generated += 1
+    return generated
+
+
 def _replay_model(events, identity, tokenizer, consumer_profile):
     validate_consumer_profile(consumer_profile)
+    if consumer_profile == REMOTE_VLLM_CONSUMER_PROFILE:
+        return _replay_remote_model(events, identity, tokenizer)
     if consumer_profile in (*QWEN3_CONSUMER_PROFILES, QWEN2_BF16_SAMPLED_CONSUMER_PROFILE, QWEN3_GGUF_CONSUMER_PROFILE):
         prefix = ("dml-qwen3-gguf-action-runtime-v1:" if consumer_profile == QWEN3_GGUF_CONSUMER_PROFILE
                   else "dml-qwen2-bf16-action-runtime-v1:" if consumer_profile == QWEN2_BF16_SAMPLED_CONSUMER_PROFILE
@@ -248,7 +308,7 @@ def replay_campaign(campaign, spec, *, identity, tokenizer):
         if v2:
             _require(start["consumer_profile"] == terminal["consumer_profile"] == consumer_profile,
                      "Episode boundary consumer profile differs from campaign")
-        _require(start["execution_path"] == terminal["execution_path"] == "live_local", "Injected execution")
+        _require(start["execution_path"] == terminal["execution_path"] == ("live_remote" if consumer_profile == REMOTE_VLLM_CONSUMER_PROFILE else "live_local"), "Injected execution")
         for key, value in {"limits": spec["limits"], "scope": scenario["scope"], "prompt": task["prompt"],
                            "effective_time": corpus["effective_time"],
                            "allowed_tools": list(task_allowed_tools(task))}.items():
@@ -298,6 +358,8 @@ def replay_campaign(campaign, spec, *, identity, tokenizer):
                      "repeat_quality_measured": all(type(verdict[key]) is int
                          for key in ("repeat_errors", "repeat_opportunities")),
                      "verified_model_owned_supersession": supersession})
+        if consumer_profile == REMOTE_VLLM_CONSUMER_PROFILE:
+            rows[-1]["remote_grammar_evidence"] = _remote_grammar_status(events)
         terminals.append(terminal)
         prior[(scenario["id"], task["id"])] = terminal
     summary = summarize_episode_outcomes(terminals)
@@ -331,6 +393,23 @@ def verify_files(*, spec_path, spec_sha256, campaign_path, snapshot_directory, s
     _require(_same(_source_digests(consumer_profile=consumer_profile), spec["producer_source_sha256"]),
              "Executing producer sources differ")
     bundle = Path(snapshot_directory)
+    if consumer_profile == REMOTE_VLLM_CONSUMER_PROFILE:
+        from daystrom_dml.services.remote_vllm_action_input import RemoteVLLMActionInputConsumer
+        with RemoteVLLMActionInputConsumer(bundle, offline=True) as consumer:
+            expected_files = set(consumer.manifest["files"]) | {"remote-vllm-manifest.json"}
+            _require(set(spec["snapshot_sha256"]) == expected_files, "Remote snapshot inventory differs")
+            for name, digest in spec["snapshot_sha256"].items():
+                _require(file_digest(bundle / name) == digest, "Frozen remote snapshot differs: " + name)
+            identity = consumer.identity.to_payload()
+            _require(_same(identity, spec["model_identity"]), "Frozen remote identity differs")
+            campaign_bytes = Path(campaign_path).read_bytes()
+            campaign = decode_json(campaign_bytes, limit=MAX_CAMPAIGN_BYTES)
+            evidence = replay_campaign(campaign, spec, identity=identity, tokenizer=consumer)
+            return {**evidence, "specification_sha256": spec_sha256,
+                    "campaign_sha256": hashlib.sha256(campaign_bytes).hexdigest(),
+                    "exact_token_scope": "frozen client tokenization and server-reported token IDs only",
+                    "engine_input_attestation": False,
+                    "grammar_validation_scope": "request schema and parser-accepted actions; rejected outputs remain failures; token-wise masks and prefix membership are not independently attested"}
     required_files = REQUIRED_FILES
     if consumer_profile == QWEN3_GGUF_CONSUMER_PROFILE:
         from daystrom_dml.services.qwen3_gguf_model_snapshot import REQUIRED_FILES as QWEN3_GGUF_REQUIRED_FILES
