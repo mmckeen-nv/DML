@@ -36,7 +36,8 @@ REMOTE_VLLM_CONSUMER_PROFILE = "nemotron-remote-vllm-action-v1"
 REMOTE_VLLM_JSON_CONSUMER_PROFILE = "nemotron-remote-vllm-action-json-v2"
 NATIVE_REMOTE_VLLM_CONSUMER_PROFILE = "nemotron-remote-vllm-native-tools-v1"
 NATIVE_REMOTE_VLLM_V2_CONSUMER_PROFILE = "nemotron-remote-vllm-native-tools-v2"
-NATIVE_REMOTE_VLLM_CONSUMER_PROFILES = (NATIVE_REMOTE_VLLM_CONSUMER_PROFILE, NATIVE_REMOTE_VLLM_V2_CONSUMER_PROFILE)
+NATIVE_REMOTE_VLLM_V3_CONSUMER_PROFILE = "nemotron-remote-vllm-native-tools-v3"
+NATIVE_REMOTE_VLLM_CONSUMER_PROFILES = (NATIVE_REMOTE_VLLM_CONSUMER_PROFILE, NATIVE_REMOTE_VLLM_V2_CONSUMER_PROFILE, NATIVE_REMOTE_VLLM_V3_CONSUMER_PROFILE)
 REMOTE_VLLM_CONSUMER_PROFILES = (REMOTE_VLLM_CONSUMER_PROFILE, REMOTE_VLLM_JSON_CONSUMER_PROFILE, *NATIVE_REMOTE_VLLM_CONSUMER_PROFILES)
 EPISODE_VALIDATION_PROFILES = (*VALIDATION_PROFILES, *QWEN3_CONSUMER_PROFILES,
                                QWEN2_BF16_SAMPLED_CONSUMER_PROFILE, QWEN3_GGUF_CONSUMER_PROFILE, *REMOTE_VLLM_CONSUMER_PROFILES)
@@ -179,16 +180,38 @@ def recovery_guidance_identity():
             "base_validation_policy": execution_policy_identity()}
 
 
+NATIVE_COMPLETION_GUIDANCE = (
+    "Track the task requirements against the tool results already in this conversation. "
+    "Treat a successful mutation result as acknowledgment that the operation committed; "
+    "do not repeat that completed operation using earlier record references. "
+    "Use returned current state when deciding whether any further operation is required. "
+    "Retrieve again only to resolve a specific remaining information gap or required readback, "
+    "rather than repeating retrieval that already supplied sufficient evidence. "
+    "Once the requested operations and any required verification are complete and the available "
+    "evidence supports the answer, emit the original final-action JSON with supported claims and citations. "
+    "When those completion conditions hold, narrating an intention to finish is not a final answer; "
+    "emit the required final JSON object. "
+    "A successful read does not itself perform a requested mutation, and a rejected or failed operation is not a success. "
+    "Stay within the existing action, authority, evidence and budget rules."
+)
+
+
 def native_policy_identity(*, consumer_profile=NATIVE_REMOTE_VLLM_CONSUMER_PROFILE):
     if consumer_profile not in NATIVE_REMOTE_VLLM_CONSUMER_PROFILES:
         raise AgentEpisodeError("Unknown native profile")
-    return {"profile": consumer_profile,
+    identity = {"profile": consumer_profile,
             "system_message_sha256": hashlib.sha256(native_system_policy(consumer_profile=consumer_profile).encode()).hexdigest(),
             "base_policy_sha256": hashlib.sha256(AGENT_POLICY.encode()).hexdigest(),
             "base_validation_policy": execution_policy_identity(),
             "normalization": "single-native-call-or-unmodified-final-json-v1",
             "all_turn_json_grammar": False, "parallel_tool_calls": False,
-            "mixed_content_and_calls": ("retain-nonauthoritative-content" if consumer_profile == NATIVE_REMOTE_VLLM_V2_CONSUMER_PROFILE else "reject"), "reasoning": "disabled-reject-nonempty"}
+            "mixed_content_and_calls": ("retain-nonauthoritative-content" if consumer_profile != NATIVE_REMOTE_VLLM_CONSUMER_PROFILE else "reject"), "reasoning": "disabled-reject-nonempty"}
+    if consumer_profile == NATIVE_REMOTE_VLLM_V3_CONSUMER_PROFILE:
+        identity["completion_guidance"] = {"policy": "acknowledged-state-completion-v1",
+            "text": NATIVE_COMPLETION_GUIDANCE,
+            "sha256": hashlib.sha256(NATIVE_COMPLETION_GUIDANCE.encode()).hexdigest(),
+            "placement": "append-to-system-message", "join": "\n\n"}
+    return identity
 
 
 def native_system_policy(*, consumer_profile=NATIVE_REMOTE_VLLM_CONSUMER_PROFILE):
@@ -204,10 +227,11 @@ def native_system_policy(*, consumer_profile=NATIVE_REMOTE_VLLM_CONSUMER_PROFILE
         '"dml-agent-action-v1" and kind equal to "final". '
         "Do not use Markdown fences, prose, outer quotation marks, multiple objects, or trailing text. "
     )
-    if consumer_profile == NATIVE_REMOTE_VLLM_V2_CONSUMER_PROFILE:
+    if consumer_profile != NATIVE_REMOTE_VLLM_CONSUMER_PROFILE:
         prefix = prefix.replace("Emit at most one function call per turn and no accompanying prose. ",
             "Emit at most one function call per turn. Any accompanying assistant prose is non-authoritative commentary, not a final answer, a tool result, or evidence. ")
-    return prefix + "A final action has exactly" + AGENT_POLICY.split("A final action has exactly", 1)[1] + "\n\n" + RECOVERY_GUIDANCE
+    policy = prefix + "A final action has exactly" + AGENT_POLICY.split("A final action has exactly", 1)[1] + "\n\n" + RECOVERY_GUIDANCE
+    return policy + "\n\n" + NATIVE_COMPLETION_GUIDANCE if consumer_profile == NATIVE_REMOTE_VLLM_V3_CONSUMER_PROFILE else policy
 
 
 def native_action_text(message, *, consumer_profile=NATIVE_REMOTE_VLLM_CONSUMER_PROFILE):
@@ -955,7 +979,8 @@ def validate_episode_events(events, *, require_terminal=True):
             if compiled is not None:
                 runtime = compiled["identity"]["runtime_identity"]
                 expected_version = "v3" if selected_profile == RECOVERY_CONSUMER_PROFILE else "v2"
-                prefix = ("dml-remote-vllm-native-tools-runtime-v2" if selected_profile == NATIVE_REMOTE_VLLM_V2_CONSUMER_PROFILE
+                prefix = ("dml-remote-vllm-native-tools-runtime-v3" if selected_profile == NATIVE_REMOTE_VLLM_V3_CONSUMER_PROFILE
+                          else "dml-remote-vllm-native-tools-runtime-v2" if selected_profile == NATIVE_REMOTE_VLLM_V2_CONSUMER_PROFILE
                           else "dml-remote-vllm-native-tools-runtime-v1" if selected_profile == NATIVE_REMOTE_VLLM_CONSUMER_PROFILE
                           else "dml-remote-vllm-action-runtime-v2" if selected_profile == REMOTE_VLLM_JSON_CONSUMER_PROFILE
                           else "dml-remote-vllm-action-runtime-v1" if selected_profile == REMOTE_VLLM_CONSUMER_PROFILE
@@ -971,7 +996,7 @@ def validate_episode_events(events, *, require_terminal=True):
                              "dml-qwen3-action-runtime-v1:", "dml-qwen3-action-runtime-v2:",
                              "dml-qwen2-bf16-action-runtime-v1:", "dml-qwen3-gguf-action-runtime-v1:",
                              "dml-remote-vllm-action-runtime-v1:", "dml-remote-vllm-action-runtime-v2:",
-                             "dml-remote-vllm-native-tools-runtime-v1:", "dml-remote-vllm-native-tools-runtime-v2:"))):
+                             "dml-remote-vllm-native-tools-runtime-v1:", "dml-remote-vllm-native-tools-runtime-v2:", "dml-remote-vllm-native-tools-runtime-v3:"))):
                     raise AgentEpisodeError("Compiled runtime and execution protocol differ")
             if canonical_json(request_payload["messages"]) != canonical_json(next_messages):
                 raise AgentEpisodeError("Exact model messages differ from the full causal transcript")

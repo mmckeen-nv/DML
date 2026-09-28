@@ -1,5 +1,6 @@
 """Native transport synthetic controls; never claim trained-model qualification."""
 
+import hashlib
 from copy import deepcopy
 from dataclasses import replace
 from types import SimpleNamespace
@@ -8,8 +9,10 @@ from typing import ClassVar
 import pytest
 
 from daystrom_dml.contracts.agent_episode import (
+    NATIVE_COMPLETION_GUIDANCE,
     NATIVE_REMOTE_VLLM_CONSUMER_PROFILE,
     NATIVE_REMOTE_VLLM_V2_CONSUMER_PROFILE,
+    NATIVE_REMOTE_VLLM_V3_CONSUMER_PROFILE,
     native_policy_identity,
     AgentEpisodeError,
     canonical_json,
@@ -33,7 +36,7 @@ class NativeSyntheticConsumer(ValidationScriptedConsumer):
             artifact,
             identity=replace(
                 artifact.identity,
-                runtime_identity=("dml-remote-vllm-native-tools-runtime-v2:" if self.profile == NATIVE_REMOTE_VLLM_V2_CONSUMER_PROFILE else "dml-remote-vllm-native-tools-runtime-v1:") + "a" * 64,
+                runtime_identity="dml-remote-vllm-native-tools-runtime-" + self.profile.rsplit("-", 1)[1] + ":" + "a" * 64,
             ),
         )
 
@@ -221,13 +224,14 @@ def test_native_prose_final_retains_known_generation_cost_as_failure(tmp_path):
     validate_episode_events(report["events"])
 
 
-def test_native_v2_commentary_has_no_action_authority_and_replays_verbatim(tmp_path):
+@pytest.mark.parametrize("profile", [NATIVE_REMOTE_VLLM_V2_CONSUMER_PROFILE, NATIVE_REMOTE_VLLM_V3_CONSUMER_PROFILE])
+def test_native_commentary_has_no_action_authority_and_replays_verbatim(tmp_path, profile):
     class CommentaryConsumer(NativeSyntheticConsumer):
-        profile = NATIVE_REMOTE_VLLM_V2_CONSUMER_PROFILE
         commentary = "I will retrieve now. This prose is not a final answer or evidence."
 
+    CommentaryConsumer.profile = profile
     report, consumer, _ = validation_case(
-        tmp_path, consumer_profile=NATIVE_REMOTE_VLLM_V2_CONSUMER_PROFILE,
+        tmp_path, consumer_profile=profile,
         consumer_factory=CommentaryConsumer,
     )
     assert report["terminal"]["success"]
@@ -247,3 +251,20 @@ def test_native_v2_commentary_has_no_action_authority_and_replays_verbatim(tmp_p
     assert native_policy_identity(consumer_profile=CommentaryConsumer.profile)["mixed_content_and_calls"] == "retain-nonauthoritative-content"
     with pytest.raises(AgentEpisodeError):
         native_action_text({"role": "assistant", "content": "A prose final"}, consumer_profile=CommentaryConsumer.profile)
+
+
+def test_v3_completion_guidance_is_append_only_and_preserves_old_policy_identities():
+    expected = {
+        NATIVE_REMOTE_VLLM_CONSUMER_PROFILE: "af9af142a2c0171afdba7198913aa69f4ac9bfb9c9b5e4e74927dd6e4f063a32",
+        NATIVE_REMOTE_VLLM_V2_CONSUMER_PROFILE: "7931e5c7abb64f117b35df58fd35977d2881e9ca7bafed64425298093f8a9204",
+    }
+    for profile, digest in expected.items():
+        assert hashlib.sha256(canonical_json(native_policy_identity(consumer_profile=profile))).hexdigest() == digest
+    v2 = native_system_policy(consumer_profile=NATIVE_REMOTE_VLLM_V2_CONSUMER_PROFILE)
+    v3 = native_system_policy(consumer_profile=NATIVE_REMOTE_VLLM_V3_CONSUMER_PROFILE)
+    assert v3 == v2 + "\n\n" + NATIVE_COMPLETION_GUIDANCE
+    identity = native_policy_identity(consumer_profile=NATIVE_REMOTE_VLLM_V3_CONSUMER_PROFILE)
+    assert identity["completion_guidance"]["text"] == NATIVE_COMPLETION_GUIDANCE
+    assert identity["completion_guidance"]["sha256"] == hashlib.sha256(NATIVE_COMPLETION_GUIDANCE.encode()).hexdigest()
+    assert "When those completion conditions hold" in NATIVE_COMPLETION_GUIDANCE
+    assert "a rejected or failed operation is not a success" in NATIVE_COMPLETION_GUIDANCE

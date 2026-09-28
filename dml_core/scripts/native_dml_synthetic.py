@@ -23,7 +23,7 @@ from daystrom_dml.services.native_remote_vllm_action_input import (
     NativeRemoteVLLMActionInputConsumer,
 )
 
-from daystrom_dml.contracts.agent_episode import NATIVE_REMOTE_VLLM_V2_CONSUMER_PROFILE as CONSUMER_PROFILE
+from daystrom_dml.contracts.agent_episode import NATIVE_REMOTE_VLLM_V3_CONSUMER_PROFILE as CONSUMER_PROFILE
 from daystrom_dml.services.remote_vllm_action_input import sampling_policy_identity
 
 SCHEMA = 'dml-native-synthetic-qualification-v2'

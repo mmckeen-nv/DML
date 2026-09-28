@@ -289,22 +289,26 @@ def test_v2_nested_control_in_argument_rejected():
     assert action is None and error
 
 
-def test_v2_consumer_roundtrip_and_identity_remain_distinct(consumer, monkeypatch):
+@pytest.mark.parametrize('profile,policy,runtime_prefix', [
+    (module.V2_CONSUMER_PROFILE, module.NATIVE_V2_ACTION_POLICY, 'dml-remote-vllm-native-tools-runtime-v2:'),
+    (module.V3_CONSUMER_PROFILE, module.NATIVE_V3_ACTION_POLICY, 'dml-remote-vllm-native-tools-runtime-v3:'),
+])
+def test_prose_consumer_roundtrip_and_identity_remain_distinct(consumer, monkeypatch, profile, policy, runtime_prefix):
     directory = consumer._directory
     manifest = deepcopy(consumer.manifest)
-    manifest['consumer_profile'] = module.V2_CONSUMER_PROFILE
-    manifest['action_projection_policy'] = module.NATIVE_V2_ACTION_POLICY
+    manifest['consumer_profile'] = profile
+    manifest['action_projection_policy'] = policy
     (directory / 'remote-vllm-manifest.json').write_text(json.dumps(manifest))
-    with module.NativeRemoteVLLMActionInputConsumer(directory, consumer_profile=module.V2_CONSUMER_PROFILE,
+    with module.NativeRemoteVLLMActionInputConsumer(directory, consumer_profile=profile,
                                                    offline=True) as v2:
-        assert v2.identity.runtime_identity.startswith('dml-remote-vllm-native-tools-runtime-v2:')
+        assert v2.identity.runtime_identity.startswith(runtime_prefix)
         assert v2.identity != consumer.identity
         prefix = 'I will retrieve the stored value.\n'
         message = tool_message()
         message['content'] = prefix
         v2._tokenizer.output = prefix + raw_call().lstrip('\n')
         mock_endpoint(v2, monkeypatch, response(message))
-        artifact = v2.compile(initial_messages('Synthetic native request', consumer_profile=module.V2_CONSUMER_PROFILE),
+        artifact = v2.compile(initial_messages('Synthetic native request', consumer_profile=profile),
                               episode_tool_definitions(), output_reserved_tokens=16)
         result = v2.execute(artifact)
         assert result.action_error is None and result.text.startswith(prefix)
@@ -338,3 +342,24 @@ def test_v2_never_normalizes_substantive_prefix(prefix, content):
     with pytest.raises(ModelInputError, match='prose contradicts'):
         module.project_native_message(message, prefix + raw_call().lstrip('\n'), episode_tool_definitions(),
                                       'tool_calls', consumer_profile=module.V2_CONSUMER_PROFILE)
+
+
+@pytest.mark.parametrize('prefix,content', [('', None), ('\n', None), ('I have evidence.\n', 'I have evidence.\n')])
+def test_v3_transport_projection_matches_corrected_v2(prefix, content):
+    message = tool_message()
+    message['content'] = content
+    raw = prefix + raw_call().lstrip('\n')
+    results = [module.project_native_message(message, raw, episode_tool_definitions(), 'tool_calls',
+                                            consumer_profile=profile)
+               for profile in (module.V2_CONSUMER_PROFILE, module.V3_CONSUMER_PROFILE)]
+    assert results[0] == results[1] and results[0][1] is None
+
+
+def test_v3_identity_requires_explicit_profile_manifest(consumer):
+    manifest = deepcopy(consumer.manifest)
+    v2 = module.native_identity(manifest, consumer_profile=module.V2_CONSUMER_PROFILE)
+    v3 = module.native_identity(manifest, consumer_profile=module.V3_CONSUMER_PROFILE)
+    assert v2 != v3
+    assert v2.model_digest == v3.model_digest and v2.tokenizer_digest == v3.tokenizer_digest
+    with pytest.raises(ModelInputError, match='pinned template and explicit'):
+        module.verify_native_manifest(consumer._directory, consumer_profile=module.V3_CONSUMER_PROFILE)

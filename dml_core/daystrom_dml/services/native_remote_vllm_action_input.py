@@ -14,7 +14,8 @@ import secrets
 from threading import RLock
 
 from ..contracts.agent_episode import (
-    AgentEpisodeError, NATIVE_REMOTE_VLLM_CONSUMER_PROFILE, NATIVE_REMOTE_VLLM_V2_CONSUMER_PROFILE, canonical_json,
+    AgentEpisodeError, NATIVE_REMOTE_VLLM_CONSUMER_PROFILE, NATIVE_REMOTE_VLLM_V2_CONSUMER_PROFILE,
+    NATIVE_REMOTE_VLLM_V3_CONSUMER_PROFILE, canonical_json,
     initial_messages, native_action_text, native_policy_identity, parse_agent_action,
 )
 from ..contracts.model_input import (
@@ -32,7 +33,10 @@ CONSUMER_PROFILE = NATIVE_REMOTE_VLLM_CONSUMER_PROFILE
 NATIVE_RENDERING_POLICY = 'native-template-auto-tools-v1'
 NATIVE_ACTION_POLICY = 'single-native-call-or-original-final-json-v1'
 V2_CONSUMER_PROFILE = NATIVE_REMOTE_VLLM_V2_CONSUMER_PROFILE
+V3_CONSUMER_PROFILE = NATIVE_REMOTE_VLLM_V3_CONSUMER_PROFILE
+PROSE_CONSUMER_PROFILES = (V2_CONSUMER_PROFILE, V3_CONSUMER_PROFILE)
 NATIVE_V2_ACTION_POLICY = 'single-native-call-with-bound-nonauthoritative-prose-or-original-final-json-serving-whitespace-null-v2.1'
+NATIVE_V3_ACTION_POLICY = 'single-native-call-with-bound-nonauthoritative-prose-or-original-final-json-serving-whitespace-null-completion-v3'
 NATIVE_TEMPLATE_SHA256 = '575fb74f54ed264df9047d0ecce3c98938aae953fb4f50356675706264cbb68a'
 NATIVE_EXACT_TOKEN_LIMITATIONS = [
     *EXACT_TOKEN_LIMITATIONS,
@@ -78,7 +82,7 @@ def verify_native_manifest(directory, *, consumer_profile=CONSUMER_PROFILE):
     manifest = verify_remote_manifest(directory)
     if (manifest.get('consumer_profile') != consumer_profile
             or manifest.get('rendering_policy') != NATIVE_RENDERING_POLICY
-            or manifest.get('action_projection_policy') != (NATIVE_V2_ACTION_POLICY if consumer_profile == V2_CONSUMER_PROFILE else NATIVE_ACTION_POLICY)
+            or manifest.get('action_projection_policy') != (NATIVE_V3_ACTION_POLICY if consumer_profile == V3_CONSUMER_PROFILE else NATIVE_V2_ACTION_POLICY if consumer_profile == V2_CONSUMER_PROFILE else NATIVE_ACTION_POLICY)
             or manifest['files']['chat-template.jinja'] != NATIVE_TEMPLATE_SHA256):
         raise ModelInputError('Native candidate requires its pinned template and explicit native protocol')
     return manifest
@@ -87,13 +91,15 @@ def verify_native_manifest(directory, *, consumer_profile=CONSUMER_PROFILE):
 def native_identity(manifest, *, consumer_profile=CONSUMER_PROFILE):
     base = remote_identity(manifest)
     policy = {'base_identity': base.to_payload(), 'native_action_policy': native_policy_identity(consumer_profile=consumer_profile),
-              'native_protocol': ({**NATIVE_PROTOCOL_POLICY, 'projection': NATIVE_V2_ACTION_POLICY,
+              'native_protocol': ({**NATIVE_PROTOCOL_POLICY, 'projection': NATIVE_V3_ACTION_POLICY if consumer_profile == V3_CONSUMER_PROFILE else NATIVE_V2_ACTION_POLICY,
                   'accompanying_prose': 'exact_prefix_matches_native_content_only_whitespace_suffix_no_authority',
                   'prefix_normalization': 'vllm020_engine_serving_whitespace_only_prefix_to_null_v1',
                   'xml_delimiters': 'exactly_one_complete_call_no_stray_or_nested_control_delimiters'}
-                  if consumer_profile == V2_CONSUMER_PROFILE else NATIVE_PROTOCOL_POLICY), 'exact_token_limitations': NATIVE_EXACT_TOKEN_LIMITATIONS,
+                  if consumer_profile in PROSE_CONSUMER_PROFILES else NATIVE_PROTOCOL_POLICY), 'exact_token_limitations': NATIVE_EXACT_TOKEN_LIMITATIONS,
               'all_turn_grammar_removed': True}
-    prefix = 'dml-remote-vllm-native-tools-runtime-v2:' if consumer_profile == V2_CONSUMER_PROFILE else 'dml-remote-vllm-native-tools-runtime-v1:'
+    prefix = ('dml-remote-vllm-native-tools-runtime-v3:' if consumer_profile == V3_CONSUMER_PROFILE else
+              'dml-remote-vllm-native-tools-runtime-v2:' if consumer_profile == V2_CONSUMER_PROFILE else
+              'dml-remote-vllm-native-tools-runtime-v1:')
     return replace(base, runtime_identity=prefix + hashlib.sha256(
         canonical_json(policy)).hexdigest())
 
@@ -193,9 +199,9 @@ def project_native_message(message, visible_text, tools, finish_reason, *, consu
         calls = message.get('tool_calls') or []
         if calls:
             call_text = visible_text
-            if consumer_profile == V2_CONSUMER_PROFILE:
+            if consumer_profile in PROSE_CONSUMER_PROFILES:
                 call_text = _bound_native_call_text(visible_text, message.get('content'))
-            name, raw_arguments = _xml_call(call_text, tools, strict_controls=consumer_profile == V2_CONSUMER_PROFILE)
+            name, raw_arguments = _xml_call(call_text, tools, strict_controls=consumer_profile in PROSE_CONSUMER_PROFILES)
             native_arguments = _decode(calls[0]['function']['arguments'].encode())
             if name != calls[0]['function']['name'] or canonical_json(raw_arguments) != canonical_json(native_arguments):
                 raise ModelInputError('Native parser fields contradict independently decoded output tokens')
@@ -217,7 +223,7 @@ class NativeRemoteVLLMActionInputConsumer(RemoteVLLMActionInputConsumer):
     """Authenticated local native rendering with independently checked HTTP IDs."""
 
     def __init__(self, snapshot_directory, *, consumer_profile=CONSUMER_PROFILE, offline=False):
-        if consumer_profile not in (CONSUMER_PROFILE, V2_CONSUMER_PROFILE):
+        if consumer_profile not in (CONSUMER_PROFILE, *PROSE_CONSUMER_PROFILES):
             raise ModelInputError('Unknown native consumer profile')
         from transformers import AutoTokenizer
         self._directory = Path(snapshot_directory)

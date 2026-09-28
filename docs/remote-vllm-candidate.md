@@ -157,3 +157,17 @@ Standalone prose finals still fail the original full final-action JSON contract.
 Both versions retain the same authorized action parser, tool gateway, limits,
 corpus and acceptance gates. V2 requires its own reviewed qualification and
 freeze; no prior failed v1 result is reinterpreted as success.
+
+
+`nemotron-remote-vllm-native-tools-v3` appends generic completion guidance to
+the v2 system policy. It asks the model to track acknowledged state, avoid
+repeating committed operations with old references, retrieve for remaining
+information gaps or required readback, and emit the original final JSON only
+when requested operations, required verification and evidence conditions hold.
+The exact guidance text and hash are bound into the new runtime identity.
+Native transport, automatic tool choice, sampling, final schema, authority,
+budgets and acceptance gates remain unchanged; no final branch is forced.
+V1 and v2 policy identities and replay behavior remain intact. The reused four
+synthetic cases are development regression fixtures, not held-out evidence.
+Prior failed attempts remain retained; a new declared run is a new candidate
+qualification attempt, not an automatic retry or reinterpretation.
