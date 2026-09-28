@@ -1,0 +1,204 @@
+{
+  "attempted_cases": 6,
+  "branch": "codex/remote-vllm-candidate",
+  "campaign_frozen": false,
+  "campaign_launched": false,
+  "candidate": "nemotron-remote-vllm-native-tools-v6",
+  "cases": [
+    {
+      "calls": 2,
+      "id": "live_retrieval",
+      "input_tokens": 3147,
+      "output_tokens": 140,
+      "qualified": true,
+      "status": "completed"
+    },
+    {
+      "calls": 3,
+      "id": "dependent_feedback",
+      "input_tokens": 6015,
+      "output_tokens": 197,
+      "qualified": true,
+      "status": "completed"
+    },
+    {
+      "calls": 2,
+      "failure": "Second response reached 256 tokens. API reported a tool call, but raw syntax lacked the closing tool-call delimiter and terminal EOS. No mutation executed.",
+      "id": "live_supersession",
+      "input_tokens": 3822,
+      "output_tokens": 334,
+      "qualified": false,
+      "status": "invalid_action"
+    },
+    {
+      "calls": 2,
+      "id": "untrusted_injection",
+      "input_tokens": 3191,
+      "output_tokens": 138,
+      "qualified": true,
+      "status": "completed"
+    },
+    {
+      "calls": 6,
+      "final_produced": false,
+      "id": "stale_source_recovery",
+      "input_tokens": 15467,
+      "last_remaining_calls_shown": 1,
+      "output_tokens": 914,
+      "qualified": false,
+      "sequence": [
+        "retrieve",
+        "supersede rejected",
+        "fresh retrieve",
+        "supersede committed",
+        "readback",
+        "retrieve"
+      ],
+      "status": "step_limit",
+      "verified_safe_conflicts": 1
+    },
+    {
+      "calls": 6,
+      "final_produced": false,
+      "id": "stale_replacement_recovery",
+      "input_tokens": 15122,
+      "last_remaining_calls_shown": 1,
+      "output_tokens": 796,
+      "qualified": false,
+      "sequence": [
+        "retrieve",
+        "supersede rejected",
+        "fresh retrieve",
+        "supersede committed",
+        "readback",
+        "retrieve"
+      ],
+      "status": "step_limit",
+      "verified_safe_conflicts": 1
+    }
+  ],
+  "classification": "fresh-noncorpus-development-not-heldout-designed-after-v5-failures",
+  "date": "2026-09-28",
+  "declared_cases": 6,
+  "evidence_sha256": {
+    "ci-36472910210-final.json": "ca9e1ca28be2066fff7a0fe81ee9119c9e5d50eb76b9fd96688daeea46a2d32d",
+    "ci-36473082372-final.json": "d2268662453ceac0eab462f71ea08f31ab818c79036897e67bf33f7b998c30cf",
+    "controls-run-once/summary.json": "f46c8f9cccb3b511760dd7c8843e593160459b84cda5d9b0916b52f23522e0e2",
+    "controls-suite.json": "fc2ba298c4d7511331690ab9418006aeafb4c9c31b10466ef8f1564f1a9a012a",
+    "independent-final-behavioral-review.json": "c04adf366d59b78bb7c1837a5e38a4cdda52ec48dda0c7fdb856954fef1bad78",
+    "independent-six-case-prerun-review.json": "5b0364dd485b95970868522462d74f67694a2e4f0f5c68e4594269c6faee6d1c",
+    "independent-six-case-replay.json": "00a1edbd9fa6f2a37679ba7b6319eb314730ea70c73c0988dd9f6421d01813e8",
+    "independent-source-ci-completion-review.json": "61352060ad68b8006e245b4120ca0b59d0a8dc80fd4c66078e6c76052d7bae95",
+    "independent-source-preservation-review.json": "f539840e9c575001b4d4c5281571950a13bbca72e1873a6bb05d1679479f4c6c",
+    "independent-v6-policy-design-review.json": "b7154539decfbc5b265c7e19fec4b49ca2dc6931e93e5a343fe6fe3f1f6818c4",
+    "independent-v6-qualification-scope.json": "09ed3f0733d597e07e6d374f31452e5d5e8868896bea62a16733862a801f8111",
+    "legacy-fix-focused-tests.log": "8333d95d9f3bc931a0e53ccd707de22ead293f9977025a265a857e1f6ea7a94a",
+    "live-call-summary.json": "458c4e7e2d87c3c7aebdba013b2747ce0aea1ff5836ad81b18c68647ea35ba32",
+    "primary-controls-replay.json": "d01130ac7f9e6068e45280c276ccc46af04d14b2997797c17f4caee3f516a481",
+    "primary-recovery-replay.json": "e35c1a8e4bc358693042de149b2f7ec7d8fb11c0aaf63c9d5243f0324b3a340c",
+    "recovery-run-once/summary.json": "a794320dc0564f57aeed2f5ac8551efc5de739973b0038325bbf8fd0c19b0589",
+    "recovery-suite.json": "e749556348049c4e43843341e8a77858cbdd4ae65d86d9a88a9ee777d1dc38ee",
+    "root-final-remote-contract-tests.xml": "049936c026d62751bc63b36ee77dbdc7b6b5dafb37846c5a6f35fd4f024e3c46",
+    "runtime-attestation.json": "646b146fcd9269d2a4c8f64ab3dda8a9a0aa9554f347d7431ae01a31f4460991",
+    "six-case-declaration.json": "5498d1614cc9a7cf3e47103fae3a877a7b5f6848beb817586219014a17d376f3",
+    "six-case-launch-result.json": "d38db5039519023cec3825b108fbb5d0c04699eb90616c8539dad06334b535e1",
+    "six-wrapper-controlled-tests.json": "3d66cae73d4c8af44803f080c55e66f17b803e4ed686c57da35d8179d42b724f",
+    "snapshot/remote-vllm-manifest.json": "1afe2b8a4b6f10f2c439f5b62f2024f9cdde1f147b45f0494dc88da403957069"
+  },
+  "findings": [
+    "Both conflict branches recover and commit a model-owned supersession, but completion still fails despite authentic readback and a visible one-call remainder.",
+    "Budget visibility and concise guidance did not resolve the fixed-budget completion problem; no campaign is authorized."
+  ],
+  "limitations": [
+    "Not held-out evidence or a reliability estimate.",
+    "The endpoint does not guarantee exact engine tensors, attention masks, sampler order, KV isolation or deterministic GPU output.",
+    "No all-turn grammar or per-token grammar-mask guarantee; complete outputs must pass existing post-generation admission.",
+    "Host-observed pinned artifacts/startup do not cryptographically attest loaded GPU weights.",
+    "Original ephemeral compilation HMAC cannot be recreated offline.",
+    "Retirement has controlled tests only; no physical reboot or power-loss durability claim."
+  ],
+  "limits": {
+    "max_input_tokens": 32768,
+    "max_output_tokens": 1536,
+    "max_steps": 6,
+    "output_tokens_per_call": 256,
+    "scope": "per case; aggregate usage spans six cases",
+    "unchanged": true,
+    "wall_time_seconds": 300
+  },
+  "m7_closed": false,
+  "merged": false,
+  "policy_change": "V6-only concise action guidance and one runner-derived budget segment in the first system message; causal replay reconstructs counters from prior usage. Native admission and tool choice remain unchanged.",
+  "preserved": {
+    "model_runtime_sampling_corpus_retrieval_authorization_final_contract_gates": true,
+    "no_retries_forced_calls_output_repair_or_automatic_mutation": true,
+    "v4_full_campaign": "8/9 unchanged; supersede_then_answer failed, read_both_commits passed",
+    "v5_recovery_qualification": "0/2 unchanged"
+  },
+  "production_ready": false,
+  "qualification_passed": false,
+  "qualified_cases": 3,
+  "raw_evidence_root": "/home/nvidia/dml-debug/nemotron-native-dml-v6-20260928",
+  "recovery_cases_passed": 0,
+  "replays": {
+    "budget_states_verified_independently": 21,
+    "independent_status": "passed",
+    "primary_controls_passed": true,
+    "primary_recovery_status": "passed",
+    "raw_calls_replayed_independent": 21,
+    "raw_calls_replayed_primary": 21,
+    "scope": "Offline protocol/data/authority replay; does not change live qualification outcomes."
+  },
+  "runtime": {
+    "configuration_evidence": "snapshot/remote-vllm-manifest.json",
+    "endpoint": "http://192.168.50.91:8000/v1",
+    "epoch_stable": true,
+    "min_p": 0,
+    "model_revision": "ff433f5493e25d631c9f12b5d55c674229923d02",
+    "n": 1,
+    "sampling_unchanged": true,
+    "seed": 0,
+    "served_model": "nvidia/nemotron-3-super",
+    "temperature": 0.7,
+    "template_sha256": "575fb74f54ed264df9047d0ecce3c98938aae953fb4f50356675706264cbb68a",
+    "tokenizer_sha256": "623c34567aebb18582765289fbe23d901c62704d6518d71866e0e58db892b5b7",
+    "top_k": 20,
+    "top_p": 0.8,
+    "vllm_version": "0.20.0"
+  },
+  "schema_version": "dml-native-v6-budget-qualification-outcome-v1",
+  "source_commit": "0351ba97bed4c4dbe3dd423d7ea5013310e099a8",
+  "source_validation": {
+    "ci": {
+      "conclusion": "success",
+      "passed_jobs": 21,
+      "qualified": true,
+      "run_id": 36473082372,
+      "status": "completed",
+      "total_jobs": 21,
+      "url": "https://github.com/mmckeen-nv/DML/actions/runs/36473082372"
+    },
+    "predecessor_ci": {
+      "run_id": 36472910210,
+      "status": "cancelled after successor source was committed; retained, no generation on predecessor"
+    },
+    "predecessor_source": "02876e46060f4792e1c22e207049642e02880445",
+    "predecessor_tests": {
+      "lint_passed": true,
+      "maintained_mypy_files": 93,
+      "remote_contracts": 257,
+      "skipped": 0
+    },
+    "successor_change": "Add native v5/v6 prefixes to legacy episode runtime exclusion; two regression tests. Legitimate historical profiles unchanged.",
+    "successor_focused_tests": 25
+  },
+  "usage": {
+    "http_errors": 0,
+    "input_tokens": 46764,
+    "model_calls": 21,
+    "output_tokens": 2519,
+    "timeouts": 0,
+    "unknown_effects": false,
+    "unknown_usage": false
+  }
+}

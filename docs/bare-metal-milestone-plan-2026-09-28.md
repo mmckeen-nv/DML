@@ -1,7 +1,9 @@
 # DML milestone status and M7 execution plan
-As of September 28, 2026. Latest full campaign: remote Nemotron native-tools-v4; latest recovery qualification: native-tools-v5, 0/2.
+As of September 28, 2026. Latest full campaign: remote Nemotron native-tools-v4; latest qualification: native-tools-v6, 3/6 with recovery 0/2.
 
 ## Current position
+
+The latest native-tools-v6 budget-guidance development qualification passed 3/6 cases; both recovery cases still failed (0/2). Each recovered a verified conflict, committed supersession and read back, then repeated retrieval on the last permitted call despite visible budget metadata. The baseline supersession case produced incomplete native syntax at its output cap. No new campaign was frozen or launched; M7 remains open. Exact-source CI passed 21/21 jobs on `0351ba9`; primary and independent replay passed all 21 calls, preserving every failure. Independent campaign approval is withheld. See [v6 qualification outcome](artifacts/native-vllm-v6-budget-qualification-outcome-2026-09-28.json).
 
 The newer native-tools-v5 recovery development qualification failed both declared cases (0/2), despite both offline evidence replays passing. The source case truncated before exercising recovery; the replacement case recovered a verified conflict, retrieved fresh state, committed a model-owned supersession and read back, but reached the step limit without a final answer. No new nine-task campaign was frozen or launched. Exact-source [CI 36468583308](https://github.com/mmckeen-nv/DML/actions/runs/36468583308) passed all 21 jobs on `68fdc74`; it does not override failed live qualification. See [v5 recovery qualification](artifacts/native-vllm-v5-recovery-qualification-outcome-2026-09-28.json).
 

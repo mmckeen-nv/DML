@@ -244,6 +244,8 @@ journal regressions, not claimed as live-qualified by these two cases.
 
 ## Native v6 budget visibility candidate
 
+The first six-case development qualification passed 3/6, with both recovery cases failing to produce a final within six calls. The baseline supersession case also truncated. Budget visibility did not resolve the completion failures. Exact-source CI passed 21/21 jobs; both evidence replays passed all 21 calls and preserved the failures. No campaign is authorized. See [compact outcome](artifacts/native-vllm-v6-budget-qualification-outcome-2026-09-28.json).
+
 `nemotron-remote-vllm-native-tools-v6` adds concise action guidance and one
 runner-derived budget segment to the first system message. The segment gives
 the current model call, remaining calls including the current call, the unchanged
