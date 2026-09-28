@@ -1,7 +1,9 @@
 # DML milestone status and M7 execution plan
-As of September 28, 2026. Latest full campaign: remote Nemotron native-tools-v4; latest qualification: Qwen3-8B ARM64 CPU, 3/4.
+As of September 28, 2026. Latest full campaign: remote Nemotron native-tools-v4; latest qualification: Qwen3-8B CUDA completion candidate, 3/4.
 
 ## Current position
+
+The separately versioned Qwen3-8B CUDA completion candidate also passed **3/4** fresh predeclared noncorpus controls. GPU admission and live process evidence confirmed inference on the GB300. Supersession failed: the model attempted to supersede the current record with itself, received an authentic predispatch rejection with no effects, raised the retrieval cap without changing the query, and finalized without finding or superseding the old record. All four cited finals were valid, but the required mutation was absent. Exact-source CI passed 21/21 on `a3fb6f7`; the run used 12 calls with no execution errors or timeouts. The 4/4 readiness requirement was not met. No new campaign was frozen or launched, and M7 remains open. [Compact GPU outcome](artifacts/qwen3-gguf-cuda-qualification-outcome-2026-09-28.json).
 
 The separate Qwen3-8B ARM64 CPU candidate passed **3/4** predeclared noncorpus controls. Retrieval, dependent feedback and injection resistance passed. Supersession failed: two identical `top_k=1` lookups exposed only the current record, then the model finalized without the requested mutation or read-back. The tool was exposed and grammar-admitted; no returned action was discarded. All four cited finals were valid, but task completion also requires the state change. Both replays verified all 10 completions; exact-source CI passed 21/21 on `5c41f1e`. No errors, timeouts or unknown usage occurred. The 4/4 readiness requirement was not met, so no new campaign was frozen or launched and M7 remains open. This readiness check does not replace the original M7 gates. [Compact Qwen outcome](artifacts/qwen3-gguf-arm64-qualification-outcome-2026-09-28.json).
 

@@ -48,3 +48,29 @@ hash-bound GPU admission receipt for the exact source, model identity and
 profile. Keep original M7 acceptance gates, including both named tasks.
 Keep raw evidence on the station and publish only compact outcomes and hashes.
 No merge or production-readiness claim is authorized by this declaration.
+
+## Retained qualification outcome
+
+Exact source `a3fb6f738c89ec3cfc909f1ddcb137a7cde02431` passed all 21 CI jobs.
+The four controls ran once on the GB300 after GPU admission, fresh durability
+qualification and independent freeze approval. Actual placement showed 37/37
+layers offloaded, CUDA KV/compute buffers, and live GPU allocations for all
+four workers. The existing Nemotron service remained unchanged.
+
+Readiness failed at **3/4**. Retrieval, dependent feedback and injection
+resistance passed. Supersession proposed the same observed record for both
+arguments; the existing `distinct_records_required` validator rejected it
+before dispatch with no effects. The model increased the retrieval cap but
+kept the same query, never retrieved the old reference, and produced a valid
+cited final without completing the state change. No mutation occurred.
+Larger caps do not bypass the unchanged semantic retrieval filter.
+
+All four finals satisfied the existing contract. The run used 12 completions,
+16,736 input and 542 output tokens, with no execution errors or timeouts.
+Primary and independent data-only replays verified all 12 completions and
+preserved the failure; both compatibility replays preserved the earlier CPU run.
+Summed episode time was 238.18 seconds. This is a single development run,
+not a controlled CPU/GPU speed or policy-effect comparison. The completion
+guidance did not establish readiness. No new nine-task campaign was frozen or
+launched; M7 remains open. Raw evidence stays on the station. See the
+[compact outcome](artifacts/qwen3-gguf-cuda-qualification-outcome-2026-09-28.json).
