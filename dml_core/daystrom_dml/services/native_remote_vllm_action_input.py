@@ -14,7 +14,7 @@ import secrets
 from threading import RLock
 
 from ..contracts.agent_episode import (
-    AgentEpisodeError, NATIVE_REMOTE_VLLM_CONSUMER_PROFILE, canonical_json,
+    AgentEpisodeError, NATIVE_REMOTE_VLLM_CONSUMER_PROFILE, NATIVE_REMOTE_VLLM_V2_CONSUMER_PROFILE, canonical_json,
     initial_messages, native_action_text, native_policy_identity, parse_agent_action,
 )
 from ..contracts.model_input import (
@@ -31,6 +31,8 @@ from .remote_vllm_action_input import (
 CONSUMER_PROFILE = NATIVE_REMOTE_VLLM_CONSUMER_PROFILE
 NATIVE_RENDERING_POLICY = 'native-template-auto-tools-v1'
 NATIVE_ACTION_POLICY = 'single-native-call-or-original-final-json-v1'
+V2_CONSUMER_PROFILE = NATIVE_REMOTE_VLLM_V2_CONSUMER_PROFILE
+NATIVE_V2_ACTION_POLICY = 'single-native-call-with-bound-nonauthoritative-prose-or-original-final-json-v2'
 NATIVE_TEMPLATE_SHA256 = '575fb74f54ed264df9047d0ecce3c98938aae953fb4f50356675706264cbb68a'
 NATIVE_EXACT_TOKEN_LIMITATIONS = [
     *EXACT_TOKEN_LIMITATIONS,
@@ -66,32 +68,36 @@ class NativeProjectionError(ValueError):
     """Recorded native generation cannot become an admitted DML action."""
 
 
-def native_projection_digest(native_message, action_text, action_error):
-    return hashlib.sha256(canonical_json({'policy': native_policy_identity(),
+def native_projection_digest(native_message, action_text, action_error, *, consumer_profile=CONSUMER_PROFILE):
+    return hashlib.sha256(canonical_json({'policy': native_policy_identity(consumer_profile=consumer_profile),
         'native_message': native_message, 'action_text': action_text,
         'action_error': action_error})).hexdigest()
 
 
-def verify_native_manifest(directory):
+def verify_native_manifest(directory, *, consumer_profile=CONSUMER_PROFILE):
     manifest = verify_remote_manifest(directory)
-    if (manifest.get('consumer_profile') != CONSUMER_PROFILE
+    if (manifest.get('consumer_profile') != consumer_profile
             or manifest.get('rendering_policy') != NATIVE_RENDERING_POLICY
-            or manifest.get('action_projection_policy') != NATIVE_ACTION_POLICY
+            or manifest.get('action_projection_policy') != (NATIVE_V2_ACTION_POLICY if consumer_profile == V2_CONSUMER_PROFILE else NATIVE_ACTION_POLICY)
             or manifest['files']['chat-template.jinja'] != NATIVE_TEMPLATE_SHA256):
         raise ModelInputError('Native candidate requires its pinned template and explicit native protocol')
     return manifest
 
 
-def native_identity(manifest):
+def native_identity(manifest, *, consumer_profile=CONSUMER_PROFILE):
     base = remote_identity(manifest)
-    policy = {'base_identity': base.to_payload(), 'native_action_policy': native_policy_identity(),
-              'native_protocol': NATIVE_PROTOCOL_POLICY, 'exact_token_limitations': NATIVE_EXACT_TOKEN_LIMITATIONS,
+    policy = {'base_identity': base.to_payload(), 'native_action_policy': native_policy_identity(consumer_profile=consumer_profile),
+              'native_protocol': ({**NATIVE_PROTOCOL_POLICY, 'projection': NATIVE_V2_ACTION_POLICY,
+                  'accompanying_prose': 'exact_prefix_matches_native_content_only_whitespace_suffix_no_authority',
+                  'xml_delimiters': 'exactly_one_complete_call_no_stray_or_nested_control_delimiters'}
+                  if consumer_profile == V2_CONSUMER_PROFILE else NATIVE_PROTOCOL_POLICY), 'exact_token_limitations': NATIVE_EXACT_TOKEN_LIMITATIONS,
               'all_turn_grammar_removed': True}
-    return replace(base, runtime_identity='dml-remote-vllm-native-tools-runtime-v1:' + hashlib.sha256(
+    prefix = 'dml-remote-vllm-native-tools-runtime-v2:' if consumer_profile == V2_CONSUMER_PROFILE else 'dml-remote-vllm-native-tools-runtime-v1:'
+    return replace(base, runtime_identity=prefix + hashlib.sha256(
         canonical_json(policy)).hexdigest())
 
 
-def _xml_call(text, tools):
+def _xml_call(text, tools, *, strict_controls=False):
     """Strict subset of the pinned parser, independently refusing ambiguous XML.
 
     Public DML argument types are strings, integers and JSON arrays. Python
@@ -114,6 +120,8 @@ def _xml_call(text, tools):
         key, value = parameter.groups()
         if key in arguments or key not in properties:
             raise NativeProjectionError('Native call contains duplicate or unknown parameters')
+        if strict_controls and re.search(r'<\s*/?\s*(?:tool_call|function|parameter)\b', value, re.IGNORECASE):
+            raise NativeProjectionError('Native parameter contains ambiguous control delimiters')
         if '<parameter=' in value or '</parameter>' in value or '<function=' in value or '<tool_call>' in value:
             raise NativeProjectionError('Nested native delimiters are ambiguous')
         if value.startswith('\n'):
@@ -141,7 +149,31 @@ def _xml_call(text, tools):
     return name, arguments
 
 
-def project_native_message(message, visible_text, tools, finish_reason):
+def _bound_native_call_text(text, content):
+    """Bind one XML action and all non-authoritative prose to parser evidence."""
+    # Control-like fragments outside the one complete block must not disappear
+    # through a permissive parser. Full strings remain in raw evidence/history.
+    opening, closing = '<tool_call>', '</tool_call>'
+    if text.count(opening) != 1 or text.count(closing) != 1:
+        raise NativeProjectionError('Native output requires exactly one complete XML call')
+    start, end = text.index(opening), text.index(closing) + len(closing)
+    if end <= start:
+        raise NativeProjectionError('Native XML delimiters are out of order')
+    prefix, suffix, block = text[:start], text[end:], text[start:end]
+    controls = r'<\s*/?\s*(?:tool_call|function|parameter)\b'
+    if re.search(controls, prefix + suffix, re.IGNORECASE):
+        raise NativeProjectionError('Native prose contains stray control delimiters')
+    if (block.count('<function=') != 1 or block.count('</function>') != 1
+            or block.count('<parameter=') != block.count('</parameter>')):
+        raise NativeProjectionError('Native XML contains duplicate or unmatched delimiters')
+    if suffix.strip():
+        raise NativeProjectionError('Native parser does not attest substantive trailing prose')
+    if (content or '') != prefix:
+        raise ModelInputError('Native prose contradicts independently decoded output segments')
+    return block
+
+
+def project_native_message(message, visible_text, tools, finish_reason, *, consumer_profile=CONSUMER_PROFILE):
     """Keep malformed native actions as quality failures with known raw usage."""
     if (type(message) is dict and not message.get('tool_calls')
             and message.get('reasoning') in (None, '') and message.get('reasoning_content') in (None, '')
@@ -149,11 +181,14 @@ def project_native_message(message, visible_text, tools, finish_reason):
             and (message.get('content') or '') != visible_text):
         raise ModelInputError('Native content contradicts independently decoded output tokens')
     try:
-        projected = native_action_text(message)
+        projected = native_action_text(message, consumer_profile=consumer_profile)
         action = parse_agent_action(projected)
         calls = message.get('tool_calls') or []
         if calls:
-            name, raw_arguments = _xml_call(visible_text, tools)
+            call_text = visible_text
+            if consumer_profile == V2_CONSUMER_PROFILE:
+                call_text = _bound_native_call_text(visible_text, message.get('content'))
+            name, raw_arguments = _xml_call(call_text, tools, strict_controls=consumer_profile == V2_CONSUMER_PROFILE)
             native_arguments = _decode(calls[0]['function']['arguments'].encode())
             if name != calls[0]['function']['name'] or canonical_json(raw_arguments) != canonical_json(native_arguments):
                 raise ModelInputError('Native parser fields contradict independently decoded output tokens')
@@ -175,14 +210,14 @@ class NativeRemoteVLLMActionInputConsumer(RemoteVLLMActionInputConsumer):
     """Authenticated local native rendering with independently checked HTTP IDs."""
 
     def __init__(self, snapshot_directory, *, consumer_profile=CONSUMER_PROFILE, offline=False):
-        if consumer_profile != CONSUMER_PROFILE:
+        if consumer_profile not in (CONSUMER_PROFILE, V2_CONSUMER_PROFILE):
             raise ModelInputError('Unknown native consumer profile')
         from transformers import AutoTokenizer
         self._directory = Path(snapshot_directory)
-        self.manifest = verify_native_manifest(self._directory)
+        self.manifest = verify_native_manifest(self._directory, consumer_profile=consumer_profile)
         if self.manifest['client_runtime_versions'] != client_runtime_versions():
             raise ModelInputError('Native tokenizer runtime differs from frozen candidate')
-        self._identity = native_identity(self.manifest)
+        self._identity = native_identity(self.manifest, consumer_profile=consumer_profile)
         self._manifest_bytes = _json_bytes(self.manifest)
         self._consumer_profile, self._offline = consumer_profile, offline
         self._tokenizer = AutoTokenizer.from_pretrained(str(self._directory), local_files_only=True, trust_remote_code=False)
@@ -199,8 +234,8 @@ class NativeRemoteVLLMActionInputConsumer(RemoteVLLMActionInputConsumer):
     def _validate_runtime(self):
         super()._validate_runtime()
         if (_json_bytes(self.manifest) != self._manifest_bytes
-                or verify_native_manifest(self._directory) != self.manifest
-                or native_identity(self.manifest) != self._identity):
+                or verify_native_manifest(self._directory, consumer_profile=self._consumer_profile) != self.manifest
+                or native_identity(self.manifest, consumer_profile=self._consumer_profile) != self._identity):
             raise ModelInputError('Native manifest or projection policy changed')
 
     def close(self):
@@ -234,7 +269,7 @@ class NativeRemoteVLLMActionInputConsumer(RemoteVLLMActionInputConsumer):
         self.last_exchange = None
         request = ModelInputRequest.from_payload({'messages': messages, 'tools': [] if tools is None else tools,
                                                   'output_reserved_tokens': output_reserved_tokens})
-        if request.messages[0] != initial_messages('profile binding', consumer_profile=CONSUMER_PROFILE)[0]:
+        if request.messages[0] != initial_messages('profile binding', consumer_profile=self._consumer_profile)[0]:
             raise ModelInputError('Native profile requires its exact system policy')
         action_schema(request.tools)
         with self._lock:
@@ -294,7 +329,7 @@ class NativeRemoteVLLMActionInputConsumer(RemoteVLLMActionInputConsumer):
                 or (choice['finish_reason'] != 'length' and not allowed_positions)):
             action_text, action_error = None, 'NativeProjectionError: Native output contains forbidden special tokens or lacks terminal EOS'
         else:
-            action_text, action_error = project_native_message(message, visible, tools, choice['finish_reason'])
+            action_text, action_error = project_native_message(message, visible, tools, choice['finish_reason'], consumer_profile=self._consumer_profile)
         native_id = (message['tool_calls'][0]['id'] if action_text is not None
                      and parse_agent_action(action_text)['kind'] == 'tool' else None)
         return tuple(output), raw_text, message, action_text, action_error, native_id
@@ -320,7 +355,7 @@ class NativeRemoteVLLMActionInputConsumer(RemoteVLLMActionInputConsumer):
                     response, artifact.input_ids, artifact.output_reserved_tokens, request.tools)
                 self._validate_runtime()
                 return NativeModelInputResult(artifact.artifact_digest, len(artifact.input_ids), len(output), output, text,
-                    message, action, error, native_id, native_projection_digest(message, action, error))
+                    message, action, error, native_id, native_projection_digest(message, action, error, consumer_profile=self._consumer_profile))
             except Exception as exc:
                 raise ModelInputExecutionError('Native generation failed or returned inconsistent token evidence') from exc
 
@@ -339,6 +374,6 @@ class NativeRemoteVLLMActionInputConsumer(RemoteVLLMActionInputConsumer):
         expected = {'output_ids': list(output), 'text': text, 'input_token_count': len(ids),
                     'output_token_count': len(output), 'native_message': message, 'action_text': action,
                     'action_error': error, 'native_tool_call_id': native_id,
-                    'projection_digest': native_projection_digest(message, action, error)}
+                    'projection_digest': native_projection_digest(message, action, error, consumer_profile=self._consumer_profile)}
         if any(completed_payload.get(key) != value for key, value in expected.items()):
             raise ModelInputError('Native raw output or action projection differs from recorded evidence')

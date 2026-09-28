@@ -74,7 +74,7 @@ def main(argv=None):
     root, source = args.candidate_root.resolve(), args.source_root.resolve()
     run = root / "campaign-once"
     sys.path.insert(0, str(source / "dml_core"))
-    from daystrom_dml.contracts.agent_episode import REMOTE_VLLM_JSON_CONSUMER_PROFILE, NATIVE_REMOTE_VLLM_CONSUMER_PROFILE, execution_protocol_for_profile
+    from daystrom_dml.contracts.agent_episode import REMOTE_VLLM_JSON_CONSUMER_PROFILE, NATIVE_REMOTE_VLLM_CONSUMER_PROFILES, execution_protocol_for_profile
     from daystrom_dml.services.agent_episode import EpisodeLimits
     from daystrom_dml.services.episode_verifiers import load_episode_corpus
     from daystrom_dml.services.remote_vllm_action_input import verify_remote_manifest, RemoteVLLMActionInputConsumer, EXACT_TOKEN_LIMITATIONS
@@ -85,7 +85,7 @@ def main(argv=None):
     profile = selected_profile(manifest, args.consumer_profile)
     consumer_type = RemoteVLLMActionInputConsumer
     limitations = EXACT_TOKEN_LIMITATIONS
-    if profile == NATIVE_REMOTE_VLLM_CONSUMER_PROFILE:
+    if profile in NATIVE_REMOTE_VLLM_CONSUMER_PROFILES:
         from daystrom_dml.services.native_remote_vllm_action_input import NativeRemoteVLLMActionInputConsumer, NATIVE_EXACT_TOKEN_LIMITATIONS
         consumer_type = NativeRemoteVLLMActionInputConsumer
         limitations = NATIVE_EXACT_TOKEN_LIMITATIONS
@@ -97,11 +97,11 @@ def main(argv=None):
     corpus = load_episode_corpus()
     source_files = subprocess.check_output(["git", "ls-files", "-z"], cwd=source).decode().split("\0")
     sources = {name: digest(source / name) for name in source_files if name}
-    if profile in (REMOTE_VLLM_JSON_CONSUMER_PROFILE, NATIVE_REMOTE_VLLM_CONSUMER_PROFILE):
+    if profile in (REMOTE_VLLM_JSON_CONSUMER_PROFILE, *NATIVE_REMOTE_VLLM_CONSUMER_PROFILES):
         required = {"dml_core/daystrom_dml/services/remote_vllm_action_input.py",
                     "dml_core/daystrom_dml/services/qwen_model_snapshot.py",
                     "dml_core/scripts/remote_vllm_synthetic.py", "scripts/freeze_remote_campaign.py"}
-        if profile == NATIVE_REMOTE_VLLM_CONSUMER_PROFILE:
+        if profile in NATIVE_REMOTE_VLLM_CONSUMER_PROFILES:
             required |= {"dml_core/daystrom_dml/services/native_remote_vllm_action_input.py",
                          "dml_core/scripts/native_dml_synthetic.py"}
         if not required <= sources.keys():

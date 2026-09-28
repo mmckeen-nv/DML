@@ -9,6 +9,8 @@ import pytest
 
 from daystrom_dml.contracts.agent_episode import (
     NATIVE_REMOTE_VLLM_CONSUMER_PROFILE,
+    NATIVE_REMOTE_VLLM_V2_CONSUMER_PROFILE,
+    native_policy_identity,
     AgentEpisodeError,
     canonical_json,
     native_action_text,
@@ -21,6 +23,8 @@ from test_agent_episode_runtime import ValidationScriptedConsumer, validation_ca
 
 
 class NativeSyntheticConsumer(ValidationScriptedConsumer):
+    profile = NATIVE_REMOTE_VLLM_CONSUMER_PROFILE
+    commentary = None
     last_exchange: ClassVar = {"synthetic_native": True}
 
     def compile(self, *args, **kwargs):
@@ -29,7 +33,7 @@ class NativeSyntheticConsumer(ValidationScriptedConsumer):
             artifact,
             identity=replace(
                 artifact.identity,
-                runtime_identity="dml-remote-vllm-native-tools-runtime-v1:" + "a" * 64,
+                runtime_identity=("dml-remote-vllm-native-tools-runtime-v2:" if self.profile == NATIVE_REMOTE_VLLM_V2_CONSUMER_PROFILE else "dml-remote-vllm-native-tools-runtime-v1:") + "a" * 64,
             ),
         )
 
@@ -41,7 +45,7 @@ class NativeSyntheticConsumer(ValidationScriptedConsumer):
         if isinstance(action, dict) and action["kind"] == "tool":
             message = {
                 "role": "assistant",
-                "content": None,
+                "content": self.commentary,
                 "tool_calls": [
                     {
                         "id": "native-call-" + str(len(self.dispatched)),
@@ -62,7 +66,7 @@ class NativeSyntheticConsumer(ValidationScriptedConsumer):
             raw = action if isinstance(action, str) else canonical_json(action).decode()
             message = {"role": "assistant", "content": raw, "tool_calls": []}
         try:
-            action_text = native_action_text(message)
+            action_text = native_action_text(message, consumer_profile=self.profile)
             error = None
         except AgentEpisodeError as exc:
             action_text, error = None, type(exc).__name__
@@ -215,3 +219,31 @@ def test_native_prose_final_retains_known_generation_cost_as_failure(tmp_path):
     assert report["terminal"]["success"] is False
     assert not any(event["kind"] == "tool_requested" for event in report["events"])
     validate_episode_events(report["events"])
+
+
+def test_native_v2_commentary_has_no_action_authority_and_replays_verbatim(tmp_path):
+    class CommentaryConsumer(NativeSyntheticConsumer):
+        profile = NATIVE_REMOTE_VLLM_V2_CONSUMER_PROFILE
+        commentary = "I will retrieve now. This prose is not a final answer or evidence."
+
+    report, consumer, _ = validation_case(
+        tmp_path, consumer_profile=NATIVE_REMOTE_VLLM_V2_CONSUMER_PROFILE,
+        consumer_factory=CommentaryConsumer,
+    )
+    assert report["terminal"]["success"]
+    first = next(e for e in report["events"] if e["kind"] == "model_completed")["payload"]
+    assert first["native_message"]["content"] == CommentaryConsumer.commentary
+    assert parse_agent_action(first["action_text"])["kind"] == "tool"
+    assert consumer.requests[1]["messages"][-2]["content"] == CommentaryConsumer.commentary
+    with pytest.raises(AgentEpisodeError):
+        native_action_text(first["native_message"])
+    validate_episode_events(report["events"])
+    tampered = deepcopy(report["events"])
+    requested = [e for e in tampered if e["kind"] == "model_requested"][1]
+    requested["payload"]["request"]["messages"][-2]["content"] = "fabricated commentary"
+    with pytest.raises(AgentEpisodeError):
+        validate_episode_events(tampered)
+    assert native_policy_identity()["mixed_content_and_calls"] == "reject"
+    assert native_policy_identity(consumer_profile=CommentaryConsumer.profile)["mixed_content_and_calls"] == "retain-nonauthoritative-content"
+    with pytest.raises(AgentEpisodeError):
+        native_action_text({"role": "assistant", "content": "A prose final"}, consumer_profile=CommentaryConsumer.profile)

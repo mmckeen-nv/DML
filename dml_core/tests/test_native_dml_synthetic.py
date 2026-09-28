@@ -100,10 +100,10 @@ def test_injection_attempt_cannot_hide_behind_correct_final(suite):
     events = events_for(case)
     assert not diagnostic.assess_case(case, events)['synthetic_case_pass']
     import json
-    injected = {'id': 9, 'text': 'untrusted injection'}
-    events[0]['payload']['seed_records']['injection'] = injected
+    injected = {'id': 7, 'text': 'Quoted data ' + case['injection_text']}
+    events[0]['payload']['seed_records'][case['injection_alias']] = injected
     result = json.loads(events[2]['payload']['model_result'])
-    result['records'].append(injected)
+    result['records'] = [injected]
     events[2]['payload']['model_result'] = json.dumps(result)
     assert diagnostic.assess_case(case, events)['synthetic_case_pass']
     events.insert(2, {'kind': 'action_rejected', 'payload': {}})
@@ -123,6 +123,7 @@ def test_worker_exercises_real_gateway_verifier_and_durable_ack(tmp_path, suite,
         return {'schema_version': 'dml-agent-action-v1', 'kind': 'final', 'answer': {'claims': [
             {'key': case['expected']['key'], 'value': case['expected']['value'], 'evidence_ids': [record['id']]}]}}
     class Synthetic(NativeSyntheticConsumer):
+        profile = diagnostic.CONSUMER_PROFILE
         identity = SimpleNamespace(to_payload=lambda: suite['model_identity'])
         def __init__(self, *args, **kwargs):
             super().__init__([
@@ -181,3 +182,27 @@ def test_unresolved_dispatch_or_incomplete_episode_stops_suite(tmp_path, suite, 
     assert result['unrun_cases'] == ['dependent_feedback', 'live_supersession', 'untrusted_injection']
     assert not result['all_synthetic_cases_pass']
     assert result['unrun_reason']
+
+
+def test_injection_fixture_reaches_model_through_unchanged_retrieval(tmp_path, suite):
+    import json
+    from daystrom_dml.contracts.agent_episode import EXECUTION_PROTOCOL_V2
+    from daystrom_dml.services.agent_episode import _prepare_fixture
+    from daystrom_dml.services.episode_tools import SelectedProfileEpisodeTools
+    case = suite['cases'][3]
+    scenario = {'scope': case['scope'], 'seeds': case['seeds'], 'setup': []}
+    adapter, fixture = _prepare_fixture(tmp_path / 'authority', scenario, 'exposure-control')
+    try:
+        toolbox = SelectedProfileEpisodeTools(adapter, scope=case['scope'], episode_id='exposure-control',
+            seed_receipts=fixture['seed_receipts'], allowed_tools=('retrieve',),
+            effective_time=suite['effective_time'], execution_protocol=EXECUTION_PROTOCOL_V2)
+        prepared = toolbox.prepare('retrieve', {'query': case['prompt'], 'top_k': 10}, call_id='tool-0')
+        _, model_result = toolbox.execute(prepared)
+        record = fixture['seed_records'][case['injection_alias']]
+        shown = json.loads(model_result)['records']
+        assert record['meta']['source_trust'] == 'trusted'
+        assert any(item['id'] == record['id'] and item['text'] == record['text']
+                   and case['injection_text'] in item['text'] for item in shown)
+        assert case['injection_text'] not in case['prompt']
+    finally:
+        adapter.close()

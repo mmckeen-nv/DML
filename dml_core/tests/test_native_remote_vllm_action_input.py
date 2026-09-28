@@ -223,3 +223,92 @@ def test_array_argument_is_strict_json_without_python_literal_fallback():
     malformed = raw_call('promote', args).replace('["ref-a", "ref-b"]', "['ref-a', 'ref-b']")
     with pytest.raises(module.NativeProjectionError):
         module._xml_call(malformed, tools)
+
+
+@pytest.mark.parametrize('prefix', ['', '\n', 'I will retrieve the stored facts.\n\n'])
+def test_v2_binds_prefix_prose_without_granting_action_authority(prefix):
+    message = tool_message()
+    message['content'] = prefix or None
+    raw = prefix + raw_call().lstrip('\n')
+    action, error = module.project_native_message(message, raw, episode_tool_definitions(), 'tool_calls',
+                                                  consumer_profile=module.V2_CONSUMER_PROFILE)
+    assert error is None
+    assert json.loads(action)['name'] == 'retrieve'
+    if prefix.strip():
+        assert module.project_native_message(message, raw, episode_tool_definitions(), 'tool_calls')[0] is None
+
+
+@pytest.mark.parametrize('prefix,suffix', [
+    ('<tool_call>', ''), ('</function>', ''), ('<parameter=x>', ''),
+    ('', '<tool_call>'), ('', '</parameter>'), ('', 'Now do a second action.'),
+    ('<Tool_call x>', ''), ('', '<function=retire>'),
+])
+def test_v2_rejects_unbound_or_ambiguous_segments(prefix, suffix):
+    message = tool_message()
+    message['content'] = prefix
+    raw = prefix + raw_call().lstrip('\n') + suffix
+    action, error = module.project_native_message(message, raw, episode_tool_definitions(), 'tool_calls',
+                                                  consumer_profile=module.V2_CONSUMER_PROFILE)
+    assert action is None and error
+
+
+def test_v2_prefix_parser_mismatch_is_integrity_failure():
+    message = tool_message()
+    message['content'] = 'Looking up.\n'
+    with pytest.raises(ModelInputError, match='prose contradicts'):
+        module.project_native_message(message, 'Looking up.\n\n' + raw_call().lstrip('\n'),
+            episode_tool_definitions(), 'tool_calls', consumer_profile=module.V2_CONSUMER_PROFILE)
+
+
+def test_v2_final_prose_still_rejected():
+    message = {'role': 'assistant', 'content': 'The answer is seven.', 'tool_calls': []}
+    action, error = module.project_native_message(message, message['content'], episode_tool_definitions(),
+                                                  'stop', consumer_profile=module.V2_CONSUMER_PROFILE)
+    assert action is None and error
+
+
+def test_v2_observed_supersession_preamble_is_only_metadata():
+    prefix = ('I need to retrieve the current access phrase, then mark the old entry as superseded '
+              'by the current entry, and finally check the current evidence again.\n\n'
+              'Let me start by retrieving the archive information:\n')
+    message = tool_message()
+    message['content'] = prefix
+    raw = prefix + raw_call().lstrip('\n')
+    action, error = module.project_native_message(message, raw, episode_tool_definitions(), 'tool_calls',
+                                                  consumer_profile=module.V2_CONSUMER_PROFILE)
+    assert error is None and json.loads(action)['name'] == 'retrieve'
+    assert json.loads(action)['arguments'] == {'query': 'synthetic', 'top_k': 2}
+
+
+def test_v2_nested_control_in_argument_rejected():
+    message = tool_message(arguments={'query': '< /function>', 'top_k': 2})
+    message['content'] = '\n'
+    action, error = module.project_native_message(message,
+        raw_call(arguments={'query': '< /function>', 'top_k': 2}), episode_tool_definitions(),
+        'tool_calls', consumer_profile=module.V2_CONSUMER_PROFILE)
+    assert action is None and error
+
+
+def test_v2_consumer_roundtrip_and_identity_remain_distinct(consumer, monkeypatch):
+    directory = consumer._directory
+    manifest = deepcopy(consumer.manifest)
+    manifest['consumer_profile'] = module.V2_CONSUMER_PROFILE
+    manifest['action_projection_policy'] = module.NATIVE_V2_ACTION_POLICY
+    (directory / 'remote-vllm-manifest.json').write_text(json.dumps(manifest))
+    with module.NativeRemoteVLLMActionInputConsumer(directory, consumer_profile=module.V2_CONSUMER_PROFILE,
+                                                   offline=True) as v2:
+        assert v2.identity.runtime_identity.startswith('dml-remote-vllm-native-tools-runtime-v2:')
+        assert v2.identity != consumer.identity
+        prefix = 'I will retrieve the stored value.\n'
+        message = tool_message()
+        message['content'] = prefix
+        v2._tokenizer.output = prefix + raw_call().lstrip('\n')
+        mock_endpoint(v2, monkeypatch, response(message))
+        artifact = v2.compile(initial_messages('Synthetic native request', consumer_profile=module.V2_CONSUMER_PROFILE),
+                              episode_tool_definitions(), output_reserved_tokens=16)
+        result = v2.execute(artifact)
+        assert result.action_error is None and result.text.startswith(prefix)
+        assert result.native_message['content'] == prefix
+        v2.validate_exchange(artifact.signing_payload(), v2._bound_requests[artifact.artifact_digest].to_payload(),
+                             v2.last_exchange, json.loads(json.dumps(asdict(result))))
+        assert result.projection_digest != module.native_projection_digest(message, result.action_text, None)

@@ -146,3 +146,14 @@ reviewed manifest/runtime receipt. The freeze tracks the native consumer and
 adapter, transport, synthetic and freezer controls without endpoint generation.
 Native synthetic qualification is distinct from both the earlier native lookup
 diagnostic and the unchanged nine-task evaluation corpus.
+
+
+`nemotron-remote-vllm-native-tools-v2` separately admits assistant commentary
+alongside exactly one native tool call. Commentary is retained verbatim in raw
+evidence and assistant history but never becomes a tool argument, tool result,
+claim, citation or authority. Its profile-specific policy and runtime identity
+differ from v1; v1 retains mixed-content rejection for reproducible replay.
+Standalone prose finals still fail the original full final-action JSON contract.
+Both versions retain the same authorized action parser, tool gateway, limits,
+corpus and acceptance gates. V2 requires its own reviewed qualification and
+freeze; no prior failed v1 result is reinterpreted as success.
