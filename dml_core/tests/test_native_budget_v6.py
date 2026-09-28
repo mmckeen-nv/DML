@@ -204,3 +204,24 @@ def test_budget_metadata_overhead_counts_toward_admission(tmp_path, budget):
         assert rejected['observed'] == len(canonical_json(rejected['request']))
         assert not consumer.requests and rejected['compiled'] is None
     assert_counters(report)
+
+
+@pytest.mark.parametrize("version", ["v5", "v6"])
+def test_legacy_protocol_rejects_recovery_native_runtime(version):
+    from daystrom_dml.contracts.agent_episode import make_event
+    from daystrom_dml.services.agent_episode import _started
+    from test_agent_episode_runtime import ScriptedConsumer
+    task = {"id": "legacy-binding", "prompt": "Retrieve a fact."}
+    limits = EpisodeLimits()
+    request = build_episode_request(task, limits=limits)
+    artifact = ScriptedConsumer([]).compile(request["messages"], request["tools"],
+        output_reserved_tokens=request["output_reserved_tokens"])
+    artifact = replace(artifact, identity=replace(artifact.identity,
+        runtime_identity="dml-remote-vllm-native-tools-runtime-" + version + ":" + "a" * 64))
+    scope = {"tenant_id": "t", "client_id": "c", "session_id": "s", "instance_id": "i"}
+    started = _started("legacy-binding", task, scope, limits, "test_injected")
+    requested = make_event(episode_id="legacy-binding", task_id=task["id"], sequence=1,
+        kind="model_requested", call_id="model-0", payload={"step": 0, "request": request,
+            "compiled": artifact.signing_payload(), "artifact_digest": artifact.artifact_digest})
+    with pytest.raises(AgentEpisodeError, match="Compiled runtime and execution protocol differ"):
+        validate_episode_events([started, requested], require_terminal=False)

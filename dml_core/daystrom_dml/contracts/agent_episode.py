@@ -1205,7 +1205,8 @@ def validate_episode_events(events, *, require_terminal=True):
                              "dml-qwen3-action-runtime-v1:", "dml-qwen3-action-runtime-v2:",
                              "dml-qwen2-bf16-action-runtime-v1:", "dml-qwen3-gguf-action-runtime-v1:",
                              "dml-remote-vllm-action-runtime-v1:", "dml-remote-vllm-action-runtime-v2:",
-                             "dml-remote-vllm-native-tools-runtime-v1:", "dml-remote-vllm-native-tools-runtime-v2:", "dml-remote-vllm-native-tools-runtime-v3:", "dml-remote-vllm-native-tools-runtime-v4:"))):
+                             "dml-remote-vllm-native-tools-runtime-v1:", "dml-remote-vllm-native-tools-runtime-v2:", "dml-remote-vllm-native-tools-runtime-v3:", "dml-remote-vllm-native-tools-runtime-v4:",
+                             "dml-remote-vllm-native-tools-runtime-v5:", "dml-remote-vllm-native-tools-runtime-v6:"))):
                     raise AgentEpisodeError("Compiled runtime and execution protocol differ")
             expected_message_policy = "native-reasoning-metadata-v1" if selected_profile in NATIVE_REASONING_CONSUMER_PROFILES else None
             if (request_payload.get("message_policy") != expected_message_policy
