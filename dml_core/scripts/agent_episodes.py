@@ -21,7 +21,7 @@ import uuid
 from daystrom_dml.atomic_io import _sync_directory
 from daystrom_dml.contracts.agent_episode import (
     make_event, validate_episode_events, execution_protocol_for_profile, EXECUTION_PROTOCOL_V2, QWEN3_CONSUMER_PROFILES,
-    QWEN2_BF16_SAMPLED_CONSUMER_PROFILE, QWEN3_GGUF_CONSUMER_PROFILE, REMOTE_VLLM_CONSUMER_PROFILES,
+    QWEN2_BF16_SAMPLED_CONSUMER_PROFILE, QWEN3_GGUF_CONSUMER_PROFILE, REMOTE_VLLM_CONSUMER_PROFILES, NATIVE_REMOTE_VLLM_CONSUMER_PROFILE,
 )
 from daystrom_dml.services.agent_episode import (
     CONSUMER_PROFILES, EpisodeLimits, _started, run_local_episode, validate_consumer_profile,
@@ -90,6 +90,8 @@ def _source_digests(*, consumer_profile="gpt2-v1"):
             files["daystrom_dml.services." + name] = Path(runner.__file__).with_name(name + ".py")
     if consumer_profile in REMOTE_VLLM_CONSUMER_PROFILES:
         files["daystrom_dml.services.remote_vllm_action_input"] = Path(runner.__file__).with_name("remote_vllm_action_input.py")
+    if consumer_profile == NATIVE_REMOTE_VLLM_CONSUMER_PROFILE:
+        files["daystrom_dml.services.native_remote_vllm_action_input"] = Path(runner.__file__).with_name("native_remote_vllm_action_input.py")
     files["scripts.agent_campaign_evidence"] = Path(__file__).with_name("agent_campaign_evidence.py")
     return {name: hashlib.sha256(path.read_bytes()).hexdigest() for name, path in files.items()}
 

@@ -74,7 +74,7 @@ def main(argv=None):
     root, source = args.candidate_root.resolve(), args.source_root.resolve()
     run = root / "campaign-once"
     sys.path.insert(0, str(source / "dml_core"))
-    from daystrom_dml.contracts.agent_episode import REMOTE_VLLM_JSON_CONSUMER_PROFILE, execution_protocol_for_profile
+    from daystrom_dml.contracts.agent_episode import REMOTE_VLLM_JSON_CONSUMER_PROFILE, NATIVE_REMOTE_VLLM_CONSUMER_PROFILE, execution_protocol_for_profile
     from daystrom_dml.services.agent_episode import EpisodeLimits
     from daystrom_dml.services.episode_verifiers import load_episode_corpus
     from daystrom_dml.services.remote_vllm_action_input import verify_remote_manifest, RemoteVLLMActionInputConsumer, EXACT_TOKEN_LIMITATIONS
@@ -83,7 +83,13 @@ def main(argv=None):
     bundle = root / "snapshot"
     manifest = verify_remote_manifest(bundle)
     profile = selected_profile(manifest, args.consumer_profile)
-    with RemoteVLLMActionInputConsumer(bundle, consumer_profile=profile, offline=True) as consumer:
+    consumer_type = RemoteVLLMActionInputConsumer
+    limitations = EXACT_TOKEN_LIMITATIONS
+    if profile == NATIVE_REMOTE_VLLM_CONSUMER_PROFILE:
+        from daystrom_dml.services.native_remote_vllm_action_input import NativeRemoteVLLMActionInputConsumer, NATIVE_EXACT_TOKEN_LIMITATIONS
+        consumer_type = NativeRemoteVLLMActionInputConsumer
+        limitations = NATIVE_EXACT_TOKEN_LIMITATIONS
+    with consumer_type(bundle, consumer_profile=profile, offline=True) as consumer:
         model_identity = consumer.identity.to_payload()
     attestation, attestation_files = runtime_attestation(args.runtime_attestation,
         args.runtime_attestation_sha256, manifest, bundle)
@@ -91,10 +97,13 @@ def main(argv=None):
     corpus = load_episode_corpus()
     source_files = subprocess.check_output(["git", "ls-files", "-z"], cwd=source).decode().split("\0")
     sources = {name: digest(source / name) for name in source_files if name}
-    if profile == REMOTE_VLLM_JSON_CONSUMER_PROFILE:
+    if profile in (REMOTE_VLLM_JSON_CONSUMER_PROFILE, NATIVE_REMOTE_VLLM_CONSUMER_PROFILE):
         required = {"dml_core/daystrom_dml/services/remote_vllm_action_input.py",
                     "dml_core/daystrom_dml/services/qwen_model_snapshot.py",
                     "dml_core/scripts/remote_vllm_synthetic.py", "scripts/freeze_remote_campaign.py"}
+        if profile == NATIVE_REMOTE_VLLM_CONSUMER_PROFILE:
+            required |= {"dml_core/daystrom_dml/services/native_remote_vllm_action_input.py",
+                         "dml_core/scripts/native_dml_synthetic.py"}
         if not required <= sources.keys():
             raise ValueError("V2 freeze requires tracked renderer, synthetic qualification and freeze sources")
     snapshots = {p.name: digest(p) for p in bundle.iterdir() if p.is_file()}
@@ -121,7 +130,7 @@ def main(argv=None):
         "source_ci_qualified": False, "production_ready": False,
         "runtime_inventory_sha256": digest(root / "runtime-inventory.json"),
         "lifecycle_qualification_sha256": digest(root / "lifecycle/qualification.json"),
-        "exact_token_limitations": EXACT_TOKEN_LIMITATIONS,
+        "exact_token_limitations": limitations,
         "loaded_model_revision_attested": attestation is not None, "runtime_attestation": attestation,
         "prior_attempt": "Historical attempt15 remains interrupted and is not resumed; no historical raw evidence reconstructed"}
     publish(run / "spec.json", spec)

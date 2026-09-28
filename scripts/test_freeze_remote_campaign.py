@@ -22,7 +22,7 @@ def test_profile_is_selected_from_manifest_with_legacy_default(freeze):
         freeze.selected_profile({'consumer_profile':JSON_CONSUMER_PROFILE},CONSUMER_PROFILE)
 
 
-@pytest.mark.parametrize('profile',['nemotron-remote-vllm-action-v1','nemotron-remote-vllm-action-json-v2'])
+@pytest.mark.parametrize('profile',['nemotron-remote-vllm-action-v1','nemotron-remote-vllm-action-json-v2','nemotron-remote-vllm-native-tools-v1'])
 def test_selected_profile_and_typed_limits_survive_real_cli(freeze,tmp_path,monkeypatch,profile):
     from dataclasses import asdict
     from scripts import agent_episodes
@@ -60,7 +60,8 @@ def test_runtime_attestation_binds_manifest_and_evidence(freeze,tmp_path):
         freeze.runtime_attestation(path,expected,manifest,tmp_path)
 
 
-def test_full_freeze_uses_v2_identity_and_tracks_renderer_harness(freeze,tmp_path,monkeypatch):
+@pytest.mark.parametrize("native",[False,True])
+def test_full_freeze_uses_selected_identity_and_tracks_renderer_harness(freeze,tmp_path,monkeypatch,native):
     from daystrom_dml.services import remote_vllm_action_input as adapter
     candidate=tmp_path/'candidate'
     candidate.mkdir()
@@ -74,13 +75,17 @@ def test_full_freeze_uses_v2_identity_and_tracks_renderer_harness(freeze,tmp_pat
     required=['dml_core/daystrom_dml/services/remote_vllm_action_input.py',
         'dml_core/daystrom_dml/services/qwen_model_snapshot.py',
         'dml_core/scripts/remote_vllm_synthetic.py','scripts/freeze_remote_campaign.py']
+    if native:
+        required += ['dml_core/daystrom_dml/services/native_remote_vllm_action_input.py',
+                     'dml_core/scripts/native_dml_synthetic.py']
     for name in required:
         path=source/name
         path.parent.mkdir(parents=True,exist_ok=True)
         path.write_text('synthetic')
     sqlite=tmp_path/'sqlite.so'
     sqlite.write_bytes(b'synthetic')
-    profile=adapter.JSON_CONSUMER_PROFILE
+    from daystrom_dml.contracts.agent_episode import NATIVE_REMOTE_VLLM_CONSUMER_PROFILE
+    profile=NATIVE_REMOTE_VLLM_CONSUMER_PROFILE if native else adapter.JSON_CONSUMER_PROFILE
     monkeypatch.setattr(adapter,'verify_remote_manifest',lambda path:{'consumer_profile':profile})
     observed=[]
     class Consumer:
@@ -89,7 +94,11 @@ def test_full_freeze_uses_v2_identity_and_tracks_renderer_harness(freeze,tmp_pat
             self.identity=SimpleNamespace(to_payload=lambda:{'runtime_identity':'synthetic-v2'})
         def __enter__(self):return self
         def __exit__(self,*args):pass
-    monkeypatch.setattr(adapter,'RemoteVLLMActionInputConsumer',Consumer)
+    if native:
+        from daystrom_dml.services import native_remote_vllm_action_input as native_adapter
+        monkeypatch.setattr(native_adapter,'NativeRemoteVLLMActionInputConsumer',Consumer)
+    else:
+        monkeypatch.setattr(adapter,'RemoteVLLMActionInputConsumer',Consumer)
     monkeypatch.setattr(freeze.importlib.metadata,'distributions',lambda:[])
     monkeypatch.setattr(freeze.subprocess,'check_output',lambda args,**kwargs:
         '\0'.join(required).encode() if args[1]=='ls-files' else 'synthetic-commit\n')

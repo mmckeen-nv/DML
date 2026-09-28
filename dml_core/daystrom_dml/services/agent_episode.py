@@ -32,6 +32,7 @@ from ..contracts.agent_episode import (
     EXECUTION_PROTOCOL_V1, EXECUTION_PROTOCOL_V2, VALIDATION_CONSUMER_PROFILE, RECOVERY_CONSUMER_PROFILE, QWEN3_CONSUMER_PROFILES,
     QWEN2_BF16_SAMPLED_CONSUMER_PROFILE, QWEN3_GGUF_CONSUMER_PROFILE, REMOTE_VLLM_CONSUMER_PROFILES,
     VALIDATION_ERROR_CODE, VALIDATION_MODEL_RESULT, execution_protocol_for_profile,
+    NATIVE_REMOTE_VLLM_CONSUMER_PROFILE, native_feedback_messages,
 )
 from ..contracts.model_input import ModelInputBudgetError
 from .episode_tools import EpisodeToolValidationRejected, SelectedProfileEpisodeTools, episode_tool_definitions
@@ -81,6 +82,9 @@ def validate_consumer_profile(consumer_profile):
 
 def _open_consumer(snapshot_directory, consumer_profile):
     validate_consumer_profile(consumer_profile)
+    if consumer_profile == NATIVE_REMOTE_VLLM_CONSUMER_PROFILE:
+        from .native_remote_vllm_action_input import NativeRemoteVLLMActionInputConsumer
+        return NativeRemoteVLLMActionInputConsumer(snapshot_directory, consumer_profile=consumer_profile)
     if consumer_profile in REMOTE_VLLM_CONSUMER_PROFILES:
         from .remote_vllm_action_input import RemoteVLLMActionInputConsumer
         return RemoteVLLMActionInputConsumer(snapshot_directory, consumer_profile=consumer_profile)
@@ -213,15 +217,28 @@ def _run_loop(consumer, toolbox, *, task, limits, emit, prior_context=None,
                 "latency_ms": _elapsed(before), "ttft_ms": None,
                 **({"remote_evidence": deepcopy(consumer.last_exchange)} if consumer_profile in REMOTE_VLLM_CONSUMER_PROFILES else {})})
             return {"status": "model_error", "answer": None, "retrieval_ms": retrieval_ms}
+        native_fields = {}
+        action_text = result.text
+        if consumer_profile == NATIVE_REMOTE_VLLM_CONSUMER_PROFILE:
+            native_message = deepcopy(result.native_message)
+            action_text = result.action_text
+            if result.action_error is not None:
+                action_text = None
+            native_id = (native_message["tool_calls"][0]["id"]
+                         if action_text is not None and parse_agent_action(action_text)["kind"] == "tool" else None)
+            native_fields = {"native_message": native_message, "action_text": action_text,
+                             "action_error": result.action_error, "projection_digest": result.projection_digest,
+                             "native_tool_call_id": native_id,
+                             "dml_tool_call_id": "tool-" + str(step) if native_id is not None else None}
         emit("model_completed", call_id, {"step": step, "artifact_digest": result.artifact_digest,
             "input_token_count": result.input_token_count, "output_ids": list(result.output_ids),
-            "output_token_count": result.output_token_count, "text": result.text,
+            "output_token_count": result.output_token_count, "text": result.text, **native_fields,
             "latency_ms": _elapsed(before), "ttft_ms": None,
             **({"remote_evidence": deepcopy(consumer.last_exchange)} if consumer_profile in REMOTE_VLLM_CONSUMER_PROFILES else {})})
         input_tokens += result.input_token_count
         output_tokens += result.output_token_count
         try:
-            action = parse_agent_action(result.text)
+            action = parse_agent_action(action_text)
             if action["kind"] == "final":
                 return {"status": "completed", "answer": action["answer"], "retrieval_ms": retrieval_ms}
         except Exception as exc:
@@ -240,6 +257,9 @@ def _run_loop(consumer, toolbox, *, task, limits, emit, prior_context=None,
             emit("tool_validation_rejected", tool_id, {"name": action["name"], "arguments": action["arguments"],
                 "error_code": VALIDATION_ERROR_CODE, "effects": "none", "model_result": VALIDATION_MODEL_RESULT,
                 "latency_ms": _elapsed(before)})
+            if consumer_profile == NATIVE_REMOTE_VLLM_CONSUMER_PROFILE:
+                messages.extend(native_feedback_messages(native_message, action["name"], action["arguments"], VALIDATION_MODEL_RESULT))
+                continue
             messages.extend([
                 {"role": "assistant", "content": result.text, "tool_calls": [{"id": tool_id,
                  "type": "function", "function": {"name": action["name"],
@@ -266,6 +286,9 @@ def _run_loop(consumer, toolbox, *, task, limits, emit, prior_context=None,
             retrieval_ms += duration
         emit("tool_completed", tool_id, {"name": prepared.name, "result": raw_result,
             "model_result": model_result, "latency_ms": duration})
+        if consumer_profile == NATIVE_REMOTE_VLLM_CONSUMER_PROFILE:
+            messages.extend(native_feedback_messages(native_message, prepared.name, prepared.arguments, model_result))
+            continue
         messages.extend([
             {"role": "assistant", "content": result.text, "tool_calls": [{"id": tool_id,
              "type": "function", "function": {"name": prepared.name, "arguments": prepared.arguments_json}}]},

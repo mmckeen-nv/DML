@@ -14,7 +14,7 @@ import re
 
 from daystrom_dml.contracts.agent_episode import (
     canonical_json, decode_json, validate_episode_events, presented_record_identities,
-    parse_agent_action, AgentEpisodeError,
+    parse_agent_action, AgentEpisodeError, NATIVE_REMOTE_VLLM_CONSUMER_PROFILE,
     execution_protocol_for_profile, EXECUTION_PROTOCOL_V2, VALIDATION_CONSUMER_PROFILE, RECOVERY_CONSUMER_PROFILE,
     QWEN3_CONSUMER_PROFILE, QWEN3_CONSUMER_PROFILES, QWEN2_BF16_SAMPLED_CONSUMER_PROFILE, QWEN3_GGUF_CONSUMER_PROFILE, EVENT_VERSION_V2, REMOTE_VLLM_CONSUMER_PROFILES,
 )
@@ -160,13 +160,16 @@ def _remote_grammar_status(events):
                 schema_valid = Draft202012Validator(action_schema(tools)).is_valid(value)
             except AgentEpisodeError:
                 schema_valid = False
+            action_text = payload.get("action_text") if "native_message" in payload else payload["text"]
             try:
-                parse_agent_action(payload["text"])
+                decoded_action = parse_agent_action(action_text)
                 action_valid = True
             except AgentEpisodeError:
                 action_valid = False
             rows.append({"call_id": event["call_id"], "complete_json_schema_valid": schema_valid,
-                         "action_parser_valid": action_valid, "token_prefix_proof": "unavailable"})
+                         "action_parser_valid": action_valid, "token_prefix_proof": "unavailable",
+                         "all_turn_json_grammar_applied": "native_message" not in payload,
+                         "decoded_action_schema_valid": action_valid and Draft202012Validator(action_schema(tools)).is_valid(decoded_action)})
     return rows
 
 
@@ -191,7 +194,7 @@ def _replay_remote_model(events, identity, consumer):
             # Independently parser-rejected text remains failed task evidence;
             # HTTP IDs cannot prove intermediate grammar masks or prefixes.
             try:
-                action = parse_agent_action(payload["text"])
+                action = parse_agent_action(payload.get("action_text") if "native_message" in payload else payload["text"])
             except AgentEpisodeError:
                 pass
             else:
@@ -395,7 +398,11 @@ def verify_files(*, spec_path, spec_sha256, campaign_path, snapshot_directory, s
     bundle = Path(snapshot_directory)
     if consumer_profile in REMOTE_VLLM_CONSUMER_PROFILES:
         from daystrom_dml.services.remote_vllm_action_input import RemoteVLLMActionInputConsumer
-        with RemoteVLLMActionInputConsumer(bundle, consumer_profile=consumer_profile, offline=True) as consumer:
+        consumer_type = RemoteVLLMActionInputConsumer
+        if consumer_profile == NATIVE_REMOTE_VLLM_CONSUMER_PROFILE:
+            from daystrom_dml.services.native_remote_vllm_action_input import NativeRemoteVLLMActionInputConsumer
+            consumer_type = NativeRemoteVLLMActionInputConsumer
+        with consumer_type(bundle, consumer_profile=consumer_profile, offline=True) as consumer:
             expected_files = set(consumer.manifest["files"]) | {"remote-vllm-manifest.json"}
             _require(set(spec["snapshot_sha256"]) == expected_files, "Remote snapshot inventory differs")
             for name, digest in spec["snapshot_sha256"].items():
@@ -409,7 +416,9 @@ def verify_files(*, spec_path, spec_sha256, campaign_path, snapshot_directory, s
                     "campaign_sha256": hashlib.sha256(campaign_bytes).hexdigest(),
                     "exact_token_scope": "frozen client tokenization and server-reported token IDs only",
                     "engine_input_attestation": False,
-                    "grammar_validation_scope": "request schema and parser-accepted actions; rejected outputs remain failures; token-wise masks and prefix membership are not independently attested"}
+                    "grammar_validation_scope": ("native automatic tool decoding; no all-turn JSON grammar; decoded actions validated against unchanged schemas"
+                        if consumer_profile == NATIVE_REMOTE_VLLM_CONSUMER_PROFILE else
+                        "request schema and parser-accepted actions; rejected outputs remain failures; token-wise masks and prefix membership are not independently attested")}
     required_files = REQUIRED_FILES
     if consumer_profile == QWEN3_GGUF_CONSUMER_PROFILE:
         from daystrom_dml.services.qwen3_gguf_model_snapshot import REQUIRED_FILES as QWEN3_GGUF_REQUIRED_FILES

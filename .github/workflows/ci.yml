@@ -678,9 +678,14 @@ jobs:
           ruff check
           dml_core/daystrom_dml/services/remote_vllm_action_input.py
           dml_core/scripts/remote_vllm_synthetic.py
+          dml_core/scripts/native_dml_synthetic.py
+          dml_core/daystrom_dml/services/native_remote_vllm_action_input.py
           dml_core/tests/test_remote_vllm_action_input.py
           dml_core/tests/test_remote_vllm_json_renderer.py
           dml_core/tests/test_remote_episode_integration.py
+          dml_core/tests/test_native_episode_integration.py
+          dml_core/tests/test_native_remote_vllm_action_input.py
+          dml_core/tests/test_native_dml_synthetic.py
           dml_core/tests/test_remote_vllm_synthetic.py
           scripts/freeze_remote_campaign.py
           scripts/test_freeze_remote_campaign.py
@@ -690,6 +695,9 @@ jobs:
           dml_core/tests/test_remote_vllm_action_input.py
           dml_core/tests/test_remote_vllm_json_renderer.py
           dml_core/tests/test_remote_episode_integration.py
+          dml_core/tests/test_native_episode_integration.py
+          dml_core/tests/test_native_remote_vllm_action_input.py
+          dml_core/tests/test_native_dml_synthetic.py
           dml_core/tests/test_remote_vllm_synthetic.py
           scripts/test_durable_campaign.py
           scripts/test_freeze_remote_campaign.py

@@ -119,3 +119,30 @@ qualification and freezer sources. The producer command is regression-tested
 through the real CLI so profile selection and JSON numeric limit types survive
 serialization. Source CI qualification remains false in producer artifacts;
 separate exact-commit CI evidence and reviewer decisions must support that claim.
+
+
+The separate `nemotron-remote-vllm-native-tools-v1` candidate uses the pinned
+vendor native chat template and automatic tool selection. Its system policy
+changes only the action transport instructions: one native function call for a
+tool action, or the original complete final-action JSON object for a final.
+The original final, grounding, retrieval and lifecycle policy tail remains.
+This candidate removes all-turn JSON grammar; it does not claim the old grammar
+guarantee or inherit qualification from the JSON profiles. Corpus, limits,
+authorized tools, argument validation, retrieval and acceptance gates remain.
+
+Evidence retains genuine raw output token text separately from the deterministic
+DML action projection, raw server assistant message, projection error and digest.
+Exactly one native call maps through the existing action parser and tool gateway.
+Native tool-call IDs are explicitly bound to gateway IDs; authentic tool-result
+bytes return under the native ID. Parallel calls, mixed prose/calls, unsupported
+raw syntax, malformed arguments and prose finals fail without repair or retry.
+Offline replay verifies the raw native message/projection binding and history.
+No per-token grammar-mask or terminal-prefix guarantee is asserted.
+
+Freeze this candidate using the same command above with
+`--consumer-profile nemotron-remote-vllm-native-tools-v1` and a separately
+reviewed manifest/runtime receipt. The freeze tracks the native consumer and
+`dml_core/scripts/native_dml_synthetic.py`. The remote CI lane includes native
+adapter, transport, synthetic and freezer controls without endpoint generation.
+Native synthetic qualification is distinct from both the earlier native lookup
+diagnostic and the unchanged nine-task evaluation corpus.
