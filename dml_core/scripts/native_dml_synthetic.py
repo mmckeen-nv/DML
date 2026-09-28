@@ -349,9 +349,15 @@ def run_suite(suite_path, *, snapshot, output):
             and event['payload'].get('phase') == 'execute'
             and (event['payload'].get('input_token_count') is None
                  or event['payload'].get('output_token_count') is None) for event in events)
-        # A timed-out request may still execute remotely: stop, retain unrun cases.
-        if not finished or unknown_dispatch:
-            unrun_reason = unrun_reason or 'remote_execution_failed_usage_or_cancellation_unknown'
+        requested_ids = {event.get('call_id') for event in events if event['kind'] == 'model_requested'}
+        resolved_ids = {event.get('call_id') for event in events if event['kind'] in ('model_completed', 'model_failed')}
+        unresolved = bool(requested_ids - resolved_ids)
+        diagnostic_failed = any(event['kind'] == 'diagnostic_error' for event in events)
+        missing_terminal = not any(event['kind'] == 'terminal' for event in events)
+        # Worker exit/diagnostic completion never proves a dispatched request stopped.
+        if not finished or unknown_dispatch or unresolved or diagnostic_failed or missing_terminal:
+            unrun_reason = unrun_reason or ('diagnostic_error_or_incomplete_episode'
+                if diagnostic_failed or missing_terminal else 'remote_execution_failed_usage_or_cancellation_unknown')
             break
     summary = {'schema_version': SCHEMA, 'classification': suite['classification'],
                'suite_digest': suite['suite_digest'], 'cases': results,

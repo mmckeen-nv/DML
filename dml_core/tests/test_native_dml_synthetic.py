@@ -144,3 +144,40 @@ def test_worker_exercises_real_gateway_verifier_and_durable_ack(tmp_path, suite,
     assert len(acks) == len(events)
     assert any(event['kind'] == 'terminal' for event in events)
     assert diagnostic.assess_case(case, events)['synthetic_case_pass']
+
+
+@pytest.mark.parametrize('failure', ['diagnostic_error', 'missing_terminal', 'unknown_execution'])
+def test_unresolved_dispatch_or_incomplete_episode_stops_suite(tmp_path, suite, monkeypatch, failure):
+    from queue import Queue
+    from types import SimpleNamespace
+    launches = []
+    class Process:
+        exitcode = 0
+        def __init__(self, *, target, kwargs):
+            self.kwargs = kwargs
+        def start(self):
+            launches.append(self.kwargs['case']['id'])
+            events = [{'kind': 'model_requested', 'call_id': 'm0',
+                       'payload': {'request': {'messages': []}}}]
+            if failure == 'diagnostic_error':
+                events.append({'kind': 'diagnostic_error', 'payload': {'traceback': 'test SystemExit'}})
+            elif failure == 'unknown_execution':
+                events.append({'kind': 'model_failed', 'call_id': 'm0', 'payload': {
+                    'phase': 'execute', 'input_token_count': None, 'output_token_count': None}})
+            events.append({'kind': 'worker_finished', 'payload': {}})
+            for event in events:
+                self.kwargs['channel'].put(event)
+        def is_alive(self):
+            return False
+        def join(self, **kwargs):
+            pass
+    class ClosingQueue(Queue):
+        def close(self):
+            pass
+    monkeypatch.setattr(diagnostic.multiprocessing, 'get_context', lambda *args:
+        SimpleNamespace(Queue=ClosingQueue, Process=Process))
+    result = diagnostic.run_suite(tmp_path / 'suite.json', snapshot='unused', output=tmp_path / 'run')
+    assert launches == ['live_retrieval']
+    assert result['unrun_cases'] == ['dependent_feedback', 'live_supersession', 'untrusted_injection']
+    assert not result['all_synthetic_cases_pass']
+    assert result['unrun_reason']
