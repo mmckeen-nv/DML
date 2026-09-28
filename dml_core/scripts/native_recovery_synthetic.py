@@ -15,11 +15,11 @@ import queue
 import time
 import traceback
 
-from daystrom_dml.contracts.agent_episode import canonical_json, EXECUTION_PROTOCOL_V2
+from daystrom_dml.contracts.agent_episode import canonical_json, EXECUTION_PROTOCOL_V2, NATIVE_REMOTE_VLLM_V6_CONSUMER_PROFILE
 from daystrom_dml.services.agent_episode import EpisodeLimits
 from daystrom_dml.services.native_remote_vllm_action_input import NativeRemoteVLLMActionInputConsumer
 from scripts.native_dml_synthetic import _digest, _write_exclusive
-from scripts.native_recovery_suite import SCHEMA, CASE_IDS, BASELINE_POLICY, prepare_suite, validate_suite
+from scripts.native_recovery_suite import CASE_IDS, BASELINE_POLICY, prepare_suite, validate_suite
 
 
 def verifier_baseline(case, fixture, peer):
@@ -413,12 +413,19 @@ def run_suite(suite_path, *, snapshot, output):
         unresolved = bool(requested_ids - resolved_ids)
         diagnostic_failed = any(event['kind'] == 'diagnostic_error' for event in events)
         missing_terminal = not any(event['kind'] == 'terminal' for event in events)
+        unknown_effects = suite['consumer_profile'] == NATIVE_REMOTE_VLLM_V6_CONSUMER_PROFILE and any(
+            (event['kind'] == 'tool_failed' and event['payload'].get('effects') == 'unknown')
+            or (event['kind'] == 'terminal' and (event['payload'].get('effects_unknown')
+                                                or event['payload'].get('usage_unknown')))
+            for event in events)
+        if unknown_effects:
+            unrun_reason = unrun_reason or 'tool_effects_or_usage_unknown'
         # Worker exit/diagnostic completion never proves a dispatched request stopped.
-        if not finished or unknown_dispatch or unresolved or diagnostic_failed or missing_terminal:
+        if not finished or unknown_dispatch or unresolved or diagnostic_failed or missing_terminal or unknown_effects:
             unrun_reason = unrun_reason or ('diagnostic_error_or_incomplete_episode'
                 if diagnostic_failed or missing_terminal else 'remote_execution_failed_usage_or_cancellation_unknown')
             break
-    summary = {'schema_version': SCHEMA, 'classification': suite['classification'],
+    summary = {'schema_version': suite['schema_version'], 'classification': suite['classification'],
                'suite_digest': suite['suite_digest'], 'cases': results,
                'unrun_cases': [case['id'] for case in suite['cases'][len(results):]],
                'unrun_reason': unrun_reason,

@@ -12,7 +12,8 @@ from pathlib import Path
 import secrets
 import time
 
-from daystrom_dml.contracts.agent_episode import NATIVE_REMOTE_VLLM_V5_CONSUMER_PROFILE
+from daystrom_dml.contracts.agent_episode import (NATIVE_REMOTE_VLLM_V5_CONSUMER_PROFILE,
+    NATIVE_REMOTE_VLLM_V6_CONSUMER_PROFILE, NATIVE_RECOVERY_CONSUMER_PROFILES)
 from daystrom_dml.services.agent_episode import EpisodeLimits
 from daystrom_dml.services.remote_vllm_action_input import sampling_policy_identity
 from scripts.agent_episodes import _source_digests
@@ -20,6 +21,7 @@ from scripts.native_dml_synthetic import QUALIFICATION_LIMITS, _digest, _write_e
 
 CONSUMER_PROFILE = NATIVE_REMOTE_VLLM_V5_CONSUMER_PROFILE
 SCHEMA = 'dml-native-recovery-synthetic-v1'
+SCHEMA_V6 = 'dml-native-recovery-synthetic-v2-budget-guidance'
 CASE_IDS = ('stale_source_recovery', 'stale_replacement_recovery')
 SCOPE = {'tenant_id': 'synthetic-recovery', 'client_id': 'noncorpus',
          'session_id': 'peer-update-session', 'instance_id': 'agent'}
@@ -34,16 +36,16 @@ RUN_POLICY = {'runs_per_case': 1, 'automatic_retry': False, 'repair': False,
     'no_conflict_is_unqualified': True}
 
 
-def source_digests():
-    files = _source_digests(consumer_profile=CONSUMER_PROFILE)
+def source_digests(*, consumer_profile=CONSUMER_PROFILE):
+    files = _source_digests(consumer_profile=consumer_profile)
     for name in ('native_recovery_suite.py', 'native_recovery_synthetic.py', 'native_dml_synthetic.py'):
         files['scripts.' + name.removesuffix('.py')] = hashlib.sha256(Path(__file__).with_name(name).read_bytes()).hexdigest()
     return files
 
 
 def prepare_suite(path, *, identity, limits, consumer_profile=CONSUMER_PROFILE):
-    if consumer_profile != CONSUMER_PROFILE or type(limits) is not EpisodeLimits or asdict(limits) != QUALIFICATION_LIMITS:
-        raise ValueError('Recovery declaration requires v5 and unchanged episode limits')
+    if consumer_profile not in NATIVE_RECOVERY_CONSUMER_PROFILES or type(limits) is not EpisodeLimits or asdict(limits) != QUALIFICATION_LIMITS:
+        raise ValueError('Recovery declaration requires an explicit recovery profile and unchanged episode limits')
     cases = []
     for index, case_id in enumerate(CASE_IDS):
         subject = 'Synthetic registry ' + secrets.token_hex(6)
@@ -79,10 +81,10 @@ def prepare_suite(path, *, identity, limits, consumer_profile=CONSUMER_PROFILE):
             'expected': {'key': claim_key, 'value': current, 'evidence_alias': 'current'},
             'required_recovery': {'authenticated_conflict': True, 'model_chosen_next_action': True,
                 'model_owned_supersession': True, 'subsequent_readback': True, 'original_cited_final': True}})
-    suite = {'schema_version': SCHEMA, 'classification': 'synthetic-noncorpus-development-not-acceptance',
+    suite = {'schema_version': SCHEMA_V6 if consumer_profile == NATIVE_REMOTE_VLLM_V6_CONSUMER_PROFILE else SCHEMA, 'classification': 'synthetic-noncorpus-development-not-acceptance',
         'created_ns': time.time_ns(), 'consumer_profile': consumer_profile,
         'model_identity': identity, 'sampling': sampling_policy_identity(), 'limits': asdict(limits),
-        'effective_time': 2000000000, 'source_digests': source_digests(), 'cases': cases,
+        'effective_time': 2000000000, 'source_digests': source_digests(consumer_profile=consumer_profile), 'cases': cases,
         'run_policy': deepcopy(RUN_POLICY),
         'development_scope': 'Designed after prior failures; not held-out generalization; no evaluation corpus used'}
     suite['suite_digest'] = _digest(suite)
@@ -93,10 +95,11 @@ def prepare_suite(path, *, identity, limits, consumer_profile=CONSUMER_PROFILE):
 
 def validate_suite(suite):
     body = {key: value for key, value in suite.items() if key != 'suite_digest'}
-    if suite.get('schema_version') != SCHEMA or suite.get('suite_digest') != _digest(body):
+    expected_schema = SCHEMA_V6 if suite.get('consumer_profile') == NATIVE_REMOTE_VLLM_V6_CONSUMER_PROFILE else SCHEMA
+    if suite.get('schema_version') != expected_schema or suite.get('suite_digest') != _digest(body):
         raise ValueError('Recovery suite digest/version mismatch')
-    if (suite['consumer_profile'] != CONSUMER_PROFILE or suite['limits'] != QUALIFICATION_LIMITS
-            or suite['sampling'] != sampling_policy_identity() or suite['source_digests'] != source_digests()
+    if (suite['consumer_profile'] not in NATIVE_RECOVERY_CONSUMER_PROFILES or suite['limits'] != QUALIFICATION_LIMITS
+            or suite['sampling'] != sampling_policy_identity() or suite['source_digests'] != source_digests(consumer_profile=suite['consumer_profile'])
             or suite['run_policy'] != RUN_POLICY or [case['id'] for case in suite['cases']] != list(CASE_IDS)):
         raise ValueError('Recovery declaration policy/source changed')
     for index, case in enumerate(suite['cases']):

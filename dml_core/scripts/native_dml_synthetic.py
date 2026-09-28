@@ -24,7 +24,8 @@ from daystrom_dml.services.native_remote_vllm_action_input import (
     NativeRemoteVLLMActionInputConsumer,
 )
 
-from daystrom_dml.contracts.agent_episode import NATIVE_REMOTE_VLLM_V4_CONSUMER_PROFILE as CONSUMER_PROFILE
+from daystrom_dml.contracts.agent_episode import (NATIVE_REMOTE_VLLM_V4_CONSUMER_PROFILE as CONSUMER_PROFILE,
+    NATIVE_REMOTE_VLLM_V6_CONSUMER_PROFILE, NATIVE_RECOVERY_CONSUMER_PROFILES)
 from daystrom_dml.services.remote_vllm_action_input import sampling_policy_identity
 
 SCHEMA = 'dml-native-synthetic-qualification-v3'
@@ -41,7 +42,7 @@ def _digest(value):
     return hashlib.sha256(canonical_json(value)).hexdigest()
 
 
-def source_digests():
+def source_digests(*, consumer_profile=CONSUMER_PROFILE):
     root = Path(__file__).resolve().parents[1]
     files = ['scripts/native_dml_synthetic.py',
              'daystrom_dml/services/remote_vllm_action_input.py',
@@ -51,7 +52,11 @@ def source_digests():
              'daystrom_dml/services/episode_tools.py',
              'daystrom_dml/services/agent_action_grammar.py',
              'daystrom_dml/contracts/agent_episode.py']
-    return {name: hashlib.sha256((root / name).read_bytes()).hexdigest() for name in files}
+    result = {name: hashlib.sha256((root / name).read_bytes()).hexdigest() for name in files}
+    if consumer_profile == NATIVE_REMOTE_VLLM_V6_CONSUMER_PROFILE:
+        from scripts.agent_episodes import _source_digests
+        result.update(_source_digests(consumer_profile=consumer_profile))
+    return result
 
 
 def _write_exclusive(path, value):
@@ -137,7 +142,7 @@ def prepare_suite(path, *, identity, limits, consumer_profile=CONSUMER_PROFILE):
              'created_ns': time.time_ns(), 'consumer_profile': consumer_profile,
              'model_identity': identity, 'sampling': sampling_policy_identity(),
              'limits': asdict(limits), 'effective_time': 2000000000,
-             'source_digests': source_digests(), 'cases': cases,
+             'source_digests': source_digests(consumer_profile=consumer_profile), 'cases': cases,
              'run_policy': {'runs_per_case': 1, 'automatic_retry': False, 'repair': False,
                             'forced_tool_choice': False, 'final_branch_available': True,
                             'all_turn_json_grammar': False, 'final_contract_unchanged': True,
@@ -156,7 +161,7 @@ def validate_suite(suite):
     if ([case['id'] for case in suite['cases']] != list(CASE_IDS)
             or canonical_json(suite['limits']) != canonical_json(QUALIFICATION_LIMITS)
             or suite['sampling'] != sampling_policy_identity()
-            or suite['source_digests'] != source_digests()):
+            or suite['source_digests'] != source_digests(consumer_profile=suite['consumer_profile'])):
         raise ValueError('Synthetic suite policy/source changed')
     return EpisodeLimits(**suite['limits'])
 
@@ -208,7 +213,8 @@ def _worker(channel, *, snapshot, directory, suite, case, acknowledgement=None):
                 raise ValueError('Declared dependency fixture lacks retrieval information separation')
         toolbox = SelectedProfileEpisodeTools(adapter, scope=case['scope'], episode_id=episode_id,
             seed_receipts=fixture['seed_receipts'], allowed_tools=tuple(case['allowed_tools']),
-            effective_time=suite['effective_time'], execution_protocol=EXECUTION_PROTOCOL_V2)
+            effective_time=suite['effective_time'], execution_protocol=EXECUTION_PROTOCOL_V2,
+            recover_precommit_conflicts=suite['consumer_profile'] in NATIVE_RECOVERY_CONSUMER_PROFILES)
         observed_events = [_started(episode_id, case['task'], case['scope'],
             EpisodeLimits(**suite['limits']), 'live_remote',
             seed_receipts_digest=_digest(fixture['seed_receipts']), allowed_tools=case['allowed_tools'],
@@ -418,8 +424,15 @@ def run_suite(suite_path, *, snapshot, output):
         unresolved = bool(requested_ids - resolved_ids)
         diagnostic_failed = any(event['kind'] == 'diagnostic_error' for event in events)
         missing_terminal = not any(event['kind'] == 'terminal' for event in events)
+        unknown_effects = suite['consumer_profile'] == NATIVE_REMOTE_VLLM_V6_CONSUMER_PROFILE and any(
+            (event['kind'] == 'tool_failed' and event['payload'].get('effects') == 'unknown')
+            or (event['kind'] == 'terminal' and (event['payload'].get('effects_unknown')
+                                                or event['payload'].get('usage_unknown')))
+            for event in events)
+        if unknown_effects:
+            unrun_reason = unrun_reason or 'tool_effects_or_usage_unknown'
         # Worker exit/diagnostic completion never proves a dispatched request stopped.
-        if not finished or unknown_dispatch or unresolved or diagnostic_failed or missing_terminal:
+        if not finished or unknown_dispatch or unresolved or diagnostic_failed or missing_terminal or unknown_effects:
             unrun_reason = unrun_reason or ('diagnostic_error_or_incomplete_episode'
                 if diagnostic_failed or missing_terminal else 'remote_execution_failed_usage_or_cancellation_unknown')
             break

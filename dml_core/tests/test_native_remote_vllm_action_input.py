@@ -293,6 +293,8 @@ def test_v2_nested_control_in_argument_rejected():
     (module.V2_CONSUMER_PROFILE, module.NATIVE_V2_ACTION_POLICY, 'dml-remote-vllm-native-tools-runtime-v2:'),
     (module.V3_CONSUMER_PROFILE, module.NATIVE_V3_ACTION_POLICY, 'dml-remote-vllm-native-tools-runtime-v3:'),
     (module.V4_CONSUMER_PROFILE, module.NATIVE_V4_ACTION_POLICY, 'dml-remote-vllm-native-tools-runtime-v4:'),
+    (module.V5_CONSUMER_PROFILE, module.NATIVE_V5_ACTION_POLICY, 'dml-remote-vllm-native-tools-runtime-v5:'),
+    (module.V6_CONSUMER_PROFILE, module.NATIVE_V6_ACTION_POLICY, 'dml-remote-vllm-native-tools-runtime-v6:'),
 ])
 def test_prose_consumer_roundtrip_and_identity_remain_distinct(consumer, monkeypatch, profile, policy, runtime_prefix):
     directory = consumer._directory
@@ -309,8 +311,13 @@ def test_prose_consumer_roundtrip_and_identity_remain_distinct(consumer, monkeyp
         message['content'] = prefix
         v2._tokenizer.output = prefix + raw_call().lstrip('\n')
         mock_endpoint(v2, monkeypatch, response(message))
-        artifact = v2.compile(initial_messages('Synthetic native request', consumer_profile=profile),
-                              episode_tool_definitions(), output_reserved_tokens=16)
+        messages = initial_messages('Synthetic native request', consumer_profile=profile)
+        if profile == module.V6_CONSUMER_PROFILE:
+            from daystrom_dml.contracts.agent_episode import native_budget_messages
+            from daystrom_dml.services.agent_episode import EpisodeLimits
+            messages = native_budget_messages(messages, limits=asdict(EpisodeLimits(output_tokens=16)),
+                                              step=0, used_input=0, used_output=0)
+        artifact = v2.compile(messages, episode_tool_definitions(), output_reserved_tokens=16)
         result = v2.execute(artifact)
         assert result.action_error is None and result.text.startswith(prefix)
         assert result.native_message['content'] == prefix
@@ -429,3 +436,31 @@ def test_v4_control_ids_independently_bind_reasoning(consumer, ids, admitted):
     result = consumer._validate_native_response(response(message, output=ids), [1, 2, 3], 16,
                                                 episode_tool_definitions())
     assert (result[3] is not None) is admitted
+
+
+@pytest.mark.parametrize('prefix', ['', 'Commentary remains non-authoritative.\n'])
+def test_v6_projection_is_identical_to_v5(prefix):
+    message = tool_message()
+    message['content'] = prefix or None
+    raw = prefix + raw_call().lstrip('\n')
+    results = [module.project_native_message(message, raw, episode_tool_definitions(), 'tool_calls',
+               consumer_profile=profile) for profile in (module.V5_CONSUMER_PROFILE, module.V6_CONSUMER_PROFILE)]
+    assert results[0] == results[1]
+
+
+def test_v6_compiler_requires_canonical_budget_metadata(consumer):
+    from daystrom_dml.contracts.agent_episode import AgentEpisodeError
+    consumer._consumer_profile = module.V6_CONSUMER_PROFILE
+    with pytest.raises(AgentEpisodeError):
+        consumer.compile(initial_messages('Missing budget', consumer_profile=module.V6_CONSUMER_PROFILE),
+                         episode_tool_definitions(), output_reserved_tokens=16)
+
+
+def test_v6_compiler_binds_actual_output_reservation(consumer):
+    from daystrom_dml.contracts.agent_episode import native_budget_messages
+    from daystrom_dml.services.agent_episode import EpisodeLimits
+    consumer._consumer_profile = module.V6_CONSUMER_PROFILE
+    messages = native_budget_messages(initial_messages('Budget', consumer_profile=module.V6_CONSUMER_PROFILE),
+        limits=asdict(EpisodeLimits(output_tokens=32)), step=0, used_input=0, used_output=0)
+    with pytest.raises(ModelInputError, match='actual output reservation'):
+        consumer.compile(messages, episode_tool_definitions(), output_reserved_tokens=16)

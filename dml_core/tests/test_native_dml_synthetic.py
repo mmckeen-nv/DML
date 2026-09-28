@@ -233,3 +233,54 @@ def test_injection_fixture_reaches_model_through_unchanged_retrieval(tmp_path, s
         assert case['injection_text'] not in case['prompt']
     finally:
         adapter.close()
+
+
+def test_original_four_support_v6_without_changing_default(tmp_path):
+    from daystrom_dml.contracts.agent_episode import NATIVE_REMOTE_VLLM_V6_CONSUMER_PROFILE
+    old = diagnostic.prepare_suite(tmp_path / 'v4.json', identity={},
+        limits=EpisodeLimits(**diagnostic.QUALIFICATION_LIMITS))
+    new = diagnostic.prepare_suite(tmp_path / 'v6.json', identity={},
+        limits=EpisodeLimits(**diagnostic.QUALIFICATION_LIMITS), consumer_profile=NATIVE_REMOTE_VLLM_V6_CONSUMER_PROFILE)
+    assert old['consumer_profile'] == diagnostic.CONSUMER_PROFILE
+    assert new['consumer_profile'] == NATIVE_REMOTE_VLLM_V6_CONSUMER_PROFILE
+    assert old['limits'] == new['limits'] and old['sampling'] == new['sampling']
+    assert old['run_policy'] == new['run_policy']
+    assert [case['id'] for case in new['cases']] == list(diagnostic.CASE_IDS)
+    assert 'daystrom_dml.services.receipt_conflict_boundary' in new['source_digests']
+    diagnostic.validate_suite(new)
+
+
+@pytest.mark.parametrize('recovery', [False, True])
+@pytest.mark.parametrize('unknown_effects', [False, True])
+def test_v6_unknown_effects_stop_each_suite_but_known_failure_does_not(tmp_path, monkeypatch, recovery, unknown_effects):
+    from queue import Queue
+    from types import SimpleNamespace
+    from daystrom_dml.contracts.agent_episode import NATIVE_REMOTE_VLLM_V6_CONSUMER_PROFILE
+    from scripts import native_recovery_synthetic, native_recovery_suite
+    target = native_recovery_synthetic if recovery else diagnostic
+    prepare = native_recovery_suite.prepare_suite if recovery else diagnostic.prepare_suite
+    prepared = prepare(tmp_path / 'suite.json', identity={}, limits=EpisodeLimits(**diagnostic.QUALIFICATION_LIMITS),
+                       consumer_profile=NATIVE_REMOTE_VLLM_V6_CONSUMER_PROFILE)
+    launches = []
+    class Process:
+        exitcode = 0
+        def __init__(self, *, target, kwargs):
+            self.kwargs = kwargs
+        def start(self):
+            launches.append(self.kwargs['case']['id'])
+            for event in [
+                {'kind': 'tool_failed', 'payload': {'name': 'retrieve', 'effects': 'unknown' if unknown_effects else 'none'}},
+                {'kind': 'terminal', 'payload': {'effects_unknown': unknown_effects, 'usage_unknown': False}},
+                {'kind': 'worker_finished', 'payload': {}}]:
+                self.kwargs['channel'].put(event)
+        def is_alive(self):
+            return False
+        def join(self, **kwargs):
+            pass
+    class ClosingQueue(Queue):
+        def close(self):
+            pass
+    monkeypatch.setattr(target.multiprocessing, 'get_context', lambda *args: SimpleNamespace(Queue=ClosingQueue, Process=Process))
+    result = target.run_suite(tmp_path / 'suite.json', snapshot='unused', output=tmp_path / 'run')
+    assert launches == [case['id'] for case in prepared['cases'][:1 if unknown_effects else len(prepared['cases'])]]
+    assert (result['unrun_reason'] == 'tool_effects_or_usage_unknown') is unknown_effects

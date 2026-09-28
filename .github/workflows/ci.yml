@@ -679,6 +679,7 @@ jobs:
           dml_core/daystrom_dml/services/receipt_conflict_boundary.py
           dml_core/tests/test_receipt_conflict_boundary.py
           dml_core/tests/test_native_recovery_v5.py
+          dml_core/tests/test_native_budget_v6.py
           dml_core/scripts/native_recovery_suite.py
           dml_core/scripts/native_recovery_synthetic.py
           dml_core/tests/test_native_recovery_suite.py
@@ -701,6 +702,7 @@ jobs:
           python -m pytest -o addopts= -q
           dml_core/tests/test_receipt_conflict_boundary.py
           dml_core/tests/test_native_recovery_v5.py
+          dml_core/tests/test_native_budget_v6.py
           dml_core/tests/test_native_recovery_suite.py
           dml_core/tests/test_native_recovery_synthetic.py
           dml_core/tests/test_remote_vllm_action_input.py

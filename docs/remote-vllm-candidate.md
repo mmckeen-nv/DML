@@ -241,3 +241,35 @@ unchanged. Qualification requires an actual classified conflict followed by the
 model's own retrieval, supersession, read-back and valid cited final. No conflict
 means the recovery branch is unqualified. Retirement is covered by controlled
 journal regressions, not claimed as live-qualified by these two cases.
+
+## Native v6 budget visibility candidate
+
+`nemotron-remote-vllm-native-tools-v6` adds concise action guidance and one
+runner-derived budget segment to the first system message. The segment gives
+the current model call, remaining calls including the current call, the unchanged
+per-call output cap, prior completed input/output usage, and remaining episode
+token allowances. A final answer consumes a model call. These values are upper
+bounds: input admission, transcript limits and the deadline can stop execution
+earlier. Prior usage excludes the current request. No task-completion judgment,
+expected answer, verifier state, preferred action or wall-clock countdown is
+included.
+
+Each request replaces the previous budget segment. Other conversation messages,
+including raw native reasoning, tool calls and authentic feedback, remain intact.
+The compiler checks canonical metadata; causal evidence replay independently
+reconstructs its counters from episode limits and completed calls. The metadata
+uses ordinary input tokens and gains no additional budget or authority.
+
+V6 inherits V5's narrow recovery boundary and native output admission unchanged.
+Concise output is an instruction, not a parser repair or forced tool choice.
+Native automatic selection, final JSON validation, model/runtime, sampling,
+retrieval, authorization, corpus and acceptance gates remain unchanged. V1–V5
+retain their existing system policies and behavior.
+
+This is a development hypothesis based on retained V5 failures: the source case
+used its full output allowance for planning prose; the replacement case repeated
+a read after authentic supersession and readback. It is not a demonstrated repair.
+Before campaign approval, V6 must pass six predeclared noncorpus cases once:
+live retrieval, dependent feedback, supersession, exposed untrusted injection,
+and both stale-record recovery cases. Unknown usage/effects or unresolved
+execution halts the combined qualification; known failures remain retained.

@@ -48,3 +48,21 @@ def test_profile_and_budget_cannot_be_changed_at_declaration(tmp_path):
         suite.prepare_suite(tmp_path / 'suite.json', identity={}, limits=EpisodeLimits(**{**suite.QUALIFICATION_LIMITS, 'max_steps': 7}))
     with pytest.raises(ValueError):
         suite.prepare_suite(tmp_path / 'suite.json', identity={}, limits=EpisodeLimits(**suite.QUALIFICATION_LIMITS), consumer_profile='legacy')
+
+
+def test_v6_suite_is_explicit_and_v5_default_preserved(tmp_path):
+    from daystrom_dml.contracts.agent_episode import NATIVE_REMOTE_VLLM_V6_CONSUMER_PROFILE
+    old = suite.prepare_suite(tmp_path / 'old.json', identity={}, limits=EpisodeLimits(**suite.QUALIFICATION_LIMITS))
+    new = suite.prepare_suite(tmp_path / 'new.json', identity={}, limits=EpisodeLimits(**suite.QUALIFICATION_LIMITS),
+                              consumer_profile=NATIVE_REMOTE_VLLM_V6_CONSUMER_PROFILE)
+    assert old['consumer_profile'] == suite.CONSUMER_PROFILE
+    assert old['schema_version'] == suite.SCHEMA
+    assert new['consumer_profile'] == NATIVE_REMOTE_VLLM_V6_CONSUMER_PROFILE
+    assert new['schema_version'] == suite.SCHEMA_V6
+    assert old['sampling'] == new['sampling'] and old['limits'] == new['limits']
+    assert old['run_policy'] == new['run_policy']
+    suite.validate_suite(new)
+    new['schema_version'] = suite.SCHEMA
+    new['suite_digest'] = suite._digest({key: value for key, value in new.items() if key != 'suite_digest'})
+    with pytest.raises(ValueError):
+        suite.validate_suite(new)
