@@ -198,10 +198,21 @@ jobs:
       - name: Require patched SQLite runtime
         run: python .github/scripts/prepare_sqlite.py
       - name: Install pinned CPU model-input dependencies
+        env:
+          CC: /usr/bin/gcc
+          CXX: /usr/bin/g++
+          CMAKE_BUILD_PARALLEL_LEVEL: "2"
+          CMAKE_ARGS: >-
+            -DGGML_CUDA=OFF -DGGML_METAL=OFF -DGGML_VULKAN=OFF
+            -DGGML_SYCL=OFF -DGGML_RPC=OFF -DLLAMA_CURL=OFF
+            -DLLAMA_OPENSSL=OFF -DLLAMA_SUBPROCESS=OFF
+            -DLLAMA_BUILD_SERVER=OFF -DLLAMA_BUILD_APP=OFF -DLLAMA_BUILD_UI=OFF
+            -DLLAMA_BUILD_TOOLS=OFF -DLLAMA_BUILD_EXAMPLES=OFF -DLLAMA_BUILD_TESTS=OFF
+            -DGGML_NATIVE=ON
         run: |
           python -m pip install --upgrade pip
           python -m pip install torch==2.8.0 --index-url https://download.pytorch.org/whl/cpu
-          python -m pip install '.[agent-action,dev]'
+          python -m pip install '.[agent-action,agent-gguf,dev]'
       - name: Strict lint of exact model-input surfaces
         run: ruff check dml_core/daystrom_dml/contracts/model_input.py dml_core/daystrom_dml/services/model_input.py dml_core/daystrom_dml/services/model_input_snapshot.py
       - name: Strict lint of agent episode companion
@@ -227,6 +238,10 @@ jobs:
           dml_core/daystrom_dml/services/qwen2_bf16_pretrained_snapshot.py
           dml_core/daystrom_dml/services/qwen2_bf16_model_input.py
           dml_core/daystrom_dml/services/qwen2_bf16_action_input.py
+          dml_core/daystrom_dml/services/qwen3_gguf_model_snapshot.py
+          dml_core/daystrom_dml/services/qwen3_gguf_pretrained_snapshot.py
+          dml_core/daystrom_dml/services/qwen3_gguf_model_input.py
+          dml_core/daystrom_dml/services/qwen3_gguf_action_input.py
           dml_core/scripts/agent_campaign_evidence.py
       - name: Record pinned runtime versions
         run: |
@@ -299,6 +314,10 @@ jobs:
           dml_core/tests/test_qwen2_bf16_model_input.py
           dml_core/tests/test_qwen2_bf16_action_input.py
           dml_core/tests/test_qwen2_bf16_profile.py
+          dml_core/tests/test_qwen3_gguf_model_snapshot.py
+          dml_core/tests/test_qwen3_gguf_pretrained_snapshot.py
+          dml_core/tests/test_qwen3_gguf_input.py
+          dml_core/tests/test_qwen3_gguf_profile.py
           --junitxml=model-input-artifacts/model-input.xml
       - name: Require complete model-input and episode harness evidence without skipped tests
         run: |
@@ -326,6 +345,7 @@ jobs:
               "test_qwen3_sampled_action_input", "test_qwen3_sampled_profile",
               "test_qwen2_bf16_model_snapshot", "test_qwen2_bf16_pretrained_snapshot",
               "test_qwen2_bf16_model_input", "test_qwen2_bf16_action_input", "test_qwen2_bf16_profile",
+              "test_qwen3_gguf_model_snapshot", "test_qwen3_gguf_pretrained_snapshot", "test_qwen3_gguf_input", "test_qwen3_gguf_profile",
           }
           observed_modules = set()
           for case in report.iter("testcase"):
