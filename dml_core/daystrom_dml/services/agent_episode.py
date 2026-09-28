@@ -30,7 +30,7 @@ from ..contracts.agent_episode import (
     initial_messages, parse_agent_action, validate_episode_events,
     validate_prior_context, validate_verifier,
     EXECUTION_PROTOCOL_V1, EXECUTION_PROTOCOL_V2, VALIDATION_CONSUMER_PROFILE, RECOVERY_CONSUMER_PROFILE, QWEN3_CONSUMER_PROFILES,
-    QWEN2_BF16_SAMPLED_CONSUMER_PROFILE, QWEN3_GGUF_CONSUMER_PROFILE, REMOTE_VLLM_CONSUMER_PROFILE,
+    QWEN2_BF16_SAMPLED_CONSUMER_PROFILE, QWEN3_GGUF_CONSUMER_PROFILE, REMOTE_VLLM_CONSUMER_PROFILES,
     VALIDATION_ERROR_CODE, VALIDATION_MODEL_RESULT, execution_protocol_for_profile,
 )
 from ..contracts.model_input import ModelInputBudgetError
@@ -69,7 +69,7 @@ class EpisodeLimits:
 _POLICY = AGENT_POLICY
 CONSUMER_PROFILES = ("gpt2-v1", "qwen2-instruct-v1", "qwen2-action-json-v1",
                      VALIDATION_CONSUMER_PROFILE, RECOVERY_CONSUMER_PROFILE, *QWEN3_CONSUMER_PROFILES,
-                     QWEN2_BF16_SAMPLED_CONSUMER_PROFILE, QWEN3_GGUF_CONSUMER_PROFILE, REMOTE_VLLM_CONSUMER_PROFILE)
+                     QWEN2_BF16_SAMPLED_CONSUMER_PROFILE, QWEN3_GGUF_CONSUMER_PROFILE, *REMOTE_VLLM_CONSUMER_PROFILES)
 
 
 def validate_consumer_profile(consumer_profile):
@@ -81,7 +81,7 @@ def validate_consumer_profile(consumer_profile):
 
 def _open_consumer(snapshot_directory, consumer_profile):
     validate_consumer_profile(consumer_profile)
-    if consumer_profile == REMOTE_VLLM_CONSUMER_PROFILE:
+    if consumer_profile in REMOTE_VLLM_CONSUMER_PROFILES:
         from .remote_vllm_action_input import RemoteVLLMActionInputConsumer
         return RemoteVLLMActionInputConsumer(snapshot_directory, consumer_profile=consumer_profile)
     if consumer_profile == QWEN3_GGUF_CONSUMER_PROFILE:
@@ -188,7 +188,7 @@ def _run_loop(consumer, toolbox, *, task, limits, emit, prior_context=None,
             emit("model_failed", call_id, {"step": step, "phase": "compile", "request": request,
                 "error_code": type(exc).__name__, "input_token_count": 0, "output_token_count": 0,
                 "latency_ms": _elapsed(before), "ttft_ms": None,
-                **({"remote_evidence": deepcopy(consumer.last_exchange)} if consumer_profile == REMOTE_VLLM_CONSUMER_PROFILE else {})})
+                **({"remote_evidence": deepcopy(consumer.last_exchange)} if consumer_profile in REMOTE_VLLM_CONSUMER_PROFILES else {})})
             return {"status": "input_limit" if isinstance(exc, ModelInputBudgetError) else "model_error",
                     "answer": None, "retrieval_ms": retrieval_ms}
         if input_tokens + artifact.input_tokens > limits.max_input_tokens:
@@ -209,15 +209,15 @@ def _run_loop(consumer, toolbox, *, task, limits, emit, prior_context=None,
                 raise ValueError("Model result differs from the dispatched artifact")
         except Exception as exc:
             emit("model_failed", call_id, {"step": step, "phase": "execute", "error_code": type(exc).__name__,
-                "input_token_count": None if consumer_profile == REMOTE_VLLM_CONSUMER_PROFILE else artifact.input_tokens, "output_token_count": None,
+                "input_token_count": None if consumer_profile in REMOTE_VLLM_CONSUMER_PROFILES else artifact.input_tokens, "output_token_count": None,
                 "latency_ms": _elapsed(before), "ttft_ms": None,
-                **({"remote_evidence": deepcopy(consumer.last_exchange)} if consumer_profile == REMOTE_VLLM_CONSUMER_PROFILE else {})})
+                **({"remote_evidence": deepcopy(consumer.last_exchange)} if consumer_profile in REMOTE_VLLM_CONSUMER_PROFILES else {})})
             return {"status": "model_error", "answer": None, "retrieval_ms": retrieval_ms}
         emit("model_completed", call_id, {"step": step, "artifact_digest": result.artifact_digest,
             "input_token_count": result.input_token_count, "output_ids": list(result.output_ids),
             "output_token_count": result.output_token_count, "text": result.text,
             "latency_ms": _elapsed(before), "ttft_ms": None,
-            **({"remote_evidence": deepcopy(consumer.last_exchange)} if consumer_profile == REMOTE_VLLM_CONSUMER_PROFILE else {})})
+            **({"remote_evidence": deepcopy(consumer.last_exchange)} if consumer_profile in REMOTE_VLLM_CONSUMER_PROFILES else {})})
         input_tokens += result.input_token_count
         output_tokens += result.output_token_count
         try:
@@ -783,7 +783,7 @@ def run_local_episode(*, snapshot_directory, work_directory, scenario: dict, tas
     directory = Path(work_directory).expanduser().resolve()
     directory.mkdir(parents=True, exist_ok=False)
     ident = "episode-" + uuid.uuid4().hex
-    config = {"episode_id": ident, "execution_path": ("live_remote" if consumer_profile == REMOTE_VLLM_CONSUMER_PROFILE else "live_local"), "scenario": deepcopy(scenario),
+    config = {"episode_id": ident, "execution_path": ("live_remote" if consumer_profile in REMOTE_VLLM_CONSUMER_PROFILES else "live_local"), "scenario": deepcopy(scenario),
         "task": deepcopy(task), "limits": asdict(limits), "effective_time": effective_time,
         "prior_context": prior_context, "consumer_profile": consumer_profile,
         "previous_answers": deepcopy(previous_answers), "snapshot_directory": str(Path(snapshot_directory).resolve()),

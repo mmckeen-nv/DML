@@ -2,7 +2,6 @@
 """Freeze one remote candidate; this never launches model generation."""
 import argparse
 from dataclasses import asdict
-import hashlib
 import importlib.metadata
 import json
 from pathlib import Path
@@ -20,27 +19,84 @@ def declared_limits():
         max_episode_bytes=16777216, wall_time_seconds=300.0)
 
 
-def main():
+def selected_profile(manifest, requested=None):
+    from daystrom_dml.contracts.agent_episode import REMOTE_VLLM_CONSUMER_PROFILE, REMOTE_VLLM_CONSUMER_PROFILES
+    declared = manifest.get("consumer_profile", REMOTE_VLLM_CONSUMER_PROFILE)
+    if declared not in REMOTE_VLLM_CONSUMER_PROFILES or requested not in (None, declared):
+        raise ValueError("Requested profile differs from remote manifest")
+    return declared
+
+
+def runtime_attestation(path, expected_sha256, manifest, bundle):
+    """Bind reviewed host evidence; never infer loaded revision from a cache."""
+    if path is None and expected_sha256 is None:
+        return None, {}
+    if path is None or expected_sha256 is None:
+        raise ValueError("Runtime attestation requires both path and reviewed SHA256")
+    path = Path(path).resolve()
+    if digest(path) != expected_sha256:
+        raise ValueError("Reviewed runtime attestation digest differs")
+    receipt = json.loads(path.read_bytes())
+    if (receipt.get("schema_version") != "dml-remote-runtime-attestation-v1"
+            or receipt.get("loaded_model_revision_attested") is not True
+            or any(receipt.get(key) != manifest[key] for key in ("endpoint", "model", "model_revision"))
+            or receipt.get("manifest_sha256") != digest(Path(bundle) / "remote-vllm-manifest.json")
+            or not isinstance(receipt.get("evidence_files"), dict) or not receipt["evidence_files"]):
+        raise ValueError("Runtime attestation does not bind the selected model/runtime")
+    files = {str(path): expected_sha256}
+    for name, expected in receipt["evidence_files"].items():
+        evidence = Path(name)
+        if not evidence.is_absolute() or digest(evidence) != expected:
+            raise ValueError("Runtime attestation evidence differs")
+        files[str(evidence)] = expected
+    return {"path": str(path), "sha256": expected_sha256,
+            "scope": "reviewed host launch and pinned model files; HTTP does not attest engine tensors"}, files
+
+
+def producer_command(executable, profile, bundle, run, limits):
+    command = [str(executable), "-m", "scripts.agent_episodes", "--consumer-profile", profile,
+        "--snapshot-directory", str(bundle), "--work-directory", str(run / "episodes"),
+        "--output", str(run / "campaign.json")]
+    for key, value in limits.items():
+        command += ["--" + key.replace("_", "-"), str(value)]
+    return command
+
+
+def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--candidate-root", type=Path, required=True)
     parser.add_argument("--source-root", type=Path, required=True)
     parser.add_argument("--sqlite-library", type=Path, required=True)
-    args = parser.parse_args()
+    parser.add_argument("--consumer-profile", help="Must match manifest; omitted selects manifest or legacy v1")
+    parser.add_argument("--runtime-attestation", type=Path)
+    parser.add_argument("--runtime-attestation-sha256", help="SHA256 independently reviewed before freezing")
+    args = parser.parse_args(argv)
     root, source = args.candidate_root.resolve(), args.source_root.resolve()
     run = root / "campaign-once"
-    run.mkdir(mode=0o700)
     sys.path.insert(0, str(source / "dml_core"))
-    from daystrom_dml.contracts.agent_episode import REMOTE_VLLM_CONSUMER_PROFILE, execution_protocol_for_profile
+    from daystrom_dml.contracts.agent_episode import REMOTE_VLLM_JSON_CONSUMER_PROFILE, execution_protocol_for_profile
     from daystrom_dml.services.agent_episode import EpisodeLimits
     from daystrom_dml.services.episode_verifiers import load_episode_corpus
-    from daystrom_dml.services.remote_vllm_action_input import verify_remote_manifest, remote_identity, EXACT_TOKEN_LIMITATIONS
+    from daystrom_dml.services.remote_vllm_action_input import verify_remote_manifest, RemoteVLLMActionInputConsumer, EXACT_TOKEN_LIMITATIONS
     from scripts.agent_campaign_evidence import GATES, SPEC_VERSION_V2, _digest
     from scripts.agent_episodes import _source_digests
     bundle = root / "snapshot"
     manifest = verify_remote_manifest(bundle)
+    profile = selected_profile(manifest, args.consumer_profile)
+    with RemoteVLLMActionInputConsumer(bundle, consumer_profile=profile, offline=True) as consumer:
+        model_identity = consumer.identity.to_payload()
+    attestation, attestation_files = runtime_attestation(args.runtime_attestation,
+        args.runtime_attestation_sha256, manifest, bundle)
+    run.mkdir(mode=0o700)
     corpus = load_episode_corpus()
     source_files = subprocess.check_output(["git", "ls-files", "-z"], cwd=source).decode().split("\0")
     sources = {name: digest(source / name) for name in source_files if name}
+    if profile == REMOTE_VLLM_JSON_CONSUMER_PROFILE:
+        required = {"dml_core/daystrom_dml/services/remote_vllm_action_input.py",
+                    "dml_core/daystrom_dml/services/qwen_model_snapshot.py",
+                    "dml_core/scripts/remote_vllm_synthetic.py", "scripts/freeze_remote_campaign.py"}
+        if not required <= sources.keys():
+            raise ValueError("V2 freeze requires tracked renderer, synthetic qualification and freeze sources")
     snapshots = {p.name: digest(p) for p in bundle.iterdir() if p.is_file()}
     runtime_files = {str(Path(sys.executable).resolve()): digest(Path(sys.executable).resolve()),
                      str(args.sqlite_library.resolve()): digest(args.sqlite_library.resolve())}
@@ -53,31 +109,27 @@ def main():
                 runtime_files[str(path)] = digest(path)
     publish(root / "runtime-inventory.json", {"versions": versions, "files": runtime_files})
     limits = EpisodeLimits(**declared_limits())
-    profile = REMOTE_VLLM_CONSUMER_PROFILE
     spec = {"schema_version": SPEC_VERSION_V2, "consumer_profile": profile,
         "execution_protocol": execution_protocol_for_profile(profile), "acceptance": GATES,
         "selection": [{"scenario_id": s["id"], "task_id": t["id"]}
             for s in corpus["scenarios"] for t in s["tasks"]],
         "corpus_digest": _digest(corpus), "limits": asdict(limits), "source_sha256": sources,
         "producer_source_sha256": _source_digests(consumer_profile=profile), "snapshot_sha256": snapshots,
-        "model_identity": remote_identity(manifest).to_payload(),
+        "model_identity": model_identity,
         "candidate_id": root.name, "frozen_at": time.time(),
         "source_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=source, text=True).strip(),
         "source_ci_qualified": False, "production_ready": False,
         "runtime_inventory_sha256": digest(root / "runtime-inventory.json"),
         "lifecycle_qualification_sha256": digest(root / "lifecycle/qualification.json"),
         "exact_token_limitations": EXACT_TOKEN_LIMITATIONS,
-        "loaded_model_revision_attested": False,
+        "loaded_model_revision_attested": attestation is not None, "runtime_attestation": attestation,
         "prior_attempt": "Historical attempt15 remains interrupted and is not resumed; no historical raw evidence reconstructed"}
     publish(run / "spec.json", spec)
-    command = [sys.executable, "-m", "scripts.agent_episodes", "--consumer-profile", profile,
-        "--snapshot-directory", str(bundle), "--work-directory", str(run / "episodes"),
-        "--output", str(run / "campaign.json")]
-    for key, value in asdict(limits).items():
-        command += ["--" + key.replace("_", "-"), str(value)]
+    command = producer_command(sys.executable, profile, bundle, run, asdict(limits))
     files = {str(source / name): value for name, value in sources.items()}
     files.update({str(bundle / name): value for name, value in snapshots.items()})
     files.update(runtime_files)
+    files.update(attestation_files)
     for path in [run / "spec.json", root / "runtime-inventory.json", root / "lifecycle/qualification.json"]:
         files[str(path)] = digest(path)
     freeze = {"files": files, "command": command, "cwd": str(source), "max_seconds": 3300,

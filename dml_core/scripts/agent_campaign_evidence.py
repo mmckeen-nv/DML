@@ -16,7 +16,7 @@ from daystrom_dml.contracts.agent_episode import (
     canonical_json, decode_json, validate_episode_events, presented_record_identities,
     parse_agent_action, AgentEpisodeError,
     execution_protocol_for_profile, EXECUTION_PROTOCOL_V2, VALIDATION_CONSUMER_PROFILE, RECOVERY_CONSUMER_PROFILE,
-    QWEN3_CONSUMER_PROFILE, QWEN3_CONSUMER_PROFILES, QWEN2_BF16_SAMPLED_CONSUMER_PROFILE, QWEN3_GGUF_CONSUMER_PROFILE, EVENT_VERSION_V2, REMOTE_VLLM_CONSUMER_PROFILE,
+    QWEN3_CONSUMER_PROFILE, QWEN3_CONSUMER_PROFILES, QWEN2_BF16_SAMPLED_CONSUMER_PROFILE, QWEN3_GGUF_CONSUMER_PROFILE, EVENT_VERSION_V2, REMOTE_VLLM_CONSUMER_PROFILES,
 )
 from daystrom_dml.services.agent_episode import task_allowed_tools, validate_consumer_profile
 from daystrom_dml.services.episode_outcomes import build_terminal, summarize_episode_outcomes
@@ -204,7 +204,7 @@ def _replay_remote_model(events, identity, consumer):
 
 def _replay_model(events, identity, tokenizer, consumer_profile):
     validate_consumer_profile(consumer_profile)
-    if consumer_profile == REMOTE_VLLM_CONSUMER_PROFILE:
+    if consumer_profile in REMOTE_VLLM_CONSUMER_PROFILES:
         return _replay_remote_model(events, identity, tokenizer)
     if consumer_profile in (*QWEN3_CONSUMER_PROFILES, QWEN2_BF16_SAMPLED_CONSUMER_PROFILE, QWEN3_GGUF_CONSUMER_PROFILE):
         prefix = ("dml-qwen3-gguf-action-runtime-v1:" if consumer_profile == QWEN3_GGUF_CONSUMER_PROFILE
@@ -308,7 +308,7 @@ def replay_campaign(campaign, spec, *, identity, tokenizer):
         if v2:
             _require(start["consumer_profile"] == terminal["consumer_profile"] == consumer_profile,
                      "Episode boundary consumer profile differs from campaign")
-        _require(start["execution_path"] == terminal["execution_path"] == ("live_remote" if consumer_profile == REMOTE_VLLM_CONSUMER_PROFILE else "live_local"), "Injected execution")
+        _require(start["execution_path"] == terminal["execution_path"] == ("live_remote" if consumer_profile in REMOTE_VLLM_CONSUMER_PROFILES else "live_local"), "Injected execution")
         for key, value in {"limits": spec["limits"], "scope": scenario["scope"], "prompt": task["prompt"],
                            "effective_time": corpus["effective_time"],
                            "allowed_tools": list(task_allowed_tools(task))}.items():
@@ -358,7 +358,7 @@ def replay_campaign(campaign, spec, *, identity, tokenizer):
                      "repeat_quality_measured": all(type(verdict[key]) is int
                          for key in ("repeat_errors", "repeat_opportunities")),
                      "verified_model_owned_supersession": supersession})
-        if consumer_profile == REMOTE_VLLM_CONSUMER_PROFILE:
+        if consumer_profile in REMOTE_VLLM_CONSUMER_PROFILES:
             rows[-1]["remote_grammar_evidence"] = _remote_grammar_status(events)
         terminals.append(terminal)
         prior[(scenario["id"], task["id"])] = terminal
@@ -393,9 +393,9 @@ def verify_files(*, spec_path, spec_sha256, campaign_path, snapshot_directory, s
     _require(_same(_source_digests(consumer_profile=consumer_profile), spec["producer_source_sha256"]),
              "Executing producer sources differ")
     bundle = Path(snapshot_directory)
-    if consumer_profile == REMOTE_VLLM_CONSUMER_PROFILE:
+    if consumer_profile in REMOTE_VLLM_CONSUMER_PROFILES:
         from daystrom_dml.services.remote_vllm_action_input import RemoteVLLMActionInputConsumer
-        with RemoteVLLMActionInputConsumer(bundle, offline=True) as consumer:
+        with RemoteVLLMActionInputConsumer(bundle, consumer_profile=consumer_profile, offline=True) as consumer:
             expected_files = set(consumer.manifest["files"]) | {"remote-vllm-manifest.json"}
             _require(set(spec["snapshot_sha256"]) == expected_files, "Remote snapshot inventory differs")
             for name, digest in spec["snapshot_sha256"].items():

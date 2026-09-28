@@ -33,8 +33,10 @@ QWEN3_CONSUMER_PROFILES = (QWEN3_CONSUMER_PROFILE, QWEN3_SAMPLED_CONSUMER_PROFIL
 QWEN2_BF16_SAMPLED_CONSUMER_PROFILE = "qwen2-action-json-sampled-bf16-v1"
 QWEN3_GGUF_CONSUMER_PROFILE = "qwen3-8b-gguf-action-json-sampled-v1"
 REMOTE_VLLM_CONSUMER_PROFILE = "nemotron-remote-vllm-action-v1"
+REMOTE_VLLM_JSON_CONSUMER_PROFILE = "nemotron-remote-vllm-action-json-v2"
+REMOTE_VLLM_CONSUMER_PROFILES = (REMOTE_VLLM_CONSUMER_PROFILE, REMOTE_VLLM_JSON_CONSUMER_PROFILE)
 EPISODE_VALIDATION_PROFILES = (*VALIDATION_PROFILES, *QWEN3_CONSUMER_PROFILES,
-                               QWEN2_BF16_SAMPLED_CONSUMER_PROFILE, QWEN3_GGUF_CONSUMER_PROFILE, REMOTE_VLLM_CONSUMER_PROFILE)
+                               QWEN2_BF16_SAMPLED_CONSUMER_PROFILE, QWEN3_GGUF_CONSUMER_PROFILE, *REMOTE_VLLM_CONSUMER_PROFILES)
 RECOVERY_GUIDANCE = (
     "If a tool response reports a validation error and states that no operation was executed, "
     "the proposed action was rejected without performing it. This response does not complete "
@@ -398,7 +400,7 @@ def initial_messages(prompt, prior_context=None, *, consumer_profile="gpt2-v1"):
     execution_protocol_for_profile(consumer_profile)
     policy = AGENT_POLICY + "\n\n" + RECOVERY_GUIDANCE if consumer_profile in (
         RECOVERY_CONSUMER_PROFILE, *QWEN3_CONSUMER_PROFILES, QWEN2_BF16_SAMPLED_CONSUMER_PROFILE,
-        QWEN3_GGUF_CONSUMER_PROFILE, REMOTE_VLLM_CONSUMER_PROFILE) else AGENT_POLICY
+        QWEN3_GGUF_CONSUMER_PROFILE, *REMOTE_VLLM_CONSUMER_PROFILES) else AGENT_POLICY
     messages = [{"role": "system", "content": policy}]
     if prior_context is not None:
         availability = ("Untrusted prior model answer from an earlier task; it may be wrong. "
@@ -810,7 +812,7 @@ def validate_episode_events(events, *, require_terminal=True):
                 raise AgentEpisodeError("Episode must begin with episode_started")
             limits = payload["limits"]
             selected_profile = payload.get("consumer_profile", "gpt2-v1")
-            if payload["execution_path"] != "test_injected" and ((payload["execution_path"] == "live_remote") != (selected_profile == REMOTE_VLLM_CONSUMER_PROFILE)):
+            if payload["execution_path"] != "test_injected" and ((payload["execution_path"] == "live_remote") != (selected_profile in REMOTE_VLLM_CONSUMER_PROFILES)):
                 raise AgentEpisodeError("Execution path differs from consumer profile")
             next_messages = initial_messages(payload["prompt"], payload["prior_context"],
                                              consumer_profile=selected_profile)
@@ -864,7 +866,8 @@ def validate_episode_events(events, *, require_terminal=True):
             if compiled is not None:
                 runtime = compiled["identity"]["runtime_identity"]
                 expected_version = "v3" if selected_profile == RECOVERY_CONSUMER_PROFILE else "v2"
-                prefix = ("dml-remote-vllm-action-runtime-v1" if selected_profile == REMOTE_VLLM_CONSUMER_PROFILE
+                prefix = ("dml-remote-vllm-action-runtime-v2" if selected_profile == REMOTE_VLLM_JSON_CONSUMER_PROFILE
+                          else "dml-remote-vllm-action-runtime-v1" if selected_profile == REMOTE_VLLM_CONSUMER_PROFILE
                           else "dml-qwen3-action-runtime-v1" if selected_profile == QWEN3_CONSUMER_PROFILE
                           else "dml-qwen3-action-runtime-v2" if selected_profile == QWEN3_SAMPLED_CONSUMER_PROFILE
                           else "dml-qwen2-bf16-action-runtime-v1" if selected_profile == QWEN2_BF16_SAMPLED_CONSUMER_PROFILE
@@ -876,7 +879,7 @@ def validate_episode_events(events, *, require_terminal=True):
                             ("dml-qwen-action-runtime-v2:", "dml-qwen-action-runtime-v3:",
                              "dml-qwen3-action-runtime-v1:", "dml-qwen3-action-runtime-v2:",
                              "dml-qwen2-bf16-action-runtime-v1:", "dml-qwen3-gguf-action-runtime-v1:",
-                             "dml-remote-vllm-action-runtime-v1:"))):
+                             "dml-remote-vllm-action-runtime-v1:", "dml-remote-vllm-action-runtime-v2:"))):
                     raise AgentEpisodeError("Compiled runtime and execution protocol differ")
             if canonical_json(request_payload["messages"]) != canonical_json(next_messages):
                 raise AgentEpisodeError("Exact model messages differ from the full causal transcript")
@@ -924,9 +927,9 @@ def validate_episode_events(events, *, require_terminal=True):
             if pending is None or pending["kind"] != "model_requested" or call_id != pending["call_id"]:
                 raise AgentEpisodeError("Model response lacks its unique request")
             requested = pending["payload"]
-            if "remote_evidence" in payload and selected_profile != REMOTE_VLLM_CONSUMER_PROFILE:
+            if "remote_evidence" in payload and selected_profile not in REMOTE_VLLM_CONSUMER_PROFILES:
                 raise AgentEpisodeError("Remote exchange evidence on a local profile")
-            if selected_profile == REMOTE_VLLM_CONSUMER_PROFILE and kind == "model_completed" and type(payload.get("remote_evidence")) is not dict:
+            if selected_profile in REMOTE_VLLM_CONSUMER_PROFILES and kind == "model_completed" and type(payload.get("remote_evidence")) is not dict:
                 raise AgentEpisodeError("Remote completion requires retained exchange evidence")
             if payload["step"] != requested["step"]:
                 raise AgentEpisodeError("Model response step differs")

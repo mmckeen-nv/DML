@@ -16,8 +16,16 @@ from ..contracts.agent_episode import initial_messages, recovery_guidance_identi
 from ..contracts.model_input import CompiledModelInput, ModelInputError, ModelInputRequest, ModelInputIdentity, _decode
 from .agent_action_grammar import MAX_BOUND_REQUESTS, action_schema, schema_bytes
 from .model_input import ModelInputExecutionError, ModelInputResult, _json_bytes
+from .qwen_model_snapshot import QWEN_CHAT_TEMPLATE
 
 CONSUMER_PROFILE = 'nemotron-remote-vllm-action-v1'
+JSON_CONSUMER_PROFILE = 'nemotron-remote-vllm-action-json-v2'
+JSON_RENDERING_POLICY = 'dml-json-chatml-fields-v2'
+# Reuse DML's reversible, authority-preserving transport; only the model's
+# observed native nonthinking assistant suffix is model-specific.
+DML_JSON_CHAT_TEMPLATE = QWEN_CHAT_TEMPLATE.replace(
+    'dml-qwen-chatml-fields-v2', 'dml-nemotron-chatml-fields-v2') + r"{{- '<think></think>' -}}"
+
 MANIFEST_FILENAME = 'remote-vllm-manifest.json'
 CHAT_TEMPLATE_KWARGS = {'enable_thinking': False}
 HISTORY_RENDERING_POLICY = 'local-json-object-view-server-openai-string-wire-v1'
@@ -95,11 +103,11 @@ def verify_remote_manifest(directory):
         raise ModelInputError('Remote candidate manifest admission failed') from exc
 
 
-def remote_identity(manifest):
+def remote_identity(manifest, *, consumer_profile=CONSUMER_PROFILE):
     model = {'revision': manifest['model_revision'], 'provenance': manifest['model_provenance']}
-    policy = {'manifest': manifest, 'consumer_profile': CONSUMER_PROFILE,
+    policy = {'manifest': manifest, 'consumer_profile': consumer_profile,
               'guidance': recovery_guidance_identity(), 'chat_template_kwargs': CHAT_TEMPLATE_KWARGS,
-              'history_rendering_policy': HISTORY_RENDERING_POLICY,
+              'history_rendering_policy': (JSON_RENDERING_POLICY if consumer_profile == JSON_CONSUMER_PROFILE else HISTORY_RENDERING_POLICY),
               'grammar_sha256': hashlib.sha256(schema_bytes(episode_tool_definitions())).hexdigest(),
               'exact_token_limitations': EXACT_TOKEN_LIMITATIONS}
     return ModelInputIdentity(
@@ -107,20 +115,27 @@ def remote_identity(manifest):
         tokenizer_digest=hashlib.sha256(_json_bytes({k: v for k, v in manifest['files'].items()
                                                    if k != 'chat-template.jinja'})).hexdigest(),
         chat_template_digest=manifest['files']['chat-template.jinja'],
-        runtime_identity='dml-remote-vllm-action-runtime-v1:' + hashlib.sha256(_json_bytes(policy)).hexdigest(),
+        runtime_identity=('dml-remote-vllm-action-runtime-v2:' if consumer_profile == JSON_CONSUMER_PROFILE else 'dml-remote-vllm-action-runtime-v1:') + hashlib.sha256(_json_bytes(policy)).hexdigest(),
         model_window_tokens=manifest['model_window_tokens'])
 
 
 class RemoteVLLMActionInputConsumer:
     def __init__(self, snapshot_directory, *, consumer_profile=CONSUMER_PROFILE, offline=False):
-        if consumer_profile != CONSUMER_PROFILE:
+        if consumer_profile not in (CONSUMER_PROFILE, JSON_CONSUMER_PROFILE):
             raise ModelInputError('Unknown remote consumer profile')
         from transformers import AutoTokenizer
         self._directory = Path(snapshot_directory)
         self.manifest = verify_remote_manifest(self._directory)
         if self.manifest['client_runtime_versions'] != client_runtime_versions():
             raise ModelInputError('Client tokenizer runtime versions differ from frozen candidate')
-        self._identity = remote_identity(self.manifest)
+        if consumer_profile == JSON_CONSUMER_PROFILE:
+            if (self.manifest.get('consumer_profile') != JSON_CONSUMER_PROFILE
+                    or self.manifest.get('rendering_policy') != JSON_RENDERING_POLICY
+                    or (self._directory / 'chat-template.jinja').read_text() != DML_JSON_CHAT_TEMPLATE):
+                raise ModelInputError('DML JSON candidate requires its exact versioned renderer')
+        elif self.manifest.get('consumer_profile', CONSUMER_PROFILE) != CONSUMER_PROFILE:
+            raise ModelInputError('Manifest belongs to a different remote profile')
+        self._identity = remote_identity(self.manifest, consumer_profile=consumer_profile)
         self._manifest_bytes = _json_bytes(self.manifest)
         self._consumer_profile = consumer_profile
         self._offline = offline
@@ -232,10 +247,22 @@ class RemoteVLLMActionInputConsumer:
             self._validate_runtime()
             if len(self._bound_requests) >= MAX_BOUND_REQUESTS:
                 raise ModelInputError('Remote compiled-request capacity exhausted')
-            rendered_messages = rendering_messages(request.messages)
-            ids = tuple(self._tokenizer.apply_chat_template(rendered_messages, tools=request.tools,
-                chat_template=self._template, tokenize=True, add_generation_prompt=True,
-                continue_final_message=False, truncation=False, padding=False, **CHAT_TEMPLATE_KWARGS))
+            if self._consumer_profile == JSON_CONSUMER_PROFILE:
+                rendered = self._tokenizer.apply_chat_template(request.messages, tools=request.tools,
+                    chat_template=self._template, tokenize=False, add_generation_prompt=True,
+                    continue_final_message=False, **CHAT_TEMPLATE_KWARGS)
+                ids = tuple(self._tokenizer.encode(rendered, add_special_tokens=False,
+                                                    truncation=False, padding=False))
+                tokenization_request = {'model': self.manifest['model'], 'prompt': rendered,
+                                        'add_special_tokens': False}
+            else:
+                rendered_messages = rendering_messages(request.messages)
+                ids = tuple(self._tokenizer.apply_chat_template(rendered_messages, tools=request.tools,
+                    chat_template=self._template, tokenize=True, add_generation_prompt=True,
+                    continue_final_message=False, truncation=False, padding=False, **CHAT_TEMPLATE_KWARGS))
+                tokenization_request = {'model': self.manifest['model'], 'messages': request.messages,
+                    'tools': request.tools, 'add_generation_prompt': True, 'continue_final_message': False,
+                    'add_special_tokens': False, 'chat_template_kwargs': CHAT_TEMPLATE_KWARGS}
             artifact = CompiledModelInput(identity=self._identity, request_digest=request.request_digest,
                 input_ids=ids, attention_mask=(1,) * len(ids), output_reserved_tokens=output_reserved_tokens,
                 model_window_tokens=self._identity.model_window_tokens, consumer_id=self._consumer_id,
@@ -244,9 +271,7 @@ class RemoteVLLMActionInputConsumer:
                 try:
                     # vLLM accepts OpenAI string arguments and parses them before rendering.
                     # Compare all resulting IDs against our explicit private object view.
-                    reply = self._post('/tokenize', {'model': self.manifest['model'], 'messages': request.messages,
-                        'tools': request.tools, 'add_generation_prompt': True, 'continue_final_message': False,
-                        'add_special_tokens': False, 'chat_template_kwargs': CHAT_TEMPLATE_KWARGS})
+                    reply = self._post('/tokenize', tokenization_request)
                     if (reply.get('tokens') != list(ids) or reply.get('count') != len(ids)
                             or reply.get('max_model_len') != self._identity.model_window_tokens):
                         raise ModelInputError('Server tokenization/window differs from frozen candidate')
