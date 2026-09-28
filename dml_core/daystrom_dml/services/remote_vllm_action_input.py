@@ -1,5 +1,6 @@
 """Remote candidate. Echoed token IDs do not attest engine tensors or weights."""
 from dataclasses import replace
+from copy import deepcopy
 import hashlib
 import hmac
 import json
@@ -12,13 +13,14 @@ import time
 from urllib import request as http, error as http_error
 
 from ..contracts.agent_episode import initial_messages, recovery_guidance_identity, episode_tool_definitions
-from ..contracts.model_input import CompiledModelInput, ModelInputError, ModelInputRequest, ModelInputIdentity
+from ..contracts.model_input import CompiledModelInput, ModelInputError, ModelInputRequest, ModelInputIdentity, _decode
 from .agent_action_grammar import MAX_BOUND_REQUESTS, action_schema, schema_bytes
 from .model_input import ModelInputExecutionError, ModelInputResult, _json_bytes
 
 CONSUMER_PROFILE = 'nemotron-remote-vllm-action-v1'
 MANIFEST_FILENAME = 'remote-vllm-manifest.json'
 CHAT_TEMPLATE_KWARGS = {'enable_thinking': False}
+HISTORY_RENDERING_POLICY = 'local-json-object-view-server-openai-string-wire-v1'
 EXACT_TOKEN_LIMITATIONS = [
     'HTTP token IDs do not independently attest actual engine tensors or attention masks',
     'HTTP cannot attest loaded weights or live server/tokenizer configuration',
@@ -37,6 +39,29 @@ def sampling_policy_identity():
 
 def client_runtime_versions():
     return {name: metadata.version(name) for name in ('transformers', 'tokenizers', 'jinja2')}
+
+
+def rendering_messages(messages):
+    """Adapt the model template's argument type without rewriting DML history.
+
+    DML stores function arguments as canonical JSON strings. Nemotron's template
+    iterates argument mappings. Parse a private rendering view strictly; the
+    original request, action text, tool results and authentication stay intact.
+    """
+    view = deepcopy(messages)
+    for message in view:
+        for call in message.get('tool_calls', []):
+            try:
+                raw = call['function']['arguments']
+                if type(raw) is not str:
+                    raise ModelInputError('Tool arguments must be JSON text')
+                arguments = _decode(raw.encode('utf-8'))
+                if type(arguments) is not dict:
+                    raise ModelInputError('Tool arguments must encode an object')
+                call['function']['arguments'] = arguments
+            except (KeyError, TypeError, ValueError) as exc:
+                raise ModelInputError('Invalid tool arguments in rendering view') from exc
+    return view
 
 
 def verify_remote_manifest(directory):
@@ -74,6 +99,7 @@ def remote_identity(manifest):
     model = {'revision': manifest['model_revision'], 'provenance': manifest['model_provenance']}
     policy = {'manifest': manifest, 'consumer_profile': CONSUMER_PROFILE,
               'guidance': recovery_guidance_identity(), 'chat_template_kwargs': CHAT_TEMPLATE_KWARGS,
+              'history_rendering_policy': HISTORY_RENDERING_POLICY,
               'grammar_sha256': hashlib.sha256(schema_bytes(episode_tool_definitions())).hexdigest(),
               'exact_token_limitations': EXACT_TOKEN_LIMITATIONS}
     return ModelInputIdentity(
@@ -206,7 +232,8 @@ class RemoteVLLMActionInputConsumer:
             self._validate_runtime()
             if len(self._bound_requests) >= MAX_BOUND_REQUESTS:
                 raise ModelInputError('Remote compiled-request capacity exhausted')
-            ids = tuple(self._tokenizer.apply_chat_template(request.messages, tools=request.tools,
+            rendered_messages = rendering_messages(request.messages)
+            ids = tuple(self._tokenizer.apply_chat_template(rendered_messages, tools=request.tools,
                 chat_template=self._template, tokenize=True, add_generation_prompt=True,
                 continue_final_message=False, truncation=False, padding=False, **CHAT_TEMPLATE_KWARGS))
             artifact = CompiledModelInput(identity=self._identity, request_digest=request.request_digest,
@@ -215,6 +242,8 @@ class RemoteVLLMActionInputConsumer:
                 nonce=secrets.token_hex(24), auth_tag='0' * 64)
             if not self._offline:
                 try:
+                    # vLLM accepts OpenAI string arguments and parses them before rendering.
+                    # Compare all resulting IDs against our explicit private object view.
                     reply = self._post('/tokenize', {'model': self.manifest['model'], 'messages': request.messages,
                         'tools': request.tools, 'add_generation_prompt': True, 'continue_final_message': False,
                         'add_special_tokens': False, 'chat_template_kwargs': CHAT_TEMPLATE_KWARGS})

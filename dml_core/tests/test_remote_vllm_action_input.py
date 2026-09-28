@@ -12,7 +12,7 @@ from daystrom_dml.contracts.agent_episode import initial_messages, episode_tool_
 from daystrom_dml.contracts.model_input import ModelInputError, ModelInputBudgetError
 from daystrom_dml.services.model_input import ModelInputExecutionError
 from daystrom_dml.services.remote_vllm_action_input import (
-    CONSUMER_PROFILE, RemoteVLLMActionInputConsumer, sampling_policy_identity, verify_remote_manifest, client_runtime_versions,
+    CONSUMER_PROFILE, RemoteVLLMActionInputConsumer, sampling_policy_identity, verify_remote_manifest, client_runtime_versions, rendering_messages,
 )
 
 
@@ -176,3 +176,41 @@ def test_replay_retains_authentic_rejected_output(consumer, monkeypatch):
         'response': reply, 'response_raw': json.dumps(reply)}
     completed = {'output_ids': [4, 5], 'text': '{"ok":true}', 'input_token_count': 3, 'output_token_count': 2}
     consumer.validate_exchange(artifact.signing_payload(), request, exchange, completed)
+
+
+def test_multiturn_private_rendering_view(consumer, monkeypatch):
+    messages = initial_messages('synthetic probe', consumer_profile=CONSUMER_PROFILE)
+    messages.extend([
+        {'role': 'assistant', 'content': 'unchanged action JSON', 'tool_calls': [
+            {'id': 'tool-0', 'type': 'function', 'function': {'name': 'retrieve', 'arguments': '{"query":"synthetic"}'}}]},
+        {'role': 'tool', 'tool_call_id': 'tool-0', 'name': 'retrieve', 'content': '{"records":[]}'}])
+    original = copy.deepcopy(messages)
+    view = rendering_messages(messages)
+    assert view[2]['tool_calls'][0]['function']['arguments'] == {'query': 'synthetic'}
+    assert messages == original
+    received = []
+    monkeypatch.setattr(consumer._tokenizer, 'apply_chat_template',
+                        lambda messages, **kwargs: received.append(messages) or [1, 2, 3])
+    consumer._offline = False
+    def tokenize(path, payload):
+        assert payload['messages'] == original
+        assert rendering_messages(payload['messages']) == received[0] == view
+        return {'tokens': [1, 2, 3], 'count': 3, 'max_model_len': 100}
+    monkeypatch.setattr(consumer, '_post', tokenize)
+    artifact = consumer.compile(messages, episode_tool_definitions(), output_reserved_tokens=10)
+    assert consumer._bound_requests[artifact.artifact_digest].messages == original
+    consumer._offline = True
+    replayed = consumer.compile(messages, episode_tool_definitions(), output_reserved_tokens=10)
+    assert replayed.input_ids == artifact.input_ids
+    assert replayed.request_digest == artifact.request_digest
+    assert messages == original
+
+
+@pytest.mark.parametrize('arguments', ['not json', '[]', 'null', '{"x":1,"x":2}', '{"x":NaN}', '{"x":1e999}', '{"x":{"y":1e999}}'])
+def test_rendering_rejects_malformed_arguments(arguments):
+    messages = [{'role': 'assistant', 'content': '', 'tool_calls': [
+        {'id': 'tool-0', 'type': 'function', 'function': {'name': 'retrieve', 'arguments': arguments}}]}]
+    original = copy.deepcopy(messages)
+    with pytest.raises(ModelInputError):
+        rendering_messages(messages)
+    assert messages == original

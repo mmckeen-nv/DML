@@ -14,6 +14,10 @@ each dispatch. Generation uses `/v1/completions` with explicit input token IDs,
 `add_special_tokens=false`, request-derived structured JSON output, and returned
 token IDs. The client checks the echoed prompt, model name, IDs, decoded text,
 usage, token budgets and immutable request binding. Replays run without HTTP.
+For tool history, local rendering parses a private copy of DML's canonical JSON
+argument strings into the mappings Nemotron's template expects. DML's logical
+request and HTTP tokenizer request retain the original strings; the server's
+rendered IDs must still match exactly. Invalid argument JSON is rejected.
 
 The prompt uses the model's frozen chat template with `enable_thinking=false`
 and a generation prefix. Sampling is temperature 0.7, top-p 0.8, top-k 20,
