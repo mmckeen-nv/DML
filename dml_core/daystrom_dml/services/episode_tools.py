@@ -145,7 +145,7 @@ class SelectedProfileEpisodeTools:
         if type(recover_precommit_conflicts) is not bool or (recover_precommit_conflicts and execution_protocol != EXECUTION_PROTOCOL_V2):
             raise EpisodeToolError("Precommit recovery requires explicit validated-protocol opt-in")
         self.recover_precommit_conflicts = recover_precommit_conflicts
-        self._conflict_rejections = {}
+        self._conflict_rejections: dict[int, tuple[EpisodeToolConflictRejected, PreparedEpisodeTool, bytes, str, str]] = {}
         self._presentation_ledger: dict[str, tuple[int, bytes]] = {}
         self._rejection_owner = object()
         self._records: dict[str, dict] = {}
