@@ -228,7 +228,7 @@ def test_array_argument_is_strict_json_without_python_literal_fallback():
 @pytest.mark.parametrize('prefix', ['', '\n', 'I will retrieve the stored facts.\n\n'])
 def test_v2_binds_prefix_prose_without_granting_action_authority(prefix):
     message = tool_message()
-    message['content'] = prefix or None
+    message['content'] = prefix if prefix.strip() else None
     raw = prefix + raw_call().lstrip('\n')
     action, error = module.project_native_message(message, raw, episode_tool_definitions(), 'tool_calls',
                                                   consumer_profile=module.V2_CONSUMER_PROFILE)
@@ -282,7 +282,7 @@ def test_v2_observed_supersession_preamble_is_only_metadata():
 
 def test_v2_nested_control_in_argument_rejected():
     message = tool_message(arguments={'query': '< /function>', 'top_k': 2})
-    message['content'] = '\n'
+    message['content'] = None
     action, error = module.project_native_message(message,
         raw_call(arguments={'query': '< /function>', 'top_k': 2}), episode_tool_definitions(),
         'tool_calls', consumer_profile=module.V2_CONSUMER_PROFILE)
@@ -312,3 +312,29 @@ def test_v2_consumer_roundtrip_and_identity_remain_distinct(consumer, monkeypatc
         v2.validate_exchange(artifact.signing_payload(), v2._bound_requests[artifact.artifact_digest].to_payload(),
                              v2.last_exchange, json.loads(json.dumps(asdict(result))))
         assert result.projection_digest != module.native_projection_digest(message, result.action_text, None)
+
+
+@pytest.mark.parametrize('prefix', ['\n', ' ', '\t', '\n \t\r\n'])
+@pytest.mark.parametrize('api_content', [None, ''])
+def test_v2_observed_whitespace_prefix_normalization(prefix, api_content):
+    message = tool_message()
+    message['content'] = api_content
+    raw = prefix + raw_call().lstrip('\n')
+    if api_content is None:
+        action, error = module.project_native_message(message, raw, episode_tool_definitions(), 'tool_calls',
+                                                      consumer_profile=module.V2_CONSUMER_PROFILE)
+        assert error is None and json.loads(action)['name'] == 'retrieve'
+        assert raw.startswith(prefix)  # Prefix remains raw evidence, never repaired.
+    else:
+        with pytest.raises(ModelInputError, match='prose contradicts'):
+            module.project_native_message(message, raw, episode_tool_definitions(), 'tool_calls',
+                                          consumer_profile=module.V2_CONSUMER_PROFILE)
+
+
+@pytest.mark.parametrize('prefix,content', [(' factual claim ', 'factual claim'), ('fact', None), ('fact', '')])
+def test_v2_never_normalizes_substantive_prefix(prefix, content):
+    message = tool_message()
+    message['content'] = content
+    with pytest.raises(ModelInputError, match='prose contradicts'):
+        module.project_native_message(message, prefix + raw_call().lstrip('\n'), episode_tool_definitions(),
+                                      'tool_calls', consumer_profile=module.V2_CONSUMER_PROFILE)

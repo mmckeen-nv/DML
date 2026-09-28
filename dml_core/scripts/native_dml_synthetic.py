@@ -179,12 +179,15 @@ def _worker(channel, *, snapshot, directory, suite, case, acknowledgement=None):
             seed_records=fixture['seed_records'], observed_records=_observed(observed_events),
             current_records=records, final_sequence=len(observed_events),
             effective_time=suite['effective_time'])
+        usage_unknown = any(event['kind'] == 'model_failed' and event['payload']['phase'] == 'execute'
+                            for event in observed_events)
+        if usage_unknown:
+            outcome = {**outcome, 'retrieval_ms': None}
         _finish(observed_events, outcome, scenario=scenario, task=case['task'],
             seed_records=fixture['seed_records'], current_records=records,
             effective_time=suite['effective_time'], previous_answers={},
             elapsed_ms=(time.monotonic() - started) * 1000,
-            usage_unknown=any(event['kind'] == 'model_failed' and event['payload']['phase'] == 'execute'
-                              for event in observed_events))
+            usage_unknown=usage_unknown)
         publish(observed_events[-1])
         publish({'kind': 'verifier_result', 'payload': verdict})
         publish({'kind': 'outcome', 'payload': outcome})

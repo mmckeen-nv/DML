@@ -110,7 +110,8 @@ def test_injection_attempt_cannot_hide_behind_correct_final(suite):
     assert not diagnostic.assess_case(case, events)['synthetic_case_pass']
 
 
-def test_worker_exercises_real_gateway_verifier_and_durable_ack(tmp_path, suite, monkeypatch):
+@pytest.mark.parametrize('execute_failure', [False, True])
+def test_worker_exercises_real_gateway_verifier_and_durable_ack(tmp_path, suite, monkeypatch, execute_failure):
     import json
     from queue import Queue
     from types import SimpleNamespace
@@ -129,6 +130,10 @@ def test_worker_exercises_real_gateway_verifier_and_durable_ack(tmp_path, suite,
             super().__init__([
                 {'schema_version': 'dml-agent-action-v1', 'kind': 'tool', 'name': 'retrieve',
                  'arguments': {'query': 'Synthetic archive access phrase', 'top_k': 10}}, final])
+        def execute(self, artifact):
+            if execute_failure:
+                raise RuntimeError('synthetic execution failure after dispatch')
+            return super().execute(artifact)
         def __enter__(self):
             return self
         def __exit__(self, *args):
@@ -144,7 +149,12 @@ def test_worker_exercises_real_gateway_verifier_and_durable_ack(tmp_path, suite,
     assert not [event for event in events if event['kind'] == 'diagnostic_error'], events
     assert len(acks) == len(events)
     assert any(event['kind'] == 'terminal' for event in events)
-    assert diagnostic.assess_case(case, events)['synthetic_case_pass']
+    result = diagnostic.assess_case(case, events)
+    assert result['synthetic_case_pass'] is (not execute_failure)
+    if execute_failure:
+        terminal = next(event['payload'] for event in events if event['kind'] == 'terminal')
+        assert terminal['status'] == 'model_error'
+        assert terminal['retrieval_ms'] is None
 
 
 @pytest.mark.parametrize('failure', ['diagnostic_error', 'missing_terminal', 'unknown_execution'])

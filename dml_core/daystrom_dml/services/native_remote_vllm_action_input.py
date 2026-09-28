@@ -32,7 +32,7 @@ CONSUMER_PROFILE = NATIVE_REMOTE_VLLM_CONSUMER_PROFILE
 NATIVE_RENDERING_POLICY = 'native-template-auto-tools-v1'
 NATIVE_ACTION_POLICY = 'single-native-call-or-original-final-json-v1'
 V2_CONSUMER_PROFILE = NATIVE_REMOTE_VLLM_V2_CONSUMER_PROFILE
-NATIVE_V2_ACTION_POLICY = 'single-native-call-with-bound-nonauthoritative-prose-or-original-final-json-v2'
+NATIVE_V2_ACTION_POLICY = 'single-native-call-with-bound-nonauthoritative-prose-or-original-final-json-serving-whitespace-null-v2.1'
 NATIVE_TEMPLATE_SHA256 = '575fb74f54ed264df9047d0ecce3c98938aae953fb4f50356675706264cbb68a'
 NATIVE_EXACT_TOKEN_LIMITATIONS = [
     *EXACT_TOKEN_LIMITATIONS,
@@ -89,6 +89,7 @@ def native_identity(manifest, *, consumer_profile=CONSUMER_PROFILE):
     policy = {'base_identity': base.to_payload(), 'native_action_policy': native_policy_identity(consumer_profile=consumer_profile),
               'native_protocol': ({**NATIVE_PROTOCOL_POLICY, 'projection': NATIVE_V2_ACTION_POLICY,
                   'accompanying_prose': 'exact_prefix_matches_native_content_only_whitespace_suffix_no_authority',
+                  'prefix_normalization': 'vllm020_engine_serving_whitespace_only_prefix_to_null_v1',
                   'xml_delimiters': 'exactly_one_complete_call_no_stray_or_nested_control_delimiters'}
                   if consumer_profile == V2_CONSUMER_PROFILE else NATIVE_PROTOCOL_POLICY), 'exact_token_limitations': NATIVE_EXACT_TOKEN_LIMITATIONS,
               'all_turn_grammar_removed': True}
@@ -168,7 +169,13 @@ def _bound_native_call_text(text, content):
         raise NativeProjectionError('Native XML contains duplicate or unmatched delimiters')
     if suffix.strip():
         raise NativeProjectionError('Native parser does not attest substantive trailing prose')
-    if (content or '') != prefix:
+    # vLLM 0.20 engine/serving.py converts a nonempty whitespace-only
+    # tool-parser content prefix to None. Raw text is never rewritten.
+    if prefix and not prefix.strip():
+        matches = content is None
+    else:
+        matches = (content or '') == prefix
+    if not matches:
         raise ModelInputError('Native prose contradicts independently decoded output segments')
     return block
 
