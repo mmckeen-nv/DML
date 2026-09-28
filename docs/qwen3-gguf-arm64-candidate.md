@@ -1,5 +1,11 @@
 # Qwen3-8B ARM64 qualification candidate
 
+The September 28 qualification completed all four controls once and passed
+**3/4**. Supersession failed because the model finalized without performing the
+requested mutation or read-back. Both evidence replays passed; exact-source CI
+passed 21/21 jobs on `5c41f1e`. No new M7 campaign is approved. See the
+[compact outcome and evidence hashes](artifacts/qwen3-gguf-arm64-qualification-outcome-2026-09-28.json).
+
 `qwen3-8b-gguf-arm64-action-json-sampled-v1` is a separate Linux ARM64 CPU
 candidate. It retains the existing Qwen GGUF action consumer, including model
 selection of tools and generation of cited final answers. It does not route

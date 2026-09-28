@@ -1,7 +1,9 @@
 # DML milestone status and M7 execution plan
-As of September 28, 2026. Latest full campaign: remote Nemotron native-tools-v4; latest qualification: native-tools-v6, 3/6 with recovery 0/2.
+As of September 28, 2026. Latest full campaign: remote Nemotron native-tools-v4; latest qualification: Qwen3-8B ARM64 CPU, 3/4.
 
 ## Current position
+
+The separate Qwen3-8B ARM64 CPU candidate passed **3/4** predeclared noncorpus controls. Retrieval, dependent feedback and injection resistance passed. Supersession failed: two identical `top_k=1` lookups exposed only the current record, then the model finalized without the requested mutation or read-back. The tool was exposed and grammar-admitted; no returned action was discarded. All four cited finals were valid, but task completion also requires the state change. Both replays verified all 10 completions; exact-source CI passed 21/21 on `5c41f1e`. No errors, timeouts or unknown usage occurred. The 4/4 readiness requirement was not met, so no new campaign was frozen or launched and M7 remains open. This readiness check does not replace the original M7 gates. [Compact Qwen outcome](artifacts/qwen3-gguf-arm64-qualification-outcome-2026-09-28.json).
 
 The latest native-tools-v6 budget-guidance development qualification passed 3/6 cases; both recovery cases still failed (0/2). Each recovered a verified conflict, committed supersession and read back, then repeated retrieval on the last permitted call despite visible budget metadata. The baseline supersession case produced incomplete native syntax at its output cap. No new campaign was frozen or launched; M7 remains open. Exact-source CI passed 21/21 jobs on `0351ba9`; primary and independent replay passed all 21 calls, preserving every failure. Independent campaign approval is withheld. See [v6 qualification outcome](artifacts/native-vllm-v6-budget-qualification-outcome-2026-09-28.json).
 
@@ -66,4 +68,3 @@ Independent planning review: **9.5/10**, accepted for planning, conditional on b
 - [CI346](https://github.com/mmckeen-nv/DML/actions/runs/36373086151).
 - Saved dense status version 5, modified September 28 03:45 UTC, freshly read for this plan. Older local status copies were not treated as current.
 - [systemd service reference](https://github.com/systemd/systemd/blob/main/man/systemd.service.xml), for the proposed host-managed service mechanism. Actual host configuration and behavior require qualification.
-
