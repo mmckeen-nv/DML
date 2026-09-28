@@ -292,6 +292,7 @@ def test_v2_nested_control_in_argument_rejected():
 @pytest.mark.parametrize('profile,policy,runtime_prefix', [
     (module.V2_CONSUMER_PROFILE, module.NATIVE_V2_ACTION_POLICY, 'dml-remote-vllm-native-tools-runtime-v2:'),
     (module.V3_CONSUMER_PROFILE, module.NATIVE_V3_ACTION_POLICY, 'dml-remote-vllm-native-tools-runtime-v3:'),
+    (module.V4_CONSUMER_PROFILE, module.NATIVE_V4_ACTION_POLICY, 'dml-remote-vllm-native-tools-runtime-v4:'),
 ])
 def test_prose_consumer_roundtrip_and_identity_remain_distinct(consumer, monkeypatch, profile, policy, runtime_prefix):
     directory = consumer._directory
@@ -363,3 +364,68 @@ def test_v3_identity_requires_explicit_profile_manifest(consumer):
     assert v2.model_digest == v3.model_digest and v2.tokenizer_digest == v3.tokenizer_digest
     with pytest.raises(ModelInputError, match='pinned template and explicit'):
         module.verify_native_manifest(consumer._directory, consumer_profile=module.V3_CONSUMER_PROFILE)
+
+
+@pytest.mark.parametrize('opener', ['', '<think>'])
+def test_v4_reasoning_is_bound_metadata_not_action_authority(opener):
+    message = tool_message()
+    message['reasoning'] = 'I need the stored facts.\n'
+    raw = opener + message['reasoning'] + '</think>' + raw_call()
+    action, error = module.project_native_message(message, raw, episode_tool_definitions(), 'tool_calls',
+                                                  consumer_profile=module.V4_CONSUMER_PROFILE)
+    assert error is None and json.loads(action)['name'] == 'retrieve'
+    assert module.project_native_message(message, raw, episode_tool_definitions(), 'tool_calls',
+                                         consumer_profile=module.V3_CONSUMER_PROFILE)[0] is None
+
+
+@pytest.mark.parametrize('raw', [
+    'reasoning<think>x</think>', '<think>x</think></think>', '<think><think>x</think>',
+    '<think>x', 'x</think>', 'x</think>  ', 'x</Think>', 'x</think><think>',
+    '<tool_call>x</think>',
+])
+def test_v4_rejects_ambiguous_or_incomplete_reasoning(raw):
+    message = tool_message()
+    message['reasoning'] = 'x'
+    action, error = module.project_native_message(message, raw, episode_tool_definitions(), 'tool_calls',
+                                                  consumer_profile=module.V4_CONSUMER_PROFILE)
+    assert action is None and error
+
+
+def test_v4_reasoning_mismatch_is_integrity_failure():
+    message = tool_message()
+    message['reasoning'] = 'different'
+    with pytest.raises(ModelInputError, match='reasoning contradicts'):
+        module.project_native_message(message, 'original</think>' + raw_call(), episode_tool_definitions(),
+                                      'tool_calls', consumer_profile=module.V4_CONSUMER_PROFILE)
+
+
+@pytest.mark.parametrize('final', ['The answer is seven.', '{"schema_version":"dml-agent-action-v1","kind":"final","answer":{"claims":[]}}'])
+def test_v4_reasoning_final_requires_original_json(final):
+    message = {'role': 'assistant', 'content': final, 'reasoning': 'metadata', 'tool_calls': []}
+    action, error = module.project_native_message(message, 'metadata</think>' + final,
+        episode_tool_definitions(), 'stop', consumer_profile=module.V4_CONSUMER_PROFILE)
+    if final.startswith('{'):
+        assert action == final and error is None
+    else:
+        assert action is None and error
+
+
+def test_v4_refusal_is_never_reasoning_admission():
+    message = tool_message()
+    message.update(reasoning='metadata', refusal='refused')
+    action, error = module.project_native_message(message, 'metadata</think>' + raw_call(),
+        episode_tool_definitions(), 'tool_calls', consumer_profile=module.V4_CONSUMER_PROFILE)
+    assert action is None and error
+
+
+@pytest.mark.parametrize('ids,admitted', [([4, 13, 11], True), ([4, 11], False), ([10, 13, 11], False)])
+def test_v4_control_ids_independently_bind_reasoning(consumer, ids, admitted):
+    consumer._consumer_profile = module.V4_CONSUMER_PROFILE
+    # Pinned tokenizer lists only EOS/UNK/BOS as special: think tokens are ordinary IDs.
+    consumer._tokenizer.all_special_ids = [0, 1, 11]
+    consumer._tokenizer.output = 'metadata</think>' + raw_call()
+    message = tool_message()
+    message['reasoning'] = 'metadata'
+    result = consumer._validate_native_response(response(message, output=ids), [1, 2, 3], 16,
+                                                episode_tool_definitions())
+    assert (result[3] is not None) is admitted

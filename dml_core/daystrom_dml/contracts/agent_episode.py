@@ -37,7 +37,8 @@ REMOTE_VLLM_JSON_CONSUMER_PROFILE = "nemotron-remote-vllm-action-json-v2"
 NATIVE_REMOTE_VLLM_CONSUMER_PROFILE = "nemotron-remote-vllm-native-tools-v1"
 NATIVE_REMOTE_VLLM_V2_CONSUMER_PROFILE = "nemotron-remote-vllm-native-tools-v2"
 NATIVE_REMOTE_VLLM_V3_CONSUMER_PROFILE = "nemotron-remote-vllm-native-tools-v3"
-NATIVE_REMOTE_VLLM_CONSUMER_PROFILES = (NATIVE_REMOTE_VLLM_CONSUMER_PROFILE, NATIVE_REMOTE_VLLM_V2_CONSUMER_PROFILE, NATIVE_REMOTE_VLLM_V3_CONSUMER_PROFILE)
+NATIVE_REMOTE_VLLM_V4_CONSUMER_PROFILE = "nemotron-remote-vllm-native-tools-v4"
+NATIVE_REMOTE_VLLM_CONSUMER_PROFILES = (NATIVE_REMOTE_VLLM_CONSUMER_PROFILE, NATIVE_REMOTE_VLLM_V2_CONSUMER_PROFILE, NATIVE_REMOTE_VLLM_V3_CONSUMER_PROFILE, NATIVE_REMOTE_VLLM_V4_CONSUMER_PROFILE)
 REMOTE_VLLM_CONSUMER_PROFILES = (REMOTE_VLLM_CONSUMER_PROFILE, REMOTE_VLLM_JSON_CONSUMER_PROFILE, *NATIVE_REMOTE_VLLM_CONSUMER_PROFILES)
 EPISODE_VALIDATION_PROFILES = (*VALIDATION_PROFILES, *QWEN3_CONSUMER_PROFILES,
                                QWEN2_BF16_SAMPLED_CONSUMER_PROFILE, QWEN3_GGUF_CONSUMER_PROFILE, *REMOTE_VLLM_CONSUMER_PROFILES)
@@ -196,6 +197,14 @@ NATIVE_COMPLETION_GUIDANCE = (
 )
 
 
+NATIVE_TASK_STEP_GUIDANCE = (
+    "Before finalizing, check every explicitly requested task step against the actual tool results. "
+    "Having enough information to state an answer does not satisfy a separately requested action or verification step. "
+    "Complete remaining required steps within the existing authority and budget rules, then emit the original final JSON. "
+    "Do not claim an unperformed step or a failed operation completed."
+)
+
+
 def native_policy_identity(*, consumer_profile=NATIVE_REMOTE_VLLM_CONSUMER_PROFILE):
     if consumer_profile not in NATIVE_REMOTE_VLLM_CONSUMER_PROFILES:
         raise AgentEpisodeError("Unknown native profile")
@@ -206,11 +215,16 @@ def native_policy_identity(*, consumer_profile=NATIVE_REMOTE_VLLM_CONSUMER_PROFI
             "normalization": "single-native-call-or-unmodified-final-json-v1",
             "all_turn_json_grammar": False, "parallel_tool_calls": False,
             "mixed_content_and_calls": ("retain-nonauthoritative-content" if consumer_profile != NATIVE_REMOTE_VLLM_CONSUMER_PROFILE else "reject"), "reasoning": "disabled-reject-nonempty"}
-    if consumer_profile == NATIVE_REMOTE_VLLM_V3_CONSUMER_PROFILE:
+    if consumer_profile in (NATIVE_REMOTE_VLLM_V3_CONSUMER_PROFILE, NATIVE_REMOTE_VLLM_V4_CONSUMER_PROFILE):
         identity["completion_guidance"] = {"policy": "acknowledged-state-completion-v1",
             "text": NATIVE_COMPLETION_GUIDANCE,
             "sha256": hashlib.sha256(NATIVE_COMPLETION_GUIDANCE.encode()).hexdigest(),
             "placement": "append-to-system-message", "join": "\n\n"}
+    if consumer_profile == NATIVE_REMOTE_VLLM_V4_CONSUMER_PROFILE:
+        identity["task_step_guidance"] = {"text": NATIVE_TASK_STEP_GUIDANCE,
+            "sha256": hashlib.sha256(NATIVE_TASK_STEP_GUIDANCE.encode()).hexdigest(), "placement": "append-to-system-message"}
+        identity["reasoning"] = "bound-native-metadata-no-authority-v4"
+        identity["reasoning_history"] = "api-reasoning-to-template-reasoning_content-exact-v1"
     return identity
 
 
@@ -231,7 +245,9 @@ def native_system_policy(*, consumer_profile=NATIVE_REMOTE_VLLM_CONSUMER_PROFILE
         prefix = prefix.replace("Emit at most one function call per turn and no accompanying prose. ",
             "Emit at most one function call per turn. Any accompanying assistant prose is non-authoritative commentary, not a final answer, a tool result, or evidence. ")
     policy = prefix + "A final action has exactly" + AGENT_POLICY.split("A final action has exactly", 1)[1] + "\n\n" + RECOVERY_GUIDANCE
-    return policy + "\n\n" + NATIVE_COMPLETION_GUIDANCE if consumer_profile == NATIVE_REMOTE_VLLM_V3_CONSUMER_PROFILE else policy
+    if consumer_profile in (NATIVE_REMOTE_VLLM_V3_CONSUMER_PROFILE, NATIVE_REMOTE_VLLM_V4_CONSUMER_PROFILE):
+        policy += "\n\n" + NATIVE_COMPLETION_GUIDANCE
+    return policy + "\n\n" + NATIVE_TASK_STEP_GUIDANCE if consumer_profile == NATIVE_REMOTE_VLLM_V4_CONSUMER_PROFILE else policy
 
 
 def native_action_text(message, *, consumer_profile=NATIVE_REMOTE_VLLM_CONSUMER_PROFILE):
@@ -245,7 +261,13 @@ def native_action_text(message, *, consumer_profile=NATIVE_REMOTE_VLLM_CONSUMER_
     if (message.get("annotations") not in (None, []) or message.get("audio") is not None
             or message.get("function_call") is not None):
         raise AgentEpisodeError("Native response contains unsupported meaningful fields")
-    if any(message.get(key) not in (None, "") for key in ("reasoning", "reasoning_content", "refusal")):
+    for key in ("reasoning", "reasoning_content"):
+        if message.get(key) is not None:
+            _text(message[key])
+    if consumer_profile == NATIVE_REMOTE_VLLM_V4_CONSUMER_PROFILE and message.get("reasoning") is not None and message.get("reasoning_content") is not None and message["reasoning"] != message["reasoning_content"]:
+        raise AgentEpisodeError("Native reasoning aliases disagree")
+    rejected_fields = ("refusal",) if consumer_profile == NATIVE_REMOTE_VLLM_V4_CONSUMER_PROFILE else ("reasoning", "reasoning_content", "refusal")
+    if any(message.get(key) not in (None, "") for key in rejected_fields):
         raise AgentEpisodeError("Native nonthinking profile rejects reasoning or refusal")
     content = message.get("content")
     if content is not None:
@@ -280,10 +302,16 @@ def native_feedback_messages(message, name, arguments, model_result, *, consumer
     action = parse_agent_action(native_action_text(message, consumer_profile=consumer_profile))
     if action["kind"] != "tool" or action["name"] != name or canonical_json(action["arguments"]) != canonical_json(arguments):
         raise AgentEpisodeError("Native feedback differs from decoded model action")
-    return [{"role": "assistant", "content": message.get("content") or "",
-             "tool_calls": deepcopy(message["tool_calls"])},
-            {"role": "tool", "tool_call_id": message["tool_calls"][0]["id"],
-             "name": name, "content": model_result}]
+    assistant = {"role": "assistant", "content": message.get("content") or "",
+                 "tool_calls": deepcopy(message["tool_calls"])}
+    if consumer_profile == NATIVE_REMOTE_VLLM_V4_CONSUMER_PROFILE:
+        for key in ("reasoning", "reasoning_content"):
+            if key in message:
+                assistant[key] = message[key]
+        if message.get("reasoning") is not None and message.get("reasoning_content") is None:
+            assistant["reasoning_content"] = message["reasoning"]
+    return [assistant, {"role": "tool", "tool_call_id": message["tool_calls"][0]["id"],
+                        "name": name, "content": model_result}]
 
 
 def presented_record_identities(payload, scope):
@@ -610,7 +638,7 @@ def _compiled(payload):
 
 def _request(payload):
     try:
-        return ModelInputRequest.from_payload(payload)
+        return ModelInputRequest.from_payload(payload, allow_native_reasoning=True)
     except (ValueError, TypeError) as exc:
         raise AgentEpisodeError("Invalid full model request evidence") from exc
 
@@ -618,9 +646,9 @@ def _request(payload):
 def _refused_request(payload):
     # A transcript-byte refusal can exceed the consumer's 1 MiB admission
     # ceiling. Preserve its full bounded shape before the compiler is called.
-    _keys(payload, ("messages", "tools", "output_reserved_tokens"))
+    _keys(payload, ("messages", "tools", "output_reserved_tokens"), ("message_policy",))
     try:
-        _model_messages(payload["messages"])
+        _model_messages(payload["messages"], message_policy=payload.get("message_policy"))
         _model_tools(payload["tools"])
         _integer(payload["output_reserved_tokens"], minimum=1, maximum=4096)
     except (ValueError, TypeError) as exc:
@@ -979,7 +1007,8 @@ def validate_episode_events(events, *, require_terminal=True):
             if compiled is not None:
                 runtime = compiled["identity"]["runtime_identity"]
                 expected_version = "v3" if selected_profile == RECOVERY_CONSUMER_PROFILE else "v2"
-                prefix = ("dml-remote-vllm-native-tools-runtime-v3" if selected_profile == NATIVE_REMOTE_VLLM_V3_CONSUMER_PROFILE
+                prefix = ("dml-remote-vllm-native-tools-runtime-v4" if selected_profile == NATIVE_REMOTE_VLLM_V4_CONSUMER_PROFILE
+                          else "dml-remote-vllm-native-tools-runtime-v3" if selected_profile == NATIVE_REMOTE_VLLM_V3_CONSUMER_PROFILE
                           else "dml-remote-vllm-native-tools-runtime-v2" if selected_profile == NATIVE_REMOTE_VLLM_V2_CONSUMER_PROFILE
                           else "dml-remote-vllm-native-tools-runtime-v1" if selected_profile == NATIVE_REMOTE_VLLM_CONSUMER_PROFILE
                           else "dml-remote-vllm-action-runtime-v2" if selected_profile == REMOTE_VLLM_JSON_CONSUMER_PROFILE
@@ -996,8 +1025,12 @@ def validate_episode_events(events, *, require_terminal=True):
                              "dml-qwen3-action-runtime-v1:", "dml-qwen3-action-runtime-v2:",
                              "dml-qwen2-bf16-action-runtime-v1:", "dml-qwen3-gguf-action-runtime-v1:",
                              "dml-remote-vllm-action-runtime-v1:", "dml-remote-vllm-action-runtime-v2:",
-                             "dml-remote-vllm-native-tools-runtime-v1:", "dml-remote-vllm-native-tools-runtime-v2:", "dml-remote-vllm-native-tools-runtime-v3:"))):
+                             "dml-remote-vllm-native-tools-runtime-v1:", "dml-remote-vllm-native-tools-runtime-v2:", "dml-remote-vllm-native-tools-runtime-v3:", "dml-remote-vllm-native-tools-runtime-v4:"))):
                     raise AgentEpisodeError("Compiled runtime and execution protocol differ")
+            expected_message_policy = "native-reasoning-metadata-v1" if selected_profile == NATIVE_REMOTE_VLLM_V4_CONSUMER_PROFILE else None
+            if (request_payload.get("message_policy") != expected_message_policy
+                    or expected_message_policy is None and "message_policy" in request_payload):
+                raise AgentEpisodeError("Request reasoning metadata policy differs from native profile")
             if canonical_json(request_payload["messages"]) != canonical_json(next_messages):
                 raise AgentEpisodeError("Exact model messages differ from the full causal transcript")
             expected_tools = [tool for tool in episode_tool_definitions()

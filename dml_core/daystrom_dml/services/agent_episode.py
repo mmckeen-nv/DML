@@ -32,7 +32,7 @@ from ..contracts.agent_episode import (
     EXECUTION_PROTOCOL_V1, EXECUTION_PROTOCOL_V2, VALIDATION_CONSUMER_PROFILE, RECOVERY_CONSUMER_PROFILE, QWEN3_CONSUMER_PROFILES,
     QWEN2_BF16_SAMPLED_CONSUMER_PROFILE, QWEN3_GGUF_CONSUMER_PROFILE, REMOTE_VLLM_CONSUMER_PROFILES,
     VALIDATION_ERROR_CODE, VALIDATION_MODEL_RESULT, execution_protocol_for_profile,
-    NATIVE_REMOTE_VLLM_CONSUMER_PROFILES, native_feedback_messages,
+    NATIVE_REMOTE_VLLM_CONSUMER_PROFILES, NATIVE_REMOTE_VLLM_V4_CONSUMER_PROFILE, native_feedback_messages,
 )
 from ..contracts.model_input import ModelInputBudgetError
 from .episode_tools import EpisodeToolValidationRejected, SelectedProfileEpisodeTools, episode_tool_definitions
@@ -154,7 +154,8 @@ def build_episode_request(task, *, messages=None, limits=EpisodeLimits(), allowe
     return {"messages": deepcopy(messages) if messages is not None else initial_messages(
                 task["prompt"], prior_context, consumer_profile=consumer_profile),
         "tools": [tool for tool in episode_tool_definitions() if tool["function"]["name"] in allowed],
-        "output_reserved_tokens": limits.output_tokens}
+        "output_reserved_tokens": limits.output_tokens,
+        **({"message_policy": "native-reasoning-metadata-v1"} if consumer_profile == NATIVE_REMOTE_VLLM_V4_CONSUMER_PROFILE else {})}
 
 
 def _run_loop(consumer, toolbox, *, task, limits, emit, prior_context=None,
@@ -173,6 +174,8 @@ def _run_loop(consumer, toolbox, *, task, limits, emit, prior_context=None,
     for step in range(limits.max_steps):
         request = {"messages": deepcopy(messages), "tools": deepcopy(tools),
                    "output_reserved_tokens": limits.output_tokens}
+        if consumer_profile == NATIVE_REMOTE_VLLM_V4_CONSUMER_PROFILE:
+            request["message_policy"] = "native-reasoning-metadata-v1"
         if len(canonical_json(request)) > limits.max_transcript_bytes:
             emit("admission_rejected", "admission-" + str(step), {"step": step, "limit": "transcript_bytes",
                 "observed": len(canonical_json(request)), "maximum": limits.max_transcript_bytes,

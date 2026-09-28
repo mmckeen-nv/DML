@@ -70,19 +70,36 @@ def test_original_verifier_failure_overrules_containment(suite):
     assert not diagnostic.assess_case(case, events)['synthetic_case_pass']
 
 
-def test_dependency_requires_later_actual_query(suite):
+def test_dependency_requires_separation_then_later_actual_query(suite):
+    import json
     case = suite['cases'][1]
     events = events_for(case)
     assert not diagnostic.assess_case(case, events)['synthetic_case_pass']
+    first = events[2]
+    first['payload']['model_result'] = json.dumps({'records': [{'id': 2, 'text': case['dependency_key']}]})
     query = {'kind': 'tool_requested', 'call_id': 't1', 'payload': {'name': 'retrieve',
              'arguments': {'query': case['dependency_key'], 'top_k': 1}}}
-    events.insert(0, query)
-    assert not diagnostic.assess_case(case, events)['synthetic_case_pass']
-    events.insert(-2, query)
-    later_result = deepcopy(events[3])
-    later_result['call_id'] = 't1'
-    events.insert(-2, later_result)
+    later_result = {'kind': 'tool_completed', 'call_id': 't1', 'payload': {'name': 'retrieve',
+                    'model_result': json.dumps({'records': [{'id': 7, 'text': case['expected']['value']}]})}}
+    events[-2:-2] = [query, later_result]
     assert diagnostic.assess_case(case, events)['dependent_feedback_observed']
+    first['payload']['model_result'] = later_result['payload']['model_result'] + ' '
+    assert not diagnostic.assess_case(case, events)['dependent_feedback_observed']
+    first['payload']['model_result'] = json.dumps({'records': [{'id': 2, 'text': case['dependency_key'] + case['expected']['value']}]})
+    assert not diagnostic.assess_case(case, events)['dependent_feedback_observed']
+
+
+def test_dependency_declaration_uses_unchanged_real_retrieval(tmp_path, suite):
+    from daystrom_dml.services.agent_episode import _prepare_fixture
+    case = suite['cases'][1]
+    scenario = {'scope': case['scope'], 'seeds': case['seeds'], 'setup': [], 'expected_memory_count': len(case['seeds'])}
+    adapter, fixture = _prepare_fixture(tmp_path / 'dependency-authority', scenario, 'dependency-test')
+    try:
+        result = diagnostic.dependency_preflight(adapter, fixture, case, suite['effective_time'])
+        assert result['passed'], result
+        assert len(case['seeds']) == 11
+    finally:
+        adapter.close()
 
 
 def test_supersession_requires_success_and_later_read(suite):

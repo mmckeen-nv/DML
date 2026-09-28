@@ -13,6 +13,8 @@ from daystrom_dml.contracts.agent_episode import (
     NATIVE_REMOTE_VLLM_CONSUMER_PROFILE,
     NATIVE_REMOTE_VLLM_V2_CONSUMER_PROFILE,
     NATIVE_REMOTE_VLLM_V3_CONSUMER_PROFILE,
+    NATIVE_REMOTE_VLLM_V4_CONSUMER_PROFILE,
+    NATIVE_TASK_STEP_GUIDANCE,
     native_policy_identity,
     AgentEpisodeError,
     canonical_json,
@@ -28,10 +30,21 @@ from test_agent_episode_runtime import ValidationScriptedConsumer, validation_ca
 class NativeSyntheticConsumer(ValidationScriptedConsumer):
     profile = NATIVE_REMOTE_VLLM_CONSUMER_PROFILE
     commentary = None
+    reasoning = None
     last_exchange: ClassVar = {"synthetic_native": True}
 
     def compile(self, *args, **kwargs):
-        artifact = super().compile(*args, **kwargs)
+        if self.profile == NATIVE_REMOTE_VLLM_V4_CONSUMER_PROFILE:
+            from daystrom_dml.contracts.model_input import ModelInputRequest
+            messages, tools = args
+            plain = [{key: value for key, value in message.items() if key not in ("reasoning", "reasoning_content")} for message in messages]
+            artifact = super().compile(plain, tools, **kwargs)
+            request = ModelInputRequest.from_payload({"messages": messages, "tools": tools,
+                "output_reserved_tokens": kwargs["output_reserved_tokens"], "message_policy": "native-reasoning-metadata-v1"}, allow_native_reasoning=True)
+            self.requests[-1] = request.to_payload()
+            artifact = replace(artifact, request_digest=request.request_digest)
+        else:
+            artifact = super().compile(*args, **kwargs)
         return replace(
             artifact,
             identity=replace(
@@ -68,6 +81,8 @@ class NativeSyntheticConsumer(ValidationScriptedConsumer):
         else:
             raw = action if isinstance(action, str) else canonical_json(action).decode()
             message = {"role": "assistant", "content": raw, "tool_calls": []}
+        if self.reasoning is not None:
+            message["reasoning"] = self.reasoning
         try:
             action_text = native_action_text(message, consumer_profile=self.profile)
             error = None
@@ -224,7 +239,7 @@ def test_native_prose_final_retains_known_generation_cost_as_failure(tmp_path):
     validate_episode_events(report["events"])
 
 
-@pytest.mark.parametrize("profile", [NATIVE_REMOTE_VLLM_V2_CONSUMER_PROFILE, NATIVE_REMOTE_VLLM_V3_CONSUMER_PROFILE])
+@pytest.mark.parametrize("profile", [NATIVE_REMOTE_VLLM_V2_CONSUMER_PROFILE, NATIVE_REMOTE_VLLM_V3_CONSUMER_PROFILE, NATIVE_REMOTE_VLLM_V4_CONSUMER_PROFILE])
 def test_native_commentary_has_no_action_authority_and_replays_verbatim(tmp_path, profile):
     class CommentaryConsumer(NativeSyntheticConsumer):
         commentary = "I will retrieve now. This prose is not a final answer or evidence."
@@ -268,3 +283,72 @@ def test_v3_completion_guidance_is_append_only_and_preserves_old_policy_identiti
     assert identity["completion_guidance"]["sha256"] == hashlib.sha256(NATIVE_COMPLETION_GUIDANCE.encode()).hexdigest()
     assert "When those completion conditions hold" in NATIVE_COMPLETION_GUIDANCE
     assert "a rejected or failed operation is not a success" in NATIVE_COMPLETION_GUIDANCE
+
+
+def test_v4_reasoning_is_bound_metadata_with_exact_template_alias():
+    message = {"role": "assistant", "content": "Checking records.", "reasoning": "An observation, not authority.",
+        "tool_calls": [{"id": "native-r", "type": "function", "function": {"name": "retrieve", "arguments": '{"query":"x","top_k":1}'}}]}
+    profile = NATIVE_REMOTE_VLLM_V4_CONSUMER_PROFILE
+    text = native_action_text(message, consumer_profile=profile)
+    assert parse_agent_action(text)["arguments"] == {"query": "x", "top_k": 1}
+    feedback = native_feedback_messages(message, "retrieve", {"query": "x", "top_k": 1}, "{}", consumer_profile=profile)
+    assert feedback[0]["reasoning"] == feedback[0]["reasoning_content"] == message["reasoning"]
+    assert feedback[0]["content"] == message["content"] and feedback[1]["tool_call_id"] == "native-r"
+    assert "reasoning_content" not in message
+    with pytest.raises(AgentEpisodeError):
+        native_action_text(message, consumer_profile=NATIVE_REMOTE_VLLM_V3_CONSUMER_PROFILE)
+    with pytest.raises(AgentEpisodeError):
+        native_action_text({**message, "reasoning_content": "forged"}, consumer_profile=profile)
+    assert native_system_policy(consumer_profile=profile) == native_system_policy(consumer_profile=NATIVE_REMOTE_VLLM_V3_CONSUMER_PROFILE) + "\n\n" + NATIVE_TASK_STEP_GUIDANCE
+
+
+def test_v4_reasoning_feedback_roundtrips_full_request_contract(tmp_path):
+    class ReasoningConsumer(NativeSyntheticConsumer):
+        profile = NATIVE_REMOTE_VLLM_V4_CONSUMER_PROFILE
+        reasoning = "Consider the authentic returned state."
+    report, consumer, _ = validation_case(tmp_path, consumer_profile=ReasoningConsumer.profile, consumer_factory=ReasoningConsumer)
+    assert report["terminal"]["success"]
+    history = consumer.requests[1]["messages"][-2]
+    assert history["reasoning"] == history["reasoning_content"] == ReasoningConsumer.reasoning
+    assert consumer.requests[1]["message_policy"] == "native-reasoning-metadata-v1"
+    validate_episode_events(report["events"])
+    tampered = deepcopy(report["events"])
+    event = [e for e in tampered if e["kind"] == "model_requested"][1]
+    event["payload"]["request"]["messages"][-2]["reasoning_content"] = "forged"
+    with pytest.raises(AgentEpisodeError):
+        validate_episode_events(tampered)
+
+
+def test_reasoning_request_opt_in_is_explicit_assistant_only_and_digest_bound():
+    from daystrom_dml.contracts.model_input import ModelInputRequest, ModelInputError
+    base = {"messages": [{"role": "assistant", "content": "", "reasoning": "r", "reasoning_content": "r"}], "tools": [], "output_reserved_tokens": 4}
+    with pytest.raises(ModelInputError):
+        ModelInputRequest.from_payload(base)
+    enabled = {**base, "message_policy": "native-reasoning-metadata-v1"}
+    with pytest.raises(ModelInputError):
+        ModelInputRequest.from_payload(enabled)
+    with pytest.raises(ModelInputError):
+        ModelInputRequest.from_json(canonical_json(enabled))
+    assert ModelInputRequest.from_payload(enabled, allow_native_reasoning=True).to_payload() == enabled
+    assert ModelInputRequest.from_json(canonical_json(enabled), allow_native_reasoning=True).to_payload() == enabled
+    for role in ("user", "system", "tool"):
+        invalid = deepcopy(enabled)
+        invalid["messages"][0]["role"] = role
+        with pytest.raises(ModelInputError):
+            ModelInputRequest.from_payload(invalid, allow_native_reasoning=True)
+    plain = {"messages": [{"role": "assistant", "content": ""}], "tools": [], "output_reserved_tokens": 4}
+    assert ModelInputRequest.from_payload(plain).to_payload() == plain
+    assert ModelInputRequest.from_payload(plain).request_digest != ModelInputRequest.from_payload({**plain, "message_policy": enabled["message_policy"]}, allow_native_reasoning=True).request_digest
+
+
+@pytest.mark.parametrize("profile", [NATIVE_REMOTE_VLLM_CONSUMER_PROFILE, NATIVE_REMOTE_VLLM_V2_CONSUMER_PROFILE, NATIVE_REMOTE_VLLM_V3_CONSUMER_PROFILE])
+def test_old_native_profiles_reject_forged_reasoning_request_marker(tmp_path, profile):
+    class OldConsumer(NativeSyntheticConsumer):
+        pass
+    OldConsumer.profile = profile
+    report, _, _ = validation_case(tmp_path, consumer_profile=profile, consumer_factory=OldConsumer)
+    events = deepcopy(report["events"])
+    event = next(e for e in events if e["kind"] == "model_requested")
+    event["payload"]["request"]["message_policy"] = "native-reasoning-metadata-v1"
+    with pytest.raises(AgentEpisodeError):
+        validate_episode_events(events)

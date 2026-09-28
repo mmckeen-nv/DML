@@ -171,3 +171,29 @@ V1 and v2 policy identities and replay behavior remain intact. The reused four
 synthetic cases are development regression fixtures, not held-out evidence.
 Prior failed attempts remain retained; a new declared run is a new candidate
 qualification attempt, not an automatic retry or reinterpretation.
+
+
+`nemotron-remote-vllm-native-tools-v4` adds generic guidance that an answer
+being available does not satisfy separately requested operations or verification.
+It separately admits strictly bound native reasoning as non-authoritative
+metadata, with the original final JSON and tool validation unchanged. API
+reasoning is retained in raw evidence and aliased exactly to the pinned template's
+`reasoning_content` history field; it never becomes final content or tool arguments.
+V1–v3 identities remain preserved.
+
+Synthetic declaration v3 corrects the dependency fixture: ten directory pointers
+and a separate destination are predeclared, with a real gateway preflight on an
+isolated fixture before generation. The first declared lookup must expose the
+key and exclude the destination/answer; the destination lookup must succeed.
+Actual model retrieval results remain unchanged. Qualification additionally
+requires no earlier destination/answer exposure before the key-dependent call.
+A failed separation check aborts generation; no model-result filtering, forced
+queries, extra model budget or automatic retry is introduced.
+
+The dependency fixture declares its construction against the existing synthetic
+16-bin lexical embedder: the destination key and answer occupy a bin absent from
+the initial lookup query. This is controlled fixture construction, not evidence
+of production retrieval quality or selection based on model outcomes. Actual
+model-query leakage still disqualifies dependency evidence. Native v4 alone opts
+into the digest-bound `native-reasoning-metadata-v1` request policy; old requests
+retain their exact default schema, and other profiles reject that marker.

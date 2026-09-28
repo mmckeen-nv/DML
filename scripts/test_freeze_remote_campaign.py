@@ -22,7 +22,7 @@ def test_profile_is_selected_from_manifest_with_legacy_default(freeze):
         freeze.selected_profile({'consumer_profile':JSON_CONSUMER_PROFILE},CONSUMER_PROFILE)
 
 
-@pytest.mark.parametrize('profile',['nemotron-remote-vllm-action-v1','nemotron-remote-vllm-action-json-v2','nemotron-remote-vllm-native-tools-v1','nemotron-remote-vllm-native-tools-v2','nemotron-remote-vllm-native-tools-v3'])
+@pytest.mark.parametrize('profile',['nemotron-remote-vllm-action-v1','nemotron-remote-vllm-action-json-v2','nemotron-remote-vllm-native-tools-v1','nemotron-remote-vllm-native-tools-v2','nemotron-remote-vllm-native-tools-v3','nemotron-remote-vllm-native-tools-v4'])
 def test_selected_profile_and_typed_limits_survive_real_cli(freeze,tmp_path,monkeypatch,profile):
     from dataclasses import asdict
     from scripts import agent_episodes
@@ -60,7 +60,7 @@ def test_runtime_attestation_binds_manifest_and_evidence(freeze,tmp_path):
         freeze.runtime_attestation(path,expected,manifest,tmp_path)
 
 
-@pytest.mark.parametrize("native",[None,"nemotron-remote-vllm-native-tools-v1","nemotron-remote-vllm-native-tools-v2","nemotron-remote-vllm-native-tools-v3"])
+@pytest.mark.parametrize("native",[None,"nemotron-remote-vllm-native-tools-v1","nemotron-remote-vllm-native-tools-v2","nemotron-remote-vllm-native-tools-v3","nemotron-remote-vllm-native-tools-v4"])
 def test_full_freeze_uses_selected_identity_and_tracks_renderer_harness(freeze,tmp_path,monkeypatch,native):
     from daystrom_dml.services import remote_vllm_action_input as adapter
     candidate=tmp_path/'candidate'

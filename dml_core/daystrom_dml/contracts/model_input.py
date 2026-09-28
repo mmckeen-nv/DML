@@ -109,11 +109,24 @@ def _keys(value, required, optional=()):
         raise ModelInputError("Missing or unsupported exact-input fields")
 
 
-def _messages(messages):
+NATIVE_REASONING_MESSAGE_POLICY = "native-reasoning-metadata-v1"
+
+
+def _messages(messages, *, message_policy=None):
+    if message_policy not in (None, NATIVE_REASONING_MESSAGE_POLICY):
+        raise ModelInputError("Unknown message metadata policy")
     if type(messages) is not list or not 1 <= len(messages) <= MAX_MESSAGES:
         raise ModelInputError("Expected between one and 1024 text messages")
     for message in messages:
-        _keys(message, ("role", "content"), ("name", "tool_call_id", "tool_calls"))
+        _keys(message, ("role", "content"), ("name", "tool_call_id", "tool_calls", *(("reasoning", "reasoning_content") if message_policy else ())))
+        if any(key in message for key in ("reasoning", "reasoning_content")):
+            if message["role"] != "assistant":
+                raise ModelInputError("Reasoning metadata is assistant-only")
+            for key in ("reasoning", "reasoning_content"):
+                if message.get(key) is not None:
+                    _text(message[key])
+            if message.get("reasoning") != message.get("reasoning_content"):
+                raise ModelInputError("Reasoning history aliases must match exactly")
         role = message["role"]
         if type(role) is not str or role not in {"system", "user", "assistant", "tool"}:
             raise ModelInputError("Unsupported text message role")
@@ -191,38 +204,41 @@ class ModelInputRequest:
     messages_json: bytes
     tools_json: bytes
     output_reserved_tokens: int
+    message_policy: str | None = None
 
     def __post_init__(self):
         self.validate()
 
     @classmethod
-    def from_payload(cls, payload):
-        _keys(payload, ("messages", "output_reserved_tokens"), ("tools",))
+    def from_payload(cls, payload, *, allow_native_reasoning=False):
+        _keys(payload, ("messages", "output_reserved_tokens"), ("tools", "message_policy") if allow_native_reasoning else ("tools",))
         _json_value(payload)
-        _messages(payload["messages"])
+        _messages(payload["messages"], message_policy=payload.get("message_policy"))
         tools = payload.get("tools", [])
         _tools(tools)
-        return cls(_canonical(payload["messages"]), _canonical(tools), payload["output_reserved_tokens"])
+        return cls(_canonical(payload["messages"]), _canonical(tools), payload["output_reserved_tokens"], payload.get("message_policy"))
 
     @classmethod
-    def from_json(cls, payload: bytes):
-        return cls.from_payload(_decode(payload))
+    def from_json(cls, payload: bytes, *, allow_native_reasoning=False):
+        return cls.from_payload(_decode(payload), allow_native_reasoning=allow_native_reasoning)
 
     def validate(self):
         _integer(self.output_reserved_tokens, minimum=1)
         messages, tools = _decode(self.messages_json), _decode(self.tools_json)
-        _messages(messages)
+        _messages(messages, message_policy=self.message_policy)
         _tools(tools)
         if _canonical(messages) != self.messages_json or _canonical(tools) != self.tools_json:
             raise ModelInputError("Request bytes must be canonical JSON")
         if len(_canonical({"messages": messages, "tools": tools,
-                           "output_reserved_tokens": self.output_reserved_tokens})) > MAX_REQUEST_BYTES:
+                           "output_reserved_tokens": self.output_reserved_tokens,
+                           **({"message_policy": self.message_policy} if self.message_policy is not None else {})})) > MAX_REQUEST_BYTES:
             raise ModelInputError("Exact-input request exceeds 1 MiB")
 
     def to_payload(self):
         self.validate()
         return {"messages": _decode(self.messages_json), "tools": _decode(self.tools_json),
-                "output_reserved_tokens": self.output_reserved_tokens}
+                "output_reserved_tokens": self.output_reserved_tokens,
+                **({"message_policy": self.message_policy} if self.message_policy is not None else {})}
 
     @property
     def messages(self):
