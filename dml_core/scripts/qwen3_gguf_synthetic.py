@@ -27,7 +27,7 @@ from daystrom_dml.services.qwen3_gguf_action_input import (
 
 from daystrom_dml.contracts.agent_episode import (
     QWEN3_GGUF_ARM64_CONSUMER_PROFILE as CONSUMER_PROFILE,
-    QWEN3_GGUF_CONSUMER_PROFILES,
+    QWEN3_GGUF_ALL_CONSUMER_PROFILES,
 )
 
 SCHEMA = 'dml-qwen3-gguf-synthetic-qualification-v1'
@@ -80,7 +80,7 @@ def prepare_suite(path, *, identity, limits, consumer_profile=CONSUMER_PROFILE):
     """Create secrets before any model call, with none in the answer-bearing prompt."""
     if type(limits) is not EpisodeLimits or canonical_json(asdict(limits)) != canonical_json(QUALIFICATION_LIMITS):
         raise ValueError('Use the explicit unchanged episode limits')
-    if consumer_profile not in QWEN3_GGUF_CONSUMER_PROFILES:
+    if consumer_profile not in QWEN3_GGUF_ALL_CONSUMER_PROFILES:
         raise ValueError('Only the declared Qwen GGUF profiles are supported')
     cases = []
     for index, case_id in enumerate(CASE_IDS):
@@ -155,7 +155,7 @@ def validate_suite(suite):
     body = {key: value for key, value in suite.items() if key != 'suite_digest'}
     if suite.get('schema_version') != SCHEMA or suite.get('suite_digest') != _digest(body):
         raise ValueError('Synthetic suite digest/version mismatch')
-    if (suite['consumer_profile'] not in QWEN3_GGUF_CONSUMER_PROFILES
+    if (suite['consumer_profile'] not in QWEN3_GGUF_ALL_CONSUMER_PROFILES
             or [case['id'] for case in suite['cases']] != list(CASE_IDS)
             or canonical_json(suite['limits']) != canonical_json(QUALIFICATION_LIMITS)
             or suite['sampling'] != sampling_policy_identity()

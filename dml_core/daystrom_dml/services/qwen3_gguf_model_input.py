@@ -89,8 +89,8 @@ class LocalQwen3GGUFInputConsumer(LocalTransformersInputConsumer):
             self._runtime_versions = runtime_versions()
             if self._runtime_versions != dict(self._snapshot.manifest.runtime_versions):
                 raise ModelInputError('GGUF runtime versions differ from the verified snapshot')
-            self._backend_identity = backend_identity()
-            self._backend = _GGUFBackend(self._snapshot.path / 'model.gguf', self._vocab_size)
+            self._backend_identity = self._active_backend_identity()
+            self._backend = self._create_backend(self._snapshot.path / 'model.gguf', self._vocab_size)
             self._backend.verify_tokenizer(self._tokenizer)
             self._snapshot.validate_integrity()
             self._runtime_digest = self._fingerprint()
@@ -103,6 +103,12 @@ class LocalQwen3GGUFInputConsumer(LocalTransformersInputConsumer):
             self._snapshot_context.__exit__(None, None, None)
             raise
 
+    def _active_backend_identity(self):
+        return backend_identity()
+
+    def _create_backend(self, path, vocab_size):
+        return _GGUFBackend(path, vocab_size)
+
     def _fingerprint(self):
         tokenizer = self._tokenizer
         return hashlib.sha256(_json_bytes({
@@ -112,7 +118,7 @@ class LocalQwen3GGUFInputConsumer(LocalTransformersInputConsumer):
             'tokenizer_template': tokenizer.chat_template,
             'tokenizer_window': tokenizer.model_max_length,
             'padding': tokenizer.padding_side, 'truncation': tokenizer.truncation_side,
-            'backend': backend_identity(), 'vocab_size': self._vocab_size,
+            'backend': self._active_backend_identity(), 'vocab_size': self._vocab_size,
             'template_options': {'add_generation_prompt': False},
         })).hexdigest()
 
@@ -187,6 +193,7 @@ class _GGUFBackend:
         params.load_mtp = False
         params.vocab_only = False
         params.check_tensors = True
+        self._configure_model_params(params, api)
         self._model = LlamaModel(path_model=str(path), params=params, verbose=False)
         self._params_bytes = bytes(params)
         self._model_pointer = ctypes.cast(self._model.model, ctypes.c_void_p).value
@@ -194,6 +201,9 @@ class _GGUFBackend:
         if self._model.n_vocab() != vocab_size:
             self.close()
             raise ModelInputError('GGUF output row count differs from HF configuration')
+
+    def _configure_model_params(self, params, api):
+        """CPU defaults are immutable unless an explicit separate backend overrides."""
 
     def verify_tokenizer(self, tokenizer):
         vocabulary = tokenizer.get_vocab()
@@ -249,6 +259,7 @@ class _GGUFRequest:
         params.offload_kqv = False
         params.op_offload = False
         params.embeddings = False
+        self._configure_context_params(params)
         try:
             self._context = LlamaContext(model=model, params=params, verbose=False)
             # llama.cpp may round allocation upward; the logical request bound is
@@ -261,6 +272,9 @@ class _GGUFRequest:
         except BaseException:
             self.close()
             raise
+
+    def _configure_context_params(self, params):
+        """CPU context defaults; explicit CUDA subclass owns its separate policy."""
 
     def __enter__(self):
         return self

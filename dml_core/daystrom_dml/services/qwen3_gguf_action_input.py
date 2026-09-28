@@ -11,7 +11,9 @@ from threading import Lock
 
 from ..contracts.model_input import CompiledModelInput, ModelInputError, ModelInputRequest
 from ..contracts.agent_episode import (
-    QWEN3_GGUF_CONSUMER_PROFILE, QWEN3_GGUF_ARM64_CONSUMER_PROFILE, QWEN3_GGUF_CONSUMER_PROFILES,
+    QWEN3_GGUF_CONSUMER_PROFILE, QWEN3_GGUF_ARM64_CONSUMER_PROFILE,
+    QWEN3_GGUF_CUDA_CONSUMER_PROFILE, QWEN3_GGUF_ALL_CONSUMER_PROFILES,
+    qwen3_gguf_completion_policy_identity,
     recovery_guidance_identity, initial_messages,
 )
 from .agent_action_grammar import (
@@ -70,17 +72,29 @@ def _arm64_platform():
 
 def constrained_identity(base_identity, *, consumer_profile):
     """Explicit architecture, unchanged grammar and inherited policy composition."""
-    if (consumer_profile not in QWEN3_GGUF_CONSUMER_PROFILES
+    if (consumer_profile not in QWEN3_GGUF_ALL_CONSUMER_PROFILES
             or re.fullmatch(r"dml-qwen3-gguf-model-input-runtime-v1:[0-9a-f]{64}", base_identity.runtime_identity) is None):
         raise ModelInputError("Qwen3 GGUF action profile requires its explicit profile and base runtime")
     policy = {"consumer_profile": consumer_profile, "base_runtime_identity": base_identity.runtime_identity,
               **policy_identity(), "inherited_guidance_policy": recovery_guidance_identity()}
     policy["sampling_policy"] = sampling_policy_identity()
-    policy["backend_identity"] = backend_identity()
+    if consumer_profile == QWEN3_GGUF_CUDA_CONSUMER_PROFILE:
+        from .qwen3_gguf_cuda_model_input import cuda_backend_identity
+        backend = cuda_backend_identity()
+        # The immutable CPU manifest remains artifact provenance, not active inference.
+        policy["base_runtime_identity"] = "dml-qwen3-gguf-cuda-model-input-runtime-v1:" + hashlib.sha256(
+            _json_bytes({"snapshot_provenance_identity": base_identity.to_payload(),
+                         "active_cuda_backend": backend})).hexdigest()
+        policy["completion_policy"] = qwen3_gguf_completion_policy_identity()
+        policy["backend_identity"] = backend
+    else:
+        policy["backend_identity"] = backend_identity()
     prefix = "dml-qwen3-gguf-action-runtime-v1:"
     if consumer_profile == ARM64_CONSUMER_PROFILE:
         policy["host_architecture"] = _arm64_platform()
         prefix = "dml-qwen3-gguf-arm64-action-runtime-v1:"
+    if consumer_profile == QWEN3_GGUF_CUDA_CONSUMER_PROFILE:
+        prefix = "dml-qwen3-gguf-cuda-action-runtime-v1:"
     return replace(base_identity, runtime_identity=prefix + hashlib.sha256(
         _json_bytes(policy)).hexdigest())
 
@@ -94,10 +108,13 @@ class LocalQwen3GGUFActionInputConsumer(LocalQwen3GGUFInputConsumer):
     """
 
     def __init__(self, snapshot_directory, *, consumer_profile):
-        if consumer_profile not in QWEN3_GGUF_CONSUMER_PROFILES:
+        if consumer_profile not in QWEN3_GGUF_ALL_CONSUMER_PROFILES:
             raise ModelInputError("Unknown constrained action profile")
         if consumer_profile == ARM64_CONSUMER_PROFILE:
             _arm64_platform()
+        if consumer_profile == QWEN3_GGUF_CUDA_CONSUMER_PROFILE:
+            from .qwen3_gguf_cuda_model_input import cuda_backend_identity
+            cuda_backend_identity()
         self._consumer_profile = consumer_profile
         self._recovery_guidance = recovery_guidance_identity()
         self._grammar_policy = policy_identity()
@@ -111,6 +128,18 @@ class LocalQwen3GGUFActionInputConsumer(LocalQwen3GGUFInputConsumer):
         except BaseException:
             self.close()
             raise
+
+    def _active_backend_identity(self):
+        if self._consumer_profile == QWEN3_GGUF_CUDA_CONSUMER_PROFILE:
+            from .qwen3_gguf_cuda_model_input import cuda_backend_identity
+            return cuda_backend_identity()
+        return super()._active_backend_identity()
+
+    def _create_backend(self, path, vocab_size):
+        if self._consumer_profile == QWEN3_GGUF_CUDA_CONSUMER_PROFILE:
+            from .qwen3_gguf_cuda_model_input import _CUDAGGUFBackend
+            return _CUDAGGUFBackend(path, vocab_size)
+        return super()._create_backend(path, vocab_size)
 
     def _validate_runtime(self):
         super()._validate_runtime()

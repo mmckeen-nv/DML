@@ -63,3 +63,38 @@ def test_readiness_requires_the_reviewed_receipt_hash(tmp_path):
     with pytest.raises(ValueError, match="hash differs"):
         readiness_attestation(path, "0" * 64, commit="a" * 40, profile="test-profile",
             identity={"runtime": "test-runtime"}, snapshots={"model.gguf": "b" * 64})
+
+
+@pytest.mark.parametrize("fault", [None, "missing", "unbound", "not_gpu", "wrong_source", "wrong_identity"])
+def test_cuda_readiness_requires_actual_bound_gpu_admission(tmp_path, fault):
+    receipt, _ = declaration(tmp_path)
+    profile = "qwen3-8b-gguf-cuda-action-json-completion-v1"
+    receipt['consumer_profile'] = profile
+    gpu = {'passed': True, 'gpu_inference_verified': True, 'source_commit': receipt['source_commit'],
+        'consumer_profile': profile, 'model_identity': receipt['model_identity']}
+    if fault == 'not_gpu':
+        gpu['gpu_inference_verified'] = False
+    elif fault == 'wrong_source':
+        gpu['source_commit'] = 'c' * 40
+    elif fault == 'wrong_identity':
+        gpu['model_identity'] = {'runtime': 'cpu-runtime'}
+    path = tmp_path / 'gpu-admission.json'
+    path.write_text(json.dumps(gpu))
+    gpu_hash = hashlib.sha256(path.read_bytes()).hexdigest()
+    receipt['gpu_admission_qualified'] = True
+    receipt['gpu_admission_evidence'] = {'path': str(path), 'sha256': gpu_hash}
+    receipt['evidence_files'][str(path)] = gpu_hash
+    if fault == 'missing':
+        receipt.pop('gpu_admission_qualified')
+    elif fault == 'unbound':
+        receipt['evidence_files'].pop(str(path))
+    ready = tmp_path / 'readiness.json'
+    ready.write_text(json.dumps(receipt))
+    kwargs = dict(commit=receipt['source_commit'], profile=profile,
+        identity=receipt['model_identity'], snapshots=receipt['snapshot_sha256'])
+    if fault is None:
+        _, files = readiness_attestation(ready, hashlib.sha256(ready.read_bytes()).hexdigest(), **kwargs)
+        assert files[str(path)] == gpu_hash
+    else:
+        with pytest.raises(ValueError, match='GPU'):
+            readiness_attestation(ready, hashlib.sha256(ready.read_bytes()).hexdigest(), **kwargs)

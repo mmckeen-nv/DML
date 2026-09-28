@@ -34,6 +34,8 @@ QWEN2_BF16_SAMPLED_CONSUMER_PROFILE = "qwen2-action-json-sampled-bf16-v1"
 QWEN3_GGUF_CONSUMER_PROFILE = "qwen3-8b-gguf-action-json-sampled-v1"
 QWEN3_GGUF_ARM64_CONSUMER_PROFILE = "qwen3-8b-gguf-arm64-action-json-sampled-v1"
 QWEN3_GGUF_CONSUMER_PROFILES = (QWEN3_GGUF_CONSUMER_PROFILE, QWEN3_GGUF_ARM64_CONSUMER_PROFILE)
+QWEN3_GGUF_CUDA_CONSUMER_PROFILE = "qwen3-8b-gguf-cuda-action-json-completion-v1"
+QWEN3_GGUF_ALL_CONSUMER_PROFILES = (*QWEN3_GGUF_CONSUMER_PROFILES, QWEN3_GGUF_CUDA_CONSUMER_PROFILE)
 REMOTE_VLLM_CONSUMER_PROFILE = "nemotron-remote-vllm-action-v1"
 REMOTE_VLLM_JSON_CONSUMER_PROFILE = "nemotron-remote-vllm-action-json-v2"
 NATIVE_REMOTE_VLLM_CONSUMER_PROFILE = "nemotron-remote-vllm-native-tools-v1"
@@ -47,7 +49,7 @@ NATIVE_REASONING_CONSUMER_PROFILES = (NATIVE_REMOTE_VLLM_V4_CONSUMER_PROFILE, *N
 NATIVE_REMOTE_VLLM_CONSUMER_PROFILES = (NATIVE_REMOTE_VLLM_CONSUMER_PROFILE, NATIVE_REMOTE_VLLM_V2_CONSUMER_PROFILE, NATIVE_REMOTE_VLLM_V3_CONSUMER_PROFILE, NATIVE_REMOTE_VLLM_V4_CONSUMER_PROFILE, *NATIVE_RECOVERY_CONSUMER_PROFILES)
 REMOTE_VLLM_CONSUMER_PROFILES = (REMOTE_VLLM_CONSUMER_PROFILE, REMOTE_VLLM_JSON_CONSUMER_PROFILE, *NATIVE_REMOTE_VLLM_CONSUMER_PROFILES)
 EPISODE_VALIDATION_PROFILES = (*VALIDATION_PROFILES, *QWEN3_CONSUMER_PROFILES,
-                               QWEN2_BF16_SAMPLED_CONSUMER_PROFILE, *QWEN3_GGUF_CONSUMER_PROFILES, *REMOTE_VLLM_CONSUMER_PROFILES)
+                               QWEN2_BF16_SAMPLED_CONSUMER_PROFILE, *QWEN3_GGUF_ALL_CONSUMER_PROFILES, *REMOTE_VLLM_CONSUMER_PROFILES)
 RECOVERY_GUIDANCE = (
     "If a tool response reports a validation error and states that no operation was executed, "
     "the proposed action was rejected without performing it. This response does not complete "
@@ -188,6 +190,32 @@ def recovery_guidance_identity():
                 (AGENT_POLICY + "\n\n" + RECOVERY_GUIDANCE).encode("utf-8")).hexdigest(),
             "placement": "first_system_message", "join": "\n\n",
             "base_validation_policy": execution_policy_identity()}
+
+
+QWEN3_GGUF_COMPLETION_GUIDANCE = (
+    "Before choosing an action, distinguish evidence for an answer from completion of the requested work. "
+    "A retrieval establishes only what its returned records show. A missing required record has not been "
+    "shown absent merely because it was not returned; limit_reached reports a reached cap, not completeness. "
+    "If an operation still lacks required records or references, choose a query or limit that can obtain them "
+    "rather than repeat an unchanged incomplete lookup. For a task that requests a memory change, finding "
+    "or citing the desired replacement does not complete that change. Keep that task unfinished until the "
+    "appropriate allowed operation succeeds and any task-requested verification has been observed. Only "
+    "then give the final claims supported by observed evidence. If the task requests readout only, do not "
+    "introduce a mutation. Select each action yourself within the existing limits; never invent success, "
+    "references or evidence."
+)
+
+
+def qwen3_gguf_completion_policy_identity():
+    """Versioned salience hypothesis; no authority or acceptance gate changes."""
+    system = AGENT_POLICY + "\n\n" + RECOVERY_GUIDANCE + "\n\n" + QWEN3_GGUF_COMPLETION_GUIDANCE
+    return {"schema_version": "dml-qwen3-gguf-completion-guidance-v1",
+            "consumer_profile": QWEN3_GGUF_CUDA_CONSUMER_PROFILE,
+            "base_recovery_policy": recovery_guidance_identity(),
+            "guidance": QWEN3_GGUF_COMPLETION_GUIDANCE,
+            "guidance_sha256": hashlib.sha256(QWEN3_GGUF_COMPLETION_GUIDANCE.encode()).hexdigest(),
+            "system_message_sha256": hashlib.sha256(system.encode()).hexdigest(),
+            "placement": "append_first_system_message", "join": "\n\n"}
 
 
 NATIVE_COMPLETION_GUIDANCE = (
@@ -710,7 +738,9 @@ def initial_messages(prompt, prior_context=None, *, consumer_profile="gpt2-v1"):
     execution_protocol_for_profile(consumer_profile)
     policy = AGENT_POLICY + "\n\n" + RECOVERY_GUIDANCE if consumer_profile in (
         RECOVERY_CONSUMER_PROFILE, *QWEN3_CONSUMER_PROFILES, QWEN2_BF16_SAMPLED_CONSUMER_PROFILE,
-        *QWEN3_GGUF_CONSUMER_PROFILES, *REMOTE_VLLM_CONSUMER_PROFILES) else AGENT_POLICY
+        *QWEN3_GGUF_ALL_CONSUMER_PROFILES, *REMOTE_VLLM_CONSUMER_PROFILES) else AGENT_POLICY
+    if consumer_profile == QWEN3_GGUF_CUDA_CONSUMER_PROFILE:
+        policy += "\n\n" + QWEN3_GGUF_COMPLETION_GUIDANCE
     if consumer_profile in NATIVE_REMOTE_VLLM_CONSUMER_PROFILES:
         policy = native_system_policy(consumer_profile=consumer_profile)
     messages = [{"role": "system", "content": policy}]
@@ -1198,6 +1228,7 @@ def validate_episode_events(events, *, require_terminal=True):
                           else "dml-qwen3-action-runtime-v1" if selected_profile == QWEN3_CONSUMER_PROFILE
                           else "dml-qwen3-action-runtime-v2" if selected_profile == QWEN3_SAMPLED_CONSUMER_PROFILE
                           else "dml-qwen2-bf16-action-runtime-v1" if selected_profile == QWEN2_BF16_SAMPLED_CONSUMER_PROFILE
+                          else "dml-qwen3-gguf-cuda-action-runtime-v1" if selected_profile == QWEN3_GGUF_CUDA_CONSUMER_PROFILE
                           else "dml-qwen3-gguf-arm64-action-runtime-v1" if selected_profile == QWEN3_GGUF_ARM64_CONSUMER_PROFILE
                           else "dml-qwen3-gguf-action-runtime-v1" if selected_profile == QWEN3_GGUF_CONSUMER_PROFILE
                           else "dml-qwen-action-runtime-" + expected_version)
@@ -1206,7 +1237,7 @@ def validate_episode_events(events, *, require_terminal=True):
                         or version == EVENT_VERSION and runtime.startswith(
                             ("dml-qwen-action-runtime-v2:", "dml-qwen-action-runtime-v3:",
                              "dml-qwen3-action-runtime-v1:", "dml-qwen3-action-runtime-v2:",
-                             "dml-qwen2-bf16-action-runtime-v1:", "dml-qwen3-gguf-action-runtime-v1:", "dml-qwen3-gguf-arm64-action-runtime-v1:",
+                             "dml-qwen2-bf16-action-runtime-v1:", "dml-qwen3-gguf-action-runtime-v1:", "dml-qwen3-gguf-arm64-action-runtime-v1:", "dml-qwen3-gguf-cuda-action-runtime-v1:",
                              "dml-remote-vllm-action-runtime-v1:", "dml-remote-vllm-action-runtime-v2:",
                              "dml-remote-vllm-native-tools-runtime-v1:", "dml-remote-vllm-native-tools-runtime-v2:", "dml-remote-vllm-native-tools-runtime-v3:", "dml-remote-vllm-native-tools-runtime-v4:",
                              "dml-remote-vllm-native-tools-runtime-v5:", "dml-remote-vllm-native-tools-runtime-v6:"))):

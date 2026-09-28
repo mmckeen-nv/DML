@@ -393,3 +393,59 @@ def test_prepare_cli_uses_actual_local_consumer_identity_interface(tmp_path, mon
     diagnostic.main()
     assert initialized == [('not-loaded', diagnostic.CONSUMER_PROFILE)]
     assert json.loads(output.read_text())['model_identity'] == {'interface_control': True}
+
+
+def test_gpu_suite_keeps_four_fresh_cases_and_original_limits(tmp_path):
+    from daystrom_dml.contracts.agent_episode import QWEN3_GGUF_CUDA_CONSUMER_PROFILE
+    prepared = diagnostic.prepare_suite(tmp_path / 'gpu-suite.json', identity={'gpu': 'test-only'},
+        limits=EpisodeLimits(**diagnostic.QUALIFICATION_LIMITS), consumer_profile=QWEN3_GGUF_CUDA_CONSUMER_PROFILE)
+    diagnostic.validate_suite(prepared)
+    assert [case['id'] for case in prepared['cases']] == list(diagnostic.CASE_IDS)
+    assert prepared['limits'] == diagnostic.QUALIFICATION_LIMITS
+    assert prepared['run_policy']['all_turn_json_grammar'] is True
+    assert prepared['run_policy']['automatic_retry'] is False
+    assert prepared['run_policy']['forced_tool_choice'] is False
+    assert all(case['expected']['value'] not in case['prompt'] for case in prepared['cases'])
+
+
+def test_supersession_cap_control_is_real_feedback_without_completeness_claim(tmp_path, suite):
+    """Controlled queries test feedback only; never prescribe the live model's query."""
+    import json
+    from daystrom_dml.contracts.agent_episode import EXECUTION_PROTOCOL_V2
+    from daystrom_dml.services.agent_episode import _prepare_fixture
+    from daystrom_dml.services.episode_tools import SelectedProfileEpisodeTools
+    case = suite['cases'][2]
+    scenario = {'scope': case['scope'], 'seeds': case['seeds'], 'setup': []}
+    adapter, fixture = _prepare_fixture(tmp_path / 'cap-control', scenario, 'cap-control')
+    try:
+        toolbox = SelectedProfileEpisodeTools(adapter, scope=case['scope'], episode_id='cap-control',
+            seed_receipts=fixture['seed_receipts'], allowed_tools=('retrieve', 'supersede'),
+            effective_time=suite['effective_time'], execution_protocol=EXECUTION_PROTOCOL_V2)
+        shown = []
+        for index, cap in enumerate((1, 10)):
+            prepared = toolbox.prepare('retrieve', {'query': case['expected']['key'], 'top_k': cap}, call_id='cap-' + str(index))
+            shown.append(json.loads(toolbox.execute(prepared)[1]))
+        assert shown[0]['limit_reached'] is True and shown[0]['returned_count'] == 1
+        assert shown[0]['requested_top_k'] == 1
+        assert shown[1]['limit_reached'] is False
+        assert shown[1]['returned_count'] == len(shown[1]['records']) <= 2
+        assert shown[1]['requested_top_k'] == 10
+        # A larger cap does not bypass semantic similarity filtering; a nonempty
+        # filtered result never invokes recent-memory fallback. Use only wording
+        # available in the task to obtain the needed distinct references.
+        prepared = toolbox.prepare('retrieve', {'query': case['prompt'], 'top_k': 10}, call_id='task-topic')
+        topic = json.loads(toolbox.execute(prepared)[1])
+        refs = {record['id']: record['record_ref'] for record in topic['records']}
+        assert set(refs) == {record['id'] for record in fixture['seed_records'].values()}
+        prepared = toolbox.prepare('supersede', {
+            'record_ref': refs[fixture['seed_records']['stale']['id']],
+            'replacement_ref': refs[fixture['seed_records']['current']['id']],
+            'reason': 'scripted nonmodel reachability control'}, call_id='controlled-mutation')
+        result, _ = toolbox.execute(prepared)
+        assert result['receipt']['result']['memory']['id'] == fixture['seed_records']['stale']['id']
+        prepared = toolbox.prepare('retrieve', {'query': case['prompt'], 'top_k': 10}, call_id='controlled-readback')
+        readback = json.loads(toolbox.execute(prepared)[1])
+        assert fixture['seed_records']['current']['id'] in {r['id'] for r in readback['records']}
+        assert set(shown[0]) == set(shown[1]) == {'records', 'requested_top_k', 'returned_count', 'limit_reached'}
+    finally:
+        adapter.close()

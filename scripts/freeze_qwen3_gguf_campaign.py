@@ -35,6 +35,20 @@ def readiness_attestation(path, expected_sha256, *, commit, profile, identity, s
         if not evidence.is_absolute() or digest(evidence) != expected:
             raise ValueError("Readiness evidence changed")
         files[str(evidence)] = expected
+    if profile == "qwen3-8b-gguf-cuda-action-json-completion-v1":
+        gpu = receipt.get("gpu_admission_evidence")
+        if (receipt.get("gpu_admission_qualified") is not True or type(gpu) is not dict
+                or set(gpu) != {"path", "sha256"}
+                or type(gpu.get("path")) is not str or type(gpu.get("sha256")) is not str
+                or files.get(gpu.get("path")) != gpu.get("sha256")):
+            raise ValueError("CUDA readiness requires bound GPU admission evidence")
+        admission = json.loads(Path(gpu["path"]).read_bytes())
+        if (admission.get("passed") is not True
+                or admission.get("gpu_inference_verified") is not True
+                or admission.get("source_commit") != commit
+                or admission.get("consumer_profile") != profile
+                or admission.get("model_identity") != identity):
+            raise ValueError("GPU admission does not qualify this exact candidate")
     return {"path": str(path), "sha256": expected_sha256}, files
 
 
@@ -52,14 +66,14 @@ def main(argv=None):
         raise ValueError("Freeze requires a clean exact-source checkout")
     commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=source, text=True).strip()
     sys.path.insert(0, str(source / "dml_core"))
-    from daystrom_dml.contracts.agent_episode import QWEN3_GGUF_CONSUMER_PROFILES, execution_protocol_for_profile
+    from daystrom_dml.contracts.agent_episode import QWEN3_GGUF_ALL_CONSUMER_PROFILES, execution_protocol_for_profile
     from daystrom_dml.services.agent_episode import EpisodeLimits
     from daystrom_dml.services.episode_verifiers import load_episode_corpus
     from daystrom_dml.services.qwen3_gguf_action_input import LocalQwen3GGUFActionInputConsumer
     from scripts.agent_campaign_evidence import GATES, SPEC_VERSION_V2, _digest
     from scripts.agent_episodes import _source_digests
     profile = args.consumer_profile
-    if profile not in QWEN3_GGUF_CONSUMER_PROFILES:
+    if profile not in QWEN3_GGUF_ALL_CONSUMER_PROFILES:
         raise ValueError("Freeze requires an explicit GGUF profile")
     bundle, run = root / "snapshot", root / "campaign-once"
     temporary = root / "tmp"
@@ -82,6 +96,8 @@ def main(argv=None):
         "dml_core/daystrom_dml/services/qwen3_gguf_action_input.py",
         "dml_core/daystrom_dml/services/qwen3_gguf_model_input.py",
         "dml_core/daystrom_dml/services/qwen3_gguf_model_snapshot.py"}
+    if profile == "qwen3-8b-gguf-cuda-action-json-completion-v1":
+        required.add("dml_core/daystrom_dml/services/qwen3_gguf_cuda_model_input.py")
     if not required <= sources.keys():
         raise ValueError("Required GGUF qualification sources are not tracked")
     runtime_files = {str(Path(sys.executable).resolve()): digest(Path(sys.executable).resolve()),

@@ -242,9 +242,13 @@ jobs:
           dml_core/daystrom_dml/services/qwen3_gguf_pretrained_snapshot.py
           dml_core/daystrom_dml/services/qwen3_gguf_model_input.py
           dml_core/daystrom_dml/services/qwen3_gguf_action_input.py
+          dml_core/daystrom_dml/services/qwen3_gguf_cuda_model_input.py
           dml_core/scripts/qwen3_gguf_synthetic.py
           dml_core/tests/test_qwen3_gguf_synthetic.py
           dml_core/tests/test_qwen3_gguf_arm64_profile.py
+          dml_core/tests/test_qwen3_gguf_completion_policy.py
+          dml_core/tests/test_qwen3_gguf_cuda_backend.py
+          dml_core/tests/test_qwen3_gguf_cuda_profile.py
           scripts/freeze_qwen3_gguf_campaign.py
           scripts/test_freeze_qwen3_gguf_campaign.py
           dml_core/scripts/agent_campaign_evidence.py
@@ -324,6 +328,9 @@ jobs:
           dml_core/tests/test_qwen3_gguf_input.py
           dml_core/tests/test_qwen3_gguf_profile.py
           dml_core/tests/test_qwen3_gguf_arm64_profile.py
+          dml_core/tests/test_qwen3_gguf_completion_policy.py
+          dml_core/tests/test_qwen3_gguf_cuda_backend.py
+          dml_core/tests/test_qwen3_gguf_cuda_profile.py
           dml_core/tests/test_qwen3_gguf_synthetic.py
           scripts/test_freeze_qwen3_gguf_campaign.py
           --junitxml=model-input-artifacts/model-input.xml
@@ -355,6 +362,7 @@ jobs:
               "test_qwen2_bf16_model_input", "test_qwen2_bf16_action_input", "test_qwen2_bf16_profile",
               "test_qwen3_gguf_model_snapshot", "test_qwen3_gguf_pretrained_snapshot", "test_qwen3_gguf_input", "test_qwen3_gguf_profile",
               "test_qwen3_gguf_arm64_profile", "test_qwen3_gguf_synthetic", "test_freeze_qwen3_gguf_campaign",
+              "test_qwen3_gguf_completion_policy", "test_qwen3_gguf_cuda_backend", "test_qwen3_gguf_cuda_profile",
           }
           observed_modules = set()
           for case in report.iter("testcase"):
