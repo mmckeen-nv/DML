@@ -143,7 +143,7 @@ def test_worker_exercises_real_gateway_verifier_and_durable_ack(tmp_path, suite,
             {'key': case['expected']['key'], 'value': case['expected']['value'], 'evidence_ids': [record['id']]}]}}
     class Synthetic(ValidationScriptedConsumer):
         profile = diagnostic.CONSUMER_PROFILE
-        identity = SimpleNamespace(to_payload=lambda: suite['model_identity'])
+        _identity = SimpleNamespace(to_payload=lambda: suite['model_identity'])
         def __init__(self, *args, **kwargs):
             super().__init__([
                 {'schema_version': 'dml-agent-action-v1', 'kind': 'tool', 'name': 'retrieve',
@@ -295,7 +295,7 @@ def test_legacy_same_record_rejection_is_model_owned_and_charged(tmp_path, suite
         return {'schema_version': 'dml-agent-action-v1', 'kind': 'final', 'answer': {'claims': [
             {'key': case['expected']['key'], 'value': case['expected']['value'], 'evidence_ids': [record['id']]}]}}
     class Synthetic(ValidationScriptedConsumer):
-        identity = SimpleNamespace(to_payload=lambda: suite['model_identity'])
+        _identity = SimpleNamespace(to_payload=lambda: suite['model_identity'])
         def __init__(self, *args, **kwargs):
             super().__init__([retrieve, invalid, valid, retrieve, final])
         def compile(self, *args, **kwargs):
@@ -366,3 +366,30 @@ def test_local_supervisor_retains_interruption_and_stops(tmp_path, suite, monkey
     assert any(event['kind'] == 'supervisor_interrupted' for event in events)
     with pytest.raises(FileExistsError):
         diagnostic.run_suite(tmp_path / 'suite.json', snapshot='unused', output=tmp_path / 'another-run')
+
+
+def test_prepare_cli_uses_actual_local_consumer_identity_interface(tmp_path, monkeypatch):
+    """Actual class/inheritance API, replacing only heavyweight initialization/close."""
+    import json
+    import sys
+    from types import SimpleNamespace
+    from daystrom_dml.services.qwen3_gguf_action_input import LocalQwen3GGUFActionInputConsumer
+    assert diagnostic.LocalQwen3GGUFActionInputConsumer is LocalQwen3GGUFActionInputConsumer
+    assert not hasattr(LocalQwen3GGUFActionInputConsumer, 'identity')
+    initialized = []
+    def initialize(self, snapshot_directory, *, consumer_profile):
+        from threading import RLock
+        initialized.append((snapshot_directory, consumer_profile))
+        self._lock = RLock()
+        self._closed = False
+        self._identity = SimpleNamespace(to_payload=lambda: {'interface_control': True})
+    monkeypatch.setattr(LocalQwen3GGUFActionInputConsumer, '__init__', initialize)
+    monkeypatch.setattr(LocalQwen3GGUFActionInputConsumer, 'close', lambda self: None)
+    limits = tmp_path / 'limits.json'
+    limits.write_text(json.dumps(diagnostic.QUALIFICATION_LIMITS))
+    output = tmp_path / 'prepared.json'
+    monkeypatch.setattr(sys, 'argv', ['qwen3_gguf_synthetic', 'prepare', '--snapshot', 'not-loaded',
+        '--consumer-profile', diagnostic.CONSUMER_PROFILE, '--limits-file', str(limits), '--output', str(output)])
+    diagnostic.main()
+    assert initialized == [('not-loaded', diagnostic.CONSUMER_PROFILE)]
+    assert json.loads(output.read_text())['model_identity'] == {'interface_control': True}

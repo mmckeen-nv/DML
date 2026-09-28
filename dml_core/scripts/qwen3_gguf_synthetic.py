@@ -229,7 +229,7 @@ def _worker(channel, *, snapshot, directory, suite, case, acknowledgement=None, 
             observed_events.append(event)
             publish(event)
         with LocalQwen3GGUFActionInputConsumer(snapshot, consumer_profile=suite['consumer_profile']) as consumer:
-            if consumer.identity.to_payload() != suite['model_identity']:
+            if consumer._identity.to_payload() != suite['model_identity']:
                 raise ValueError('Synthetic candidate identity changed')
             outcome = _run_loop(consumer, toolbox, task=case['task'],
                 limits=EpisodeLimits(**suite['limits']), emit=emit,
@@ -475,7 +475,7 @@ def main():
     args = parser.parse_args()
     if args.command == 'prepare':
         with LocalQwen3GGUFActionInputConsumer(args.snapshot, consumer_profile=args.consumer_profile) as consumer:
-            suite = prepare_suite(args.output, identity=consumer.identity.to_payload(),
+            suite = prepare_suite(args.output, identity=consumer._identity.to_payload(),
                                   limits=EpisodeLimits(**json.loads(Path(args.limits_file).read_text())),
                                   consumer_profile=args.consumer_profile)
         print(json.dumps({'suite_digest': suite['suite_digest'], 'cases': list(CASE_IDS)}))
