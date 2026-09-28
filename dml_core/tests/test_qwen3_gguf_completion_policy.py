@@ -6,7 +6,7 @@ import pytest
 
 from daystrom_dml.contracts.agent_episode import (
     AGENT_POLICY, RECOVERY_GUIDANCE, QWEN3_GGUF_COMPLETION_GUIDANCE,
-    QWEN3_GGUF_CONSUMER_PROFILES, QWEN3_GGUF_ALL_CONSUMER_PROFILES,
+    QWEN3_GGUF_CONSUMER_PROFILES, QWEN3_GGUF_ALL_CONSUMER_PROFILES, QWEN3_GGUF_CUDA_CONSUMER_PROFILES,
     QWEN3_GGUF_CUDA_CONSUMER_PROFILE, initial_messages,
     qwen3_gguf_completion_policy_identity, recovery_guidance_identity,
     parse_agent_action, AgentEpisodeError,
@@ -20,7 +20,7 @@ def test_historical_cpu_system_messages_and_policy_unchanged():
             {'role': 'system', 'content': historical}, {'role': 'user', 'content': 'unmodified task'}]
     assert recovery_guidance_identity()['system_message_sha256'] == hashlib.sha256(historical.encode()).hexdigest()
     assert QWEN3_GGUF_CUDA_CONSUMER_PROFILE not in QWEN3_GGUF_CONSUMER_PROFILES
-    assert QWEN3_GGUF_ALL_CONSUMER_PROFILES == (*QWEN3_GGUF_CONSUMER_PROFILES, QWEN3_GGUF_CUDA_CONSUMER_PROFILE)
+    assert QWEN3_GGUF_ALL_CONSUMER_PROFILES == (*QWEN3_GGUF_CONSUMER_PROFILES, *QWEN3_GGUF_CUDA_CONSUMER_PROFILES)
 
 
 def test_gpu_guidance_identity_binds_exact_appended_message_and_task():

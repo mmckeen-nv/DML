@@ -336,8 +336,14 @@ def assess_case(case, events):
 
 
 def run_suite(suite_path, *, snapshot, output):
+    return run_declared_suite(suite_path, snapshot=snapshot, output=output,
+        suite_validator=validate_suite, case_assessor=assess_case)
+
+
+def run_declared_suite(suite_path, *, snapshot, output, suite_validator, case_assessor):
+    """Shared durable producer; callers supply their separately versioned diagnostic contract."""
     suite = json.loads(Path(suite_path).read_text())
-    limits = validate_suite(suite)
+    limits = suite_validator(suite)
     output = Path(output)
     output.mkdir(parents=True, exist_ok=False)  # Never overwrite or resume a selective subset.
     _write_exclusive(Path(suite_path).with_suffix('.started.json'), {
@@ -423,7 +429,7 @@ def run_suite(suite_path, *, snapshot, output):
             except OSError:
                 unrun_reason = 'worker_scratch_cleanup_failed'
         # Every worker event required a durable ACK; no unacknowledged tail is used as accepted evidence.
-        summary = assess_case(case, events)
+        summary = case_assessor(case, events)
         summary.update(exitcode=process.exitcode, evidence_digest=previous)
         _write_exclusive(directory / 'summary.json', summary)
         results.append(summary)
@@ -450,11 +456,11 @@ def run_suite(suite_path, *, snapshot, output):
             unrun_reason = unrun_reason or ('diagnostic_error_or_incomplete_episode'
                 if diagnostic_failed or missing_terminal else 'local_execution_failed_usage_or_termination_unknown')
             break
-    summary = {'schema_version': SCHEMA, 'classification': suite['classification'],
+    summary = {'schema_version': suite['schema_version'], 'classification': suite['classification'],
                'suite_digest': suite['suite_digest'], 'cases': results,
                'unrun_cases': [case['id'] for case in suite['cases'][len(results):]],
                'unrun_reason': unrun_reason,
-               'all_synthetic_cases_pass': len(results) == len(CASE_IDS) and all(r['synthetic_case_pass'] for r in results),
+               'all_synthetic_cases_pass': len(results) == len(suite['cases']) and all(r['synthetic_case_pass'] for r in results),
                'evaluation_campaign_run': False}
     _write_exclusive(output / 'summary.json', summary)
     return summary

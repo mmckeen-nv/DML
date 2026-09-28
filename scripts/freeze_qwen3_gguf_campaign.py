@@ -13,6 +13,10 @@ from durable_campaign import digest, publish
 from freeze_remote_campaign import declared_limits, producer_command
 
 
+CUDA_PROFILES = ("qwen3-8b-gguf-cuda-action-json-completion-v1",
+                 "qwen3-8b-gguf-cuda-action-json-retrieval-v2")
+
+
 def readiness_attestation(path, expected_sha256, *, commit, profile, identity, snapshots):
     """Require the independently reviewed host/source/synthetic evidence bundle."""
     path = Path(path).resolve()
@@ -35,7 +39,7 @@ def readiness_attestation(path, expected_sha256, *, commit, profile, identity, s
         if not evidence.is_absolute() or digest(evidence) != expected:
             raise ValueError("Readiness evidence changed")
         files[str(evidence)] = expected
-    if profile == "qwen3-8b-gguf-cuda-action-json-completion-v1":
+    if profile in CUDA_PROFILES:
         gpu = receipt.get("gpu_admission_evidence")
         if (receipt.get("gpu_admission_qualified") is not True or type(gpu) is not dict
                 or set(gpu) != {"path", "sha256"}
@@ -49,6 +53,32 @@ def readiness_attestation(path, expected_sha256, *, commit, profile, identity, s
                 or admission.get("consumer_profile") != profile
                 or admission.get("model_identity") != identity):
             raise ValueError("GPU admission does not qualify this exact candidate")
+    if profile == CUDA_PROFILES[1]:
+        planning = receipt.get("planning_evidence")
+        if (receipt.get("planning_qualified") is not True or type(planning) is not dict
+                or set(planning) != {"path", "sha256"}
+                or type(planning.get("path")) is not str or type(planning.get("sha256")) is not str
+                or files.get(planning.get("path")) != planning.get("sha256")):
+            raise ValueError("Retrieval planning readiness requires bound planning evidence")
+        qualification = json.loads(Path(planning["path"]).read_bytes())
+        if (qualification.get("passed") is not True
+                or qualification.get("source_commit") != commit
+                or qualification.get("consumer_profile") != profile
+                or qualification.get("model_identity") != identity
+                or type(qualification.get("cases_passed")) is not int
+                or type(qualification.get("cases_declared")) is not int
+                or qualification["cases_passed"] != 2 or qualification["cases_declared"] != 2):
+            raise ValueError("Planning qualification does not approve this exact candidate")
+        evidence = qualification.get("evidence_files")
+        roles = qualification.get("evidence_roles")
+        required_roles = {"suite", "result", "primary_replay", "independent_replay"}
+        if (type(evidence) is not dict or not evidence or type(roles) is not dict
+                or set(roles) != required_roles or any(type(value) is not str for value in roles.values())
+                or len(set(roles.values())) != 4 or not set(roles.values()) <= evidence.keys()
+                or any(type(name) is not str or type(sha) is not str
+                       or not Path(name).is_absolute() or files.get(name) != sha
+                       for name, sha in evidence.items())):
+            raise ValueError("Planning suite, result and independent replays must be bound readiness evidence")
     return {"path": str(path), "sha256": expected_sha256}, files
 
 
@@ -96,8 +126,10 @@ def main(argv=None):
         "dml_core/daystrom_dml/services/qwen3_gguf_action_input.py",
         "dml_core/daystrom_dml/services/qwen3_gguf_model_input.py",
         "dml_core/daystrom_dml/services/qwen3_gguf_model_snapshot.py"}
-    if profile == "qwen3-8b-gguf-cuda-action-json-completion-v1":
+    if profile in CUDA_PROFILES:
         required.add("dml_core/daystrom_dml/services/qwen3_gguf_cuda_model_input.py")
+    if profile == CUDA_PROFILES[1]:
+        required.add("dml_core/scripts/qwen3_gguf_retrieval_diagnostic.py")
     if not required <= sources.keys():
         raise ValueError("Required GGUF qualification sources are not tracked")
     runtime_files = {str(Path(sys.executable).resolve()): digest(Path(sys.executable).resolve()),

@@ -35,7 +35,9 @@ QWEN3_GGUF_CONSUMER_PROFILE = "qwen3-8b-gguf-action-json-sampled-v1"
 QWEN3_GGUF_ARM64_CONSUMER_PROFILE = "qwen3-8b-gguf-arm64-action-json-sampled-v1"
 QWEN3_GGUF_CONSUMER_PROFILES = (QWEN3_GGUF_CONSUMER_PROFILE, QWEN3_GGUF_ARM64_CONSUMER_PROFILE)
 QWEN3_GGUF_CUDA_CONSUMER_PROFILE = "qwen3-8b-gguf-cuda-action-json-completion-v1"
-QWEN3_GGUF_ALL_CONSUMER_PROFILES = (*QWEN3_GGUF_CONSUMER_PROFILES, QWEN3_GGUF_CUDA_CONSUMER_PROFILE)
+QWEN3_GGUF_CUDA_RETRIEVAL_CONSUMER_PROFILE = "qwen3-8b-gguf-cuda-action-json-retrieval-v2"
+QWEN3_GGUF_CUDA_CONSUMER_PROFILES = (QWEN3_GGUF_CUDA_CONSUMER_PROFILE, QWEN3_GGUF_CUDA_RETRIEVAL_CONSUMER_PROFILE)
+QWEN3_GGUF_ALL_CONSUMER_PROFILES = (*QWEN3_GGUF_CONSUMER_PROFILES, *QWEN3_GGUF_CUDA_CONSUMER_PROFILES)
 REMOTE_VLLM_CONSUMER_PROFILE = "nemotron-remote-vllm-action-v1"
 REMOTE_VLLM_JSON_CONSUMER_PROFILE = "nemotron-remote-vllm-action-json-v2"
 NATIVE_REMOTE_VLLM_CONSUMER_PROFILE = "nemotron-remote-vllm-native-tools-v1"
@@ -214,6 +216,30 @@ def qwen3_gguf_completion_policy_identity():
             "base_recovery_policy": recovery_guidance_identity(),
             "guidance": QWEN3_GGUF_COMPLETION_GUIDANCE,
             "guidance_sha256": hashlib.sha256(QWEN3_GGUF_COMPLETION_GUIDANCE.encode()).hexdigest(),
+            "system_message_sha256": hashlib.sha256(system.encode()).hexdigest(),
+            "placement": "append_first_system_message", "join": "\n\n"}
+
+
+QWEN3_GGUF_RETRIEVAL_GUIDANCE = (
+    "Choose retrieval wording that describes the evidence currently needed. When required evidence is "
+    "missing, reformulate the query using the task's subject and the missing record's role or distinguishing "
+    "description. Changing only top_k cannot recover records excluded by relevance filtering. Neither "
+    "limit_reached=false nor repeated identical results establishes that a missing record does not exist. "
+    "Before proposing an operation involving multiple records, verify that you have observed every required "
+    "distinct record and copy each corresponding reference. If not, choose another evidence-gathering "
+    "action rather than substituting an available reference."
+)
+
+
+def qwen3_gguf_retrieval_policy_identity():
+    """New query-reformulation hypothesis; original GPU policy stays exact."""
+    system = (AGENT_POLICY + "\n\n" + RECOVERY_GUIDANCE + "\n\n" + QWEN3_GGUF_COMPLETION_GUIDANCE
+              + "\n\n" + QWEN3_GGUF_RETRIEVAL_GUIDANCE)
+    return {"schema_version": "dml-qwen3-gguf-retrieval-guidance-v2",
+            "consumer_profile": QWEN3_GGUF_CUDA_RETRIEVAL_CONSUMER_PROFILE,
+            "base_completion_policy": qwen3_gguf_completion_policy_identity(),
+            "guidance": QWEN3_GGUF_RETRIEVAL_GUIDANCE,
+            "guidance_sha256": hashlib.sha256(QWEN3_GGUF_RETRIEVAL_GUIDANCE.encode()).hexdigest(),
             "system_message_sha256": hashlib.sha256(system.encode()).hexdigest(),
             "placement": "append_first_system_message", "join": "\n\n"}
 
@@ -739,8 +765,10 @@ def initial_messages(prompt, prior_context=None, *, consumer_profile="gpt2-v1"):
     policy = AGENT_POLICY + "\n\n" + RECOVERY_GUIDANCE if consumer_profile in (
         RECOVERY_CONSUMER_PROFILE, *QWEN3_CONSUMER_PROFILES, QWEN2_BF16_SAMPLED_CONSUMER_PROFILE,
         *QWEN3_GGUF_ALL_CONSUMER_PROFILES, *REMOTE_VLLM_CONSUMER_PROFILES) else AGENT_POLICY
-    if consumer_profile == QWEN3_GGUF_CUDA_CONSUMER_PROFILE:
+    if consumer_profile in QWEN3_GGUF_CUDA_CONSUMER_PROFILES:
         policy += "\n\n" + QWEN3_GGUF_COMPLETION_GUIDANCE
+    if consumer_profile == QWEN3_GGUF_CUDA_RETRIEVAL_CONSUMER_PROFILE:
+        policy += "\n\n" + QWEN3_GGUF_RETRIEVAL_GUIDANCE
     if consumer_profile in NATIVE_REMOTE_VLLM_CONSUMER_PROFILES:
         policy = native_system_policy(consumer_profile=consumer_profile)
     messages = [{"role": "system", "content": policy}]
@@ -1228,6 +1256,7 @@ def validate_episode_events(events, *, require_terminal=True):
                           else "dml-qwen3-action-runtime-v1" if selected_profile == QWEN3_CONSUMER_PROFILE
                           else "dml-qwen3-action-runtime-v2" if selected_profile == QWEN3_SAMPLED_CONSUMER_PROFILE
                           else "dml-qwen2-bf16-action-runtime-v1" if selected_profile == QWEN2_BF16_SAMPLED_CONSUMER_PROFILE
+                          else "dml-qwen3-gguf-cuda-action-runtime-v2" if selected_profile == QWEN3_GGUF_CUDA_RETRIEVAL_CONSUMER_PROFILE
                           else "dml-qwen3-gguf-cuda-action-runtime-v1" if selected_profile == QWEN3_GGUF_CUDA_CONSUMER_PROFILE
                           else "dml-qwen3-gguf-arm64-action-runtime-v1" if selected_profile == QWEN3_GGUF_ARM64_CONSUMER_PROFILE
                           else "dml-qwen3-gguf-action-runtime-v1" if selected_profile == QWEN3_GGUF_CONSUMER_PROFILE
@@ -1237,7 +1266,7 @@ def validate_episode_events(events, *, require_terminal=True):
                         or version == EVENT_VERSION and runtime.startswith(
                             ("dml-qwen-action-runtime-v2:", "dml-qwen-action-runtime-v3:",
                              "dml-qwen3-action-runtime-v1:", "dml-qwen3-action-runtime-v2:",
-                             "dml-qwen2-bf16-action-runtime-v1:", "dml-qwen3-gguf-action-runtime-v1:", "dml-qwen3-gguf-arm64-action-runtime-v1:", "dml-qwen3-gguf-cuda-action-runtime-v1:",
+                             "dml-qwen2-bf16-action-runtime-v1:", "dml-qwen3-gguf-action-runtime-v1:", "dml-qwen3-gguf-arm64-action-runtime-v1:", "dml-qwen3-gguf-cuda-action-runtime-v1:", "dml-qwen3-gguf-cuda-action-runtime-v2:",
                              "dml-remote-vllm-action-runtime-v1:", "dml-remote-vllm-action-runtime-v2:",
                              "dml-remote-vllm-native-tools-runtime-v1:", "dml-remote-vllm-native-tools-runtime-v2:", "dml-remote-vllm-native-tools-runtime-v3:", "dml-remote-vllm-native-tools-runtime-v4:",
                              "dml-remote-vllm-native-tools-runtime-v5:", "dml-remote-vllm-native-tools-runtime-v6:"))):

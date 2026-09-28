@@ -16,7 +16,7 @@ from daystrom_dml.contracts.agent_episode import (
     canonical_json, decode_json, validate_episode_events, presented_record_identities, validate_precommit_conflict_proof,
     parse_agent_action, AgentEpisodeError, NATIVE_REMOTE_VLLM_CONSUMER_PROFILES,
     execution_protocol_for_profile, EXECUTION_PROTOCOL_V2, VALIDATION_CONSUMER_PROFILE, RECOVERY_CONSUMER_PROFILE,
-    QWEN3_CONSUMER_PROFILE, QWEN3_CONSUMER_PROFILES, QWEN2_BF16_SAMPLED_CONSUMER_PROFILE, QWEN3_GGUF_ALL_CONSUMER_PROFILES, QWEN3_GGUF_ARM64_CONSUMER_PROFILE, QWEN3_GGUF_CUDA_CONSUMER_PROFILE, EVENT_VERSION_V2, REMOTE_VLLM_CONSUMER_PROFILES,
+    QWEN3_CONSUMER_PROFILE, QWEN3_CONSUMER_PROFILES, QWEN2_BF16_SAMPLED_CONSUMER_PROFILE, QWEN3_GGUF_ALL_CONSUMER_PROFILES, QWEN3_GGUF_ARM64_CONSUMER_PROFILE, QWEN3_GGUF_CUDA_CONSUMER_PROFILE, QWEN3_GGUF_CUDA_RETRIEVAL_CONSUMER_PROFILE, EVENT_VERSION_V2, REMOTE_VLLM_CONSUMER_PROFILES,
 )
 from daystrom_dml.services.agent_episode import task_allowed_tools, validate_consumer_profile
 from daystrom_dml.services.episode_outcomes import build_terminal, summarize_episode_outcomes
@@ -216,7 +216,8 @@ def _replay_model(events, identity, tokenizer, consumer_profile):
     if consumer_profile in REMOTE_VLLM_CONSUMER_PROFILES:
         return _replay_remote_model(events, identity, tokenizer)
     if consumer_profile in (*QWEN3_CONSUMER_PROFILES, QWEN2_BF16_SAMPLED_CONSUMER_PROFILE, *QWEN3_GGUF_ALL_CONSUMER_PROFILES):
-        prefix = ("dml-qwen3-gguf-cuda-action-runtime-v1:" if consumer_profile == QWEN3_GGUF_CUDA_CONSUMER_PROFILE
+        prefix = ("dml-qwen3-gguf-cuda-action-runtime-v2:" if consumer_profile == QWEN3_GGUF_CUDA_RETRIEVAL_CONSUMER_PROFILE
+                  else "dml-qwen3-gguf-cuda-action-runtime-v1:" if consumer_profile == QWEN3_GGUF_CUDA_CONSUMER_PROFILE
                   else "dml-qwen3-gguf-arm64-action-runtime-v1:" if consumer_profile == QWEN3_GGUF_ARM64_CONSUMER_PROFILE
                   else "dml-qwen3-gguf-action-runtime-v1:" if consumer_profile in QWEN3_GGUF_ALL_CONSUMER_PROFILES
                   else "dml-qwen2-bf16-action-runtime-v1:" if consumer_profile == QWEN2_BF16_SAMPLED_CONSUMER_PROFILE
