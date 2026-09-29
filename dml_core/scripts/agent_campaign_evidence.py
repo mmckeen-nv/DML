@@ -13,7 +13,7 @@ from pathlib import Path
 import re
 
 from daystrom_dml.contracts.agent_episode import (
-    canonical_json, decode_json, validate_episode_events, presented_record_identities, validate_precommit_conflict_proof,
+    LLAMA3_SFT_CONSUMER_PROFILE, canonical_json, decode_json, validate_episode_events, presented_record_identities, validate_precommit_conflict_proof,
     parse_agent_action, AgentEpisodeError, NATIVE_REMOTE_VLLM_CONSUMER_PROFILES,
     execution_protocol_for_profile, EXECUTION_PROTOCOL_V2, VALIDATION_CONSUMER_PROFILE, RECOVERY_CONSUMER_PROFILE,
     QWEN3_CONSUMER_PROFILE, QWEN3_CONSUMER_PROFILES, QWEN2_BF16_SAMPLED_CONSUMER_PROFILE, QWEN3_GGUF_ALL_CONSUMER_PROFILES, QWEN3_GGUF_ARM64_CONSUMER_PROFILE, QWEN3_GGUF_CUDA_CONSUMER_PROFILE, QWEN3_GGUF_CUDA_RETRIEVAL_CONSUMER_PROFILE, EVENT_VERSION_V2, REMOTE_VLLM_CONSUMER_PROFILES,
@@ -211,8 +211,46 @@ def _replay_remote_model(events, identity, consumer):
     return generated
 
 
+def _replay_llama3_sft_model(events, identity, consumer):
+    """Recompile exact source-order prompts and replay every emitted grammar token."""
+    from daystrom_dml.contracts.model_input import ModelInputRequest
+    generated = 0
+    request = None
+    for event in events:
+        payload = event["payload"]
+        if event["kind"] == "model_requested":
+            request, compiled = payload["request"], payload["compiled"]
+            recorded_digest = payload["artifact_digest"]
+            canonical = ModelInputRequest.from_payload(request)
+            artifact = consumer.compile(request["messages"], request["tools"],
+                                        output_reserved_tokens=request["output_reserved_tokens"])
+            for key, expected in {
+                "identity": identity, "request_digest": canonical.request_digest,
+                "input_ids": list(artifact.input_ids), "attention_mask": list(artifact.attention_mask),
+                "output_reserved_tokens": artifact.output_reserved_tokens,
+                "model_window_tokens": artifact.model_window_tokens,
+            }.items():
+                _require(_same(compiled[key], expected), "Llama SFT compiled " + key + " differs")
+            consumer.release_compiled(artifact)
+        elif event["kind"] == "model_completed":
+            _require(request is not None, "Model completion lacks a request")
+            consumer.validate_output_tokens(request, payload["output_ids"])
+            _require(consumer.decode_output(payload["output_ids"]) == payload["text"],
+                     "Llama SFT output text differs from token IDs")
+            generated += 1
+        elif event["kind"] == "model_failed" and payload.get("phase") == "execute":
+            _require(request is not None, "Failed model execution lacks request")
+            local = payload.get("local_execution")
+            _require(type(local) is dict, "Failed local execution evidence missing")
+            consumer.validate_failed_execution(artifact, request, local,
+                                               recorded_digest=recorded_digest)
+    return generated
+
+
 def _replay_model(events, identity, tokenizer, consumer_profile):
     validate_consumer_profile(consumer_profile)
+    if consumer_profile == LLAMA3_SFT_CONSUMER_PROFILE:
+        return _replay_llama3_sft_model(events, identity, tokenizer)
     if consumer_profile in REMOTE_VLLM_CONSUMER_PROFILES:
         return _replay_remote_model(events, identity, tokenizer)
     if consumer_profile in (*QWEN3_CONSUMER_PROFILES, QWEN2_BF16_SAMPLED_CONSUMER_PROFILE, *QWEN3_GGUF_ALL_CONSUMER_PROFILES):
@@ -405,6 +443,20 @@ def verify_files(*, spec_path, spec_sha256, campaign_path, snapshot_directory, s
     _require(_same(_source_digests(consumer_profile=consumer_profile), spec["producer_source_sha256"]),
              "Executing producer sources differ")
     bundle = Path(snapshot_directory)
+    if consumer_profile == LLAMA3_SFT_CONSUMER_PROFILE:
+        from daystrom_dml.services.llama3_sft_action_input import LocalLlama3SFTActionInputConsumer
+        with LocalLlama3SFTActionInputConsumer(bundle, consumer_profile=consumer_profile, offline=True) as consumer:
+            expected_files = set(consumer.manifest["files"]) | {"llama3-sft-manifest.json"}
+            _require(set(spec["snapshot_sha256"]) == expected_files, "Llama SFT snapshot inventory differs")
+            for name, digest in spec["snapshot_sha256"].items():
+                _require(file_digest(bundle / name) == digest, "Frozen Llama SFT snapshot differs: " + name)
+            identity = consumer.identity.to_payload()
+            _require(_same(identity, spec["model_identity"]), "Frozen Llama SFT identity differs")
+            campaign_bytes = Path(campaign_path).read_bytes()
+            campaign = decode_json(campaign_bytes, limit=MAX_CAMPAIGN_BYTES)
+            evidence = replay_campaign(campaign, spec, identity=identity, tokenizer=consumer)
+            return {**evidence, "specification_sha256": spec_sha256,
+                    "campaign_sha256": hashlib.sha256(campaign_bytes).hexdigest()}
     if consumer_profile in REMOTE_VLLM_CONSUMER_PROFILES:
         from daystrom_dml.services.remote_vllm_action_input import RemoteVLLMActionInputConsumer
         consumer_type = RemoteVLLMActionInputConsumer

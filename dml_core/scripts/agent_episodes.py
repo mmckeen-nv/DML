@@ -20,7 +20,7 @@ import uuid
 
 from daystrom_dml.atomic_io import _sync_directory
 from daystrom_dml.contracts.agent_episode import (
-    make_event, validate_episode_events, execution_protocol_for_profile, EXECUTION_PROTOCOL_V2, QWEN3_CONSUMER_PROFILES,
+    LLAMA3_SFT_CONSUMER_PROFILE, make_event, validate_episode_events, execution_protocol_for_profile, EXECUTION_PROTOCOL_V2, QWEN3_CONSUMER_PROFILES,
     QWEN2_BF16_SAMPLED_CONSUMER_PROFILE, QWEN3_GGUF_ALL_CONSUMER_PROFILES, QWEN3_GGUF_CUDA_CONSUMER_PROFILES, REMOTE_VLLM_CONSUMER_PROFILES, NATIVE_REMOTE_VLLM_CONSUMER_PROFILES,
 )
 from daystrom_dml.services.agent_episode import (
@@ -90,6 +90,10 @@ def _source_digests(*, consumer_profile="gpt2-v1"):
             files["daystrom_dml.services." + name] = Path(runner.__file__).with_name(name + ".py")
     if consumer_profile in QWEN3_GGUF_CUDA_CONSUMER_PROFILES:
         files["daystrom_dml.services.qwen3_gguf_cuda_model_input"] = Path(runner.__file__).with_name("qwen3_gguf_cuda_model_input.py")
+    if consumer_profile == LLAMA3_SFT_CONSUMER_PROFILE:
+        for name in ("llama3_sft_action_input", "llama3_sft_runtime"):
+            files["daystrom_dml.services." + name] = Path(runner.__file__).with_name(name + ".py")
+        files["daystrom_dml.contracts.model_input"] = Path(contract.__file__).with_name("model_input.py")
     if consumer_profile in REMOTE_VLLM_CONSUMER_PROFILES:
         files["daystrom_dml.services.remote_vllm_action_input"] = Path(runner.__file__).with_name("remote_vllm_action_input.py")
     if consumer_profile in NATIVE_REMOTE_VLLM_CONSUMER_PROFILES:

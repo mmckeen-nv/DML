@@ -38,6 +38,7 @@ QWEN3_GGUF_CUDA_CONSUMER_PROFILE = "qwen3-8b-gguf-cuda-action-json-completion-v1
 QWEN3_GGUF_CUDA_RETRIEVAL_CONSUMER_PROFILE = "qwen3-8b-gguf-cuda-action-json-retrieval-v2"
 QWEN3_GGUF_CUDA_CONSUMER_PROFILES = (QWEN3_GGUF_CUDA_CONSUMER_PROFILE, QWEN3_GGUF_CUDA_RETRIEVAL_CONSUMER_PROFILE)
 QWEN3_GGUF_ALL_CONSUMER_PROFILES = (*QWEN3_GGUF_CONSUMER_PROFILES, *QWEN3_GGUF_CUDA_CONSUMER_PROFILES)
+LLAMA3_SFT_CONSUMER_PROFILE = "llama3-8b-instruct-sft-v2-bf16-action-json-v1"
 REMOTE_VLLM_CONSUMER_PROFILE = "nemotron-remote-vllm-action-v1"
 REMOTE_VLLM_JSON_CONSUMER_PROFILE = "nemotron-remote-vllm-action-json-v2"
 NATIVE_REMOTE_VLLM_CONSUMER_PROFILE = "nemotron-remote-vllm-native-tools-v1"
@@ -51,7 +52,7 @@ NATIVE_REASONING_CONSUMER_PROFILES = (NATIVE_REMOTE_VLLM_V4_CONSUMER_PROFILE, *N
 NATIVE_REMOTE_VLLM_CONSUMER_PROFILES = (NATIVE_REMOTE_VLLM_CONSUMER_PROFILE, NATIVE_REMOTE_VLLM_V2_CONSUMER_PROFILE, NATIVE_REMOTE_VLLM_V3_CONSUMER_PROFILE, NATIVE_REMOTE_VLLM_V4_CONSUMER_PROFILE, *NATIVE_RECOVERY_CONSUMER_PROFILES)
 REMOTE_VLLM_CONSUMER_PROFILES = (REMOTE_VLLM_CONSUMER_PROFILE, REMOTE_VLLM_JSON_CONSUMER_PROFILE, *NATIVE_REMOTE_VLLM_CONSUMER_PROFILES)
 EPISODE_VALIDATION_PROFILES = (*VALIDATION_PROFILES, *QWEN3_CONSUMER_PROFILES,
-                               QWEN2_BF16_SAMPLED_CONSUMER_PROFILE, *QWEN3_GGUF_ALL_CONSUMER_PROFILES, *REMOTE_VLLM_CONSUMER_PROFILES)
+                               QWEN2_BF16_SAMPLED_CONSUMER_PROFILE, *QWEN3_GGUF_ALL_CONSUMER_PROFILES, LLAMA3_SFT_CONSUMER_PROFILE, *REMOTE_VLLM_CONSUMER_PROFILES)
 RECOVERY_GUIDANCE = (
     "If a tool response reports a validation error and states that no operation was executed, "
     "the proposed action was rejected without performing it. This response does not complete "
@@ -764,10 +765,10 @@ def initial_messages(prompt, prior_context=None, *, consumer_profile="gpt2-v1"):
     execution_protocol_for_profile(consumer_profile)
     policy = AGENT_POLICY + "\n\n" + RECOVERY_GUIDANCE if consumer_profile in (
         RECOVERY_CONSUMER_PROFILE, *QWEN3_CONSUMER_PROFILES, QWEN2_BF16_SAMPLED_CONSUMER_PROFILE,
-        *QWEN3_GGUF_ALL_CONSUMER_PROFILES, *REMOTE_VLLM_CONSUMER_PROFILES) else AGENT_POLICY
-    if consumer_profile in QWEN3_GGUF_CUDA_CONSUMER_PROFILES:
+        *QWEN3_GGUF_ALL_CONSUMER_PROFILES, LLAMA3_SFT_CONSUMER_PROFILE, *REMOTE_VLLM_CONSUMER_PROFILES) else AGENT_POLICY
+    if consumer_profile in (*QWEN3_GGUF_CUDA_CONSUMER_PROFILES, LLAMA3_SFT_CONSUMER_PROFILE):
         policy += "\n\n" + QWEN3_GGUF_COMPLETION_GUIDANCE
-    if consumer_profile == QWEN3_GGUF_CUDA_RETRIEVAL_CONSUMER_PROFILE:
+    if consumer_profile in (QWEN3_GGUF_CUDA_RETRIEVAL_CONSUMER_PROFILE, LLAMA3_SFT_CONSUMER_PROFILE):
         policy += "\n\n" + QWEN3_GGUF_RETRIEVAL_GUIDANCE
     if consumer_profile in NATIVE_REMOTE_VLLM_CONSUMER_PROFILES:
         policy = native_system_policy(consumer_profile=consumer_profile)
@@ -1034,9 +1035,20 @@ def validate_event(event):
             raise AgentEpisodeError("This refusal occurs before compilation")
     elif kind == "model_failed":
         _keys(payload, ("step", "phase", "error_code", "input_token_count", "output_token_count",
-                        "latency_ms", "ttft_ms"), ("request", "remote_evidence"))
+                        "latency_ms", "ttft_ms"), ("request", "remote_evidence", "local_execution"))
         _integer(payload["step"], maximum=MAX_EVENTS)
         _text(payload["error_code"], limit=1024, nonempty=True)
+        if "local_execution" in payload:
+            retained = payload["local_execution"]
+            _keys(retained, ("artifact_digest", "exception_type", "exception_message", "runtime_result"))
+            _digest(retained["artifact_digest"])
+            _text(retained["exception_type"], limit=1024, nonempty=True)
+            _text(retained["exception_message"], limit=MAX_ACTION_BYTES)
+            if (payload["phase"] != "execute" or retained["exception_type"] != payload["error_code"]
+                    or payload["input_token_count"] is not None or payload["output_token_count"] is not None
+                    or retained["runtime_result"] is not None and type(retained["runtime_result"]) is not dict):
+                raise AgentEpisodeError("Invalid retained local failure or known consumption")
+            canonical_json(retained, limit=MAX_EVENT_BYTES)
         if payload["phase"] == "compile":
             _request(payload.get("request"))
             if type(payload["input_token_count"]) is not int or payload["input_token_count"] != 0:
@@ -1245,7 +1257,8 @@ def validate_episode_events(events, *, require_terminal=True):
             if compiled is not None:
                 runtime = compiled["identity"]["runtime_identity"]
                 expected_version = "v3" if selected_profile == RECOVERY_CONSUMER_PROFILE else "v2"
-                prefix = ("dml-remote-vllm-native-tools-runtime-v6" if selected_profile == NATIVE_REMOTE_VLLM_V6_CONSUMER_PROFILE
+                prefix = ("dml-llama3-sft-action-runtime-v1" if selected_profile == LLAMA3_SFT_CONSUMER_PROFILE
+                          else "dml-remote-vllm-native-tools-runtime-v6" if selected_profile == NATIVE_REMOTE_VLLM_V6_CONSUMER_PROFILE
                           else "dml-remote-vllm-native-tools-runtime-v5" if selected_profile == NATIVE_REMOTE_VLLM_V5_CONSUMER_PROFILE
                           else "dml-remote-vllm-native-tools-runtime-v4" if selected_profile == NATIVE_REMOTE_VLLM_V4_CONSUMER_PROFILE
                           else "dml-remote-vllm-native-tools-runtime-v3" if selected_profile == NATIVE_REMOTE_VLLM_V3_CONSUMER_PROFILE
@@ -1264,7 +1277,7 @@ def validate_episode_events(events, *, require_terminal=True):
                 selected_identity = re.fullmatch(prefix + r":[0-9a-f]{64}", runtime) is not None
                 if ((version == EVENT_VERSION_V2 and not selected_identity)
                         or version == EVENT_VERSION and runtime.startswith(
-                            ("dml-qwen-action-runtime-v2:", "dml-qwen-action-runtime-v3:",
+                            ("dml-llama3-sft-action-runtime-v1:", "dml-qwen-action-runtime-v2:", "dml-qwen-action-runtime-v3:",
                              "dml-qwen3-action-runtime-v1:", "dml-qwen3-action-runtime-v2:",
                              "dml-qwen2-bf16-action-runtime-v1:", "dml-qwen3-gguf-action-runtime-v1:", "dml-qwen3-gguf-arm64-action-runtime-v1:", "dml-qwen3-gguf-cuda-action-runtime-v1:", "dml-qwen3-gguf-cuda-action-runtime-v2:",
                              "dml-remote-vllm-action-runtime-v1:", "dml-remote-vllm-action-runtime-v2:",
@@ -1324,6 +1337,30 @@ def validate_episode_events(events, *, require_terminal=True):
             if pending is None or pending["kind"] != "model_requested" or call_id != pending["call_id"]:
                 raise AgentEpisodeError("Model response lacks its unique request")
             requested = pending["payload"]
+            if "local_execution" in payload and (selected_profile != LLAMA3_SFT_CONSUMER_PROFILE or kind != "model_failed"):
+                raise AgentEpisodeError("Retained SFT execution on another profile")
+            if selected_profile == LLAMA3_SFT_CONSUMER_PROFILE and kind == "model_failed":
+                retained = payload.get("local_execution")
+                if type(retained) is not dict or retained["artifact_digest"] != requested["artifact_digest"]:
+                    raise AgentEpisodeError("Failed SFT execution lacks its dispatched artifact")
+                raw = retained["runtime_result"]
+                if raw is not None:
+                    if (raw.get("input_ids") != requested["compiled"]["input_ids"]
+                            or raw.get("model_identity") != requested["compiled"]["identity"]
+                            or type(raw.get("usage_unknown")) is not bool
+                            or type(raw.get("output_ids")) is not list
+                            or len(raw["output_ids"]) > requested["compiled"]["output_reserved_tokens"]
+                            or any(type(t) is not int or not 0 <= t < 128256 for t in raw["output_ids"])):
+                        raise AgentEpisodeError("Retained SFT prefix differs from dispatch or reservation")
+                    if raw.get("execution_error") is not None:
+                        _text(raw["execution_error"], limit=MAX_ACTION_BYTES, nonempty=True)
+                    if raw.get("raw_text") is None:
+                        _text(raw.get("decode_error"), limit=MAX_ACTION_BYTES, nonempty=True)
+                    else:
+                        _text(raw["raw_text"], limit=MAX_ACTION_BYTES)
+                    for field, count in (("input_token_count", len(raw["input_ids"])), ("output_token_count", len(raw["output_ids"]))):
+                        if raw.get(field) is not None and (type(raw[field]) is not int or raw[field] != count):
+                            raise AgentEpisodeError("Retained SFT count differs from raw IDs")
             if "remote_evidence" in payload and selected_profile not in REMOTE_VLLM_CONSUMER_PROFILES:
                 raise AgentEpisodeError("Remote exchange evidence on a local profile")
             if selected_profile in REMOTE_VLLM_CONSUMER_PROFILES and kind == "model_completed" and type(payload.get("remote_evidence")) is not dict:

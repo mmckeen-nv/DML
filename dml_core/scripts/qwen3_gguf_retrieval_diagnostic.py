@@ -28,9 +28,8 @@ def source_digests():
     return result
 
 
-def prepare_suite(path, *, identity, limits):
-    if type(limits) is not EpisodeLimits or canonical_json(asdict(limits)) != canonical_json(shared.QUALIFICATION_LIMITS):
-        raise ValueError('Retrieval planning uses the original qualification limits')
+def build_cases():
+    """Original two-case planning fixtures; no model or profile dependency."""
     cases = []
     for ordinal, case_id in enumerate(CASE_IDS):
         subject = 'Synthetic archive ' + secrets.token_hex(6)
@@ -58,6 +57,13 @@ def prepare_suite(path, *, identity, limits):
             'task': {'id': case_id, 'prompt': prompt, 'truth': truth, 'state_expectations': []},
             'allowed_tools': ['retrieve'], 'dependency_preflight': None,
             'preflight_queries': [subject + ' OLD entry access phrase', subject + ' current entry access phrase', prompt]})
+    return cases
+
+
+def prepare_suite(path, *, identity, limits):
+    if type(limits) is not EpisodeLimits or canonical_json(asdict(limits)) != canonical_json(shared.QUALIFICATION_LIMITS):
+        raise ValueError('Retrieval planning uses the original qualification limits')
+    cases = build_cases()
     suite = {'schema_version': SCHEMA, 'classification': 'synthetic-noncorpus-retrieval-planning',
         'created_ns': time.time_ns(), 'consumer_profile': PROFILE, 'model_identity': identity,
         'sampling': sampling_policy_identity(), 'limits': asdict(limits), 'effective_time': 2000000000,

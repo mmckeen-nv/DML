@@ -30,7 +30,7 @@ from ..contracts.agent_episode import (
     initial_messages, parse_agent_action, validate_episode_events,
     validate_prior_context, validate_verifier,
     EXECUTION_PROTOCOL_V1, EXECUTION_PROTOCOL_V2, VALIDATION_CONSUMER_PROFILE, RECOVERY_CONSUMER_PROFILE, QWEN3_CONSUMER_PROFILES,
-    QWEN2_BF16_SAMPLED_CONSUMER_PROFILE, QWEN3_GGUF_ALL_CONSUMER_PROFILES, REMOTE_VLLM_CONSUMER_PROFILES,
+    QWEN2_BF16_SAMPLED_CONSUMER_PROFILE, QWEN3_GGUF_ALL_CONSUMER_PROFILES, REMOTE_VLLM_CONSUMER_PROFILES, LLAMA3_SFT_CONSUMER_PROFILE,
     VALIDATION_ERROR_CODE, VALIDATION_MODEL_RESULT, execution_protocol_for_profile,
     NATIVE_REMOTE_VLLM_CONSUMER_PROFILES, NATIVE_REASONING_CONSUMER_PROFILES, NATIVE_RECOVERY_CONSUMER_PROFILES, NATIVE_REMOTE_VLLM_V6_CONSUMER_PROFILE,
     native_budget_messages,
@@ -72,7 +72,7 @@ class EpisodeLimits:
 _POLICY = AGENT_POLICY
 CONSUMER_PROFILES = ("gpt2-v1", "qwen2-instruct-v1", "qwen2-action-json-v1",
                      VALIDATION_CONSUMER_PROFILE, RECOVERY_CONSUMER_PROFILE, *QWEN3_CONSUMER_PROFILES,
-                     QWEN2_BF16_SAMPLED_CONSUMER_PROFILE, *QWEN3_GGUF_ALL_CONSUMER_PROFILES, *REMOTE_VLLM_CONSUMER_PROFILES)
+                     QWEN2_BF16_SAMPLED_CONSUMER_PROFILE, *QWEN3_GGUF_ALL_CONSUMER_PROFILES, LLAMA3_SFT_CONSUMER_PROFILE, *REMOTE_VLLM_CONSUMER_PROFILES)
 
 
 def validate_consumer_profile(consumer_profile):
@@ -84,6 +84,9 @@ def validate_consumer_profile(consumer_profile):
 
 def _open_consumer(snapshot_directory, consumer_profile):
     validate_consumer_profile(consumer_profile)
+    if consumer_profile == LLAMA3_SFT_CONSUMER_PROFILE:
+        from .llama3_sft_action_input import LocalLlama3SFTActionInputConsumer
+        return LocalLlama3SFTActionInputConsumer(snapshot_directory, consumer_profile=consumer_profile)
     if consumer_profile in NATIVE_REMOTE_VLLM_CONSUMER_PROFILES:
         from .native_remote_vllm_action_input import NativeRemoteVLLMActionInputConsumer
         return NativeRemoteVLLMActionInputConsumer(snapshot_directory, consumer_profile=consumer_profile)
@@ -224,9 +227,14 @@ def _run_loop(consumer, toolbox, *, task, limits, emit, prior_context=None,
                     or not 0 <= result.output_token_count <= artifact.output_reserved_tokens):
                 raise ValueError("Model result differs from the dispatched artifact")
         except Exception as exc:
+            local_failure = ({"local_execution": {
+                "artifact_digest": artifact.artifact_digest,
+                "exception_type": type(exc).__name__, "exception_message": str(exc),
+                "runtime_result": deepcopy(getattr(consumer, "last_execution", None)),
+            }} if consumer_profile == LLAMA3_SFT_CONSUMER_PROFILE else {})
             emit("model_failed", call_id, {"step": step, "phase": "execute", "error_code": type(exc).__name__,
-                "input_token_count": None if consumer_profile in REMOTE_VLLM_CONSUMER_PROFILES else artifact.input_tokens, "output_token_count": None,
-                "latency_ms": _elapsed(before), "ttft_ms": None,
+                "input_token_count": None if consumer_profile in (*REMOTE_VLLM_CONSUMER_PROFILES, LLAMA3_SFT_CONSUMER_PROFILE) else artifact.input_tokens, "output_token_count": None,
+                "latency_ms": _elapsed(before), "ttft_ms": None, **local_failure,
                 **({"remote_evidence": deepcopy(consumer.last_exchange)} if consumer_profile in REMOTE_VLLM_CONSUMER_PROFILES else {})})
             return {"status": "model_error", "answer": None, "retrieval_ms": retrieval_ms}
         native_fields = {}
@@ -608,6 +616,12 @@ def _interrupt_pending(events, *, status):
         kind = "model_failed"
         result = {"step": payload["step"], "phase": "execute", "error_code": "worker_" + status,
             "input_token_count": None, "output_token_count": None, "latency_ms": None, "ttft_ms": None}
+        if events[0]["payload"].get("consumer_profile") == LLAMA3_SFT_CONSUMER_PROFILE:
+            result["local_execution"] = {
+                "artifact_digest": payload["artifact_digest"], "exception_type": "worker_" + status,
+                "exception_message": "Worker interrupted; no runtime response was acknowledged.",
+                "runtime_result": None,
+            }
     else:
         kind = "tool_failed"
         result = {"name": payload["name"], "error_code": "worker_" + status,

@@ -76,12 +76,8 @@ def _token_in_bucket(bucket):
     raise ValueError("Could not construct declared lexical fixture partition")
 
 
-def prepare_suite(path, *, identity, limits, consumer_profile=CONSUMER_PROFILE):
-    """Create secrets before any model call, with none in the answer-bearing prompt."""
-    if type(limits) is not EpisodeLimits or canonical_json(asdict(limits)) != canonical_json(QUALIFICATION_LIMITS):
-        raise ValueError('Use the explicit unchanged episode limits')
-    if consumer_profile not in QWEN3_GGUF_ALL_CONSUMER_PROFILES:
-        raise ValueError('Only the declared Qwen GGUF profiles are supported')
+def build_cases():
+    """Original readiness fixtures, shared without changing their construction."""
     cases = []
     for index, case_id in enumerate(CASE_IDS):
         subject = 'Synthetic archive ' + secrets.token_hex(6)
@@ -135,6 +131,16 @@ def prepare_suite(path, *, identity, limits, consumer_profile=CONSUMER_PROFILE):
                           if case_id == 'dependent_feedback' else None),
                       'injection_alias': 'current' if case_id == 'untrusted_injection' else None,
                       'injection_text': INJECTION_TEXT if case_id == 'untrusted_injection' else None})
+    return cases
+
+
+def prepare_suite(path, *, identity, limits, consumer_profile=CONSUMER_PROFILE):
+    """Create secrets before any model call, with none in the answer-bearing prompt."""
+    if type(limits) is not EpisodeLimits or canonical_json(asdict(limits)) != canonical_json(QUALIFICATION_LIMITS):
+        raise ValueError('Use the explicit unchanged episode limits')
+    if consumer_profile not in QWEN3_GGUF_ALL_CONSUMER_PROFILES:
+        raise ValueError('Only the declared Qwen GGUF profiles are supported')
+    cases = build_cases()
     suite = {'schema_version': SCHEMA, 'classification': 'synthetic-noncorpus-not-acceptance',
              'created_ns': time.time_ns(), 'consumer_profile': consumer_profile,
              'model_identity': identity, 'sampling': sampling_policy_identity(),
@@ -189,7 +195,8 @@ def _worker(channel, *, snapshot, directory, suite, case, acknowledgement=None, 
         tempfile.tempdir = scratch_directory
         for name in ("TMPDIR", "TEMP", "TMP"):
             os.environ[name] = scratch_directory
-    from daystrom_dml.services.agent_episode import _prepare_fixture, _run_loop, _observed, _read_records, _started, _finish
+    from daystrom_dml.services.agent_episode import _prepare_fixture, _run_loop, _observed, _read_records, _started, _finish, _open_consumer
+    from daystrom_dml.contracts.agent_episode import LLAMA3_SFT_CONSUMER_PROFILE
     from daystrom_dml.services.episode_verifiers import verify_task
     from daystrom_dml.contracts.agent_episode import make_event, validate_episode_events
     from daystrom_dml.services.episode_tools import SelectedProfileEpisodeTools
@@ -228,7 +235,10 @@ def _worker(channel, *, snapshot, directory, suite, case, acknowledgement=None, 
             validate_episode_events([*observed_events, event], require_terminal=False)
             observed_events.append(event)
             publish(event)
-        with LocalQwen3GGUFActionInputConsumer(snapshot, consumer_profile=suite['consumer_profile']) as consumer:
+        selected = (_open_consumer(snapshot, suite['consumer_profile'])
+                    if suite['consumer_profile'] == LLAMA3_SFT_CONSUMER_PROFILE else
+                    LocalQwen3GGUFActionInputConsumer(snapshot, consumer_profile=suite['consumer_profile']))
+        with selected as consumer:
             if consumer._identity.to_payload() != suite['model_identity']:
                 raise ValueError('Synthetic candidate identity changed')
             outcome = _run_loop(consumer, toolbox, task=case['task'],
