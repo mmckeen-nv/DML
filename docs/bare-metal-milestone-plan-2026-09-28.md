@@ -1,7 +1,9 @@
 # DML milestone status and M7 execution plan
-As of September 29, 2026. Latest full campaign: remote Nemotron native-tools-v4; latest qualification: Qwen3-8B CUDA retrieval-policy v2, planning 0/2 and readiness unrun. Latest diagnostic: original Llama 3 8B Instruct, 0/3.
+As of September 29, 2026. Latest full campaign: remote Nemotron native-tools-v4; latest qualification: Qwen3-8B CUDA retrieval-policy v2, planning 0/2 and readiness unrun. Latest live diagnostic: original Llama 3 8B Instruct, 0/3. Subsequent Llama SFT v1 completed training but failed target-grammar compatibility before evaluation.
 
 ## Current position
+
+The [Llama 3 SFT v1 experiment](llama3-8b-sft-v1-2026-09-29.md) completed 90 GPU training updates, but **0/432 training/development targets** were admitted by the unchanged inference grammar: the serializer used the wrong JSON field order. Independent review denied evaluation; no held-out model calls or new M7 campaign occurred. Preserve the adapter and failed evidence. A separately versioned serialization correction requires full token-wise grammar checks and a newly approved run from the untouched base. [Compact outcome](artifacts/llama3-8b-sft-v1-outcome-2026-09-29.json).
 
 The latest [original Llama 3 8B Instruct diagnostic](llama3-8b-instruct-trial-2026-09-29.md) passed **0/3** fresh cases, once each. Both primary and independent replays passed all five responses. No candidate was promoted and no new M7 campaign ran; the original gates and historical 8/9 result remain unchanged.
 
