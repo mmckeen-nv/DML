@@ -1,5 +1,9 @@
 # Registered Llama 3 SFT candidate
 
+The [once-only integrated qualification](llama3-sft-integrated-qualification-2026-09-29.md)
+passed planning 2/2 and readiness 3/4. Both evidence replays passed integrity;
+the semantic dependent-feedback failure prevents a new M7 campaign.
+
 Profile: `llama3-8b-instruct-sft-v2-bf16-action-json-v1`. This separately versioned,
 enabled-only consumer integrates the [qualified synthetic checkpoint](llama3-8b-sft-v2-2026-09-29.md)
 with DML's standard V2 episode contracts, selected-profile tool gateway, durable

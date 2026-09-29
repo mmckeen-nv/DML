@@ -1,0 +1,112 @@
+{
+  "schema_version": "dml-llama3-sft-integrated-published-outcome-v1",
+  "status": "planning_passed_readiness_failed_not_m7_qualified",
+  "station_evidence_root": "/home/nvidia/dml-debug/llama3-sft-integrated-v1-20260929",
+  "source_commit": "0b25ba120f62cdec8cd0005f7f2b736f2e403476",
+  "consumer_profile": "llama3-8b-instruct-sft-v2-bf16-action-json-v1",
+  "model": "meta-llama/Meta-Llama-3-8B-Instruct",
+  "base_revision": "8afb486c1db24fe5011ec46dfbe5b5dccdb575c2",
+  "adapter_sha256": "554aaf5c73d2e626fe455228d05d679a7dd1d4e35a8b09a391ef3a2768caef36",
+  "runtime_identity": "dml-llama3-sft-action-runtime-v1:e37eb5d898013e81ddd33bfa86ba63c9637690d7c3a5fd0c5eb84a3c91e405c4",
+  "runtime_image": "sha256:bf05c8a0d56f7ed2fe279e0c0c876dd2bb813dd34702d975fa6ab640860ce825",
+  "tokenizer_sha256": "e134af98b985517b4f068e3755ae90d4e9cd2d45d328325dc503f1c6b2d06cc7",
+  "chat_template_sha256": "ba03a121d097859c7b5b9cd03af99aafe95275210d2876f642ad9929a150f122",
+  "source_ci": {
+    "url": "https://github.com/mmckeen-nv/DML/actions/runs/36607620770",
+    "jobs_passed": 22,
+    "sft_cpu_tests": 66,
+    "model_input_cpu_tests": 1589,
+    "cpu_test_failures_errors_skips": 0
+  },
+  "gpu_admission": {
+    "passed": true,
+    "device": "NVIDIA GB300",
+    "adapter_enabled": true,
+    "nonsampled_forwards": 1,
+    "generations": 0,
+    "finite_bf16_logits": true,
+    "parameters_frozen": true,
+    "cleanup_verified": true
+  },
+  "qualification": {
+    "planning": {
+      "passed": 2,
+      "declared": 2
+    },
+    "readiness": {
+      "passed": 3,
+      "declared": 4
+    },
+    "episodes_once": 6,
+    "unrun": 0,
+    "model_calls": 15,
+    "input_tokens": 21642,
+    "output_tokens": 764,
+    "model_latency_seconds": 201.957,
+    "supervisor_wall_seconds": 345.34,
+    "model_or_tool_errors": 0,
+    "action_rejections": 0,
+    "timeouts": 0,
+    "output_cap_hits": 0,
+    "outputs_without_terminal_stop": 0,
+    "unknown_usage_or_effects": false,
+    "primary_replay_integrity_passed": true,
+    "independent_replay_integrity_passed": true,
+    "qualified": false,
+    "producer_returncode": 1,
+    "terminal_status": "failed",
+    "cleanup_verified": true
+  },
+  "retained_failure": {
+    "case": "dependent_feedback",
+    "model_calls": 3,
+    "retrieval_calls": 2,
+    "final_produced": true,
+    "within_budget": true,
+    "verifier_reasons": [
+      "contradicted_fixture_fact",
+      "unsupported_memory_claim"
+    ],
+    "causality": "Second query included directory claim-field name, retrieved directory records again, then asserted an unsupported destination fact citing those records. No destination answer was discarded by the adapter."
+  },
+  "sampling": {
+    "temperature": 0.7,
+    "top_k": 20,
+    "top_p": 0.8,
+    "min_p": 0,
+    "seed": 0
+  },
+  "budgets": {
+    "steps": 6,
+    "output_per_call": 256,
+    "output_total": 1536,
+    "input_total": 32768,
+    "wall_seconds": 300,
+    "request_context": 8192
+  },
+  "protocol": "Pinned vendor chat template with existing constrained DML JSON; not vendor-native tool calling",
+  "exact_token_scope": "Direct in-process input/output IDs retained and replayed; no exact-token guarantee inferred for the remote vLLM HTTP endpoint",
+  "model_retries": 0,
+  "forced_calls": false,
+  "output_repairs": 0,
+  "new_training": false,
+  "new_m7_campaign": false,
+  "m7_closed": false,
+  "historical_campaign": "Nemotron 8/9 unchanged",
+  "raw_evidence_published": false,
+  "merged": false,
+  "evidence_sha256": {
+    "snapshot_manifest": "1840683f4d620220001601a42cd468888c5e411b78ee6411259bf4cb20dc76b9",
+    "source_ci": "8d085dd6a518495fa11e763ab17e8da12519d2cb41f47a2a671c5d63c745c286",
+    "input_parity": "9978ca47678730765e05453e6d21507cee6cd6c00c37f935d0d8ae98dc6726a1",
+    "gpu_admission": "096ced0e5e6ead1af9618ee850afb3303e36309f4493aa42dc7673d4fc2089c6",
+    "qualification_freeze": "1a3f54896b2fa527989552bce3172c2e0d2f07cd7e159e1b4c653786ad305d61",
+    "qualification_launch_approval": "8e4afb587369739d8204e0c489b840c050dd7c0eb3e3a9efa4b8b297770d6aa3",
+    "qualification_cleanup": "d8b913b1ae7061981b29dae1a1a104a4654748831c366fbe8d22b07037d16258",
+    "planning_primary_replay": "82b8219331e1438429ce462c845b8e325688490c8306d4ccfa7b41ba0309ff99",
+    "readiness_primary_replay": "061ecd70748a2ceb45e15578417137d02969d78a8715e64b89e53ccbd5cc9bdb",
+    "independent_replay": "58010b2a611f9995eae27cb0d4501314f12bc77d98593ff6b0033f66cb44ca14",
+    "measured_outcome": "05c99172e3e18fed14a865287288ec1fc5c88eaab5cfb6838d0e5656787de617",
+    "independent_final_review": "530acea55a6e51c9ebeaa7dcffc1cfda7a96b54e678a90a5c4506146c1ded050"
+  }
+}
