@@ -782,8 +782,8 @@ jobs:
           dml_core/daystrom_dml/services/llama3_sft_*.py
           dml_core/scripts/llama3_sft_*.py
           dml_core/tests/test_llama3_sft_*.py
-          scripts/freeze_llama3_sft_campaign.py
-          scripts/test_freeze_llama3_sft_campaign.py
+          scripts/freeze_llama3_sft*_campaign.py
+          scripts/test_freeze_llama3_sft*_campaign.py
       - name: Bind source and CPU dependencies without claiming GPU qualification
         env:
           DML_REVIEWED_PR_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -808,7 +808,7 @@ jobs:
         run: >-
           python -m pytest -q
           dml_core/tests/test_llama3_sft_*.py
-          scripts/test_freeze_llama3_sft_campaign.py
+          scripts/test_freeze_llama3_sft*_campaign.py
           --junitxml=llama3-sft-artifacts/tests.xml
       - name: Require passing evidence with no skipped controls
         run: |
@@ -817,7 +817,7 @@ jobs:
           report = ET.parse('llama3-sft-artifacts/tests.xml').getroot()
           cases = report.findall('.//testcase')
           expected = {p.stem for p in pathlib.Path('dml_core/tests').glob('test_llama3_sft_*.py')}
-          expected.add('test_freeze_llama3_sft_campaign')
+          expected.update(p.stem for p in pathlib.Path('scripts').glob('test_freeze_llama3_sft*_campaign.py'))
           observed = {c.attrib.get('classname', '').split('.')[-1] for c in cases}
           if not cases or any(c.find(tag) is not None for c in cases for tag in ('skipped', 'failure', 'error')):
               raise SystemExit('SFT source controls must pass with zero skips')

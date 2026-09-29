@@ -196,7 +196,7 @@ def _worker(channel, *, snapshot, directory, suite, case, acknowledgement=None, 
         for name in ("TMPDIR", "TEMP", "TMP"):
             os.environ[name] = scratch_directory
     from daystrom_dml.services.agent_episode import _prepare_fixture, _run_loop, _observed, _read_records, _started, _finish, _open_consumer
-    from daystrom_dml.contracts.agent_episode import LLAMA3_SFT_CONSUMER_PROFILE
+    from daystrom_dml.contracts.agent_episode import LLAMA3_SFT_CONSUMER_PROFILE, LLAMA3_SFT_V3_CONSUMER_PROFILE
     from daystrom_dml.services.episode_verifiers import verify_task
     from daystrom_dml.contracts.agent_episode import make_event, validate_episode_events
     from daystrom_dml.services.episode_tools import SelectedProfileEpisodeTools
@@ -236,7 +236,7 @@ def _worker(channel, *, snapshot, directory, suite, case, acknowledgement=None, 
             observed_events.append(event)
             publish(event)
         selected = (_open_consumer(snapshot, suite['consumer_profile'])
-                    if suite['consumer_profile'] == LLAMA3_SFT_CONSUMER_PROFILE else
+                    if suite['consumer_profile'] in (LLAMA3_SFT_CONSUMER_PROFILE, LLAMA3_SFT_V3_CONSUMER_PROFILE) else
                     LocalQwen3GGUFActionInputConsumer(snapshot, consumer_profile=suite['consumer_profile']))
         with selected as consumer:
             if consumer._identity.to_payload() != suite['model_identity']:

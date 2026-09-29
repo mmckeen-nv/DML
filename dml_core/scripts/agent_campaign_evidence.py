@@ -13,7 +13,7 @@ from pathlib import Path
 import re
 
 from daystrom_dml.contracts.agent_episode import (
-    LLAMA3_SFT_CONSUMER_PROFILE, canonical_json, decode_json, validate_episode_events, presented_record_identities, validate_precommit_conflict_proof,
+    LLAMA3_SFT_CONSUMER_PROFILE, LLAMA3_SFT_V3_CONSUMER_PROFILE, canonical_json, decode_json, validate_episode_events, presented_record_identities, validate_precommit_conflict_proof,
     parse_agent_action, AgentEpisodeError, NATIVE_REMOTE_VLLM_CONSUMER_PROFILES,
     execution_protocol_for_profile, EXECUTION_PROTOCOL_V2, VALIDATION_CONSUMER_PROFILE, RECOVERY_CONSUMER_PROFILE,
     QWEN3_CONSUMER_PROFILE, QWEN3_CONSUMER_PROFILES, QWEN2_BF16_SAMPLED_CONSUMER_PROFILE, QWEN3_GGUF_ALL_CONSUMER_PROFILES, QWEN3_GGUF_ARM64_CONSUMER_PROFILE, QWEN3_GGUF_CUDA_CONSUMER_PROFILE, QWEN3_GGUF_CUDA_RETRIEVAL_CONSUMER_PROFILE, EVENT_VERSION_V2, REMOTE_VLLM_CONSUMER_PROFILES,
@@ -249,7 +249,7 @@ def _replay_llama3_sft_model(events, identity, consumer):
 
 def _replay_model(events, identity, tokenizer, consumer_profile):
     validate_consumer_profile(consumer_profile)
-    if consumer_profile == LLAMA3_SFT_CONSUMER_PROFILE:
+    if consumer_profile in (LLAMA3_SFT_CONSUMER_PROFILE, LLAMA3_SFT_V3_CONSUMER_PROFILE):
         return _replay_llama3_sft_model(events, identity, tokenizer)
     if consumer_profile in REMOTE_VLLM_CONSUMER_PROFILES:
         return _replay_remote_model(events, identity, tokenizer)
@@ -443,10 +443,16 @@ def verify_files(*, spec_path, spec_sha256, campaign_path, snapshot_directory, s
     _require(_same(_source_digests(consumer_profile=consumer_profile), spec["producer_source_sha256"]),
              "Executing producer sources differ")
     bundle = Path(snapshot_directory)
-    if consumer_profile == LLAMA3_SFT_CONSUMER_PROFILE:
+    if consumer_profile in (LLAMA3_SFT_CONSUMER_PROFILE, LLAMA3_SFT_V3_CONSUMER_PROFILE):
         from daystrom_dml.services.llama3_sft_action_input import LocalLlama3SFTActionInputConsumer
-        with LocalLlama3SFTActionInputConsumer(bundle, consumer_profile=consumer_profile, offline=True) as consumer:
-            expected_files = set(consumer.manifest["files"]) | {"llama3-sft-manifest.json"}
+        consumer_type = LocalLlama3SFTActionInputConsumer
+        manifest_name = "llama3-sft-manifest.json"
+        if consumer_profile == LLAMA3_SFT_V3_CONSUMER_PROFILE:
+            from daystrom_dml.services.llama3_sft_v3_action_input import LocalLlama3SFTV3ActionInputConsumer
+            consumer_type = LocalLlama3SFTV3ActionInputConsumer
+            manifest_name = "llama3-sft-v3-manifest.json"
+        with consumer_type(bundle, consumer_profile=consumer_profile, offline=True) as consumer:
+            expected_files = set(consumer.manifest["files"]) | {manifest_name}
             _require(set(spec["snapshot_sha256"]) == expected_files, "Llama SFT snapshot inventory differs")
             for name, digest in spec["snapshot_sha256"].items():
                 _require(file_digest(bundle / name) == digest, "Frozen Llama SFT snapshot differs: " + name)
