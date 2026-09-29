@@ -1,0 +1,212 @@
+{
+  "schema": "dml-m7-dense-outcome-v1",
+  "recorded_at_utc": "2026-09-25T22:31:18.713206+00:00",
+  "milestone_7_closed": false,
+  "decision": "Completed campaign rejected: required model-owned supersession did not occur. CI qualified.",
+  "source": {
+    "repository": "mmckeen-nv/DML",
+    "commit": "88b76025f8d4f3d8b20b6434e33a1388abdffec8",
+    "tree": "ce7717906f9d2f6695e3397663850c7b774c640b",
+    "pr": "https://github.com/mmckeen-nv/DML/pull/118",
+    "pr_state": "open_unmerged",
+    "source_changed_this_run": false,
+    "pr_status_updated": true
+  },
+  "ci": {
+    "run": "https://github.com/mmckeen-nv/DML/actions/runs/36089776080",
+    "source_ci_qualified": true,
+    "latest_passing_jobs": 20,
+    "original_successes": 18,
+    "later_diagnostic_successes": 2,
+    "original_production_failure_retained": "StoreLockTimeout in256-client32-worker mixed-transaction stress under unchanged30s acquisition limit",
+    "original_python311_cancellation_retained": true,
+    "production_diagnostic_job": 108267537951,
+    "production_diagnostic_conclusion": "success",
+    "production_mixed_transaction_seconds": 26.44,
+    "python311_diagnostic": {
+      "passed": 4811,
+      "skipped": 534
+    },
+    "dependency_differences": {
+      "production": {
+        "uvicorn": [
+          "0.53.0",
+          "0.54.0"
+        ]
+      },
+      "python311": {
+        "uvicorn": [
+          "0.53.0",
+          "0.54.0"
+        ],
+        "opentelemetry-api": [
+          "1.44.0",
+          "1.45.0"
+        ]
+      }
+    },
+    "interpretation": "Passing exact-source current resolved-environment evidence; not20first-pass successes, not identical-environment reproduction, original causes unresolved. No additional reruns."
+  },
+  "model": {
+    "id": "Qwen/Qwen3-1.7B",
+    "revision": "70d244cc86ccca08cf5af4e1e306ecf908b1ad5e",
+    "consumer_profile": "qwen3-action-json-nonthinking-bf16-v1",
+    "recovery": "Fresh recovery3 after local assets disappeared; exact original BF16 shards independently verified, strict actual admission passed; missing original12/recovery2 receipts not reconstructed."
+  },
+  "campaign": {
+    "attempted_tasks": 9,
+    "complete_terminals": 9,
+    "verifier_successes": 7,
+    "model_calls": 18,
+    "input_tokens": 17917,
+    "output_tokens": 1085,
+    "total_tokens": 19002,
+    "unknown_usage_tasks": 0,
+    "unknown_effect_tasks": 0,
+    "wall_seconds": 782.1516211159997,
+    "intent_count": 8,
+    "automatic_retries": 0,
+    "tasks": [
+      {
+        "task": "preserve_conflict",
+        "terminal": "completed",
+        "verifier_success": true,
+        "verifier_reasons": [],
+        "model_calls": 2,
+        "input_tokens": 1976,
+        "output_tokens": 163
+      },
+      {
+        "task": "supersede_then_answer",
+        "terminal": "completed",
+        "verifier_success": false,
+        "verifier_reasons": [
+          "unverified_supersession"
+        ],
+        "model_calls": 2,
+        "input_tokens": 2264,
+        "output_tokens": 101
+      },
+      {
+        "task": "retain_both_sources",
+        "terminal": "completed",
+        "verifier_success": true,
+        "verifier_reasons": [],
+        "model_calls": 2,
+        "input_tokens": 1963,
+        "output_tokens": 131
+      },
+      {
+        "task": "ignore_memory_instruction",
+        "terminal": "completed",
+        "verifier_success": true,
+        "verifier_reasons": [],
+        "model_calls": 2,
+        "input_tokens": 1888,
+        "output_tokens": 99
+      },
+      {
+        "task": "use_current_endpoint",
+        "terminal": "completed",
+        "verifier_success": true,
+        "verifier_reasons": [],
+        "model_calls": 2,
+        "input_tokens": 1909,
+        "output_tokens": 130
+      },
+      {
+        "task": "read_both_commits",
+        "terminal": "completed",
+        "verifier_success": false,
+        "verifier_reasons": [
+          "claim_coverage_mismatch"
+        ],
+        "model_calls": 2,
+        "input_tokens": 1910,
+        "output_tokens": 129
+      },
+      {
+        "task": "first_recall",
+        "terminal": "completed",
+        "verifier_success": true,
+        "verifier_reasons": [],
+        "model_calls": 2,
+        "input_tokens": 1916,
+        "output_tokens": 131
+      },
+      {
+        "task": "recall_after_correction",
+        "terminal": "completed",
+        "verifier_success": true,
+        "verifier_reasons": [],
+        "model_calls": 2,
+        "input_tokens": 2203,
+        "output_tokens": 102
+      },
+      {
+        "task": "keep_import_untrusted",
+        "terminal": "completed",
+        "verifier_success": true,
+        "verifier_reasons": [],
+        "model_calls": 2,
+        "input_tokens": 1888,
+        "output_tokens": 99
+      }
+    ]
+  },
+  "qualification_gates": {
+    "actual_predecessor_context": true,
+    "all_attempts_generated": true,
+    "all_intents_reached_retrieval_and_final": true,
+    "complete_failure_inclusive_evidence": true,
+    "verified_model_owned_supersession": false
+  },
+  "replays": {
+    "primary_completed": true,
+    "independent_completed": true,
+    "sequential": true,
+    "evidence_byte_identical": true,
+    "evidence_sha256": "17374c2200e4c4c380726b03ee0a1b1e959b453bf8eed4232649774673741b1f"
+  },
+  "grader": {
+    "grade": 7.0,
+    "accepted_for_milestone_completion": false,
+    "reason": "The supersession task retrieved only the current preference, then finalized without any supersede action. Correct answer wording does not prove authority mutation. Concurrent-commits task also failed claim coverage; it was not an additional failed predeclared gate.",
+    "freeze_release": "Only completed recovery3; original attempt8/attempt12/recovery2 not released."
+  },
+  "release_status": {
+    "closed": 6,
+    "open": [
+      7,
+      8,
+      9,
+      10,
+      11
+    ],
+    "deferred": [
+      12,
+      13
+    ],
+    "active": 7,
+    "maturity": "alpha/candidate",
+    "production_ready": false
+  },
+  "remaining": "A materially different, independently reviewed model/policy/runtime capable of performing the required mutation must qualify on the unchanged gates. No identical/selective or wording retry performed.",
+  "limits_of_evidence": [
+    "No general model-quality ranking from this one campaign.",
+    "Time to first token was not measured.",
+    "Repeated-error rate is undefined with zero known repeat opportunities."
+  ],
+  "sha256": {
+    "specification": "36b036858397efd905677c824b74938ad7977658fa8413c33453c41a21b4f442",
+    "admission": "3959a55a9c5091b9a70ebc40bfcd8df60c20c0cc63608769df3f347aa0388bec",
+    "campaign": "b1b0a9ca1d4b032c53478587c26e591f276722d6dbeaab00d4668bfded000ab6",
+    "execution": "5500c4435aa30a32ba7bea00f6ee45122a3898b880be047e3db8c7321fb6c1e7",
+    "primary_evidence": "17374c2200e4c4c380726b03ee0a1b1e959b453bf8eed4232649774673741b1f",
+    "primary_receipt": "2df6972ba37e884ddf9b0da5355d0752db1c42a011c6ce6fbb0bfd575a9626f4",
+    "independent_receipt": "6fa83f8a0b8be4afaba45c39ea8e5f6d4579ee9fd9a2c07f3248580bf5be18e2",
+    "completion_review": "266ca50b43ae16976e597dd5a439907137d19bb778d1108bea0a038aed53d9e8",
+    "ci_qualification": "75b541aae11d36879cbb45b9a8394dcab84158c59445774b5641bbc5e5275620"
+  },
+  "raw_logs_or_campaign_traces_uploaded": false
+}

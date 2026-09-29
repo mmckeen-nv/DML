@@ -1,0 +1,71 @@
+{
+  "accepted_for_generation": false,
+  "actual_model_generations_by_review": 0,
+  "all_attempt_jobs": {
+    "path": "/workspace/scratch/c79340404ab9/m7-resume/retry-continuity-review-20260927/ci/jobs-terminal.json",
+    "sha256": "8dce28b3a40492db87204a60e71e27d75b3ab65cfa4688c7575e04de11059185"
+  },
+  "artifact_api": {
+    "path": "/workspace/scratch/c79340404ab9/m7-resume/retry-continuity-review-20260927/ci/artifacts-terminal.json",
+    "sha256": "bfb41fb9abdc8bf611194e2310fb75f9b6c3a667b3d07ea608049a78e917c406"
+  },
+  "cancelled_jobs": 0,
+  "decision": "Accept unchanged published c51b514/treeecd421 source based on actual first-attempt CI344. Freshly recovered all20 terminal job conclusions, exact tested tree, six actual artifact digests and contents, and both core logs. No CI rerun was performed.",
+  "failed_jobs": 0,
+  "grade": 9.8,
+  "independent_artifact_inspection": {
+    "path": "/workspace/scratch/c79340404ab9/m7-resume/retry-continuity-review-20260927/ci/grader-artifact-inspection.json",
+    "sha256": "ab8eb28c879745c3de0d95812a0bec13d7cc8a461ff8aac3770b60a9d05b6be9"
+  },
+  "limitations": [
+    "Missing metrics-r2 runtime/admission/freeze files are not reconstructed or accepted by this source-only qualification.",
+    "801 generic-core optional/environment skips per lane and one production FAISS-unavailable skip remain disclosed; mandatory scopes have zero skips.",
+    "CI343 remains rejected; no claim that the historical CI342 stall cause is proven.",
+    "Finite concurrency and recovery measurements do not establish arbitrary-scheduler, power-loss or production latency guarantees."
+  ],
+  "live_qualified": false,
+  "manual_cancellations": 0,
+  "milestone_7_closed": false,
+  "production_ready": false,
+  "qualified_evidence": {
+    "compressed_history_hashes": 48,
+    "concurrency_source_hashes": 225,
+    "core_cases_passed_each": 4827,
+    "core_skips_each": 801,
+    "cpu_source_hashes": 395,
+    "full_concurrency_cases": 359,
+    "full_concurrency_skips": 0,
+    "linux_recovery_cases_each": 460,
+    "linux_recovery_skips": 0,
+    "mandatory_cpu_cases": 1423,
+    "mandatory_cpu_modules": 32,
+    "mandatory_cpu_skips": 0,
+    "new_metrics_regressions_passed_each": 4,
+    "prior_mcp_single_flight_passed_each": true,
+    "production_cases": 2439,
+    "production_faiss_unavailable_skips": 1,
+    "real_enospc_cases": 15,
+    "real_enospc_skips": 0
+  },
+  "recorded_at_utc": "2026-09-27T19:25:49.556245+00:00",
+  "reviewer": "independent-supervisor-grader",
+  "run_attempt": 1,
+  "run_id": 36334302503,
+  "run_number": 344,
+  "run_url": "https://github.com/mmckeen-nv/DML/actions/runs/36334302503",
+  "schema_version": "dml-independent-source-ci-qualification-v1",
+  "source_ci_qualified": true,
+  "source_commit": "c51b51440401037873a19e3863888b3ae31f5abf",
+  "source_tree": "ecd4211d6ba6ab41586575f250dbebdde597889a",
+  "successful_jobs": 20,
+  "terminal_run": {
+    "path": "/workspace/scratch/c79340404ab9/m7-resume/retry-continuity-review-20260927/ci/run-terminal.json",
+    "sha256": "50c765712db83428a0352f658a7579465b204a052f1f44be901a2987e1833090"
+  },
+  "tested_merge": {
+    "path": "/workspace/scratch/c79340404ab9/m7-resume/retry-continuity-review-20260927/ci/merge-commit.json",
+    "sha256": "1a56b84e10bab444c68c4d00bdd8a7fa8130c678b8e7b7af622e88e6e5e3b829"
+  },
+  "tested_merge_commit": "7f49c32abb46f61e16b723bb3ee6a1d40782ed47",
+  "workflow_reruns": 0
+}

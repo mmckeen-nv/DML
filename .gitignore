@@ -18,6 +18,8 @@ build/
 dist/
 .chroma/
 /out/
+/profile-concurrency-artifacts/
+/profile-concurrency-work/
 *.so
 
 # Local tool lockfiles / generated config variants

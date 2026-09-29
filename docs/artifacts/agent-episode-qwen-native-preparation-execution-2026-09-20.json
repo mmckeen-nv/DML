@@ -1,0 +1,8 @@
+{
+  "generation_performed": false,
+  "new_template_sha256": "24bd5fcdd71018049c672f96778e9162c6d00337e22f8f5f9b358c52705d9348",
+  "normalization_seconds": 53.167962236000676,
+  "peak_rss_kib": 12907816,
+  "provenance_sha256": "706f1013a7246ade1b0990ee59cd8e420b8faf0ac241500d5fe0abbac83c318f",
+  "unchanged_learned_weight_config_tokenizer_bytes": true
+}

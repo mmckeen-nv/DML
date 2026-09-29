@@ -1,0 +1,172 @@
+{
+  "schema_version": 1,
+  "gate": "serial-gate-14-scoped-retrieval-context-extraction",
+  "reviewer": "independent retrieval/context grader",
+  "reviewed_at_utc": "2026-09-17T16:10:09.029411+00:00",
+  "base_commit": "cf0f2543f2b10361a200958fcba750d6f9ed8ce5",
+  "score": 9.8,
+  "required_score": 9.5,
+  "accepted": true,
+  "blockers": [],
+  "history": [
+    {
+      "iteration": 1,
+      "status": "provisional_accept",
+      "score": 9.8,
+      "blockers": [],
+      "evidence": "Independent combined 104-test pass and implementation review; documentation/CI review pending."
+    },
+    {
+      "iteration": 2,
+      "status": "accepted",
+      "score": 9.8,
+      "blockers": [],
+      "evidence": "Frozen implementation: independently rerun 104 focused cases; 13 existing compatibility cases passed; reviewed frozen CI and behavioral documentation."
+    }
+  ],
+  "addressed_findings": [
+    {
+      "finding": "Mutable caller/router kinds could make selected filters and reported evidence disagree during callbacks.",
+      "resolution": "Adapter freezes resolved kinds before ranking and uses frozen values for report construction; ranking-stage and DPM-stage mutation regressions pass."
+    },
+    {
+      "finding": "Eager candidate collection could add an unnecessary full-store read or change fallback snapshot timing.",
+      "resolution": "Narrow ranked capability plus lazy recent source; successful ranking and ranking exceptions never read fallback state."
+    },
+    {
+      "finding": "Independent schema-4 concurrency fixture initially tried migrating schema 3, which the existing migration contract refuses.",
+      "resolution": "Corrected only the test fixture to migrate schema 2. This was not a product failure; all schema-2/3/4 concurrency cases now pass."
+    },
+    {
+      "finding": "Ledger documentation could imply that semantic ranking can never return an eligible older ledger.",
+      "resolution": "Final service docstring and gate documentation state the narrower guarantee: latest-ledger lookup does not fall back after suppression; semantic ranking retains its existing behavior."
+    }
+  ],
+  "independent_verification": {
+    "focused_suite": {
+      "command": "../dml-venv/bin/python -m pytest dml_core/tests/test_retrieval_service.py dml_core/tests/test_context_service.py dml_core/tests/test_retrieval_context_integration.py dml_core/tests/test_retrieval_context_adversarial.py --junitxml=/tmp/retrieval-context-independent.xml",
+      "passed": 104,
+      "failed": 0,
+      "duration_seconds": 2.67,
+      "junit": "/tmp/retrieval-context-independent.xml",
+      "junit_sha256": "982d338fcc140171f7ea5b92534ab76194f519c07621b4d15815780b64cd9d0a",
+      "post_run_changes": "Only a reviewed ledger-service docstring clarification and documentation wording; no behavior or test changes after the frozen 104-case run."
+    },
+    "existing_compatibility_selection": {
+      "passed": 13,
+      "failed": 0,
+      "duration_seconds": 1.71,
+      "nodes": [
+        "dml_core/daystrom_dml/tests/test_scope_regressions.py::test_recall_omitted_scope_never_reads_private_subscope",
+        "dml_core/tests/test_receipt_embedding_contract.py::test_query_identity_remains_pinned_until_retrieval_owns_the_store",
+        "dml_core/tests/test_receipt_embedding_contract.py::test_receipt_retrieval_requires_explicit_tenant_before_embedding",
+        "dml_core/daystrom_dml/tests/test_dml.py::test_survival_ledger_carries_long_horizon_anchors",
+        "dml_core/daystrom_dml/tests/test_dml.py::test_survival_ledger_is_scoped_to_session"
+      ],
+      "warnings": [
+        "One existing Starlette/AnyIO BlockingPortal deprecation warning."
+      ]
+    },
+    "diff_check": "git diff --check passed",
+    "test_history": [
+      {
+        "selection": "Initial service/identity subset",
+        "passed": 14,
+        "deselected": 6
+      },
+      {
+        "selection": "Initial independent adversarial integration run",
+        "passed": 19,
+        "failed": 1,
+        "failure_cause": "Test-only invalid schema-3 migration source; corrected to schema 2."
+      },
+      {
+        "selection": "Corrected independent adversarial integration run",
+        "passed": 20,
+        "failed": 0
+      },
+      {
+        "selection": "Combined focused run after fixture correction",
+        "passed": 104,
+        "failed": 0
+      },
+      {
+        "selection": "Frozen focused acceptance run",
+        "passed": 104,
+        "failed": 0
+      }
+    ]
+  },
+  "review_conclusions": [
+    "The existing public MemoryStore.retrieve_filtered remains the sole ranking implementation; no duplicated scoring was added.",
+    "The frozen request carries resolved scope, kinds, phase, top-k, time, and inspection state without mutable collection aliases.",
+    "Service functions do not import adapter ownership, locks, journals, or persistence and do not reach private mutable store state.",
+    "Fallback reads occur only after empty ranked success; exceptions preserve their identity and propagate.",
+    "All four scope fields, null subscope isolation, pinned expiry, suppression evidence order, phase asymmetry, empty kinds, ledger admission/deduplication, and context bytes/evidence remain characterized.",
+    "Controlled real contention shows cooperating retirement cannot commit until report materialization completes, across journal schemas 2, 3, and 4.",
+    "Report construction detaches metadata, collections, and personality overlay while preserving mutable response compatibility and construction-time digests.",
+    "Embedding I/O remains outside adapter ownership; receipt identity is checked before ranking inside ownership; DPM, metrics, and latency placement remain adapter responsibilities.",
+    "CI includes the four focused files in production evidence and the existing cross-platform matrix without replacing earlier gates."
+  ],
+  "hash_algorithm": "sha256",
+  "accepted_hashes": {
+    "runtime": {
+      "dml_core/daystrom_dml/dml_adapter.py": "e307d64e2cf689afafdb7c07b7878c1df4607aec2f95fa9b49f0dc98d73dad98",
+      "dml_core/daystrom_dml/services/scoped_retrieval.py": "712a44b472b708e171e2d25ecbc0a0cf705ad62b8e315dd04bee7ea5990f73e6",
+      "dml_core/daystrom_dml/services/context.py": "587e28cd0b0f13638c8a967df184a531f40d98488979875e2242116e9dc74dd3"
+    },
+    "tests": {
+      "dml_core/tests/test_retrieval_service.py": "9d23d19d957643e0339a017623ef387b6abee8c0378f8d0db8d126632e3352c6",
+      "dml_core/tests/test_context_service.py": "bb489140de1cb71b3c051aaadb46bef824c6d5157d5998953f6d2cab441233aa",
+      "dml_core/tests/test_retrieval_context_integration.py": "bc539b751fd5f87a9ff80b0aabc2ed1945affa96bac411be1b71c1fb2b0de09f",
+      "dml_core/tests/test_retrieval_context_adversarial.py": "25d618beb89a7860e933950056779350df2ef86129eed2d8b37dfec7226ffae4"
+    },
+    "ci": {
+      ".github/workflows/ci.yml": "f460189beb891b0a83ec1e5805f1590331359296cb5f5780920ddfc7e26a41e8"
+    }
+  },
+  "reviewed_document_hashes": {
+    "docs/retrieval-context-hardening-2026-09-17.md": "5e7aabdf7caa74adc9d995f27222b2cae4f9f21ca3d13c0991d46b46ebb48329",
+    "docs/contracts/production-v1.md": "28466f43c917595fed143f41008b2e7459fc32d793431ddb410cf9899be45e3d",
+    "docs/production-foundations-2026-09-12.md": "fe5031e49341bb719be20060e8280f4c7049af8a63cc1b91cfd36289edbe7553"
+  },
+  "scope_limits": [
+    "Acceptance applies to the scoped exact retrieve_context extraction for receipt schemas 2/3/4 and characterized legacy/schema-1 compatibility.",
+    "No new public candidate API, durable schema, migration format, or maturity promotion is qualified by this gate.",
+    "Legacy hybrid retrieval, ANN, automatic retrieval quality adjustments, DPM, and native KV remain outside production qualification.",
+    "Token counts remain estimates; complete model-input/tokenizer binding and durable full-context replay are not added.",
+    "This independent grader ran focused checks only; full-suite, cross-platform execution, model/GPU/network behavior, and large-store performance claims are not independently established here.",
+    "Only temporary synthetic stores were used; no user memory data was read or changed, and no commit or push was performed.",
+    "The parent may append final verification numbers or artifact links to documentation after these reviewed document hashes; that does not change accepted runtime/test/CI hashes."
+  ],
+  "root_verification": {
+    "python": "3.12.14",
+    "full_regression": {
+      "tests": 2827,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 9,
+      "passed": 2818,
+      "seconds": 280.079
+    },
+    "full_junit_sha256": "fbac3cbcee3058eab8fa1bd1f6b8c5864e9e6a50f79d3c05abf34e2936425262",
+    "full_log_sha256": "5c0840292b0bc1ca0e0604d032d5df45836dd6f01efde71c82c854f345b33e4f",
+    "ruff": "Passed for services, adapter and all four new test files.",
+    "mypy": "58 maintained files passed with local Python 3.12 target.",
+    "hermes_hygiene": "passed",
+    "warnings": [
+      "Existing Starlette/AnyIO BlockingPortal alias deprecation.",
+      "Intentional huge-query norm overflow in fail-closed projection test."
+    ],
+    "local_skips": "Nine optional-dependency skips; remote CI results recorded separately on PR #118.",
+    "accepted_hashes_verified": true,
+    "user_stores_modified": false,
+    "ci_status": "Exact-commit workflow results are recorded on PR #118; this artifact records local verification only."
+  },
+  "root_verified_document_hashes": {
+    "docs/retrieval-context-hardening-2026-09-17.md": "62e16b16cb9f1e9391d5e8452c8232e0da3271f7c630566b572393031ebaae27",
+    "docs/contracts/production-v1.md": "28466f43c917595fed143f41008b2e7459fc32d793431ddb410cf9899be45e3d",
+    "docs/production-foundations-2026-09-12.md": "fe5031e49341bb719be20060e8280f4c7049af8a63cc1b91cfd36289edbe7553"
+  },
+  "root_document_changes": "Appended final verification numbers only to the reviewed stage document, as allowed by the independent review. Behavioral contract unchanged."
+}

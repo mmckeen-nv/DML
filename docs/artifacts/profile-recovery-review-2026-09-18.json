@@ -1,0 +1,745 @@
+{
+  "acceptance_basis": [
+    "The supported profile retains a single SQLite receipt authority and its five existing public mutation APIs across admitted journal schemas 2, 3 and 4.",
+    "The parent-held oracle independently reconstructs complete records, request digests, historical receipts, decisions, outbox state, scoped reads and retention outcomes after 184 deterministic process kills.",
+    "Nine seeded histories accumulate independently expected state across 108 logical mutations and 36 killed attempts, distinguishing acknowledged, explicitly rejected and uncertain outcomes.",
+    "POSIX directory barrier failures propagate; ownership cleanup always attempts descriptor closure while preserving the primary failure, and failures after publication are not called rollback.",
+    "Selected profile admission verifies WAL mode without silent conversion and requires a linked SQLite release containing the documented WAL-reset fix before authority access.",
+    "Backup captures committed WAL through SQLite backup, verifies complete retained history, and restores only to a separate new destination protected by an incomplete marker.",
+    "Marker-first private reservation removes the empty-visible-destination gap. Sealed verification rejects unexpected sidecars, mismatched hashes, corrupt history and semantic manifest mismatches.",
+    "Externally retained receipt comparison detects tested stale, foreign and altered acknowledgements; documentation explicitly excludes freshness proofs without complete independent evidence.",
+    "The actual evidence plugin binds source/runtime/filesystem and per-case outcomes to JUnit, rejects incomplete selections and inappropriate skips, and correctly refuses to qualify the volatile local overlay.",
+    "Dedicated CI runs are mandatory for six measured platform combinations and all fifteen actual bounded-ext4 ENOSPC cases; local capability skips cannot satisfy them.",
+    "Historical focused, plugin and full regression evidence remains attributed to initial source 8037ba2. Correction-specific independent bootstrap tests and source review pass, runtime sources are unchanged, and exact-source environment qualification is still mandatory.",
+    "macOS CI selects Homebrew CPython of the requested minor in a disposable virtual environment. The bootstrap verifies the actual interpreter minor and SQL runtime, records the _sqlite3 origin, and rejects an unpatched static or ambiguous macOS SQLite dependency instead of pretending a dylib replacement took effect.",
+    "The physical-volume fixture requires physical block allocation exhaustion, zero available blocks and an independently unallocatable empty inode while retaining both file descriptors through the SQLite mutation. Its original SQLITE_FULL, unchanged-authority and exact retry/replay checks remain intact.",
+    "The second physical-allocation correction consumes residual capacity through both retained inodes with advancing offsets and shared byte/round bounds. It requires a complete no-progress pass, synchronizes both descriptors, repeats both next-block ENOSPC checks and verifies zero available blocks before allowing the unchanged actual SQLite-full/recovery oracle to proceed."
+  ],
+  "actual_evidence_plugin_integration": {
+    "accepted": false,
+    "errors": [],
+    "evidence_revision": 1,
+    "executed_by": "Harness agent",
+    "failed": 0,
+    "independent_verification": "Grader read actual JSON, XML and log and verified JUnit hash, source attribution, filesystem observation, per-test totals and nonqualification flags. This is not synthetic unit-report evidence.",
+    "junit_seconds": 114.898,
+    "junit_sha256": "938493595b2980ab043761d698896f66b6395cbc43702844c43991d49fbfc48a",
+    "module_case_counts": {
+      "test_authority_backup": 60,
+      "test_crash_qualification_adversarial": 40,
+      "test_production_profile_recovery": 185,
+      "test_profile_recovery_campaign": 55,
+      "test_profile_recovery_evidence": 34,
+      "test_profile_storage_faults": 76
+    },
+    "passed": 450,
+    "power_loss_qualified": false,
+    "pytest_seconds": 114.92,
+    "report_sha256": "4a00c29b2621af13270521b5a3ab1ab00d42f88d123748c3af4123c24e7d3643",
+    "skipped": 0,
+    "source_attribution": "Historical prepublication evidence for the initial reviewed contents subsequently published as 8037ba25ad5c71bba0c93797984f2a4d9be42777; not a rerun on correction revision 2.",
+    "source_commit": "49368a999ae9c197d19949b39814311d4d0bed11",
+    "source_tree": "1ce250619aee114cf4ba9eb295d31c82a281ac69",
+    "testcases": 450,
+    "tests_passed": true,
+    "working_tree_dirty": true
+  },
+  "base_commit": "49368a999ae9c197d19949b39814311d4d0bed11",
+  "blockers": [],
+  "ci_319": {
+    "all_six_recovery_lanes_accepted": true,
+    "does_not_qualify_revision_3_source": true,
+    "head_commit": "8c666349b6e1d7a98fa290befd82b8cad6180c7f",
+    "physical_ext4_full": {
+      "application_persistence_failure_observed": false,
+      "archive_sha256": "ef3268db3b650ae3a101f41f90c5a0b600b1825d1a5e1baefe368246ad3006c4",
+      "errors": 0,
+      "failed": 2,
+      "independent_verification": "Grader read the actual downloaded XML and confirmed each passing case carries allocation telemetry, sqlite_full_verified=true and recovery_verified=true. Retirement/schema 2 and 4 fail before the SQLite attempt when second-inode allocation still succeeds.",
+      "junit_sha256": "d1ab808a6f7cff91333d2c8783ffaa8d6a55f122e2e9f4ddde2cc822e752fce8",
+      "passed": 13,
+      "skipped": 0
+    },
+    "qualification": "REJECTED",
+    "run_id": 35358537343,
+    "run_url": "https://github.com/mmckeen-nv/DML/actions/runs/35358537343",
+    "tested_merge_commit": "e59ed72d1003cfb1d0c622a146ef7558ad9b8871",
+    "tested_tree": "61a3fd4ee092020da7afb65bc858137cab0b4d49",
+    "verified_recovery_artifacts": [
+      {
+        "accepted": true,
+        "artifact_verified_by": "Independent harness agent; grader inspected verification summary and bundle hashes.",
+        "counts": {
+          "error": 0,
+          "failure": 0,
+          "skipped": 0,
+          "testcase": 460
+        },
+        "filesystem": {
+          "device_id": 16777230,
+          "local": true,
+          "mount_flags": 76582912,
+          "options": [
+            "rw"
+          ],
+          "source": "darwin-statfs",
+          "type": "apfs"
+        },
+        "id": 10554360406,
+        "junit_sha256": "56927e7e27ed47ee92b422683ec187af9832399287fe856e40434b07432a84e8",
+        "name": "profile-recovery-macos-latest-py3.10",
+        "power_loss_qualified": false,
+        "runtime_identity": {
+          "ci_replacement": false,
+          "python_executable": "/Users/runner/work/_temp/dml-python/bin/python",
+          "python_minor": "3.10",
+          "python_real_executable": "/opt/homebrew/Cellar/python@3.10/3.10.21/Frameworks/Python.framework/Versions/3.10/bin/python3.10",
+          "python_version": "3.10.21",
+          "sqlite_extension": "/opt/homebrew/Cellar/python@3.10/3.10.21/Frameworks/Python.framework/Versions/3.10/lib/python3.10/lib-dynload/_sqlite3.cpython-310-darwin.so",
+          "sqlite_source_id": "2026-07-24 19:02:57 bf7c7f30031888f4e796e429ab3978879485813aaca6f641c7b33e4e09459bcc",
+          "sqlite_version": "3.53.4"
+        },
+        "source_commit": "e59ed72d1003cfb1d0c622a146ef7558ad9b8871",
+        "source_tree": "61a3fd4ee092020da7afb65bc858137cab0b4d49",
+        "working_tree_dirty": false,
+        "zip_sha256": "4b01d205290eedad404a6b45933b505f27f4e4b8506caa7dbaa1ba74ea5eb2e3"
+      },
+      {
+        "accepted": true,
+        "artifact_verified_by": "Independent harness agent; grader inspected verification summary and bundle hashes.",
+        "counts": {
+          "error": 0,
+          "failure": 0,
+          "skipped": 15,
+          "testcase": 460
+        },
+        "filesystem": {
+          "device_id": 8093784395173187904,
+          "local": true,
+          "options": [],
+          "source": "windows-volume-information",
+          "type": "ntfs",
+          "volume_flags": 65482495
+        },
+        "id": 10554350720,
+        "junit_sha256": "16e562f60111456638817c6f9475e6d57306260ce48d5da85a2e4f567d4e050a",
+        "name": "profile-recovery-windows-latest-py3.13",
+        "power_loss_qualified": false,
+        "runtime_identity": {
+          "ci_replacement": true,
+          "python_executable": "C:\\hostedtoolcache\\windows\\Python\\3.13.15\\x64\\python.exe",
+          "python_minor": "3.13",
+          "python_real_executable": "C:\\hostedtoolcache\\windows\\Python\\3.13.15\\x64\\python.exe",
+          "python_version": "3.13.15",
+          "sqlite_extension": "C:\\hostedtoolcache\\windows\\Python\\3.13.15\\x64\\DLLs\\_sqlite3.pyd",
+          "sqlite_source_id": "2026-07-24 19:02:57 bf7c7f30031888f4e796e429ab3978879485813aaca6f641c7b33e4e09459bcc",
+          "sqlite_version": "3.53.4"
+        },
+        "source_commit": "e59ed72d1003cfb1d0c622a146ef7558ad9b8871",
+        "source_tree": "61a3fd4ee092020da7afb65bc858137cab0b4d49",
+        "working_tree_dirty": false,
+        "zip_sha256": "3888c2383e1af7b8fadec34f18ddaf37450bb718d8a4c6d3ba4da6b3b206162d"
+      },
+      {
+        "accepted": true,
+        "artifact_verified_by": "Independent harness agent; grader inspected verification summary and bundle hashes.",
+        "counts": {
+          "error": 0,
+          "failure": 0,
+          "skipped": 0,
+          "testcase": 460
+        },
+        "filesystem": {
+          "device_id": 2049,
+          "local": true,
+          "options": [
+            "errors=remount-ro",
+            "relatime",
+            "rw"
+          ],
+          "source": "proc-self-mountinfo",
+          "type": "ext4"
+        },
+        "id": 10553775850,
+        "junit_sha256": "93e32aef03fd4fa6ad218999400ad5852ecb4e2f0581548b01962f6baa8b7c4c",
+        "name": "profile-recovery-ubuntu-latest-py3.10",
+        "power_loss_qualified": false,
+        "runtime_identity": {
+          "ci_replacement": true,
+          "python_executable": "/opt/hostedtoolcache/Python/3.10.21/x64/bin/python",
+          "python_minor": "3.10",
+          "python_real_executable": "/opt/hostedtoolcache/Python/3.10.21/x64/bin/python3.10",
+          "python_version": "3.10.21",
+          "sqlite_extension": "/opt/hostedtoolcache/Python/3.10.21/x64/lib/python3.10/lib-dynload/_sqlite3.cpython-310-x86_64-linux-gnu.so",
+          "sqlite_source_id": "2026-07-24 19:02:57 bf7c7f30031888f4e796e429ab3978879485813aaca6f641c7b33e4e09459bcc",
+          "sqlite_version": "3.53.4"
+        },
+        "source_commit": "e59ed72d1003cfb1d0c622a146ef7558ad9b8871",
+        "source_tree": "61a3fd4ee092020da7afb65bc858137cab0b4d49",
+        "working_tree_dirty": false,
+        "zip_sha256": "2d4da557578b587dec44c411d31336be23612b4d28b04f340174646feaa054e5"
+      },
+      {
+        "accepted": true,
+        "artifact_verified_by": "Independent harness agent; grader inspected verification summary and bundle hashes.",
+        "counts": {
+          "error": 0,
+          "failure": 0,
+          "skipped": 0,
+          "testcase": 460
+        },
+        "filesystem": {
+          "device_id": 2049,
+          "local": true,
+          "options": [
+            "errors=remount-ro",
+            "relatime",
+            "rw"
+          ],
+          "source": "proc-self-mountinfo",
+          "type": "ext4"
+        },
+        "id": 10553750880,
+        "junit_sha256": "9d4f637c593c8d5449180e387aa073e1431ec70fa840a221125890ae9919faf6",
+        "name": "profile-recovery-ubuntu-latest-py3.13",
+        "power_loss_qualified": false,
+        "runtime_identity": {
+          "ci_replacement": true,
+          "python_executable": "/opt/hostedtoolcache/Python/3.13.15/x64/bin/python",
+          "python_minor": "3.13",
+          "python_real_executable": "/opt/hostedtoolcache/Python/3.13.15/x64/bin/python3.13",
+          "python_version": "3.13.15",
+          "sqlite_extension": "/opt/hostedtoolcache/Python/3.13.15/x64/lib/python3.13/lib-dynload/_sqlite3.cpython-313-x86_64-linux-gnu.so",
+          "sqlite_source_id": "2026-07-24 19:02:57 bf7c7f30031888f4e796e429ab3978879485813aaca6f641c7b33e4e09459bcc",
+          "sqlite_version": "3.53.4"
+        },
+        "source_commit": "e59ed72d1003cfb1d0c622a146ef7558ad9b8871",
+        "source_tree": "61a3fd4ee092020da7afb65bc858137cab0b4d49",
+        "working_tree_dirty": false,
+        "zip_sha256": "0795dc009021cba01c8d4bf84e93675f1a22510f8f0eed5096af87edf8b2fc36"
+      },
+      {
+        "accepted": true,
+        "artifact_verified_by": "Independent harness agent; grader inspected verification summary and bundle hashes.",
+        "counts": {
+          "error": 0,
+          "failure": 0,
+          "skipped": 0,
+          "testcase": 460
+        },
+        "filesystem": {
+          "device_id": 16777229,
+          "local": true,
+          "mount_flags": 76582912,
+          "options": [
+            "rw"
+          ],
+          "source": "darwin-statfs",
+          "type": "apfs"
+        },
+        "id": 10553491557,
+        "junit_sha256": "3c907531fe1b78bfaeddf2ec10b0ffa92ba206ba20a6354be140c8928d8dbef5",
+        "name": "profile-recovery-macos-latest-py3.13",
+        "power_loss_qualified": false,
+        "runtime_identity": {
+          "ci_replacement": false,
+          "python_executable": "/Users/runner/work/_temp/dml-python/bin/python",
+          "python_minor": "3.13",
+          "python_real_executable": "/opt/homebrew/Cellar/python@3.13/3.13.15/Frameworks/Python.framework/Versions/3.13/bin/python3.13",
+          "python_version": "3.13.15",
+          "sqlite_extension": "/opt/homebrew/Cellar/python@3.13/3.13.15/Frameworks/Python.framework/Versions/3.13/lib/python3.13/lib-dynload/_sqlite3.cpython-313-darwin.so",
+          "sqlite_source_id": "2026-07-24 19:02:57 bf7c7f30031888f4e796e429ab3978879485813aaca6f641c7b33e4e09459bcc",
+          "sqlite_version": "3.53.4"
+        },
+        "source_commit": "e59ed72d1003cfb1d0c622a146ef7558ad9b8871",
+        "source_tree": "61a3fd4ee092020da7afb65bc858137cab0b4d49",
+        "working_tree_dirty": false,
+        "zip_sha256": "8a496123fd5d48bb647f5e982a94e369a77840802932f2ec5d706131e34e8702"
+      },
+      {
+        "accepted": true,
+        "artifact_verified_by": "Independent harness agent; grader inspected verification summary and bundle hashes.",
+        "counts": {
+          "error": 0,
+          "failure": 0,
+          "skipped": 15,
+          "testcase": 460
+        },
+        "filesystem": {
+          "device_id": 1115846371,
+          "local": true,
+          "options": [],
+          "source": "windows-volume-information",
+          "type": "ntfs",
+          "volume_flags": 65482495
+        },
+        "id": 10553336971,
+        "junit_sha256": "983e8e52724f238e6846963edfb0e8bd53091d425278edc8fcc15a40a7bb6346",
+        "name": "profile-recovery-windows-latest-py3.10",
+        "power_loss_qualified": false,
+        "runtime_identity": {
+          "ci_replacement": true,
+          "python_executable": "C:\\hostedtoolcache\\windows\\Python\\3.10.11\\x64\\python.exe",
+          "python_minor": "3.10",
+          "python_real_executable": "C:\\hostedtoolcache\\windows\\Python\\3.10.11\\x64\\python.exe",
+          "python_version": "3.10.11",
+          "sqlite_extension": "C:\\hostedtoolcache\\windows\\Python\\3.10.11\\x64\\DLLs\\_sqlite3.pyd",
+          "sqlite_source_id": "2026-07-24 19:02:57 bf7c7f30031888f4e796e429ab3978879485813aaca6f641c7b33e4e09459bcc",
+          "sqlite_version": "3.53.4"
+        },
+        "source_commit": "e59ed72d1003cfb1d0c622a146ef7558ad9b8871",
+        "source_tree": "61a3fd4ee092020da7afb65bc858137cab0b4d49",
+        "working_tree_dirty": false,
+        "zip_sha256": "b29c9d55899c45cd12aff580ff69b9f44d879dd1944549a2c096ca08833ffb5a"
+      }
+    ]
+  },
+  "correction_parent_commit": "8c666349b6e1d7a98fa290befd82b8cad6180c7f",
+  "correction_validation": {
+    "builder_separate_run": {
+      "passed": 44,
+      "pytest_seconds": 0.38,
+      "skipped": 0
+    },
+    "errors": 0,
+    "evidence_revision": 2,
+    "expected_corrected_recovery_selection": {
+      "collected": 460,
+      "executed_on_corrected_platforms_at_review": false,
+      "linux_macos_expected_passed": 460,
+      "windows_expected_passed": 445,
+      "windows_only_allowed_skips": 15
+    },
+    "failed": 0,
+    "full_suite_rerun": false,
+    "independent_strict_ruff": "passed for corrected bootstrap, evidence tests and physical-volume fixture",
+    "independent_test_command": "OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 DML_SKIP_VENV_REEXEC=1 ../dml-venv/bin/python -m pytest dml_core/tests/test_profile_recovery_evidence.py --junitxml=/tmp/profile-recovery-ci318-independent-regrade.xml",
+    "junit_seconds": 0.341,
+    "junit_sha256": "4df1b46c54821bf292a4f5b589c51b7e6950b3612fb1c6c80171c96ed2122bcb",
+    "local_actual_filesystem_selection": {
+      "capability_skipped": 15,
+      "passed": 0,
+      "physical_filesystem_qualified": false
+    },
+    "passed": 44,
+    "pytest_seconds": 0.36,
+    "root_workflow_validation": "YAML parsed and both macOS provisioning shell steps passed bash syntax checks",
+    "scope": "CI provisioning, fault fixture, bootstrap tests, narrow documentation and this review only; no application runtime changes.",
+    "simulated_allocation_control_flow": {
+      "passing_paths": 3,
+      "physical_filesystem_qualified": false,
+      "scope": "Simulation only: successful block-tail exhaustion; rejection if independent inode can allocate; rejection if available blocks remain. Not actual physical filesystem evidence."
+    },
+    "skipped": 0,
+    "source_attribution": "Historical correction-specific checks for 8c666349b6e1d7a98fa290befd82b8cad6180c7f; no new bootstrap unit run after the second ENOSPC fixture correction."
+  },
+  "decision": "ACCEPT",
+  "decision_scope": "Software source quality and bounded local correctness evidence. This decision does not close milestone 4 before exact-source measured-platform and real filesystem-full CI evidence passes.",
+  "evidence_environment": {
+    "filesystem": {
+      "device_id": 28,
+      "local": false,
+      "options": [
+        "fsync=volatile",
+        "relatime",
+        "rw"
+      ],
+      "source": "proc-self-mountinfo",
+      "type": "overlay"
+    },
+    "filesystem_qualified": false,
+    "implementation": "CPython",
+    "platform": "Linux-6.18.44-x86_64-with-glibc2.39",
+    "power_loss_qualified": false,
+    "python": "3.12.14",
+    "sqlite_source_id": "2026-05-05 10:34:17 c88b22011a54b4f6fbd149e9f8e4de77658ce58143a1af0e3785e4e6475127e9",
+    "sqlite_version": "3.53.1",
+    "working_tree_dirty": true
+  },
+  "grade_out_of_10": 9.6,
+  "independent_final_evidence_module_validation": {
+    "command": "OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 DML_SKIP_VENV_REEXEC=1 ../dml-venv/bin/python -m pytest dml_core/tests/test_profile_recovery_evidence.py --junitxml=/tmp/profile-recovery-evidence-independent-final.xml",
+    "errors": 0,
+    "evidence_revision": 1,
+    "executed_by": "Independent crash_grader agent",
+    "failed": 0,
+    "junit_seconds": 0.265,
+    "junit_sha256": "f6bd6d6adb8e6f650ab5de55009fe43688d01344ac2e7758d9a89283a6d625aa",
+    "module_case_counts": {
+      "test_profile_recovery_evidence": 34
+    },
+    "passed": 34,
+    "pytest_seconds": 0.29,
+    "skipped": 0,
+    "source_attribution": "Historical prepublication evidence for the initial reviewed contents subsequently published as 8037ba25ad5c71bba0c93797984f2a4d9be42777; not a rerun on correction revision 2.",
+    "testcases": 34
+  },
+  "independent_focused_validation": {
+    "command": "OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 DML_SKIP_VENV_REEXEC=1 ../dml-venv/bin/python -m pytest dml_core/tests/test_production_profile_recovery.py dml_core/tests/test_profile_recovery_campaign.py dml_core/tests/test_profile_storage_faults.py dml_core/tests/test_authority_backup.py dml_core/tests/test_crash_qualification_adversarial.py --junitxml=/tmp/profile-recovery-independent-final.xml",
+    "errors": 0,
+    "evidence_revision": 1,
+    "executed_by": "Independent crash_grader agent",
+    "failed": 0,
+    "junit_seconds": 114.332,
+    "junit_sha256": "35ee335411ccbd98f8c35c282562318f9095e210932eb9e268d3703771e36123",
+    "module_case_counts": {
+      "test_authority_backup": 60,
+      "test_crash_qualification_adversarial": 40,
+      "test_production_profile_recovery": 185,
+      "test_profile_recovery_campaign": 55,
+      "test_profile_storage_faults": 76
+    },
+    "own_adversarial_cases_included": 40,
+    "passed": 416,
+    "pytest_seconds": 114.35,
+    "skipped": 0,
+    "source_attribution": "Historical prepublication evidence for the initial reviewed contents subsequently published as 8037ba25ad5c71bba0c93797984f2a4d9be42777; not a rerun on correction revision 2.",
+    "testcases": 416
+  },
+  "initial_ci_318": {
+    "cpu_model_input": {
+      "passed": 256,
+      "skipped": 0
+    },
+    "does_not_qualify_corrected_source": true,
+    "existing_full_suite_jobs": [
+      {
+        "passed": 3997,
+        "python": "3.10",
+        "skipped": 75
+      },
+      {
+        "passed": 3997,
+        "python": "3.11",
+        "skipped": 75
+      }
+    ],
+    "head_commit": "8037ba25ad5c71bba0c93797984f2a4d9be42777",
+    "job_conclusions_reported_by_root": {
+      "cancelled": 5,
+      "failure": 4,
+      "success": 8
+    },
+    "macos_recovery": "Both lanes failed before tests because pinned SQLite was not adopted by the selected framework Python.",
+    "physical_ext4_full": {
+      "failed": 15,
+      "failure": "Expected SQLite mutation rejection did not occur after the original filler observed ENOSPC. Original telemetry did not establish the reason remaining allocation was possible; residual/delayed allocation explanations remain hypotheses.",
+      "passed": 0,
+      "skipped": 0
+    },
+    "qualification": "REJECTED",
+    "run_id": 35356709280,
+    "run_url": "https://github.com/mmckeen-nv/DML/actions/runs/35356709280",
+    "tested_merge_commit": "487d26a66e2d7bdac92e7d3fc6990278488118f1",
+    "tested_tree": "91b6339507f26e3c4de7373dd2f80df94f9b6755",
+    "verified_partial_recovery_artifacts": [
+      {
+        "accepted": true,
+        "artifact_verified_by": "Independent harness agent; grader inspected verification summary and available bundle hashes.",
+        "counts": {
+          "error": 0,
+          "failure": 0,
+          "skipped": 15,
+          "testcase": 450
+        },
+        "filesystem": {
+          "device_id": 1290438619,
+          "local": true,
+          "options": [],
+          "source": "windows-volume-information",
+          "type": "ntfs",
+          "volume_flags": 65482495
+        },
+        "id": 10553030037,
+        "junit_sha256": "674e1b7bb5c1146cc7802c85d7d36b3e271b58f161ee8026eaf2a5a30f44ff69",
+        "name": "profile-recovery-windows-latest-py3.10",
+        "power_loss_qualified": false,
+        "source_commit": "487d26a66e2d7bdac92e7d3fc6990278488118f1",
+        "source_tree": "91b6339507f26e3c4de7373dd2f80df94f9b6755",
+        "sqlite_source_id": "2026-07-24 19:02:57 bf7c7f30031888f4e796e429ab3978879485813aaca6f641c7b33e4e09459bcc",
+        "sqlite_version": "3.53.4",
+        "working_tree_dirty": false,
+        "zip_sha256": "2900b7423177877dad2aceb92e9c297933ffdfd1e4ed13e2b84fde7559e3c6ea"
+      },
+      {
+        "accepted": true,
+        "artifact_verified_by": "Independent harness agent; grader inspected verification summary and available bundle hashes.",
+        "counts": {
+          "error": 0,
+          "failure": 0,
+          "skipped": 0,
+          "testcase": 450
+        },
+        "filesystem": {
+          "device_id": 2049,
+          "local": true,
+          "options": [
+            "errors=remount-ro",
+            "relatime",
+            "rw"
+          ],
+          "source": "proc-self-mountinfo",
+          "type": "ext4"
+        },
+        "id": 10552450323,
+        "junit_sha256": "3d16f721fb6262a1a4b939a6cab678c5cdeafca85c0cbc609cfed049e579a2cb",
+        "name": "profile-recovery-ubuntu-latest-py3.13",
+        "power_loss_qualified": false,
+        "source_commit": "487d26a66e2d7bdac92e7d3fc6990278488118f1",
+        "source_tree": "91b6339507f26e3c4de7373dd2f80df94f9b6755",
+        "sqlite_source_id": "2026-07-24 19:02:57 bf7c7f30031888f4e796e429ab3978879485813aaca6f641c7b33e4e09459bcc",
+        "sqlite_version": "3.53.4",
+        "working_tree_dirty": false,
+        "zip_sha256": "37e3f69553c589f8e26ce81bbb0f5dcfae652d6244b90fb5815404c05b55a9a7"
+      },
+      {
+        "accepted": true,
+        "artifact_verified_by": "Independent harness agent; grader inspected verification summary and available bundle hashes.",
+        "counts": {
+          "error": 0,
+          "failure": 0,
+          "skipped": 15,
+          "testcase": 450
+        },
+        "filesystem": {
+          "device_id": 9283050155723253740,
+          "local": true,
+          "options": [],
+          "source": "windows-volume-information",
+          "type": "ntfs",
+          "volume_flags": 65482495
+        },
+        "id": 10552321885,
+        "junit_sha256": "7294eb266dd971c55001a4eae42c9eaa828cc77db81fcdea8ec656c7bdbfbef6",
+        "name": "profile-recovery-windows-latest-py3.13",
+        "power_loss_qualified": false,
+        "source_commit": "487d26a66e2d7bdac92e7d3fc6990278488118f1",
+        "source_tree": "91b6339507f26e3c4de7373dd2f80df94f9b6755",
+        "sqlite_source_id": "2026-07-24 19:02:57 bf7c7f30031888f4e796e429ab3978879485813aaca6f641c7b33e4e09459bcc",
+        "sqlite_version": "3.53.4",
+        "working_tree_dirty": false,
+        "zip_sha256": "5302949436a9c8849806d41116b686ed45bab7e3b6b5574e6586beb8b5fbe510"
+      },
+      {
+        "accepted": true,
+        "artifact_verified_by": "Independent harness agent; grader inspected verification summary and available bundle hashes.",
+        "counts": {
+          "error": 0,
+          "failure": 0,
+          "skipped": 0,
+          "testcase": 450
+        },
+        "filesystem": {
+          "device_id": 66305,
+          "local": true,
+          "options": [
+            "errors=remount-ro",
+            "relatime",
+            "rw"
+          ],
+          "source": "proc-self-mountinfo",
+          "type": "ext4"
+        },
+        "id": 10551749725,
+        "junit_sha256": "c7bf9a544e8e824b94b32e956d2efcd3fd42befbd92768735b211e349af1f5a2",
+        "name": "profile-recovery-ubuntu-latest-py3.10",
+        "power_loss_qualified": false,
+        "source_commit": "487d26a66e2d7bdac92e7d3fc6990278488118f1",
+        "source_tree": "91b6339507f26e3c4de7373dd2f80df94f9b6755",
+        "sqlite_source_id": "2026-07-24 19:02:57 bf7c7f30031888f4e796e429ab3978879485813aaca6f641c7b33e4e09459bcc",
+        "sqlite_version": "3.53.4",
+        "working_tree_dirty": false,
+        "zip_sha256": "f6f4e8a75f5b76c9ad1c0e5a607a701f097a893c6c450f48e3424669d8e505f5"
+      }
+    ]
+  },
+  "limits_and_non_claims": [
+    "No physical power-loss, controller cache, arbitrary device fault, whole-filesystem-family or production readiness certification.",
+    "The local overlay has fsync=volatile and is explicitly not an accepted target filesystem despite passing software tests.",
+    "The new 184-case interruption matrix exercises actual Python APIs and a subprocess acknowledgement channel, not real HTTP disconnect timing or every CPU instruction.",
+    "A consistent older authority or lost committed WAL cannot always be identified without separately retained acknowledged receipts and original requests.",
+    "Receipt comparison attests only supplied receipts; a missing, empty or incomplete client ledger cannot establish completeness.",
+    "Restore recovers the captured revision, never merges divergent histories, performs cutover, or recovers newer acknowledged commits by itself.",
+    "Checksums and source-ID reporting do not attest authenticity against hostile filesystem writers, malicious in-process code or custom libraries that forge identities.",
+    "Network/shared filesystems, multi-host ownership, noncooperating writers and experimental persistence/component paths remain excluded.",
+    "Physical erasure, persisted-family migration qualification, mixed-operation concurrency qualification, live-agent outcomes and release promotion remain separate outstanding scope.",
+    "Focused, plugin, full-suite and future CI selections overlap and must not be added into one aggregate test count.",
+    "The successful initial Linux and Windows artifacts do not qualify corrected source or the untested Homebrew macOS distributions.",
+    "The revised physical ENOSPC precondition has local control-flow review only until dedicated actual-volume CI passes; fifteen local capability skips provide no physical qualification.",
+    "The 4048-pass full suite and 450-case actual plugin integration are historical initial-source results; only the 44-case correction-specific unit selection was rerun independently.",
+    "CI 319 accepted all six measured recovery artifacts and thirteen physical-volume cases, but the required fifteen-case physical qualification failed. Revision 3 simulated controls do not replace a fresh actual-volume run on its exact source."
+  ],
+  "milestone": {
+    "name": "Qualify crash recovery and supported filesystems",
+    "number": 4,
+    "status": "software_source_accepted_environment_qualification_pending"
+  },
+  "primary_sources_independently_verified": [
+    "https://sqlite.org/wal.html#walresetbug",
+    "https://sqlite.org/download.html"
+  ],
+  "publication": {
+    "branch": "feat/production-foundations",
+    "exact_source_ci": "revision 3 pending at reviewed snapshot; CI 318 and 319 rejected overall qualification",
+    "expected_workflow_jobs": 17,
+    "merged": false,
+    "pull_request": 118,
+    "repository": "mmckeen-nv/DML",
+    "reviewed_source_publication": "revision 3 pending at reviewed snapshot; previous correction published as 8c666349b6e1d7a98fa290befd82b8cad6180c7f"
+  },
+  "remaining_milestones_at_reviewed_snapshot": {
+    "current": 4,
+    "deferred": 2,
+    "first_release": 8,
+    "next_after_environment_qualification": 5,
+    "total": 10
+  },
+  "required_grade_out_of_10": 9.5,
+  "required_remaining_qualification": [
+    "All six profile-recovery jobs on Ubuntu/macOS/Windows and CPython 3.10/3.13 must pass on the exact published source.",
+    "Downloaded real runner evidence must report accepted=true, the actual supported local filesystem and linked SQLite identity, with matching JUnit digest and complete passing matrix; Windows permits only the fifteen inapplicable directory-barrier parameter cases.",
+    "The dedicated bounded 128 MiB ext4 job must report fifteen passing actual filesystem-full cases, zero skips and zero failures/errors; logical SQLite quota and local skips are not substitutes.",
+    "All seventeen workflow jobs must pass; source tree/PR merge attribution must be verified and PR #118 must remain unmerged."
+  ],
+  "resolved_review_findings": [
+    "POSIX directory-open errors had been silently ignored by the directory durability barrier; they now propagate after visible publication.",
+    "Diagnostic cleanup or explicit unlock failure could prevent final descriptor closure; cleanup now attempts every release step and preserves the primary error.",
+    "Previously selected existing authorities were not required to remain in WAL mode; strict profile admission and live connections now reject mode drift.",
+    "Official SQLite WAL-reset corruption exposure cannot be excluded by existing writer ownership because pre-lock read connections may checkpoint on close; patched runtime admission and real CI runtime provisioning were added.",
+    "Immutable SQLite reports journal_mode=delete even for a sealed WAL-format file; sealed verification now checks the actual database header and absence of journal sidecar dependence.",
+    "Writing the incomplete marker after creating the requested destination exposed a fresh empty directory on failure; a marker-first private directory is now published atomically under a cooperating publisher lock.",
+    "Python dictionary equality accepted boolean aliases for manifest integer claims; canonical JSON authority comparison now distinguishes their types.",
+    "Evidence recording now includes dirty-tree attribution, actual test directory/device verification, minimum matrix coverage, positive coverage from each required module, precise skip rules and a mandatory JUnit report.",
+    "Conflicting deepest Linux mount observations reject unless the actual device identifies the mount; arbitrary runner labels and unmeasured filesystems do not qualify.",
+    "Documentation distinguishes Python/subprocess acknowledgement interruption from untested HTTP transport loss and directs corrupt-source recovery to an earlier separately verified backup.",
+    "CI 318 macOS setup used a Python distribution with statically embedded SQLite, so DYLD_LIBRARY_PATH did not replace the active runtime. CI now selects same-minor Homebrew CPython and verifies the actual executable/minor/SQLite identity; unsupported static or ambiguous replacement fails explicitly.",
+    "CI 318 obtained ENOSPC from a large filler write without establishing zero remaining allocation capacity, and all fifteen later SQLite mutations still succeeded. The fixture now physically allocates block tails, verifies zero available blocks and an independent one-block allocation failure, retains descriptors through SQLite, and reports sanitized allocation telemetry.",
+    "CI 319 correctly rejected two cases when the independent inode could allocate despite first-inode ENOSPC. Both inodes now consume residual allocations; a synchronized final pair of allocation failures and zero available blocks are required, with per-inode byte/attempt telemetry and bounded allocation."
+  ],
+  "review_history": [
+    {
+      "grade_out_of_10": 9.6,
+      "published_commit": "8037ba25ad5c71bba0c93797984f2a4d9be42777",
+      "qualification_result": "REJECTED by initial CI 318; four of six measured recovery lanes accepted, both macOS lanes failed runtime setup and all fifteen physical-volume cases failed their expected SQLite-full assertion.",
+      "review_artifact_sha256": "6bd0e5b34bf80748c5fdb549cb69511b54e178155932236af677b99862722206",
+      "review_revision": 1,
+      "software_decision": "ACCEPT"
+    },
+    {
+      "grade_out_of_10": 9.6,
+      "published_commit": "8c666349b6e1d7a98fa290befd82b8cad6180c7f",
+      "qualification_result": "REJECTED by CI 319: all six measured recovery artifacts accepted but only 13 of 15 actual ext4 ENOSPC cases passed. Two stopped at the second-inode allocation setup guard.",
+      "review_artifact_sha256": "51ac171afe8a4e05a2a52c344a56e5be9f6fe67fbcf4f5dcac3beea546491a3b",
+      "review_revision": 2,
+      "software_decision": "ACCEPT"
+    }
+  ],
+  "review_revision": 3,
+  "reviewed_at_utc": "2026-09-18T14:56:23.934697+00:00",
+  "reviewed_snapshot": "The same 24 stage-18 source/test/workflow/documentation paths, with current contents bound below. Only the physical ENOSPC fixture and hardening document change relative to published source 8c66634, plus this review artifact. Correction revision 3 is uncommitted at review; its publication and exact-source qualification remain pending.",
+  "reviewed_source_sha256": {
+    ".github/scripts/prepare_sqlite.py": "732757532938b177031d3c55434f660dc21fe5042c55046ebb59f6f51c4e6613",
+    ".github/workflows/ci.yml": "535d6e526836e85a43bfc4fd035d7d3ee2636f55adf8733884e37c95cf74ebd5",
+    "dml_core/daystrom_dml/atomic_io.py": "6493efea4f8f4885c6f66e81043a185c79ab348cf75147bda2369838f95a9b42",
+    "dml_core/daystrom_dml/dml_adapter.py": "7e799ae137ca04531b7f85defd2c19571f07a6f1588ec137cf747516299e5411",
+    "dml_core/daystrom_dml/journal.py": "a421fcdf9e0dea64ee931b1714c9fb744d0c5f1897e6053a43ae8d36444ac2a8",
+    "dml_core/daystrom_dml/services/authority_backup.py": "9cfd431b43600792bad15a86f9e75f308d5cb025c324a74921e1780e49e832fc",
+    "dml_core/daystrom_dml/services/profile_runtime.py": "2ea41e1651700a639b3205ffaa8b59230e94566bc9f9af3b4d61240966658d98",
+    "dml_core/daystrom_dml/store_lock.py": "eab2229cef4a032ae56a7bd32ef963294ce0e6adbaa3af4f016f3a8081230f0f",
+    "dml_core/scripts/dml_journal.py": "42b19aabd4b09f7202d1a8ed6638826dfa04bea8aa6dc25108312725a913f197",
+    "dml_core/scripts/profile_recovery_evidence.py": "723abcd82fa9b5ee1f73cd2ea730a676bb3a7126539d3b86035a2cefd56079c1",
+    "dml_core/tests/profile_crash_fixture.py": "09c82c5f34657ac30f0fb31cbf218096267c595f8a1f55310561f5b5fbe00d49",
+    "dml_core/tests/test_authority_backup.py": "24f38a53de5be0f5524117e26e72111ccc38a262f513d399ba1b79489b74ea8e",
+    "dml_core/tests/test_crash_qualification_adversarial.py": "e29ae520a004b48f2d65e443c11e8d2da67540557b036811dba892c8f5b20e84",
+    "dml_core/tests/test_production_profile_recovery.py": "6a8e6e0ed4616199b32ea7f66f66fedfc9cecc585f4b454b34c37a46e1b5e0e9",
+    "dml_core/tests/test_profile_filesystem_full.py": "a9a54051bb301f09f1b3acfb08b4efc23159ed9d437f37187a2781d8e6d6350c",
+    "dml_core/tests/test_profile_recovery_campaign.py": "a460743728992e415de78800c477b23d44cdc84aba2b89a3350f18655124621d",
+    "dml_core/tests/test_profile_recovery_evidence.py": "aca82cecd52d94801a5987061f0bfc20dc1e8b23be20e332e95eb46489a6b7e1",
+    "dml_core/tests/test_profile_storage_faults.py": "113951bb35d18769fa09b85223ac70a818c832b0f538ca4589543f86441597ff",
+    "docs/contracts/production-v1.md": "7de0053b4562a6f35774095b95c3b5b6cc170da900b5689d1599fe11006abb12",
+    "docs/production-foundations-2026-09-12.md": "f602f4e0c9a67af32083b1204e57785193721276f2a76e2f42b50dddfe5c93e3",
+    "docs/production-remaining-work-2026-09-18.md": "315558afaa55ce96623ab9d1e0178d459f5743cdc2c19637ffc14047365b786b",
+    "docs/profile-recovery-hardening-2026-09-18.md": "df4f670236834d67ab38894418f61d8b38aa560d160df96ad3d5f05cca3af66e",
+    "docs/profile-recovery-v1.md": "3342882e728fa3af6674fc1410cd70938cec9b7dc2dbb49b40618a22e055c3dc",
+    "docs/supported-production-profile-v1.md": "445a52b48e61bfaa1716afa63f4cd03ba317547fa7813ad03496aad4b5d964d9"
+  },
+  "reviewer": "Independent crash_grader agent; implementation delegated to separate runtime, harness, campaign, operator and evidence owners",
+  "root_full_suite_validation": {
+    "errors": 0,
+    "evidence_revision": 1,
+    "executed_by": "Root agent; one complete regression run",
+    "failed": 0,
+    "independent_verification": "Grader independently read full XML and log; did not rerun the full suite.",
+    "junit_seconds": 257.093,
+    "junit_sha256": "881d935c556beef11c20d454ea97d7ecff8685c53e970b0fc3a73a34dda6f731",
+    "new_regular_recovery_cases": {
+      "passed": 450,
+      "skipped": 0
+    },
+    "passed": 4048,
+    "pytest_seconds": 257.17,
+    "skip_classes": {
+      "dedicated_ext4_mount_unavailable": 15,
+      "prior_optional_capability_skips": 9
+    },
+    "skipped": 24,
+    "source_attribution": "Historical prepublication evidence for the initial reviewed contents subsequently published as 8037ba25ad5c71bba0c93797984f2a4d9be42777; not a rerun on correction revision 2.",
+    "testcases": 4072,
+    "warnings": 3
+  },
+  "schema_version": 1,
+  "second_correction_validation": {
+    "bootstrap_unit_rerun": false,
+    "builder_simulated_control_flow": {
+      "passed": 7,
+      "physical_filesystem_qualified": false,
+      "simulation_only": true
+    },
+    "evidence_revision": 3,
+    "full_suite_rerun": false,
+    "git_diff_check": "passed",
+    "grade_out_of_10": 9.6,
+    "independent_ruff": "passed",
+    "independent_ruff_command": "../dml-venv/bin/python -m ruff check --select E,F --ignore E501,F401 dml_core/tests/test_profile_filesystem_full.py",
+    "independent_simulated_control_flow": {
+      "passed": 5,
+      "physical_filesystem_qualified": false,
+      "scenarios": [
+        "second inode retains capacity",
+        "capacity becomes usable after fsync",
+        "nonzero final available blocks rejected",
+        "non-ENOSPC EIO propagates",
+        "aggregate allocation bound rejects an unbounded allocator"
+      ],
+      "simulation_only": true
+    },
+    "physical_enospc_selection": {
+      "cases": 15,
+      "new_local_actual_volume_run": false,
+      "qualification": "pending exact-source dedicated CI"
+    },
+    "production_runtime_changed": false,
+    "required_grade_out_of_10": 9.5,
+    "scope": "Only physical ENOSPC test fixture, hardening document and this review changed; application runtime, bootstrap and six-module recovery selection unchanged.",
+    "source_blockers": [],
+    "source_decision": "ACCEPT"
+  },
+  "serial_stage": 18,
+  "source_file_count": 24,
+  "source_hash_algorithm": "SHA-256",
+  "source_hashes_exclude": [
+    "docs/artifacts/profile-recovery-review-2026-09-18.json"
+  ],
+  "static_validation": {
+    "evidence_revision": 1,
+    "independently_checked_git_diff_check": "passed",
+    "independently_executed_ruff": "Passed for authority backup, evidence recorder, CI SQLite bootstrap and grader-authored adversarial tests",
+    "root_reported_hermes_hygiene": "passed",
+    "root_reported_maintained_ruff": "passed",
+    "root_reported_mypy": {
+      "passed": true,
+      "source_files": 67
+    },
+    "root_reported_strict_new_surfaces_ruff": "passed"
+  }
+}

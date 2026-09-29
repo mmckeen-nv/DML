@@ -1,0 +1,68 @@
+{
+  "base_source_commit": "da526eb58d7556c455b2b534f9261cc68f74becf",
+  "decision": "accepted_scoped_source_revision",
+  "findings": [
+    "Removes all literal fabricated tool actions, memory values and citation IDs from the model-facing policy. Full public action envelopes and field/type requirements remain stated; protocol enum strings are actual constants, not invented evidence.",
+    "Native scalar preservation and observed numeric citations/exact immutable write references are public interface requirements. Memory claims must be grounded in observed results; no fixture values, expected answers, required action sequence or forced retrieval limit is supplied.",
+    "A final action is explicitly a readout and cannot perform lifecycle changes. Successful tool output acknowledges its committed record rather than guaranteeing future state. The model still chooses whether to act, which available action to choose, all arguments/claims and when to finish.",
+    "All six operations receive concise descriptions checked against implementation: retrieval is read-only, ingest remains untrusted, updates use immutable CAS references, promotion leaves base records unchanged, supersession leaves its replacement unchanged, and retirement retains history.",
+    "Descriptions are part of the detached complete counted request and therefore its authenticated digest. New public_tools_sha256 separately binds the complete advertised interface into runtime identity; old descriptions are rejected. The syntax-only grammar digest remains unchanged.",
+    "Independent AST comparison confirms contract parser/validators and grammar execution/masking functions are unchanged. Exact corpus, gateway, consumer and checker bytes remain equal to the base commit. Acceptance gates and generation limits are not relaxed."
+  ],
+  "historical_evidence_mutated": false,
+  "milestone_7_closed": false,
+  "minimum_acceptable_score": 9.5,
+  "policy_sha256": "560ad0f6cc0dacbcb7bdd559d68990e3f809016bac6583b68964045cb02c1e2b",
+  "production_ready": false,
+  "public_tools_sha256": "95f9d3b87364adab6942ca469b76364f5bf20668990501f7d0a2063a3a95eb65",
+  "recorded_at_utc": "2026-09-20T14:44:06.614661+00:00",
+  "remaining_requirements": [
+    "Complete and independently replay all nine frozen attempt-4 tasks before primary source changes. Preserve its rejected outcomes and exact source identity.",
+    "Integrate this revision with the separately reviewed worker-scratch cleanup; run the full mandatory validation on unchanged final source and required published CI.",
+    "Record a fresh actual zero-generation admission with the new constrained runtime identity, then freeze a new complete nine-task campaign with the original model, corpus, bounds and acceptance gates.",
+    "Any later outcome change cannot be attributed to grammar alone: this revision changes policy and tool descriptions, and the next source also fixes worker cleanup. No passing semantic result is predicted by these tests."
+  ],
+  "reviewed_files_sha256": {
+    "dml_core/daystrom_dml/contracts/agent_episode.py": "22082fb2b6f288c974e4b4e1a5fb7dcb273283e88834334957f36034145d86c3",
+    "dml_core/daystrom_dml/services/agent_action_grammar.py": "8568f8cfc86ff9511fe5c3fd26a3c28ba7e4641f7ec1c648eae5130694ee7623",
+    "dml_core/tests/test_agent_action_grammar.py": "64747ffd4c75785d0a32ce5180a8bc456919e74d7fa46d16dcfb75a3e0dac205",
+    "dml_core/tests/test_agent_episode_contract.py": "9b0c1f19c364f66948748b7917450cb4b9e31b883b0104fff345e4760ebdf9fc"
+  },
+  "reviewer": "independent delegated m7_final_grader",
+  "schema_version": "dml-independent-grounding-interface-review-v1",
+  "scope": "Generic action-policy and public tool-description repair, explicitly bound to constrained runtime identity. This is not a trained-model outcome qualification.",
+  "score": 9.7,
+  "source_blockers": [],
+  "trained_live_qualified": false,
+  "unchanged_public_action_grammar_sha256": "f62408882c04d557d4bb9ef2e75442cb7fa3c08cd6e57b62b0013778b6df507b",
+  "validation": {
+    "builder_correct_environment": {
+      "errors": 0,
+      "failures": 0,
+      "sha256": "6f2ab51dcbed6f8ac8e02c2d5348bca8cff904846501f44eda067a53e6331a7f",
+      "skipped": 0,
+      "tests": 130
+    },
+    "counts_overlap": true,
+    "independent_new_controls": {
+      "errors": 0,
+      "failures": 0,
+      "sha256": "67df18efe69e29c68b14f5a2f480277b40e3c4221839a4416314c288d982a61a",
+      "skipped": 0,
+      "tests": 3
+    },
+    "independent_structural_comparison": "Only episode_tool_definitions and policy_identity function bodies differ; other contract/grammar functions and classes are AST-identical.",
+    "prior_environment_setup_failure": {
+      "cause": "Initial invocation omitted the isolated grammar dependency directory from PYTHONPATH. This is retained as an environment setup failure, not a passed negative control or product validation.",
+      "junit": {
+        "errors": 46,
+        "failures": 0,
+        "sha256": "f82509e24a72ee7ed6588b47f4b9640a1f02e1442c493d34852f31c2eb75544f",
+        "skipped": 0,
+        "tests": 130
+      }
+    },
+    "static_checks": "Ruff and git diff --check passed.",
+    "unchanged_corpus_sha256": "40439624b48d3fc4948585f03f5d8fd210db1e35d6cdfc2b20b0a3bb4aa5d8cb"
+  }
+}

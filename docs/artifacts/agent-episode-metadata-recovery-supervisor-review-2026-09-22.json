@@ -1,0 +1,78 @@
+{
+  "acceptance_boundaries": {
+    "accepted_for_live_execution": false,
+    "accepted_for_source_publication": true,
+    "actual_model_admitted_in_recovered_environment": false,
+    "milestone_7_closed": false,
+    "pr_merge_authorized": false,
+    "production_ready": false,
+    "published_source_ci_qualified": false,
+    "trained_live_qualified": false
+  },
+  "actual_runtime_inventory": {
+    "path": "docs/artifacts/agent-episode-recovery-runtime-2026-09-22.json",
+    "sha256": "6d6e0307f19871231cc7148b174bfe8073ace216c9e28ec3d698e6ecf317fdd2"
+  },
+  "base_commit": "1c4ccd591a2162ab64509015f64cef0a75acdb0e",
+  "decision": "accepted_recovered_exact_source_and_fresh_local_validation",
+  "findings": [
+    "Recovery preserves the exact reviewed retrieval metadata implementation, generic description and behavioral tests. Source scope is exactly contract/agent_episode.py, services/episode_tools.py and test_episode_tools.py; no hidden source changes were observed.",
+    "Metadata reports only requested_top_k, count of records actually shown and equality-to-cap limit_reached. It does not infer additional records, expose hidden records, select tools or query limits, repair model output, change lifecycle semantics or weaken verification gates.",
+    "The fresh runtime ran all 784 mandatory cases from all 21 required modules without skips or failures, and both strict lint scopes plus maintained mypy passed. Surviving historical 234-case isolated evidence was not substituted for this new integrated execution.",
+    "The earlier completed/rejected attempt 6 and matching sequential replays remain attributed historical observations. Their current missing bytes, missing prior unpublished commit and absent former runtime/model are explicitly recorded; this source review does not reconstruct or requalify them."
+  ],
+  "fresh_raw_junit": {
+    "path": "docs/artifacts/agent-episode-metadata-recovery-cpu-2026-09-22.xml",
+    "sha256": "4d6720aad353259dd081a3865dd2e25a171543a996860c216ff7b47c1ff67ec3"
+  },
+  "fresh_validation": {
+    "path": "docs/artifacts/agent-episode-metadata-recovery-validation-2026-09-22.json",
+    "sha256": "f0d1e7ad49c5ed84aeb290f895a609284a377b25770893cdbc1020187f7834f1"
+  },
+  "history_gap_assessment": {
+    "path": "docs/artifacts/agent-episode-workspace-recovery-assessment-2026-09-22.json",
+    "sha256": "68eb95fbe47d7b05e40ccacf87e9b8dbad3b4f2dbc8be4032b090a33031eb4cc"
+  },
+  "independent_verification": {
+    "all_current_source_manifest_hashes_match": 434,
+    "all_four_command_exit_codes": 0,
+    "all_other_source_paths_match_recovered_public_base": true,
+    "complete_required_module_inventory": 21,
+    "errors": 0,
+    "exact_three_files_match_preserved_independent_review": true,
+    "failures": 0,
+    "maintained_mypy_source_files": 78,
+    "mandatory_test_cases": 784,
+    "module_inventory_method": "Extracted concrete test module paths from current workflow model-input-cpu steps and compared against every raw JUnit testcase classname and receipt modules; exact set equality.",
+    "raw_command_log_hashes_match": true,
+    "raw_junit_sha256_matches_fresh_receipt_and_workspace_copy": true,
+    "redundant_test_execution_by_reviewer": false,
+    "skipped": 0,
+    "source_or_runtime_mutation_by_reviewer": false,
+    "source_unchanged_during_execution": "Runner receipt records this; reviewer independently rehashed all 434 files against that manifest after execution. No separate persisted before-file manifest was available, and none is invented."
+  },
+  "minimum_acceptable_score": 9.5,
+  "original_isolated_source_review": {
+    "path": "docs/artifacts/agent-episode-retrieval-metadata-review-2026-09-22.json",
+    "sha256": "cc7d84a5e8378ceda3b7410b917941520cb45e971c2b6227b6397edf61071d66"
+  },
+  "recorded_at_utc": "2026-09-22T17:36:22.022004+00:00",
+  "remaining_execution_gates": [
+    "Publish and verify a newly identifiable source commit and exact tree; do not claim the unavailable old 97df9a commit/tree was recovered.",
+    "Run required CI on the actual new published source. It may overlap a separately reviewed frozen experiment but must pass before milestone closure.",
+    "Reacquire and verify actual pinned trained payloads; perform fresh preparation and strict zero-generation admission with current runtime identities and observed resource closure.",
+    "Independently review a fresh attempt 7 specification before any generation; retain corpus/order, resource bounds, grammar and mandatory acceptance gates, and make the model-facing metadata change explicit.",
+    "Retain new raw evidence and failures promptly; freeze source until full campaign and both sequential replay resources close. Disclose the existing attempt 6 retention gap in any future completion review."
+  ],
+  "reviewed_files_sha256": {
+    "dml_core/daystrom_dml/contracts/agent_episode.py": "eaabd755fa26643a629f2f66ed41a4faa95d35a42faf7a45476435015ac17ff6",
+    "dml_core/daystrom_dml/services/episode_tools.py": "2bf860b0e384c3db204fd76ae69f30e241c92ec89010b930b836dee344769a31",
+    "dml_core/tests/test_episode_tools.py": "286af662a018c39c09ccebe7a73737016f4898c9e88f7156fc021ec8ed04bf34"
+  },
+  "reviewer": "independent delegated m7_recovery_review acting as supervisor",
+  "schema_version": "dml-supervisor-recovered-source-review-v1",
+  "score": 9.6,
+  "score_scope": "Source correctness and fresh local validation for the exact recovered metadata delta. The unchanged source bytes retain the independently supported scoped source assessment; this does not grant runtime model admission, published-source CI qualification, live success or milestone closure.",
+  "source_blockers": [],
+  "source_identity_kind": "recovered public base plus exact reviewed three-file working-tree delta and freshly verified 434-file manifest"
+}

@@ -1,0 +1,280 @@
+{
+  "base_commit": "2cc3a3a47c10d99aae12e186e9913c52621cda4b",
+  "base_tree": "e4951b20ef071d003058513488b9545bbdf4813a",
+  "blocking_source_findings": [],
+  "decision": "ACCEPTED FOR SOURCE PUBLICATION AND RENEWED CI; MILESTONE 6 REMAINS OPEN",
+  "focused_verification": {
+    "affected_runtime_existing": {
+      "elapsed_seconds": 6.969,
+      "failed": 0,
+      "junit_sha256": "c17090cb85eef539ffc4bcbce81ad188f3418016c321bd337be837a4a2b008ce",
+      "passed": 146,
+      "selection": "test_persistence_service, test_transaction_adversarial, test_journal_outbox and runtime concurrency tests, excluding the unchanged actual30-second ownership wait.",
+      "skipped": 0,
+      "testcases": 146
+    },
+    "attribution": "Selections overlap and are not summed. No complete48-cell local rerun or final full-suite result is claimed.",
+    "evidence_builder_report": {
+      "evidence": "Builder tool output only; no retained XML/log. Evidence plugin source is unchanged from the base; two diagnostic-admission negative controls were added.",
+      "passed": 109
+    },
+    "http_builder_report": {
+      "evidence": "Builder tool output only; no retained XML/log. Actual targeted256/schema4 HTTP history was independently replayed above.",
+      "focused_passed": 28,
+      "real_network_smoke_passed": 1
+    },
+    "independent_final": {
+      "elapsed_seconds": 3.316,
+      "failed": 0,
+      "junit_sha256": "58136cd2e6c2c6d5056d979110ee09f3045bf934aba73e07b10295df0519a889",
+      "passed": 39,
+      "qualification_environment_variables_present": true,
+      "skipped": 0,
+      "testcases": 39
+    },
+    "native_final": {
+      "elapsed_seconds": 3.596,
+      "failed": 0,
+      "junit_sha256": "99d112f9e766f3c406690b0f51fc275ba760672422cf04547e35343123114a9c",
+      "passed": 44,
+      "skipped": 0,
+      "testcases": 44
+    },
+    "new_runtime_controls": {
+      "elapsed_seconds": 0.716,
+      "failed": 0,
+      "junit_sha256": "d7307c710b6dbb20d8b769d91b6b4fba15ad9a741d3fad8266351fb99c74d39b",
+      "passed": 8,
+      "skipped": 0,
+      "testcases": 8
+    }
+  },
+  "grade": 9.6,
+  "integrity_preservation": {
+    "history_oracle": "Existing independent submitted-intent, complete-revision, receipt/outbox, exact-context, scope and coarse-clock causal checks remain unchanged. The reviewed corpus still does not admit arbitrary client programs.",
+    "independent_controls": "Public nested metadata detachment in schemas3/4; actual SQL mutations with recomputed enclosing checksums still reject missing normalization buckets, duplicate IDs, state-digest mismatch, extra envelope fields, invalid receipt scope and invalid schema4 migration origin.",
+    "runtime_controls": "Each owned refresh performs one full snapshot validation across schemas2/3/4. Repeated corruptions without revision or mtime changes reject before state/cache import; exact payload/revision pairing remains intact."
+  },
+  "minimum_accepted_grade": 9.5,
+  "next_ci_expected_collection": {
+    "bounded": 335,
+    "bounded_collection_log_sha256": "41787d37cb903e57c9224826180cfb1e58b88cd862270feba7f33f7c356c5536",
+    "full": 359,
+    "full_by_module": {
+      "evidence": 109,
+      "history": 80,
+      "http": 63,
+      "independent_adversarial": 39,
+      "runtime": 68
+    },
+    "full_collection_log_sha256": "883705862f69ee79dbaf117f9a2e90b88d43dc45441c5dcff34193e48feebe1d",
+    "only_allowed_skip": {
+      "case": "test_inherited_profile_rejects_all_authority_paths_before_work",
+      "module": "test_profile_concurrency_runtime",
+      "reason": "POSIX fork inheritance is unavailable on this platform",
+      "system": "Windows"
+    },
+    "status": "Expected collected cases, not completed CI results."
+  },
+  "prior_reviews_immutable_sha256": {
+    "docs/artifacts/profile-concurrency-followup-review-2026-09-19.json": "8246173784d2955efd85a2411ee94a779d2f001c3ed9f59df3e44bfd203fb868",
+    "docs/artifacts/profile-concurrency-review-2026-09-19.json": "6620eab71ea863d1f9a71eae1d33955ccdc78755a1b08939796c1721b6dc48f3"
+  },
+  "qualification": "PENDING. Publish the exact reviewed correction and require all20 CI jobs, including all48 Linux and24 macOS/Windows concurrency cells, with retained source-bound histories and independent artifact verification. Do not merge.",
+  "rejected_ci_323": {
+    "failures": [
+      "Separate-adapter threads/schema3/256 exhausted the original90-second campaign deadline.",
+      "HTTP/schema4/256 completed calls but exceeded the10-second first-progress bound. The earlier diagnostic did not retain the exact first-progress value."
+    ],
+    "full_suite_attribution": "Root verified both CI323 full-suite jobs at4308 passes/75 skips each on the base source. Neither qualifies the current runtime correction.",
+    "jobs_failed": 1,
+    "jobs_passed": 19,
+    "linux_archive_sha256": "a36b3c0cca88167b4b54a5101f818d75da542f0c3e1b451d37ba1395b1739c06",
+    "linux_failed": 2,
+    "linux_passed": 322,
+    "other_platforms": "Previously published-source macOS300 passes/24 cells and Windows299 passes/24 cells plus one declared fork skip were accepted. They do not qualify this correction or waive Linux failures.",
+    "outcome": "REJECTED QUALIFICATION. No workload, deadline, retry or transport relaxation was used to accept the subsequent source.",
+    "run_id": 35468625699,
+    "source_commit": "2cc3a3a47c10d99aae12e186e9913c52621cda4b",
+    "url": "https://github.com/mmckeen-nv/DML/actions/runs/35468625699"
+  },
+  "remaining_gate": "Milestone6 stays open until exact-source complete CI and retained artifacts pass. Milestones1\u20135 remain closed; six first-release gates and two deferred gates remain open.",
+  "reproducible_validation_profile": {
+    "deterministic_observations": {
+      "canonical_encodes": {
+        "baseline": 35675,
+        "correction": 33775
+      },
+      "changed_public_recall_snapshot_scans": {
+        "baseline": 5,
+        "correction": 4
+      },
+      "checked_sql_objects": {
+        "baseline": 3850,
+        "correction": 3850
+      },
+      "outbox_events_semantically_validated": {
+        "baseline": 950,
+        "correction": 950
+      },
+      "profiled_snapshot_reads": {
+        "baseline": 25,
+        "correction": 25
+      },
+      "strict_decodes": {
+        "baseline": 4825,
+        "correction": 3875
+      },
+      "unchanged_public_recall_snapshot_scans": {
+        "baseline": [
+          4,
+          4,
+          4
+        ],
+        "correction": [
+          4,
+          4,
+          4
+        ]
+      }
+    },
+    "limits": "Single-client synthetic diagnostic only. Runtime hashes were frozen; helper diagnostic edits were still in progress. The saved equivalent recipe is a new reproduction because the original inline exploratory script was not retained. Provenance records the later metadata-only source_manifest label correction. No final-tree or qualification attribution is inferred from profile timing.",
+    "provenance": "docs/artifacts/m6-validation-profile-provenance.json",
+    "timing_observation_seconds": {
+      "baseline": 1.113,
+      "correction": 0.877
+    }
+  },
+  "review_date": "2026-09-19",
+  "reviewed_changes": [
+    "Selected owned refresh consumes one fully validated payload/revision pair on every call. It removes the discarded stamp scan on changed authority while keeping the legacy explicit state-stamp hook and unchanged-head validation.",
+    "Fresh checksum-verified SQL outbox objects use a private validator with all prior semantic checks. Public validation retains its nested defensive clone. One normalized encoded-state value is reused within the same validation call; no cross-call cache was introduced.",
+    "Native callers stream each completed event once. Failed native and HTTP campaigns retain bounded, explicitly rejected partial diagnostics, exact available timestamps and completed events. Partial diagnostics cannot satisfy accepted-history gates; writer and cleanup errors preserve the primary failure.",
+    "HTTP diagnostics distinguish client response completion from server response-start observations. Transport topology, H11 implementation,1-second client/5-second server idle policy and typed-only retries remain unchanged.",
+    "Native adapter drains share the remaining35-second teardown budget, capped at5 seconds per invocation. A deterministic16-adapter exhaustion control verifies the cap and primary-error preservation.",
+    "The correction adds35 focused controls:10 native,2 HTTP,8 runtime,13 independent adversarial and2 evidence cases. Documentation retains failed CI, source-only acceptance and the unchanged finite plan."
+  ],
+  "reviewer": "Independent concurrency grader",
+  "schema_version": "dml-independent-concurrency-contention-review-v1",
+  "scope": "Finite dml-receipted-local-v1 concurrency correction. No general arbitrary-history linearizability, production capacity, end-to-end deadline, or whole-platform readiness claim.",
+  "source_identity": {
+    "binding": "Hashes identify reviewed bytes over base_commit. This review artifact is additional and excludes its own hash to avoid recursion.",
+    "manifest_sha256": "32c08afe8f688e458078af7c2a00dd5a824d5a5eb8b99f274a6aa71239ae5690",
+    "reviewed_file_count": 20,
+    "self_hash_excluded": true,
+    "sha256": {
+      "dml_core/daystrom_dml/dml_adapter.py": "8c2a0609090bc117f0d35ddab00af5c563306742825ebb56dc707f2c2be570c0",
+      "dml_core/daystrom_dml/journal.py": "227b75f9e78b63ebb09516cf2612e403ec306d906b9e3657caf138cd98358bad",
+      "dml_core/daystrom_dml/services/journal_outbox.py": "581df22d1b2d45fa1cd984bab97891d88afc8cc17898fd0a6d7a6bbc99ea9fdb",
+      "dml_core/daystrom_dml/services/persistence.py": "1a2185325339217e6aab88107dc0157013a07a39ab7abc20045132d5dd5e288e",
+      "dml_core/tests/profile_concurrency_fixture.py": "6e189181704303d2e632d6156397364face94d0f45120f101a70d331ae938116",
+      "dml_core/tests/profile_concurrency_http_fixture.py": "d0be6da6abbd49b4e523eb5f83d0d6b2c9c1fa2645f198475b9f9096b1b9907f",
+      "dml_core/tests/test_profile_concurrency.py": "eb832ee12e158bde5b753162264d1a2ed65f6e140ee90dfac560ce0048abb355",
+      "dml_core/tests/test_profile_concurrency_adversarial.py": "59e9892ae32e7a145fc0a9edcba8039e19659ae91d2624f7d7bce4811e786e51",
+      "dml_core/tests/test_profile_concurrency_evidence.py": "ed73a72eda4642970de0d235e8c9dc662c079b9309a33a9045c4aedc483a8757",
+      "dml_core/tests/test_profile_concurrency_http.py": "fa88fc628c836737e2cba16d69dc8b1cd4b3b2af6fe23d589a807be842800947",
+      "dml_core/tests/test_profile_concurrency_runtime.py": "db6624f6fdd5a16de6cdde18170f3c4ad513847bf0e898a1a650030f0ae11e4f",
+      "docs/artifacts/m6-validation-profile-baseline-reproduced.json": "3a9b125c4853924c0362ac6559e9431212a2146242fac65c8093f661ec0cb263",
+      "docs/artifacts/m6-validation-profile-correction-reproduced.json": "d4c7fe7dee5de0ffeaec8a00cd90cd8d4cc4f1e9094e2e929fe642ca3f5e9ff6",
+      "docs/artifacts/m6-validation-profile-exploratory.json": "a08cf5f766709e9064050a8267e43d9df924908d375e6678de3dcec21d7fcf21",
+      "docs/artifacts/m6-validation-profile-provenance.json": "38c3d9cd67b38c09bad457f2a84a32fc5418e238652cce89e13d6eed23ba2d9a",
+      "docs/artifacts/m6-validation-profile.py": "afe3aa319efde47982cb6a6d660a9c03bc5f98f3df53d0c527166065005cee79",
+      "docs/production-concurrency-2026-09-19.md": "336a4d1fb278d0ca85329cac6057f4911c83466bd45cdf42865e4c39594d7a79",
+      "docs/production-foundations-2026-09-12.md": "41fb0faf2e9443aef12bfd73b016ac1936d5fc81b02cb6c3c47a4b1daf9e33e7",
+      "docs/production-remaining-work-2026-09-18.md": "a50f0928f8678368ad333c063adef6bc03b4dff0d326b197d59e434f28cc7331",
+      "docs/supported-production-profile-v1.md": "facd23d2f7b1f7758acd00e52c4272e8b94c4b5a3daa4d240584d7499605169d"
+    }
+  },
+  "static_verification": {
+    "checks": "Maintained Ruff, changed test/helper and benchmark Ruff, mypy67 source files, Hermes hygiene and git diff --check passed.",
+    "log_sha256": "86529f4b223b1c3ae7c6036bfc4bb9c57dc76c2f2c426b348a18f69393027178",
+    "reporting_exception": "Root reporting wrapper raised IndexError after Ruff/mypy completed. Only the remaining Hermes/diff checks were resumed; all final checks passed. This was not a source diagnostic."
+  },
+  "targeted_campaign_verification": {
+    "campaigns": [
+      {
+        "clients": 256,
+        "committed_revisions": 37,
+        "duration_seconds": 31.410857234,
+        "first_progress_seconds": 2.232992435,
+        "history_events": 640,
+        "history_file": "schema3-threads-separate-256.json.gz",
+        "history_sha256": "dfeeec77534463d475cbc7e5124bd7d2667d886871a24a67deefdc1927fbc907",
+        "history_verified": true,
+        "max_attempts": 1,
+        "max_operation_seconds": 30.730364277,
+        "measured_ready_clients": 256,
+        "ownership_rejections": 0,
+        "process_count": 1,
+        "schema": 3,
+        "schema_version": "dml-concurrency-evidence-v1",
+        "transport": "threads-separate"
+      },
+      {
+        "client_keepalive_expiry_seconds": 1.0,
+        "clients": 256,
+        "committed_revisions": 37,
+        "duration_seconds": 40.206062539,
+        "first_progress_seconds": 5.22891469,
+        "history_events": 640,
+        "history_file": "schema4-http-256.json.gz",
+        "history_sha256": "4b32cc83fbeef5ed515bf1eedccfd37adeca65ce1b021fed00bf9131c6e839b4",
+        "history_verified": true,
+        "max_active_workers": 40,
+        "max_attempts": 2,
+        "max_http_in_flight": 256,
+        "max_operation_seconds": 39.887605005,
+        "measured_ready_clients": 256,
+        "ownership_rejections": 1,
+        "process_count": 1,
+        "schema": 4,
+        "schema_version": "dml-concurrency-evidence-v1",
+        "server_keepalive_timeout_seconds": 5.0,
+        "transport": "http",
+        "worker_threads": 40
+      },
+      {
+        "clients": 16,
+        "committed_revisions": 7,
+        "duration_seconds": 0.597604161,
+        "first_progress_seconds": 0.04367761,
+        "history_events": 40,
+        "history_file": "schema3-processes-16.json.gz",
+        "history_sha256": "063fd6dbf2d9c12389e84bf803aff1868505fa500fb7c5607478264369eafd30",
+        "history_verified": true,
+        "max_attempts": 1,
+        "max_operation_seconds": 0.473911665,
+        "measured_ready_clients": 16,
+        "ownership_rejections": 0,
+        "process_count": 4,
+        "schema": 3,
+        "schema_version": "dml-concurrency-evidence-v1",
+        "transport": "processes"
+      }
+    ],
+    "chronology": "The three campaigns ran once on frozen correction runtime and diagnostic helpers. The sole subsequent test-source delta was the native shared cleanup-budget cap and its deterministic regression. Campaign operation timings precede cleanup. Final-source complete CI remains required.",
+    "elapsed_seconds": 79.446,
+    "environment_limit": "Local dirty source and volatile overlay are unqualified for supported-platform durability/CI acceptance. Targeted passes do not waive this limitation.",
+    "failed": 0,
+    "independent_replay_report_sha256": "8d4e01ae98de537c016994e9a38fe63944e7bbe73a3d0bc9a8fb3c64dd850320",
+    "independently_replayed_histories": 3,
+    "junit_sha256": "93fe380b8f747c2bc306e231e950b47b01a37fa7c979d08869d6c59455b44797",
+    "logical_events": 1320,
+    "passed": 3,
+    "skipped": 0,
+    "source_manifest_before_after_identical": true,
+    "source_manifest_files": 336,
+    "source_manifest_sha256": "61020ed1cdb554d6fde8772474c2fec417e854c15be249b88bcb9cc33d2b928c",
+    "testcases": 3,
+    "typed_ownership_rejections": 1
+  },
+  "unchanged_acceptance_bounds": {
+    "campaign_seconds": 90,
+    "ci_job_watchdog_minutes": 20,
+    "first_progress_seconds": 10,
+    "max_attempts": 3,
+    "max_burst_commits": 40,
+    "os_ownership_acquisition_seconds": 30,
+    "ownership_scheduling_tolerance_seconds": 2
+  }
+}

@@ -1,0 +1,222 @@
+{
+  "base_commit": "cbb8fb9d50f9a14a1b9aa75b33ba617de92f655d",
+  "base_tree": "1017db1aaede5c53a0f96edbe131bcd85e6ca4fc",
+  "blockers": [],
+  "changes": [
+    "The synthetic HTTP classification rejection uses a zero-width interval at the existing read invocation. It no longer subtracts nanoseconds that can precede the prior same-client response. Eight malformed-response controls retain a valid positive baseline.",
+    "The complete-history checker now enforces a same-client revision floor from earlier mutation acknowledgements and reads independently of clock equality.",
+    "A revision cannot include a commit if every successful candidate creator is causally later. Candidate grouping preserves legitimate historical receipt replay and also rejects reversed unique-commit order.",
+    "A separate independent test generates real requests, receipts and read payloads, then replays the exact recorded Windows CI clock boundaries. Substituting only the genuine earlier read report must fail on known same-client order.",
+    "The profile-concurrency CI job timeout increases from15 to20 minutes to retain setup and artifact-upload headroom after the accepted Linux lane spent825.403 seconds inside qualification. All campaign, ownership, progress and retry limits remain unchanged."
+  ],
+  "ci_322": {
+    "completed_jobs": 20,
+    "failed_jobs": 1,
+    "failure": "All eight failures occurred at the positive setup control with One client returned an impossible program order, before the intended malformed-response assertion.",
+    "linux_and_macos": "Their original-source concurrency artifacts were accepted, but they do not qualify the corrected source.",
+    "passed_jobs": 19,
+    "qualification": "REJECTED: Windows concurrency negative controls failed; all24 actual Windows matrix cells passed.",
+    "run_id": 35467434181,
+    "tested_merge_commit": "4297054f1ca163d6783bbf3e4abb44475d7a06c0",
+    "tested_tree": "1017db1aaede5c53a0f96edbe131bcd85e6ca4fc",
+    "url": "https://github.com/mmckeen-nv/DML/actions/runs/35467434181",
+    "windows_expected_fork_skips": 1,
+    "windows_failed_cases": 8,
+    "windows_passed_cases": 285
+  },
+  "ci_administrative_headroom": {
+    "accepted_linux_max_campaign_seconds": 65.777738953,
+    "accepted_linux_max_first_progress_seconds": 8.605977321,
+    "accepted_linux_qualification_elapsed_seconds": 825.403,
+    "job": "profile-concurrency",
+    "previous_job_timeout_minutes": 15,
+    "reason": "Administrative runner headroom for setup and artifact preservation; the original Linux lane already passed all unchanged qualification thresholds.",
+    "reviewed_job_timeout_minutes": 20
+  },
+  "finite_corpus_limit": {
+    "claim": "The checker qualifies the frozen independently derived request corpus, not arbitrary concurrent programs or a general linearizability solver.",
+    "future_changes": "Changing the client recipes or broadening the solver claim requires renewed causal review and adversarial controls.",
+    "joint_creator_review": "For multiple admitted clients, every potential mutation creator issues its mutation first, followed by exact replay and its sole read; pure-read clients do not mutate. A single-client campaign is serial. The exact request ledger rejects a rearranged history in which two candidate creators both read a revision before invoking its shared first mutation. Thus the discussed joint-creator cycle is outside this admitted corpus, not proven impossible by a general solver."
+  },
+  "focused_verification": {
+    "attribution": "Focused selections overlap historical evidence. No full48 runtime campaign was rerun locally for this test-only correction; complete new CI remains required.",
+    "bounded_collection_cases": 300,
+    "collection_log_sha256": "8aac76dab87a21e1dbf92044c7ed47bc14a1653cf4e6a7935055fafca7976aa4",
+    "failed": 0,
+    "full_collection_by_module": {
+      "evidence": 107,
+      "history": 70,
+      "http": 61,
+      "independent_adversarial": 26,
+      "runtime": 60
+    },
+    "full_collection_cases": 324,
+    "independent_regression_green": "The same permanent case passes in the167-case corrected-source selection.",
+    "independent_regression_red": {
+      "attribution": "The newly authored independent regression executed against the fixture source read from the published Git base; it failed because the old oracle did not reject the stale report.",
+      "failed": 1,
+      "junit_sha256": "726104e0e267efd20f6caab31ba2e361e2acaed48287cd6dcf2d759adcc1e4a2",
+      "passed": 0,
+      "skipped": 0,
+      "testcases": 1
+    },
+    "junit_sha256": "340d1b33c498aa7df838ab74f478ddfd80fd5cb88b1022f6f7b65e97902fbfed",
+    "module_cases": {
+      "evidence": 107,
+      "history": 34,
+      "independent_adversarial": 26
+    },
+    "passed": 167,
+    "qualification_environment_present": true,
+    "skipped": 0,
+    "static_checks": "Ruff on all three changed files and git diff --check passed.",
+    "testcases": 167,
+    "warning_detail": "Existing pytest record_property/xunit2 compatibility warning; all cases and the resulting JUnit were retained.",
+    "warnings": 1
+  },
+  "grade": 9.6,
+  "independent_counterexample": {
+    "artifact_sha256": "a518ba7804ddf424710cfd6b930f269259710952543f5a603c3e5e3cb580c851",
+    "corrected_result": "Read moved behind its client's prior observation",
+    "later_read_sequence": 19,
+    "mutation_ack_revision": 13,
+    "mutation_ack_sequence": 17,
+    "old_result": "Incorrectly accepted",
+    "shared_timestamp_ns": 308484000000,
+    "source": "CI322 Windows schema3-threads-shared-1 raw history",
+    "substituted_read_revision": 12,
+    "substitution": "Only sequence19 result was replaced with the genuine sequence15 result for the same request.",
+    "timestamp_changes": false
+  },
+  "milestone_status": "Open pending corrected exact-source CI; original production_ready=false and candidate/alpha maturity unchanged",
+  "minimum_accepted_grade": 9.5,
+  "next_gate": "Publish these reviewed corrections without merging, rerun all20 CI jobs, independently verify all three corrected-source platform artifacts, then decide milestone6 closure.",
+  "original_review": {
+    "path": "docs/artifacts/profile-concurrency-review-2026-09-19.json",
+    "sha256": "6620eab71ea863d1f9a71eae1d33955ccdc78755a1b08939796c1721b6dc48f3",
+    "unchanged": true
+  },
+  "retained_history_replay": {
+    "independently_retained_attacks": {
+      "dml-m6-coarse-clock-stale-read.json": {
+        "rejected_with": "Read moved behind its client's prior observation",
+        "sha256": "82dc2abc16271e0222fe7f7540129e663f0f5db6e869ef972696580707c1bddc"
+      },
+      "dml-m6-windows-real-clock-stale-read.json": {
+        "rejected_with": "Read moved behind its client's prior observation",
+        "sha256": "a518ba7804ddf424710cfd6b930f269259710952543f5a603c3e5e3cb580c851"
+      }
+    },
+    "retained_run_attribution": "Prior-source histories replayed with the corrected oracle; this is not a new runtime campaign or exact-source CI acceptance.",
+    "runs": {
+      "linux": {
+        "archive_sha256": "2c99dc036d5592bdef643a2ef3ef20fec5af624e6dc6805ab04013d9f0c598f7",
+        "cases": 318,
+        "failed": 0,
+        "filesystem": {
+          "device_id": 66305,
+          "local": true,
+          "options": [
+            "errors=remount-ro",
+            "relatime",
+            "rw"
+          ],
+          "source": "proc-self-mountinfo",
+          "type": "ext4"
+        },
+        "junit_sha256": "ec4abb9d36f3099312e641c44186269fd5a94fbe313a14dd59aa23adfbe1b714",
+        "original_run_environment_accepted": true,
+        "passed": 318,
+        "replayed_histories": 48,
+        "skipped": 0,
+        "source_commit": "4297054f1ca163d6783bbf3e4abb44475d7a06c0",
+        "source_tree": "1017db1aaede5c53a0f96edbe131bcd85e6ca4fc",
+        "sqlite_version": "3.53.4"
+      },
+      "local_final2": {
+        "environment_accepted": false,
+        "evidence_sha256": "e64de9831da7fb72369a47ae5b539711cbb351c2a5b487bf6aa13dd133b4ce5e",
+        "replayed_histories": 48
+      },
+      "macos": {
+        "archive_sha256": "32beb9d61cbace261453bbea7bc2632143b178137f9fa227aaf19a5d4e635862",
+        "cases": 294,
+        "failed": 0,
+        "filesystem": {
+          "device_id": 16777230,
+          "local": true,
+          "mount_flags": 76582912,
+          "options": [
+            "rw"
+          ],
+          "source": "darwin-statfs",
+          "type": "apfs"
+        },
+        "junit_sha256": "b0b193668e77ad58a0c556cd0d102f89cf10d99ff8f42ef28c4c4381aa2e8b27",
+        "original_run_environment_accepted": true,
+        "passed": 294,
+        "replayed_histories": 24,
+        "skipped": 0,
+        "source_commit": "4297054f1ca163d6783bbf3e4abb44475d7a06c0",
+        "source_tree": "1017db1aaede5c53a0f96edbe131bcd85e6ca4fc",
+        "sqlite_version": "3.53.4"
+      },
+      "windows-rejected": {
+        "archive_sha256": "9f1f75a954f3bcfa6b3bcd4fd4cddf2108153936052c7d017aa87cb41ec007a4",
+        "cases": 294,
+        "failed": 8,
+        "filesystem": {
+          "device_id": 18370981082315469407,
+          "local": true,
+          "options": [],
+          "source": "windows-volume-information",
+          "type": "ntfs",
+          "volume_flags": 65482495
+        },
+        "junit_sha256": "a314f57947e127f06c242ea3256b01eebceeeda528619192b72c676c38b61708",
+        "original_run_environment_accepted": false,
+        "passed": 285,
+        "replayed_histories": 24,
+        "skipped": 1,
+        "source_commit": "4297054f1ca163d6783bbf3e4abb44475d7a06c0",
+        "source_tree": "1017db1aaede5c53a0f96edbe131bcd85e6ca4fc",
+        "sqlite_version": "3.53.4"
+      }
+    },
+    "total_independently_replayed_histories": 144
+  },
+  "review_date": "2026-09-19",
+  "review_history": [
+    {
+      "finding": "The actual Windows history allowed an internally valid revision12 read after the same client had acknowledged revision13 because their recorded clock values tied. Replacing only the read result exposed this oracle blind spot; no runtime stale read was observed.",
+      "grade": 9.3,
+      "scope": "Fixture-only follow-up before causal repair",
+      "verdict": "REJECT"
+    },
+    {
+      "basis": "The fixture preserves existing clock boundaries; the oracle now respects known client causality under ties, all144 retained valid histories replay, both independent corruption attacks reject, and167 focused tests pass.",
+      "grade": 9.6,
+      "verdict": "ACCEPT_REVIEWED_SOURCE"
+    }
+  ],
+  "reviewed_file_sha256": {
+    ".github/workflows/ci.yml": "8a9c00e6e48a56cd01714744ef9e636ece74dae52726383d9a08b3787f5cbcf1",
+    "dml_core/tests/profile_concurrency_fixture.py": "b77a73c0c351a296ce56a04258a9ba88201bf055ae3a03996625a9e52afd9d83",
+    "dml_core/tests/test_profile_concurrency.py": "a06a70dcf34b2906a4056707b68991b21772e7d23fd7bb8a25feda5cb34cc662",
+    "dml_core/tests/test_profile_concurrency_adversarial.py": "8ecef74a59dcfbbe84789527585221fc83dcde8bc0c95edd60196bb948d438bf"
+  },
+  "schema_version": 1,
+  "scope": "Milestone 6 follow-up: Windows clock-tie fixture portability, finite-corpus history causality, and CI job headroom",
+  "source_integrity": "Only these three test/helper files and the administrative workflow timeout differ from the published base; the original review remains byte-identical. This follow-up excludes its own hash to avoid a circular dependency.",
+  "unchanged_boundaries": [
+    "Production runtime and APIs",
+    "Campaign recipe and exact request ledger",
+    "30-second OS acquisition budget",
+    "90-second campaign deadline",
+    "10-second progress bound",
+    "Three-total-attempt limit and strict error classification",
+    "Actual campaign timestamps",
+    "48/24/24 platform matrix"
+  ],
+  "verdict": "ACCEPT_REVIEWED_SOURCE"
+}

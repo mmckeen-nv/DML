@@ -1,0 +1,94 @@
+{
+  "actual_generations": 0,
+  "admission_and_close_seconds": 32.37943854100013,
+  "bound_requests": 0,
+  "bundle_files": {
+    "chat_template.jinja": {
+      "bytes": 1343,
+      "sha256": "24bd5fcdd71018049c672f96778e9162c6d00337e22f8f5f9b358c52705d9348"
+    },
+    "config.json": {
+      "bytes": 557,
+      "sha256": "034b72cb6cf9a9675eb9bc4b4ea77f430ba8fb3bcb506b2a6dab7f63e6c57cb9"
+    },
+    "model.safetensors": {
+      "bytes": 6174895536,
+      "sha256": "03c6c9523873b288883dfe9e4e37ec2d85a9bedccf761c20eddaa55d93363f95"
+    },
+    "snapshot.json": {
+      "bytes": 753,
+      "sha256": "50bb547ee45b1e97442d7d399f39cb41b9c672e1f79c3ce0206277ee0025bec9"
+    },
+    "tokenizer.json": {
+      "bytes": 7031645,
+      "sha256": "c0382117ea329cdf097041132f6d735924b697924d6f6fc3945713e96ce87539"
+    }
+  },
+  "cache_policy": "request-local-dynamic-v1",
+  "consumer_profile": "qwen2-action-json-v1",
+  "generated_scope": "none",
+  "grammar_dependency_locations": {
+    "apache-tvm-ffi": "/tmp/dml-m7-grammar-deps",
+    "xgrammar": "/tmp/dml-m7-grammar-deps"
+  },
+  "grammar_policy": {
+    "any_order": false,
+    "any_whitespace": true,
+    "cache_enabled": false,
+    "compiler_threads": 1,
+    "default_temperature": null,
+    "mask_backend": "cpu",
+    "max_bound_requests": 64,
+    "max_rollback_tokens": -1,
+    "max_whitespace_cnt": null,
+    "object_order": "declared",
+    "posthoc_repair": false,
+    "profile": "dml-agent-action-grammar-v1",
+    "public_schema_sha256": "f62408882c04d557d4bb9ef2e75442cb7fa3c08cd6e57b62b0013778b6df507b",
+    "public_tools_sha256": "95f9d3b87364adab6942ca469b76364f5bf20668990501f7d0a2063a3a95eb65",
+    "runtime_versions": {
+      "apache-tvm-ffi": "0.1.12",
+      "xgrammar": "0.2.7"
+    },
+    "special_tokens": "admitted-eos-only",
+    "stop_tokens": "verified-tokenizer-eos-only",
+    "strict_mode": true,
+    "terminate_without_stop_token": false
+  },
+  "live_qualified": false,
+  "max_rss_kib": 7446288,
+  "model_identity": {
+    "chat_template_digest": "24bd5fcdd71018049c672f96778e9162c6d00337e22f8f5f9b358c52705d9348",
+    "model_digest": "8c25fedc9b83e38504746ed5342e013565c365514bd9a7b4504ab14502590abc",
+    "model_window_tokens": 32768,
+    "runtime_identity": "dml-qwen-action-runtime-v1:923917dc3fec540a7babdf4f8b9f984aede6e447c7d2399853f349d83b2eb81e",
+    "tokenizer_digest": "2e8e31c0c66a7bb12ebc8deddf0d503b42df4911c701c73f54e0543da828feac"
+  },
+  "original_provenance_sha256": "706f1013a7246ade1b0990ee59cd8e420b8faf0ac241500d5fe0abbac83c318f",
+  "python_executable": "/workspace/scratch/ad6cdef78c95/dml-venv/bin/python",
+  "pythonpath": "/workspace/scratch/ad6cdef78c95/DML-core/dml_core:/tmp/dml-m7-grammar-deps",
+  "recorded_utc": "2026-09-20T14:50:14.453514+00:00",
+  "retained_model_cache": false,
+  "schema_version": "dml-qwen-action-json-admission-v1",
+  "scope": "strict-loaded-trained-consumer-only",
+  "source_sha256": {
+    "daystrom_dml.contracts.agent_episode": "22082fb2b6f288c974e4b4e1a5fb7dcb273283e88834334957f36034145d86c3",
+    "daystrom_dml.services.agent_action_grammar": "8568f8cfc86ff9511fe5c3fd26a3c28ba7e4641f7ec1c648eae5130694ee7623",
+    "daystrom_dml.services.agent_episode": "65e8fc06a95e827a48e667da7abc0181d162e4d371b2764fd4912417c1668c69",
+    "daystrom_dml.services.episode_outcomes": "f88344281f057c5dbd0d55e9d488bea64405078d0241e18ee52451f409c093d7",
+    "daystrom_dml.services.episode_tools": "bfcf2ac855b60e664340250ffa141126af456459c5762da1995c2a0773c55d45",
+    "daystrom_dml.services.episode_verifiers": "b6a98db4c61770a8b3cc60abb75fd65d200cb670858e9cb0440d687bf78af396",
+    "daystrom_dml.services.model_input": "aa9194ec7657af9ba74fa4c527c1f4125327aa33c6d1d047dbadf1d41652bde7",
+    "daystrom_dml.services.model_input_snapshot": "cf2442fc84441793b9c7169b3279d5782d047dcf54071090fc48c111a7ff5673",
+    "daystrom_dml.services.pretrained_snapshot": "72b702d1f2179cfbbf765ceb90022f43eb73676d02a8a8e612ef4f63e51ba70f",
+    "daystrom_dml.services.qwen_action_input": "1d27c5131ff0c116d1b23c5253d321ee260b5a9ff17ab895d0a02662b7bdb5d7",
+    "daystrom_dml.services.qwen_model_input": "31c538bb1738851833e08d57d79148b1e378347e206aa50f756cf6d4a7ffe0a7",
+    "daystrom_dml.services.qwen_model_snapshot": "71f55ea4fb900c1e6953ddb73001824332c8fc610a0fce0624524e3b2e8271ae",
+    "daystrom_dml.services.qwen_pretrained_snapshot": "c5e9aacabe8ccedcf21e79ce8bd75d6d1ca453450a9789566271e19262734916",
+    "scripts.agent_campaign_evidence": "53819e49d42eb4bb8199537ec2f1a1d04fac795c4207edd8423c1e0b2fe3bf4e",
+    "scripts.agent_episodes": "9a781fb1b97ab927a10087ff47478a71cef74868a9ac992b837756716877cf78"
+  },
+  "strict_consumer_loaded": true,
+  "threads": 4,
+  "trained_model_qualification": false
+}

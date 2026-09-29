@@ -1,0 +1,33 @@
+{
+  "accepted_for_execution": false,
+  "accepted_for_source_candidate": true,
+  "base_commit": "35b5cf2d5400705ee57b9b0685dc55b97590a960",
+  "blocking_findings": [],
+  "candidate_patch_sha256": "206b15b47874bbb07d042fa3b371f773c24e9a8db7e283fb0347b4a090933fd0",
+  "candidate_source_sha256": "2e8af0e6c9d03bf6e41c974f95580f28fd17ce4e55daadd0b46b474c11770615",
+  "independent_checks": [
+    "Only supersede public description differs; exact AST outside the description map is unchanged, including AGENT_POLICY and argument schemas. Retrieve guidance remains the previously reviewed v2.",
+    "Read actual canonical_supersession_request: equal source/replacement memory IDs raise ValueError before receipt-service dispatch. EpisodeTools resolves observed references into these IDs. The distinct-record/ref precondition and source/replacement roles are accurate generic API guidance.",
+    "No fixture IDs, task names, expected answers, forced tool choice, automatic retrieval, hidden state access, schema/parser/corpus/verifier/bound/gate change. Statement to retrieve a missing other record exposes the existing reference requirement.",
+    "Existing canonical rejection coverage includes self-supersession. Builder reports syntax/Ruff/diff checks; no Torch import or focused test run was performed during live attempt8. Fresh mandatory source validation is still required after integration.",
+    "Main frozen HEAD and all436 frozen source hashes remained unchanged. Review writes only scratch candidate evidence."
+  ],
+  "integration_allowed_before_attempt_8_freeze_release": false,
+  "live_qualified": false,
+  "milestone_7_closed": false,
+  "precondition_source_sha256": "8c8edda11a92124586b94f4538500a01cf729e192a639dd64a31b0e04f73b0a4",
+  "predicted_model_improvement_claimed": false,
+  "production_ready": false,
+  "recorded_at_utc": "2026-09-24T23:12:43.286574+00:00",
+  "required_before_new_execution": [
+    "Finish full attempt8 and both sequential replays, retain actual failure/unknown evidence and obtain explicit bound independent freeze release.",
+    "Integrate this exact separately identified candidate and complete fresh803/21+34/1 validation plus static lanes with all436 source hashes stable.",
+    "Declare new action-runtime identity through fresh zero-generation admission and a published-source specification; obtain separate exact pre-generation review."
+  ],
+  "review_score": 9.6,
+  "reviewer": "/root/m7_grader",
+  "schema_version": "dml-generic-tool-guidance-candidate-grader-review-v1",
+  "tool_adapter_source_sha256": "2bf860b0e384c3db204fd76ae69f30e241c92ec89010b930b836dee344769a31",
+  "torch_imported_by_reviewer": false,
+  "trained_generation_performed": false
+}

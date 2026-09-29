@@ -1,0 +1,82 @@
+{
+  "decision": "accepted_source_revision",
+  "historical_reviews": [
+    {
+      "path": "docs/artifacts/agent-episode-completion-review-2026-09-20.json",
+      "retained_unchanged": true,
+      "sha256": "7767c900cf80a15205df9b1fae21af8d2f1c11a6f86a401c68c942207ff17531",
+      "source_score": 9.6
+    },
+    {
+      "decision": "rejected_for_milestone_7_completion",
+      "milestone_completion_score": 7.0,
+      "path": "docs/artifacts/agent-episode-live-attempt-1-review-2026-09-20.json",
+      "retained_unchanged": true,
+      "sha256": "03fad1b8b99939f39de54e53de0e0fc12fc02fc87515b0dd066acdeae66e1098"
+    }
+  ],
+  "independent_inspection": {
+    "all_428_current_source_hashes_match_unchanged_tested_manifest": true,
+    "contract_ast_identical_after_removing_AGENT_POLICY_assignment": true,
+    "examples_contain_no_corpus_truth_or_observed_evidence": true,
+    "historical_evidence_requires_its_pinned_historical_source": true,
+    "no_generation_output_repair_or_selective_retry_added": true,
+    "only_two_declared_files_differ_from_previous_accepted_source": true,
+    "parser_decoder_tool_authority_model_corpus_bounds_and_qualification_gates_unchanged": true
+  },
+  "milestone_7_closed": false,
+  "minimum_acceptable_score": 9.5,
+  "next_authorized_gate": "Freeze a separate attempt-2 manifest before any corpus generation and run all nine tasks once with the same model, corpus, bounds, and qualification gates.",
+  "parent_source": {
+    "commit": "902fda192117ebcbccc269a650f5ce127884f0b7",
+    "tree": "7872c61b9708b9abc571c33b8941bbe6fb282f38"
+  },
+  "production_ready": false,
+  "recorded_at": "2026-09-20",
+  "remaining_milestone_blockers": [
+    "A complete trained-model campaign must satisfy all predeclared semantic and tool-use coverage gates, with every failure retained and independently replayed.",
+    "Required CI must pass on the published final source revision."
+  ],
+  "reviewed_changes": {
+    "dml_core/daystrom_dml/contracts/agent_episode.py": {
+      "change": "Only AGENT_POLICY changes. Exact raw JSON envelopes, syntax-only neutral examples, integer record.id citations, opaque tool-supplied record_ref write handles, and retrieval of missing references are clarified.",
+      "sha256": "a71062b818957499bb8eb8b5f7ab1a342ff98bc7854ca61f7da6ce3a84231cde"
+    },
+    "dml_core/tests/test_agent_episode_contract.py": {
+      "change": "Twelve added cases check literal example parsing and strict rejection of missing envelopes, quoted or multiple objects, trailing quotes, string citation IDs, and integer write references.",
+      "sha256": "30e3fa085d5e2c5c4cfdd8a270c18cd1c833fe30836c306882ad20a773d04ff7"
+    }
+  },
+  "reviewer": "independent delegated m7_final_grader",
+  "schema_version": "dml-independent-protocol-revision-review-v1",
+  "scope": "Generic protocol-instruction clarification and strict rejection regressions following the completely retained failed trained-model attempt 1.",
+  "score": 9.7,
+  "source_blockers": [],
+  "validation": {
+    "builder_focused": {
+      "errors": 0,
+      "failures": 0,
+      "junit_independently_parsed": true,
+      "junit_sha256": "517bf1e13dfecb54f957b51de68b105ccb2ec02a47a7fc3f2d6fa2e0b372e3a6",
+      "skipped": 0,
+      "tests": 155
+    },
+    "mandatory_cpu": {
+      "errors": 0,
+      "failures": 0,
+      "junit_independently_parsed": true,
+      "junit_sha256": "2977a4e108b10a513ceb003d101f54fab26c354e44575821f0e79e8170be3f69",
+      "module_count": 17,
+      "skipped": 0,
+      "source_before_after_equal": true,
+      "tests": 710
+    },
+    "public_manifest": {
+      "file_count": 428,
+      "manifest_independently_rehashed": true,
+      "path": "docs/artifacts/agent-episode-protocol-validation-2026-09-20.json",
+      "sha256": "149fd3386b14d74d2083e345ee9a6454f36a0bcfada1be5a071d8a08ac585fd4"
+    },
+    "ruff": "Builder reports pass; result retained in public validation manifest."
+  }
+}

@@ -1,0 +1,56 @@
+{
+  "accepted_for_execution": false,
+  "accepted_for_integration": true,
+  "base_commit": "2a2fb0891d14213c5a593157aab64a1d5ea41834",
+  "blocking_findings": [],
+  "builder_validation_sha256": "1f6badf2ddc5f978761aa71505439ccb42f2eea5639345b7775f7b0eadc11ed1",
+  "files_sha256": {
+    "dml_core/daystrom_dml/services/model_input.py": "4131bc96d34e6b3d42d3a64895e378c97c0fb714ddde331c3f32b662e90d7916",
+    "dml_core/tests/test_model_input_runtime.py": "edcd42270c550a959cd8ffab11a378b587dab0b76158572ecb939ac95f06c771"
+  },
+  "focused_junit_sha256": "4f25d2392ba883f149cf55a79e2bc6fc991c9710bb145d4f81666eebdf0f24e2",
+  "focused_log_sha256": "6636e0b9f80a082982fe2c0ba33b1062504f1fcb7bf4cda27838d6d1368ec114",
+  "independent_checks": {
+    "actual_focused_junit_counts": {
+      "error": 0,
+      "failure": 0,
+      "skipped": 0,
+      "testcase": 132
+    },
+    "alias_mutations_without_version_counter_changes_still_detected": true,
+    "all_fingerprint_metadata_ordering_cpu_checks_and_scan_call_sites_unchanged": true,
+    "complete_module_ast_unchanged_except_one_buffer_hash_input": true,
+    "cpu_and_unsupported_dtype_layout_exception_equivalence_controls": true,
+    "focused_modules": [
+      "dml_core.tests.test_model_input_adversarial",
+      "dml_core.tests.test_model_input_runtime",
+      "dml_core.tests.test_qwen_model_adversarial",
+      "dml_core.tests.test_qwen_model_equivalence"
+    ],
+    "new_case_count": 22,
+    "old_algorithm_oracle_covers_supported_dtypes_scalar_empty_noncontiguous_and_parameter_buffer_order": true
+  },
+  "limitations": [
+    "Noncontiguous tensors still allocate their required contiguous Torch conversion.",
+    "No model generation or trained model load was performed for this review.",
+    "No overall process RSS, inference latency, deadline or model-capability improvement is established.",
+    "Fresh integrated validation, exact-source CI, current admission, specification and independent pre-generation review remain required."
+  ],
+  "live_qualified": false,
+  "milestone_7_closed": false,
+  "observed_allocation": {
+    "fixture_tensor_bytes": 16777216,
+    "identical_digest": true,
+    "measurement_scope": "Builder actual tracemalloc observation and raw test log verified; Python allocation only.",
+    "new_python_peak_bytes": 569267,
+    "old_python_peak_bytes": 16845541
+  },
+  "patch_sha256": "d2ff2b6d45e49c9a386c021ff2d11962f06ba5c55e30d7faa0899cc54891b236",
+  "production_ready": false,
+  "recorded_at_utc": "2026-09-25T00:22:42.477641+00:00",
+  "review_score": 9.6,
+  "reviewer": "/root/m7_grader",
+  "schema_version": "dml-scoped-source-grader-review-v1",
+  "scope": "Replace only the tensor-sized Python bytes copy with a memoryview of the same detached contiguous CPU NumPy buffer. Every full live-state hash, metadata field, ordering rule and drift comparison remains in place. New independent prior-algorithm oracle and existing adversarial/equivalence tests are retained. Seven separately edited recovery-protocol modules are outside this review.",
+  "source_root": "/workspace/scratch/c79340404ab9/DML-attempt10-isolated"
+}

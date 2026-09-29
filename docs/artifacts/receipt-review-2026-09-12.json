@@ -1,0 +1,62 @@
+{
+  "schema_version": "dml-feature-review-v1",
+  "feature": "append-only-idempotent-ingestion-receipts",
+  "base_commit": "cfdb94b60581d9271fbc3378ac4c96e864236c4e",
+  "reviewed_at": "2026-09-13",
+  "reviewer": "independent grading agent, separate from receipt builder and API harness agent",
+  "minimum_accepted_score": 9.5,
+  "review_history": [
+    {
+      "score": 9.2,
+      "decision": "rejected",
+      "finding": "A failed runtime hydration could leave a cached query vector from another embedding identity; a preparation-to-ownership identity window also required a guard."
+    },
+    {
+      "score": 9.5,
+      "decision": "accepted",
+      "resolution": "Schema-2 queries bypass the unversioned cache; embedding identity is pinned across preparation and retrieval ownership. Both independent reproductions pass. Unqualified legacy retrieval and generation paths fail closed."
+    }
+  ],
+  "score": 9.5,
+  "decision": "accepted",
+  "category_scores": {
+    "atomic_correctness": 9.6,
+    "crash_and_recovery": 9.6,
+    "schema_and_migration": 9.5,
+    "concurrency_and_replay": 9.5,
+    "fail_closed_api_and_embedding": 9.5,
+    "maintainability": 9.3
+  },
+  "source_sha256": {
+    "dml_core/daystrom_dml/journal.py": "f3db12707a260765462961bdbed2b9d00a80887ec2c0071421d4795b41a4759e",
+    "dml_core/daystrom_dml/services/receipt_ingestion.py": "8c7f72a02fe2e1b03489291e9698a3bfa5b17c7a4078acc2309d510a00fa3038",
+    "dml_core/daystrom_dml/dml_adapter.py": "9a4d627a5838e2fa3502dd2189c3bfe5f511cb4343cb8250c68379a2133502cb",
+    "dml_core/daystrom_dml/provider_server.py": "869384542c136f8f0aca826b93a9aa7863c438e98d877a68370277b17e8a6503",
+    "dml_core/daystrom_dml/memory_store.py": "8df884f4071b815dc17d1d77c1e9c0a9809b912c6a5cfe0b1faa75413c443f2f",
+    "dml_core/daystrom_dml/settings.py": "0cf85d6444710151f72bf18622872de1bf146e34c28419cfb64ffb18c401809b",
+    "dml_core/scripts/dml_journal.py": "9df01f9fc9365921ad092ba35922924dfed96abb7f84957b680cce698fe58e58",
+    "dml_core/tests/test_receipt_ingestion.py": "8336c7cf21449816d40f21bc25f776fff98381e6e8a7399eb1f249812c831626",
+    "dml_core/tests/test_receipt_adapter.py": "7ac3c9adc95a71034d0680f60694179337a8fc662eb49cef24e37b4ff0f12ca6",
+    "dml_core/tests/test_receipt_embedding_contract.py": "c330913cc4878aa046226059686755e363b1f85e2ea2ae1e917168bc082fc0bb"
+  },
+  "verification": {
+    "independent_targeted": "89 passed with DML_STRESS_CLIENTS=256",
+    "receipt_transaction_process_kill_hooks": 8,
+    "migration_process_kill_hooks": 6,
+    "same_key_process_clients": 8,
+    "ruff": "passed",
+    "mypy": "45 maintained files passed; local Python target 3.12",
+    "hermes_hygiene": "passed",
+    "full_suite": "1096 passed, 9 optional-dependency skips, 1 upstream deprecation warning in 107.65s"
+  },
+  "limitations": [
+    "Feature-specific review, not whole-platform production certification",
+    "Final-commit remote CI remains the integration/merge gate",
+    "Only append-only receipt ingestion and scoped retrieval; legacy mutation, retrieval and generation front doors are refused in schema 2",
+    "External RAG projections, native KV, lifecycle receipts and full durable response reconstruction are excluded",
+    "Full-history validation cost remains unqualified at 1k/10k/100k growing receipt stores",
+    "Embedding revision is an operator/backend assertion, not model-weight attestation",
+    "Populated schema-1 migrations preserve data but lack proven embedding identity; new embedding work fails closed",
+    "Process-kill evidence does not establish hardware power-loss behavior"
+  ]
+}

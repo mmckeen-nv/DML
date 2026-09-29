@@ -1,0 +1,123 @@
+{
+  "complete_source_manifest": {
+    "path": "docs/artifacts/agent-episode-grounding-cleanup-source-2026-09-20.json",
+    "sha256": "398baa445a6b2b0f104b539013047ed2484bd5df673f117d6bce4b03ed8b4e60"
+  },
+  "composition_findings": [
+    "Only the seven independently reviewed source/test files change from da526. No packaging, workflow, corpus, gateway, strict action parser, verifier, checker, model weights, tokenizer, native template, generation bounds or acceptance gates are modified.",
+    "The parent-owned scratch lifecycle wraps child startup before consumer admission. Child-only temporary defaults confine verified copies; only an identity-checked owned directory is reclaimed after confirmed death. Failure refuses success and retains observed accounting. Parent death remains a separate limitation.",
+    "The policy removes copyable fabricated values/citations and states public field/types plus grounded tool semantics. Tool/action choice, arguments, claims, retrieval limits and stopping remain model-owned; no expected facts or task-specific sequence are introduced.",
+    "All six descriptions remain part of the complete counted authenticated request. The new full public-tools digest changes the constrained runtime identity, while the syntax grammar and request-local cache policies remain unchanged.",
+    "Source integration introduces no overlap or hidden merge delta between the scoped repairs. The full final-source test lane now covers both together, including real killed snapshot workers, callback permission recovery, symlink-parent portability, unchanged parent environment, description identity and complete request binding.",
+    "Fresh zero-generation strict admission loads the same pinned trained model and closes its private snapshot. This proves actual admission only, not semantic/tool quality. The new action identity was independently recomputed from the unchanged base identity and current public-interface policy."
+  ],
+  "decision": "accepted_combined_source_revision",
+  "final_validation": {
+    "all_current_source_hashes_independently_rechecked": 433,
+    "maintained_mypy_passed": true,
+    "mandatory_cpu": {
+      "errors": 0,
+      "failures": 0,
+      "junit_independently_parsed": true,
+      "junit_sha256": "a48a39c66db6a87e9f3927d494e8dd1c95bc36d0d7a0d13698e2849821c725b8",
+      "module_count": 20,
+      "skipped": 0,
+      "tests": 774
+    },
+    "no_optional_broad_test_repeat": true,
+    "source_before_after_equal": true,
+    "source_before_sha256": "9d5a4745c646b52436d0f5b54629e499bca99e958609806b48ecee1deac92b81",
+    "strict_lint_passed": true,
+    "strict_lint_scopes": 2
+  },
+  "fresh_trained_admission": {
+    "actual_generations": 0,
+    "bound_requests": 0,
+    "bundle_files_identical_to_attempt_4": true,
+    "model_identity": {
+      "chat_template_digest": "24bd5fcdd71018049c672f96778e9162c6d00337e22f8f5f9b358c52705d9348",
+      "model_digest": "8c25fedc9b83e38504746ed5342e013565c365514bd9a7b4504ab14502590abc",
+      "model_window_tokens": 32768,
+      "runtime_identity": "dml-qwen-action-runtime-v1:923917dc3fec540a7babdf4f8b9f984aede6e447c7d2399853f349d83b2eb81e",
+      "tokenizer_digest": "2e8e31c0c66a7bb12ebc8deddf0d503b42df4911c701c73f54e0543da828feac"
+    },
+    "new_runtime_identity_independently_derived": true,
+    "path": "docs/artifacts/agent-episode-qwen-action-grounding-admission-2026-09-20.json",
+    "private_snapshot_closed_before_review": true,
+    "public_tools_sha256": "95f9d3b87364adab6942ca469b76364f5bf20668990501f7d0a2063a3a95eb65",
+    "sha256": "5cf472ff732738a0d5f89463c9a1df79c37d46707471fbdb835955bb14aad992",
+    "strict_consumer_loaded": true,
+    "unchanged_public_action_grammar_sha256": "f62408882c04d557d4bb9ef2e75442cb7fa3c08cd6e57b62b0013778b6df507b"
+  },
+  "historical_evidence_mutated": false,
+  "historical_live_rejections": [
+    {
+      "attempt": 1,
+      "score": 7.0
+    },
+    {
+      "attempt": 2,
+      "score": 8.5
+    },
+    {
+      "attempt": 3,
+      "score": 7.0
+    },
+    {
+      "attempt": 4,
+      "review": {
+        "path": "docs/artifacts/agent-episode-live-attempt-4-review-2026-09-20.json",
+        "sha256": "f2e457c390ba51d4a06ef4b1482aeb76ab7518b672714a657c6df628053a3c16"
+      },
+      "score": 8.0
+    }
+  ],
+  "milestone_7_closed": false,
+  "minimum_acceptable_score": 9.5,
+  "production_ready": false,
+  "recorded_at_utc": "2026-09-20T14:53:00.443440+00:00",
+  "remaining_milestone_blockers": [
+    "Freeze the exact reviewed Git tree and source/model/runtime/dependency hashes before a new single-attempt complete nine-task campaign. Retain original corpus, bounds and acceptance gates.",
+    "Actual trained execution must pass all original coverage, model-owned supersession, feedback and complete failure-inclusive accounting gates; independently replay all results with no posthoc output repair or discarded failures.",
+    "Publish the final reviewed source and evidence, pass required CI on its exact runtime source, update PR118 without merging, and update the running ledger only after qualification."
+  ],
+  "resolved_current_source_blocker": {
+    "path": "docs/artifacts/agent-episode-worker-cleanup-blocker-review-2026-09-20.json",
+    "resolution": "The exact accepted surviving-supervisor scratch ownership and cleanup repair is now integrated and passes mandatory final-source validation. The 9.2 assessment remains accurate for historical da526 source, not this repaired revision.",
+    "sha256": "f9208ec744d2a7f6f1272ff083972ec4051740a4efdebc16bec2709bcbeb9e59"
+  },
+  "reviewed_files_sha256": {
+    "dml_core/daystrom_dml/contracts/agent_episode.py": "22082fb2b6f288c974e4b4e1a5fb7dcb273283e88834334957f36034145d86c3",
+    "dml_core/daystrom_dml/services/agent_action_grammar.py": "8568f8cfc86ff9511fe5c3fd26a3c28ba7e4641f7ec1c648eae5130694ee7623",
+    "dml_core/daystrom_dml/services/agent_episode.py": "65e8fc06a95e827a48e667da7abc0181d162e4d371b2764fd4912417c1668c69",
+    "dml_core/tests/test_agent_action_grammar.py": "64747ffd4c75785d0a32ce5180a8bc456919e74d7fa46d16dcfb75a3e0dac205",
+    "dml_core/tests/test_agent_episode_adversarial.py": "4ab4f44fce8837826154e109fbc44f44f5082fabeacbca8159846033bf8c457d",
+    "dml_core/tests/test_agent_episode_contract.py": "9b0c1f19c364f66948748b7917450cb4b9e31b883b0104fff345e4760ebdf9fc",
+    "dml_core/tests/test_agent_episode_runtime.py": "0f6c2d467553d394538217b024a144a5dca8e86a5106518379150be6d12d04a4"
+  },
+  "reviewer": "independent delegated m7_final_grader",
+  "schema_version": "dml-independent-combined-grounding-cleanup-review-v1",
+  "scoped_reviews": [
+    {
+      "path": "docs/artifacts/agent-episode-worker-cleanup-review-2026-09-20.json",
+      "sha256": "9ebb21ccbf182967224fd0fb294e9232fec615baff366046d8e666efe3325558"
+    },
+    {
+      "path": "docs/artifacts/agent-episode-grounding-review-2026-09-20.json",
+      "sha256": "cf420c7d3f56536f6e03155a6b01eca799edeb61d2e1a6404ff97bc6976ed520"
+    }
+  ],
+  "score": 9.6,
+  "source_blockers": [],
+  "source_identity_at_review": {
+    "base_commit": "da526eb58d7556c455b2b534f9261cc68f74becf",
+    "base_tree": "57e7fda56cb2dbb2aef5b0a265367dd20da39a7b",
+    "binding": "Exact seven reviewed replacements and the complete immutable 433-file tested source manifest. The subsequent pre-generation declaration must bind the actual reviewed Git tree.",
+    "final_publication_commit": null
+  },
+  "trained_live_qualified": false,
+  "validation_manifest": {
+    "path": "docs/artifacts/agent-episode-grounding-cleanup-validation-2026-09-20.json",
+    "sha256": "760d6a631daef8fe2130082a544c449058a801738ae0c06f3e5a17240a227b6c"
+  }
+}

@@ -57,6 +57,8 @@ def admit_context_segments(
     runtime_adapter: Optional[RuntimeContextAdapter] = None,
     capabilities: Optional[RuntimeCapabilities] = None,
     page_out: Optional[PageOutCallback] = None,
+    rendered_token_counter: Optional[Callable[[List[Dict[str, Any]]], int]] = None,
+    tokenizer_identity: Optional[str] = None,
 ) -> ContextPacket:
     """Build an active context packet by deterministic bounded admission.
 
@@ -126,6 +128,20 @@ def admit_context_segments(
 
     admitted_segments = [segment for _, segment in sorted(admitted, key=lambda item: item[0])]
     rendered = adapter.render_messages([_renderable_segment(segment) for segment in admitted_segments])
+    exact_rendered_tokens = None
+    if rendered_token_counter is not None:
+        if not tokenizer_identity or not tokenizer_identity.strip():
+            raise ContractError("tokenizer_identity is required for exact rendered token counting")
+        exact_rendered_tokens = rendered_token_counter(rendered["messages"])
+        if type(exact_rendered_tokens) is not int or exact_rendered_tokens < 0:
+            raise ContractError("rendered token counter must return a non-negative integer")
+        if exact_rendered_tokens > budget.available_input_tokens:
+            raise ContractError("rendered context exceeds available input budget")
+        budget.admitted_input_tokens = exact_rendered_tokens
+        decisions["tokenizer_identity"] = tokenizer_identity
+        decisions["rendered_input_tokens"] = exact_rendered_tokens
+    elif tokenizer_identity is not None:
+        raise ContractError("tokenizer_identity requires a rendered token counter")
     if capabilities is not None:
         capability_payload = capabilities.to_dict()
         metadata = dict(capability_payload.get("metadata") or {})
@@ -148,8 +164,8 @@ def admit_context_segments(
         runtime_id=capability_obj.backend_id,
         segment_ids=[segment.segment_id for segment in admitted_segments],
         segment_digests={segment.segment_id: context_segment_digest(segment) for segment in admitted_segments},
-        estimated_input_tokens=budget.admitted_input_tokens,
-        exact_input_tokens=_exact_input_tokens(admitted_segments),
+        estimated_input_tokens=sum(segment.effective_tokens for segment in admitted_segments),
+        exact_input_tokens=exact_rendered_tokens if exact_rendered_tokens is not None else _exact_input_tokens(admitted_segments),
         decisions=decisions,
         audit={"reason": "active deterministic context admission", "reason_codes": _reason_codes(decisions)},
         created_at=0.0,

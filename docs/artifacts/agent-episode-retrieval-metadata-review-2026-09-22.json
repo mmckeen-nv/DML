@@ -1,0 +1,71 @@
+{
+  "base_commit": "1c4ccd591a2162ab64509015f64cef0a75acdb0e",
+  "candidate_scope": "Three-file isolated retrieval-result observability revision; no trained generation or active-campaign integration.",
+  "decision": "accepted_scoped_source_revision",
+  "diff_sha256": "fd11fd0978af443bf633ec1df661d76adcf00ef173b09be2aef3fe87584fa825",
+  "findings": [
+    "requested_top_k is the already validated caller request; returned_count counts exactly the records shown in that result; limit_reached is true exactly when the shown count equals the requested cap. No total, has_more or unobserved-record assertion is made.",
+    "The generic public description explicitly states that reaching the cap neither establishes additional records nor guarantees completeness. The description contains no task answer, scenario-specific instruction or model action restriction.",
+    "Independent AST comparison confirms the contract changes only the retrieve description. Policy, argument schemas, action parser, task allowlists, budgets and validation code are byte-equivalent in AST.",
+    "Independent AST comparison confirms the gateway changes only the three public response keys. Removing those keys makes the complete gateway module AST identical to the base. Retrieval query, top_k, trusted scope, effective time, receipt matching, record data, authority handling and write behavior are unchanged.",
+    "Four added cases exercise a capped result, exactly all eligible records at the cap, a result below the cap and an empty scoped result. They prove one unchanged scoped read, unchanged raw report and journal, preservation of exact observed records/references, and absence of unshown memory text or scope metadata. An existing write test additionally checks its response remains records-only.",
+    "Independent controls also exercise results without a complete owned receipt, at and below the cap: metadata counts public records even while observed_records is empty and record_ref remains null. A foreign-scope adapter result still fails before any public result is returned.",
+    "No source file outside the three reviewed paths differs from the base commit. Source hashes were checked after independent execution."
+  ],
+  "minimum_acceptable_score": 9.5,
+  "qualification_boundary": {
+    "active_attempt_6_changed": false,
+    "historical_evidence_mutated": false,
+    "integrated_into_main_worktree": false,
+    "live_effect": "Untested hypothesis for a later separately frozen campaign. Truthful metadata does not establish improved tool choice, final answers, model-owned lifecycle actions or success.",
+    "milestone_7_closed": false,
+    "model_generated_by_reviewer": false,
+    "production_ready": false,
+    "trained_live_qualified": false
+  },
+  "recorded_at_utc": "2026-09-22T07:25:12.022943+00:00",
+  "remaining_requirements": [
+    "Finish and retain the active attempt 6 and both independent replays before releasing its source freeze.",
+    "Integrate only the reviewed three files after the freeze releases; validate and review exact final source and pass required source CI.",
+    "If the interface is selected for further testing, declare its new source and request identity before one complete unchanged-task campaign. Keep model, grammar, bounds, verifiers and acceptance gates fixed; retain all failures and perform independent replay.",
+    "Do not claim this metadata fixes the observed live failures without fresh qualifying evidence."
+  ],
+  "reviewed_files_sha256": {
+    "dml_core/daystrom_dml/contracts/agent_episode.py": "eaabd755fa26643a629f2f66ed41a4faa95d35a42faf7a45476435015ac17ff6",
+    "dml_core/daystrom_dml/services/episode_tools.py": "2bf860b0e384c3db204fd76ae69f30e241c92ec89010b930b836dee344769a31",
+    "dml_core/tests/test_episode_tools.py": "286af662a018c39c09ccebe7a73737016f4898c9e88f7156fc021ec8ed04bf34"
+  },
+  "reviewer": "independent delegated m7_candidate",
+  "schema_version": "dml-independent-retrieval-metadata-review-v1",
+  "score": 9.6,
+  "score_scope": "Correctness, truthful observability, authority preservation and offline controls of this exact source delta only. This score does not grade model quality, overall M7 completion or final integrated-source qualification.",
+  "source_blockers": [],
+  "validation": {
+    "builder_reported_tests": 318,
+    "builder_scope_note": "Builder reported 318 offline passes across changed and neighboring episode tests; these overlap reviewer selections and are not added to the independent 234-case result.",
+    "counts_overlap": true,
+    "git_diff_check": "Passed.",
+    "independent_additional_controls": [
+      "unmatched owned-receipt result at cap one",
+      "unmatched owned-receipt result below cap ten",
+      "foreign scope rejected before public result",
+      "contract AST unchanged except generic retrieve description",
+      "gateway AST unchanged except three observable result keys"
+    ],
+    "independent_pytest": {
+      "errors": 0,
+      "failures": 0,
+      "junit_sha256": "eb4c71ffff7231a39b08618f3102da4b655f96d91d1ce410328e6d82ad25d53f",
+      "modules": [
+        "test_episode_tools",
+        "test_agent_episode_contract",
+        "test_agent_episode_adversarial",
+        "test_episode_verifiers"
+      ],
+      "skipped": 0,
+      "tests": 234
+    },
+    "mypy": "Passed for both changed source modules.",
+    "strict_ruff": "Passed for both source modules and changed test module."
+  }
+}

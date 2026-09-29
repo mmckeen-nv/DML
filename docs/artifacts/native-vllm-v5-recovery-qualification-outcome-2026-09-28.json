@@ -1,0 +1,158 @@
+{
+  "campaign_frozen": false,
+  "campaign_launched": false,
+  "candidate": "nemotron-remote-vllm-native-tools-v5",
+  "cases": [
+    {
+      "calls": 2,
+      "id": "stale_source_recovery",
+      "input_tokens": 3415,
+      "observations": "One retrieve then native completion truncated at the unchanged 256-token cap before a complete valid call. First response carried bound reasoning; authentic reasoning history replay passed. No recovery success is credited.",
+      "output_tokens": 358,
+      "qualified": false,
+      "recovery_branch_exercised": false,
+      "status": "invalid_action"
+    },
+    {
+      "calls": 6,
+      "id": "stale_replacement_recovery",
+      "input_tokens": 13920,
+      "observations": "Structured failure feedback preserved; snapshot matches authority and failed operation key remains absent. Model chose fresh retrieval and mutation, then readback; no final answer within original six steps. Branch execution does not satisfy completed-task qualification.",
+      "output_tokens": 805,
+      "qualified": false,
+      "recovery_branch_exercised": true,
+      "sequence": [
+        "retrieve",
+        "supersede rejected by verified stale replacement conflict",
+        "retrieve fresh record",
+        "model-owned supersede committed",
+        "retrieve readback",
+        "retrieve"
+      ],
+      "status": "step_limit"
+    }
+  ],
+  "date": "2026-09-28",
+  "declared_cases": 2,
+  "development_not_held_out": true,
+  "evidence_sha256": {
+    "ci-36467958469-final.json": "779b3c6748ccf9b5745d48032645960aaa35cc374674d482928fda3764ffc09a",
+    "ci-36468583308-final.json": "616598a199f6092b8e55a5057712e71fadd29bb918a42af4837210462e024e08",
+    "core-boundary-coverage-audit.json": "355715b9334c5052b1e69f1b326c9c5bdf3494a49df222746b9ef8041ea98367",
+    "development-lineage-v2.json": "a6dd59956c9d0dd23eaadb19efd8f0373d02bcc538ef2ec59c5aa7d6d63fab08",
+    "historical-v4-replay-compatibility.json": "39ce7a1ad89d35ae14bc66a6343ded9c9427169424510fc00405c26c7d896497",
+    "independent-classification-design-addendum.json": "6196b7fd11aa2079c201d247924668b05c8b8cc9fb435dcb89b4d95b599d6ef2",
+    "independent-final-recovery-qualification-review.json": "1dd4d48d090eb3afc1fec8ee38a0374b7a1dffaf7718ce99154f2159eefd1e55",
+    "independent-lifecycle-classification-audit.json": "53741f933b48e8c85cd9b818b90ac89191f85e136920b08918eee2317158a9e4",
+    "independent-recovery-replay-v2.json": "8448170e61a7581b2b4a1567cd81e33bf84c80333cff36b883cc75848ac6d326",
+    "independent-source-ci-completion-review.json": "8cb3602c18ad9b80e9e6727f238a5178a07f1c23195c7536799c8f2954105002",
+    "independent-source-typefix-addendum.json": "0c7b1a1fa60251aa67e048a9ce028be4c1c54218d51a5e1bc03cf144a9f67252",
+    "independent-synthetic-prerun-review-v2.json": "185b831476fb0ca96406da44671889aff2363b616cace4a4d18e012c674f74c3",
+    "launch-intent-v2.json": "8d9ae8965e825b13bac4514233df2f16952c50130ef7a516db0ba4c9535cdd6e",
+    "launch-post-epoch-v2.json": "724ecec717e8de1361746d243e40b484ed29b354366913d6e378b7820d9b96a1",
+    "launch-result-v2.json": "e702bc01d7e4d17be20244c54be0865c122d09b26c9b7f3eb295a205a7e5538d",
+    "lifecycle/qualification.json": "a971fe7b97594ab29ad5531c6f98c7c8f83f3dfcac07568a52ed27a24d5fe428",
+    "primary-recovery-replay.json": "5723305e90ee788773d847238e939744bdff1a6bff3c92c4e52c33f11da7a38e",
+    "runtime-attestation.json": "57e9d5eaaf81df1961bb9c21bb85763e0486302ebd4dd25b08df066bfa3ef0c9",
+    "snapshot/remote-vllm-manifest.json": "6608e87a1e885790150f375d456c14598e526e07e1dc09cf3ceb118c20810ab7",
+    "source-preservation-audit.json": "d093f93dacb40a3c212f28398e22aca1cf18dc70dfcde502e76aa77b0154a643",
+    "synthetic-suite-v2.json": "fa36875023ac6eae824d8e1cde3496dd7d6b7cc26ba87e77f65ef05db4b991d3"
+  },
+  "limitations": [
+    "Source-conflict recovery was not exercised live; retirement has controlled tests only.",
+    "Peer mutation is external fixture work, not model-owned work.",
+    "HTTP token IDs do not independently attest engine tensors, masks, loaded weights, server configuration, KV isolation or sampler execution.",
+    "No all-turn grammar or per-token grammar-mask guarantee; admitted native actions are validated after generation.",
+    "Original ephemeral compilation HMAC cannot be re-established offline.",
+    "No physical reboot or power-loss durability qualification."
+  ],
+  "m7_closed": false,
+  "merged": false,
+  "preserved": {
+    "corpus_retrieval_authorization_final_contract_budgets_gates": true,
+    "last_full_campaign": "v4, 8/9; its evidence and failed gates remain unchanged",
+    "no_automatic_retry_or_repair": true,
+    "old_profile_identities": true,
+    "system_policy_v5_byte_equal_v4": true,
+    "v4_compact_artifact": "native-vllm-m7-outcome-2026-09-28.json"
+  },
+  "production_ready": false,
+  "qualification_passed": false,
+  "qualified_cases": 0,
+  "raw_evidence_root": "/home/nvidia/dml-debug/nemotron-native-dml-v5-20260928",
+  "replays": {
+    "authority_and_history_bindings_verified": true,
+    "both_qualifications_failed": true,
+    "generation_calls": 0,
+    "independent_integrity_passed": true,
+    "primary_integrity_passed": true,
+    "raw_calls_replayed_each": 8,
+    "scope": "Offline data/protocol replay, including failed outputs and original verifier; not a new campaign or success claim."
+  },
+  "runtime": {
+    "endpoint": "http://192.168.50.91:8000/v1",
+    "epoch_stable": true,
+    "model_revision": "ff433f5493e25d631c9f12b5d55c674229923d02",
+    "provenance": "Host-observed pinned model bytes and startup; not cryptographic GPU attestation.",
+    "sampling": {
+      "frequency_penalty": 0,
+      "min_p": 0,
+      "n": 1,
+      "presence_penalty": 0,
+      "repetition_penalty": 1,
+      "seed": 0,
+      "temperature": 0.7,
+      "top_k": 20,
+      "top_p": 0.8
+    },
+    "served_model": "nvidia/nemotron-3-super",
+    "timeout_seconds": 60,
+    "vllm_version": "0.20.0"
+  },
+  "schema_version": "dml-native-v5-recovery-qualification-outcome-v1",
+  "source_commit": "68fdc74b7afbddadc79b3beabf49f5c859ea0d47",
+  "source_validation": {
+    "predecessor_ci": {
+      "result": "mypy failure; remaining work canceled; retained, no generation on this source",
+      "run_id": 36467958469
+    },
+    "predecessor_commit": "9929a035e534346dee7ca401f4fadf46c52a341e",
+    "predecessor_tests": {
+      "core_and_journal": 548,
+      "historical_v4_calls_replayed": 21,
+      "historical_v4_replay_sha256": "b05daf323698039250fda5aa84cae4a770e39fb632e662e329d8975f5c9b2cf1",
+      "remote_contracts": 220,
+      "scope": "Executed before annotation-only fix, not exact successor test executions.",
+      "skips": 0
+    },
+    "successor_change": "One instance-variable type annotation; expressions and control flow unchanged, independently reviewed.",
+    "successor_ci": {
+      "conclusion": "success",
+      "qualified": true,
+      "run_id": 36468583308,
+      "scope": "Exact-source CI success; behavioral qualification remains failed. Earlier independent behavioral decision records CI pending at its publication time.",
+      "source_commit": "68fdc74b7afbddadc79b3beabf49f5c859ea0d47",
+      "status": "completed",
+      "successful_jobs": 21,
+      "total_jobs": 21,
+      "url": "https://github.com/mmckeen-nv/DML/actions/runs/36468583308"
+    },
+    "successor_tests": {
+      "focused": 36,
+      "maintained_mypy_files": 93,
+      "ruff_passed": true
+    }
+  },
+  "suite_digest": "a7c3941915bd32540acfe8b0c5bb6bac143fec072ecc9cd7f1d00f0bdbf1ca59",
+  "usage": {
+    "http_errors": 0,
+    "input_tokens": 17335,
+    "model_calls": 8,
+    "model_errors": 0,
+    "nonempty_reasoning_responses": 1,
+    "output_tokens": 1163,
+    "timeouts": 0,
+    "truncated_invalid_completions": 1,
+    "verified_safe_conflicts": 1
+  }
+}

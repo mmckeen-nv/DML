@@ -1,0 +1,60 @@
+{
+  "accepted_for_model_generation": false,
+  "accepted_for_source_publication_and_reviewed_preparation": true,
+  "base_commit": "a6f54953241ea644da1770dd86dc86ec6b7fda8f",
+  "blocking_findings": [],
+  "bounded_preparer_review_sha256": "dde4108097c7d6d2047dc146e5be5a335674822b4ee85e4c984c6b0834c8fb56",
+  "campaign_helper_review_sha256": "f437059adcb3cd348084c03ce751e7f0aa3daca41cfec1b955433c82d5127aac",
+  "full_local_validation_sha256": "f87e23721a56dd24d7f5bc363a7a77b98e0dde01c71a4bd6669f94c768ac05b8",
+  "independent_checks": {
+    "compact_summary_matches_local_full_receipt": true,
+    "complete_manifest_unchanged": true,
+    "current_source_files_hashed": 436,
+    "exact_five_commands_unchanged_except_fresh_output_paths": true,
+    "five_raw_log_hashes_match": true,
+    "only_three_reviewed_source_files_changed": true,
+    "original_test_inventory_reconciliation": "All r3 case IDs remain except the former unparameterized serialization-corruption case, now covered by payload/dtype/shape variants;17 other normalizer controls yield net19 additional cases. No unrelated case/module removed.",
+    "raw_junit": {
+      "ci-filesystem-controls": {
+        "counts": {
+          "error": 0,
+          "failure": 0,
+          "skipped": 0,
+          "testcase": 34
+        },
+        "module_count": 1,
+        "sha256": "6ba90c128b367ac6c22f0d1bc6ab49e2cdf69d0b792a8218bb1b37570d591c9b"
+      },
+      "cpu": {
+        "counts": {
+          "error": 0,
+          "failure": 0,
+          "skipped": 0,
+          "testcase": 803
+        },
+        "module_count": 21,
+        "sha256": "39c615b5bc6d2a03668cfad92a8ecbbb08cfa069e39f3bcb5b22fe96f778a272"
+      }
+    }
+  },
+  "limitations": [
+    "This supersedes the guidance-only r3 validation checkpoint for current source; no old receipt is overwritten.",
+    "Actual full-size bounded preparation and338-tensor verification remain required, followed by fresh zero-generation admission and exact published-source pre-generation review.",
+    "Raw logs/JUnit/full manifest remain local. Exact-source successful CI is required before milestone closure."
+  ],
+  "live_qualified": false,
+  "milestone_7_closed": false,
+  "production_ready": false,
+  "recorded_at_utc": "2026-09-24T22:56:21.690764+00:00",
+  "review_score": 9.6,
+  "reviewer": "/root/m7_grader",
+  "schema_version": "dml-attempt8-integrated-grader-review-v1",
+  "source_review_sha256": "8b475d99247aa0e081d8f4014eab4c91bba238fab724eb9c1ab3b37d4b039efc",
+  "source_sha256": {
+    "dml_core/daystrom_dml/contracts/agent_episode.py": "7418cb1b59eea2b926f0503a9a7b393a2b712b0bb5cf4b02df8ad1414734eb09",
+    "dml_core/daystrom_dml/services/qwen_pretrained_snapshot.py": "06cf798ee045a6509f974c6d2b3a3412b37dc1079cc53006804f7d90f84d6d96",
+    "dml_core/tests/test_qwen_pretrained_snapshot.py": "7dcab290c1b392c30487529b1e0b8b54b139fac88081f6c549943e8e8ebcd3bc"
+  },
+  "validation_helper_sha256": "f37346d5e6d52035a49bcfd7b3486aa3f718b0e8bf53c86f32a4d929e63bde48",
+  "validation_summary_sha256": "1e57c1eb185c5306dcd8a28cc56cd5b5ce00b26cb9cc659ffb3d9cfcfec66149"
+}

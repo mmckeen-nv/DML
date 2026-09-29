@@ -1,0 +1,637 @@
+{
+  "blocking_findings": [],
+  "ci": {
+    "artifact_metadata_sha256": "88941065a1fe07bde513a5c817d351f425c5a23decf252c0cf81cfcdfb09aff9",
+    "conclusion": "success",
+    "final_jobs_sha256": "af35b505fbb3091ed90bcf4b6c8ae52b2181f734e55b2934f39a4f6953e102f9",
+    "jobs": [
+      {
+        "conclusion": "success",
+        "id": 105971558283,
+        "name": "lint-test (3.10)",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "id": 105971558419,
+        "name": "production-evidence",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "id": 105971558426,
+        "name": "profile-recovery (ubuntu-latest, 3.10)",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "id": 105971558434,
+        "name": "lint-test (3.11)",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "id": 105971558438,
+        "name": "profile-concurrency (ubuntu-latest, full, 1,16,64,256)",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "id": 105971558456,
+        "name": "model-input-cpu",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "id": 105971558483,
+        "name": "profile-filesystem-full",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "id": 105971558495,
+        "name": "profile-concurrency (windows-latest, bounded, 1,16)",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "id": 105971558533,
+        "name": "profile-recovery (macos-latest, 3.10)",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "id": 105971558554,
+        "name": "profile-recovery (ubuntu-latest, 3.13)",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "id": 105971558555,
+        "name": "profile-concurrency (macos-latest, bounded, 1,16)",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "id": 105971558562,
+        "name": "cross-platform-portability (windows-latest, 3.13)",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "id": 105971558582,
+        "name": "profile-recovery (windows-latest, 3.10)",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "id": 105971558592,
+        "name": "cross-platform-portability (windows-latest, 3.10)",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "id": 105971558602,
+        "name": "cross-platform-portability (ubuntu-latest, 3.13)",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "id": 105971558649,
+        "name": "profile-recovery (windows-latest, 3.13)",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "id": 105971558664,
+        "name": "profile-recovery (macos-latest, 3.13)",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "id": 105971558668,
+        "name": "cross-platform-portability (ubuntu-latest, 3.10)",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "id": 105971558670,
+        "name": "cross-platform-portability (macos-latest, 3.10)",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "id": 105971558672,
+        "name": "cross-platform-portability (macos-latest, 3.13)",
+        "status": "completed"
+      }
+    ],
+    "jobs_failed": 0,
+    "jobs_passed": 20,
+    "jobs_skipped": 0,
+    "run_id": 35470900431,
+    "run_number": 324,
+    "status": "completed",
+    "url": "https://github.com/mmckeen-nv/DML/actions/runs/35470900431"
+  },
+  "closure_documents": {
+    "review_grade": 9.6,
+    "reviewed_after_ci": true,
+    "sha256": {
+      "docs/production-concurrency-2026-09-19.md": "02514266aaf45e5fe83222140f06cf6257057827b34ea0936f62559eb69d89c9",
+      "docs/production-foundations-2026-09-12.md": "140b4699ab8325abde196ead5459cb3054539c1a4e7a35b00b71ff4e11155167",
+      "docs/production-remaining-work-2026-09-18.md": "1c79e0a7a232b58025c48c8b0f59bd25435d22c4181e826d5cf88b9d30f1c68f",
+      "docs/supported-production-profile-v1.md": "60e47b716aa44c80a9764ecf0dd229d80c0093fe00d561444a9bb87a8d453cc6"
+    },
+    "source_boundary": "These four documentation updates record completed CI324 evidence and ledger closure. They are later prose changes, not bytes claimed to have run in CI324. Runtime, tests, workflow and all three earlier review artifacts are unchanged. This qualification artifact is additional; its own hash is excluded to avoid recursion."
+  },
+  "decision": "ACCEPTED: RELEASE MILESTONE 6 / SERIAL HARDENING GATE 19 CLOSED",
+  "full_integration": [
+    {
+      "elapsed_seconds": 531.09,
+      "job_id": 105971558283,
+      "log_sha256": "a28ac62d510ec7789c9720ebf9f967c3a7ca78e031e9ce80e9620aeeaf5b2615",
+      "passed": 4343,
+      "python": "3.10",
+      "skipped": 75,
+      "warnings": 1
+    },
+    {
+      "elapsed_seconds": 518.8,
+      "job_id": 105971558434,
+      "log_sha256": "94fcb896a8ee2b7dcc8cb4cca909a8d48aec011330588eda22e513d9949b9fbf",
+      "passed": 4343,
+      "python": "3.11",
+      "skipped": 75,
+      "warnings": 2
+    }
+  ],
+  "grade": 9.6,
+  "historical_attribution": "Initial9.2 and follow-up9.3 source reviews were rejected and repaired. CI322 and CI323 qualification failures remain recorded in immutable reviews and the chronology. Their passing subsets were not substituted for CI324; all unchanged acceptance gates passed on the corrected source. Original local overlay/dirty-source results remain local-only evidence.",
+  "immutable_prior_review_sha256": {
+    "docs/artifacts/profile-concurrency-contention-review-2026-09-19.json": "a18b51835c236e2f6086349c99c2e4cd5ec943a431cfd64d1670cd46e2d07133",
+    "docs/artifacts/profile-concurrency-followup-review-2026-09-19.json": "8246173784d2955efd85a2411ee94a779d2f001c3ed9f59df3e44bfd203fb868",
+    "docs/artifacts/profile-concurrency-review-2026-09-19.json": "6620eab71ea863d1f9a71eae1d33955ccdc78755a1b08939796c1721b6dc48f3"
+  },
+  "immutable_source_review": {
+    "grade": 9.6,
+    "path": "docs/artifacts/profile-concurrency-contention-review-2026-09-19.json",
+    "sha256": "a18b51835c236e2f6086349c99c2e4cd5ec943a431cfd64d1670cd46e2d07133"
+  },
+  "independent_completion_verification": {
+    "all_three_archives_verified_by_each_reviewer": true,
+    "checks": "Archive/evidence/JUnit hashes, source/runtime identity, exact case outcomes, strict attempt schema, unchanged timing bounds and independent full-history replay. Windows has exactly the predeclared POSIX-fork skip. Explicitly rejected diagnostic sidecars from negative tests are excluded from accepted histories.",
+    "grader_verification_report_sha256": "93120f3e66acd02556fb104e9d52107e94e000ea266635ebceea7c031933dbd9",
+    "histories_replayed_by_each_reviewer": 96,
+    "linux_log_sha256": "993a47743c4548e0335afa952469d21309718e4777ebcce32b563dc268a6aa48",
+    "logical_events_across_lanes": 11760,
+    "maximum_attempts": 2,
+    "required_matrix": "Schemas2/3/4 across shared threads, separate-adapter threads, up to4 spawned processes hosting caller threads, and real H11 HTTP. Linux scales1/16/64/256; macOS/Windows scales1/16. Exact48/24/24 campaign sets and all359/335/335 JUnit cases were verified.",
+    "reviewers": [
+      "Evidence verifier",
+      "Independent source/completion grader"
+    ],
+    "typed_ownership_rejections": 230
+  },
+  "limits": [
+    "This closes the frozen finite concurrency milestone for the candidate selected profile, not whole-platform production readiness or a service SLO.",
+    "macOS/Windows bounded selections do not qualify their64/256-client operation. The process lane uses up to4 real processes hosting the declared number of caller threads; it does not claim256 processes.",
+    "The fixed independently derived request corpus and recorded histories are qualified; arbitrary programs, arbitrary schedulers and unbounded starvation freedom are not formally proven.",
+    "Thirty-second ownership acquisition applies to actual OS-lock acquisition, with its declared scheduling tolerance; backend/model preparation and full request latency have no general end-to-end bound.",
+    "No cross-call integrity validation cache or semantic validation weakening was used. The fixed bounded working set does not establish growing-store or100k-turn behavior.",
+    "The HTTP qualification retains the declared shared-pool1-second client/5-second server idle policy and exact typed ownership retries. Generic transport errors remain failures.",
+    "Process failure evidence and qualified local filesystem behavior do not claim power-loss guarantees. Live-agent outcomes, fair baseline value and final release support remain separate gates."
+  ],
+  "minimum_accepted_grade": 9.5,
+  "production_ready": false,
+  "profile": "dml-receipted-local-v1",
+  "publication": "Documentation and qualification record may be published to the existing PR. PR118 remains open and unmerged; this review does not authorize merging.",
+  "qualification_lanes": {
+    "linux": {
+      "actual_ownership_timeout_seconds": [
+        30.050947453999925,
+        30.059554262000006,
+        30.03959885300003,
+        30.039812438000013,
+        30.056047313000022,
+        30.050404947999937
+      ],
+      "archive_sha256": "f1152badf46b990c02afe3d1f222b6ede13b469c1970351f0a8159db251c348c",
+      "archive_size_bytes": 1727015,
+      "artifact_id": 10592988297,
+      "artifact_name": "profile-concurrency-ubuntu-latest-full",
+      "artifact_url": "https://api.github.com/repos/mmckeen-nv/DML/actions/artifacts/10592988297",
+      "campaign_seconds_max": 59.321369302,
+      "canonical_source_manifest_sha256": "c31e23bc00f1746964b7631ddbdacf723ed1caa080df9261a54ab72728081db8",
+      "elapsed_seconds": 688.468,
+      "evidence_sha256": "70ca1ef90e52dff3c3641eb2f6f3c22329a62d60cb94de95b31804ded56f988e",
+      "first_progress_seconds_max": 8.365432448,
+      "histories_replayed": 48,
+      "independent_evidence_verification_sha256": "8ad85b856a818db956356ae7bb894741a33b5129c412f61cc04ddc7205c2a126",
+      "junit_sha256": "2cdce21e913b5fea6ae1c0fc62358d247e22d11de8b2c213d6e4ada3641f033f",
+      "line_endings": "LF",
+      "logical_events": 10320,
+      "maximum_attempts": 2,
+      "measured_environment": {
+        "architecture": "x86_64",
+        "filesystem": {
+          "device_id": 2049,
+          "local": true,
+          "options": [
+            "errors=remount-ro",
+            "relatime",
+            "rw"
+          ],
+          "source": "proc-self-mountinfo",
+          "type": "ext4"
+        },
+        "http_libraries": {
+          "fastapi": "0.141.1",
+          "h11": "0.16.0",
+          "httpcore": "1.0.9",
+          "httpx": "0.28.1",
+          "starlette": "1.6.0",
+          "uvicorn": "0.53.0"
+        },
+        "kernel": "6.17.0-1022-azure",
+        "platform": "Linux",
+        "python": "3.12.14",
+        "sqlite_source_id": "2026-07-24 19:02:57 bf7c7f30031888f4e796e429ab3978879485813aaca6f641c7b33e4e09459bcc",
+        "sqlite_version": "3.53.4"
+      },
+      "mixed_contention_ownership": {
+        "blocked_attempts": 157,
+        "clients": 16,
+        "injected_owner_delay_seconds": 0.002,
+        "max_wait_seconds": 0.915459065,
+        "schema": 3,
+        "schema_version": "dml-ownership-wait-evidence-v1",
+        "successful_acquisitions": 26,
+        "timing_domain": "first_os_lock_attempt_to_acquired",
+        "unfinished_acquisitions": 0
+      },
+      "mode": "full",
+      "operation_seconds_max": 57.825440825,
+      "ownership_rejections": 230,
+      "ownership_release_progress_seconds": 0.016979601999992155,
+      "passed": 359,
+      "physical_source_manifest_sha256": "c31e23bc00f1746964b7631ddbdacf723ed1caa080df9261a54ab72728081db8",
+      "platform_skips": [],
+      "qualified": true,
+      "retained_histories_sha256": {
+        "schema2-http-1.json.gz": "ffa8a257646c02d83a7c12b509fd4a8ed4668d0d4aefe124d05c3d93bcced76f",
+        "schema2-http-16.json.gz": "65ee0b75a7973f842eb13ca058f0dc898f15d5cbafe1be162774e14f970051bb",
+        "schema2-http-256.json.gz": "0e401f6cacfe65db7d2efd9ae8ca0f48c2b8a4d4c504b88087ed10e9d7840954",
+        "schema2-http-64.json.gz": "4047187361360833994597c5ef1efde87a5cb14003cde27105e83ca10ce317a5",
+        "schema2-processes-1.json.gz": "f7a14367dc7fb37b2deac0dd09f04195b46685c2963feb4beea3e536ac1dffa1",
+        "schema2-processes-16.json.gz": "ea7ccb3d45e7da05b1c617fa6daecaf3f50c226d0c997d747fdea9ef08b94701",
+        "schema2-processes-256.json.gz": "d5c718c02cc404140b43718c1346cb08e773072b4dde197aff226189774bf96e",
+        "schema2-processes-64.json.gz": "b670491022c3ee01beb9727adeeb1daca7a468e442f274f81185a702438727d4",
+        "schema2-threads-separate-1.json.gz": "63b7b422052154a4ad0ac2d47a62c38eeff794b9f442bf7eec0ab108ced5bffb",
+        "schema2-threads-separate-16.json.gz": "910f3ff76a98fd9e416fd18d959f0ca91c33d5b4b16e5645263e416df5fc1825",
+        "schema2-threads-separate-256.json.gz": "a3d11fb10839f13b2cb1233c9e8951b5cd711294b50d6e5bce17b9a86fb80a27",
+        "schema2-threads-separate-64.json.gz": "42c667606c0e597279234aaa68af6d6782ce8748cf5c0f1029050d53f920df75",
+        "schema2-threads-shared-1.json.gz": "9193084d3d5510fab41d772463b37f57551373b4740c3aef88482885d48f997c",
+        "schema2-threads-shared-16.json.gz": "1a94b788468e140fb882aa229a9ed385bfa83306bff067c5fdc984d25d8cde66",
+        "schema2-threads-shared-256.json.gz": "ac1be0f1bdb22c039bdfa763bf5af2797b00c07d8a82e1d10742358084671628",
+        "schema2-threads-shared-64.json.gz": "26eae69b3eb8ca8872ef226d02552cf8f642e1714772761871836fd6c05644a4",
+        "schema3-http-1.json.gz": "c5f3d798badf9b1d535f755637a2a7d669dffa7e1d5b759df4ea72ff756748ec",
+        "schema3-http-16.json.gz": "085dc86d91e467df250cdbff65a8aaddf0fede64f92d46094b57da49717104aa",
+        "schema3-http-256.json.gz": "ba2dfe025fe0509af2641d2de4b499c966f67064a158443181b596895d5e0b96",
+        "schema3-http-64.json.gz": "d7bdefd87aee4859dbe2d55ba8792b6c7c384e2df1c889890ba2fad2af9f905c",
+        "schema3-processes-1.json.gz": "4ae0f3061b7aff0a007750217a29ddd5cec6f353155bc7daef40d9fc41c573d3",
+        "schema3-processes-16.json.gz": "de6a66a34d7baaf73269cc84a79cbccfbbd278329768ac18166363a039eb1b9b",
+        "schema3-processes-256.json.gz": "86a6e5ded4b584300ba73dec62be7923ca5198d4bb3e92d792731d316151f356",
+        "schema3-processes-64.json.gz": "0d2a2d26edbf5f2d4ba143609969d896913d4577029cd86af289784fa5f22678",
+        "schema3-threads-separate-1.json.gz": "25d29b532cc984beff4ccf2c8fce8e5b4ff2f5df3c4286320c89bfebe3e18d60",
+        "schema3-threads-separate-16.json.gz": "448899531a7994f47593badd5fbf36d60c3317ea642c922c7211c465a5397aff",
+        "schema3-threads-separate-256.json.gz": "540b75c596e51e252c8c872808ecd898947d6f7abffff88580b3fa1627f09063",
+        "schema3-threads-separate-64.json.gz": "3d7a1b0c11674c912a60723512615291bd954150298f66743beb19ea73c91eee",
+        "schema3-threads-shared-1.json.gz": "4054ce4013a615dd8bd3db3472b666dd3e3a733dbd2cf6f88384a97e40bb8ddb",
+        "schema3-threads-shared-16.json.gz": "549542752376a12f0663e690d43f98ad77ec550b3fd98966f45335b5aa4182a5",
+        "schema3-threads-shared-256.json.gz": "94aea9071f25d7d3a42b719e0e46f05b96f1bd119adff9688f567163370b2d11",
+        "schema3-threads-shared-64.json.gz": "ca1e6f01296517c81b25886668fc895125b7a46046e21293ce0fcc4dbe96ccbf",
+        "schema4-http-1.json.gz": "ef840fc4cd3e326c361d4cb79d7bfdbaf451979db64834ee2d25bfc3a1078f4d",
+        "schema4-http-16.json.gz": "8adf10f9b218ce3e55e94cd90c4fdaed49e708e162534283e2b50ff90d7ad92b",
+        "schema4-http-256.json.gz": "b7a561f9fa4d66484595f50d677b2cbded041b0c1245f38c157f42be87d0b8d8",
+        "schema4-http-64.json.gz": "39c8b0b613bf42951c70eb88e1fb31f94ada7129ba7100cf7de455330f5b8932",
+        "schema4-processes-1.json.gz": "84f9447270616e5b833d50d6f80d8a2cc4a0a537d37217ce48f131b922a85e4e",
+        "schema4-processes-16.json.gz": "1cb94d62674ac27197982271f7c479cab33b87d8ae9b0ba92755d9af87694ba3",
+        "schema4-processes-256.json.gz": "d6fe27a18200aa9a5e376f02853b8f739d8ecfa960da0159c0c0ae02cab57b80",
+        "schema4-processes-64.json.gz": "f6125daf691347c5506c15689a463807d007d9a3abb54016b8788ed221efa981",
+        "schema4-threads-separate-1.json.gz": "dbb2480b036d95655ccfb03b146b88fc74609e52065d2d3bb7504db8ec2b2782",
+        "schema4-threads-separate-16.json.gz": "129127f4039630745265735df160bacc14a4070f6cd5f09ee41f2678394dc462",
+        "schema4-threads-separate-256.json.gz": "c2cf0ddf1ef415fe8634d1c5012d83e022fef5861d7b81639b049281ff098443",
+        "schema4-threads-separate-64.json.gz": "862e25193a8cb559b45118045cdcf3adfd6537b7225479d47c5ea008f2159c9c",
+        "schema4-threads-shared-1.json.gz": "4c0d324b06b74b361892909d4d7c70476019857fc22ca3e3ceacbdd4dad9c193",
+        "schema4-threads-shared-16.json.gz": "cc412f6be297fdaecf0fa374af51c5f8c94adc917ee0256502127b848bc254d1",
+        "schema4-threads-shared-256.json.gz": "457fe5516e785b10b454abe14a3051f3cfef5c2a8871baf71b2c5f6c5de480a9",
+        "schema4-threads-shared-64.json.gz": "c29fd4e256f5ccda87708e999fa2c743ca3ef8e64e2b3bc7f5937d2ccce408a6"
+      },
+      "scales": [
+        1,
+        16,
+        64,
+        256
+      ],
+      "schemas": [
+        2,
+        3,
+        4
+      ],
+      "skipped": 0,
+      "source_commit": "30f15f41f1d86c70b4789c8d41cb61ac87f86a55",
+      "source_files_verified": 205,
+      "source_tree": "2009c1e999e81e0a53db2b54222808bc7468b240",
+      "testcases": 359,
+      "transports": [
+        "threads-shared",
+        "threads-separate",
+        "processes",
+        "http"
+      ]
+    },
+    "macos": {
+      "actual_ownership_timeout_seconds": [
+        30.090951292,
+        30.09075154100003,
+        30.04768899999999,
+        30.16658975000007,
+        30.166631499999994,
+        30.04719375000002
+      ],
+      "archive_sha256": "bb508a508a1a8f77f6612675e841470743938fe57bbfe88e24f18078a9fc42e5",
+      "archive_size_bytes": 335251,
+      "artifact_id": 10592903245,
+      "artifact_name": "profile-concurrency-macos-latest-bounded",
+      "artifact_url": "https://api.github.com/repos/mmckeen-nv/DML/actions/artifacts/10592903245",
+      "campaign_seconds_max": 1.560899791,
+      "canonical_source_manifest_sha256": "c31e23bc00f1746964b7631ddbdacf723ed1caa080df9261a54ab72728081db8",
+      "elapsed_seconds": 158.247,
+      "evidence_sha256": "bfcbb142f9289af566ac4cfc40edc69968e219a50c754d581958b82a13e80a74",
+      "first_progress_seconds_max": 0.142518833,
+      "histories_replayed": 24,
+      "independent_evidence_verification_sha256": "dfcc0cc2141e878d37e0393158291b11540bd9e795d14d9824c55889242f154f",
+      "junit_sha256": "28405cb8a437fa69f62e9b28f0c3b93b2cc10eb38dde87212b92a97cb06eba5c",
+      "line_endings": "LF",
+      "logical_events": 720,
+      "maximum_attempts": 1,
+      "measured_environment": {
+        "architecture": "arm64",
+        "filesystem": {
+          "device_id": 16777229,
+          "local": true,
+          "mount_flags": 76582912,
+          "options": [
+            "rw"
+          ],
+          "source": "darwin-statfs",
+          "type": "apfs"
+        },
+        "http_libraries": {
+          "fastapi": "0.141.1",
+          "h11": "0.16.0",
+          "httpcore": "1.0.9",
+          "httpx": "0.28.1",
+          "starlette": "1.6.0",
+          "uvicorn": "0.53.0"
+        },
+        "kernel": "25.6.0",
+        "platform": "Darwin",
+        "python": "3.12.14",
+        "sqlite_source_id": "2026-07-24 19:02:57 bf7c7f30031888f4e796e429ab3978879485813aaca6f641c7b33e4e09459bcc",
+        "sqlite_version": "3.53.4"
+      },
+      "mixed_contention_ownership": {
+        "blocked_attempts": 77,
+        "clients": 16,
+        "injected_owner_delay_seconds": 0.002,
+        "max_wait_seconds": 1.499185667,
+        "schema": 3,
+        "schema_version": "dml-ownership-wait-evidence-v1",
+        "successful_acquisitions": 26,
+        "timing_domain": "first_os_lock_attempt_to_acquired",
+        "unfinished_acquisitions": 0
+      },
+      "mode": "bounded",
+      "operation_seconds_max": 1.386229375,
+      "ownership_rejections": 0,
+      "ownership_release_progress_seconds": 0.029208000000039647,
+      "passed": 335,
+      "physical_source_manifest_sha256": "c31e23bc00f1746964b7631ddbdacf723ed1caa080df9261a54ab72728081db8",
+      "platform_skips": [],
+      "qualified": true,
+      "retained_histories_sha256": {
+        "schema2-http-1.json.gz": "8b594d713d63f7cd574ddcbed90e3e7152f0b18fe302c0ac252a413796504e0d",
+        "schema2-http-16.json.gz": "c17f2c37d2c77730170bd8f28caaf351443992e946b39cc5b148be8567a4930c",
+        "schema2-processes-1.json.gz": "a3d431615b26f5c74d3ba3ee81b1de40cea687135ed446a57bffbe078ed916ca",
+        "schema2-processes-16.json.gz": "09a348f785dd8258471eff184984afb75e5606123d871b5902b4c1b98dba8494",
+        "schema2-threads-separate-1.json.gz": "909d6ac10f6810c0cf0d87327899e678003fac20a1647e5928ab839e31ecfa6c",
+        "schema2-threads-separate-16.json.gz": "857d93355f8c19ab0431712c4de8a7e7c53b2e5262ce81c2d00aba040b8c7477",
+        "schema2-threads-shared-1.json.gz": "34c685b10254c448e63995eda259e3a4953a2a51adfe9750a6dd0717ecad849b",
+        "schema2-threads-shared-16.json.gz": "87dd7cec64aea79dd26441d9483d444673461c233555805ab4571f6f2dc5b84d",
+        "schema3-http-1.json.gz": "388e8740686d73a33a03a6ce96a82da5a1bbae512618ea1cd3a2e5f63fcefebb",
+        "schema3-http-16.json.gz": "401bfe41ffad21ce6d8c1b81bc2a8857b82da944b62563e74986cbbc8cbbfcf7",
+        "schema3-processes-1.json.gz": "eaf287af2c09df6be06923c53f8cc1853d60544c84ff47192a86d431b3d70c83",
+        "schema3-processes-16.json.gz": "73d47d1fb42ca8ac0e557be2aa77a1d1d7217f329fd10b4c2f28b4f95a79f5ab",
+        "schema3-threads-separate-1.json.gz": "72085930b5313651af9e32e814ef3f5f95c83a408cb674a2a93993c838f3e285",
+        "schema3-threads-separate-16.json.gz": "c0cea8d583a06eebc505b9bc6a03f95ac791233754bc94862b2fcffc63a557e0",
+        "schema3-threads-shared-1.json.gz": "b98e052fef0f04eadfd2657b4a1473bb40207fd16ea601851f82a05864c00ccc",
+        "schema3-threads-shared-16.json.gz": "73b225bcd49d339e1e159f9df905a80130393afb375b5552b345c19318790c15",
+        "schema4-http-1.json.gz": "94aef8a8c096ccd4baa9382c1308208079646ac3e55ba01b1623ad8e7c424fe9",
+        "schema4-http-16.json.gz": "7d73d87057f1b9803429a8f7bc2387af659b8ed9041dba75155244e7ec5457a3",
+        "schema4-processes-1.json.gz": "5dd9b4a127056bf2c899aee64966c1d9999433b940deccc57802f6a91bf8ca1e",
+        "schema4-processes-16.json.gz": "6d668cafe8f39125b381a144a805385b0a0a2cb4bf6247e7397f63979340c2b7",
+        "schema4-threads-separate-1.json.gz": "3d740aeeb347b2d18451fe88e8106364b2102d6b17b27973016b45a3876ec089",
+        "schema4-threads-separate-16.json.gz": "c0288ffd3172cb6ccc9678ca6f04b5647295fb924fb8c2135e755768f3efa5b6",
+        "schema4-threads-shared-1.json.gz": "d021f4ea641cdb7032942e3b6087c2e1e099c90732a3e4c4749acb5e79a2fedb",
+        "schema4-threads-shared-16.json.gz": "6303580d60868a0053eb9492fc49cb55b01e9aa62d55059a122562ee9448b8d2"
+      },
+      "scales": [
+        1,
+        16
+      ],
+      "schemas": [
+        2,
+        3,
+        4
+      ],
+      "skipped": 0,
+      "source_commit": "30f15f41f1d86c70b4789c8d41cb61ac87f86a55",
+      "source_files_verified": 205,
+      "source_tree": "2009c1e999e81e0a53db2b54222808bc7468b240",
+      "testcases": 335,
+      "transports": [
+        "threads-shared",
+        "threads-separate",
+        "processes",
+        "http"
+      ]
+    },
+    "windows": {
+      "actual_ownership_timeout_seconds": [
+        30.047000000000025,
+        30.063000000000102,
+        30.016000000000076,
+        30.047000000000025,
+        30.063000000000102,
+        30.063000000000102
+      ],
+      "archive_sha256": "e6ac8a05d57bc15b6ec9260fe95c30c4b9cb97b4932a1156478c2e9b08be5146",
+      "archive_size_bytes": 325305,
+      "artifact_id": 10592853303,
+      "artifact_name": "profile-concurrency-windows-latest-bounded",
+      "artifact_url": "https://api.github.com/repos/mmckeen-nv/DML/actions/artifacts/10592853303",
+      "campaign_seconds_max": 1.531,
+      "canonical_source_manifest_sha256": "c31e23bc00f1746964b7631ddbdacf723ed1caa080df9261a54ab72728081db8",
+      "elapsed_seconds": 183.501,
+      "evidence_sha256": "a21fff4d4ac225bf3ea1722f2c1de0e21800bda58cda50df59552460d88a804a",
+      "first_progress_seconds_max": 0.203,
+      "histories_replayed": 24,
+      "independent_evidence_verification_sha256": "0c2184ed867242959ba9377248c24d2cd0757994324d39b2cba48d140ab29dca",
+      "junit_sha256": "517e79744a480d075098c3c72b7ce9d83e3ef8232f9cf574790f75172aa82d49",
+      "line_endings": "CRLF",
+      "logical_events": 720,
+      "maximum_attempts": 1,
+      "measured_environment": {
+        "architecture": "AMD64",
+        "filesystem": {
+          "device_id": 8108767647176391786,
+          "local": true,
+          "options": [],
+          "source": "windows-volume-information",
+          "type": "ntfs",
+          "volume_flags": 65482495
+        },
+        "http_libraries": {
+          "fastapi": "0.141.1",
+          "h11": "0.16.0",
+          "httpcore": "1.0.9",
+          "httpx": "0.28.1",
+          "starlette": "1.6.0",
+          "uvicorn": "0.53.0"
+        },
+        "kernel": "2025Server",
+        "platform": "Windows",
+        "python": "3.12.10",
+        "sqlite_source_id": "2026-07-24 19:02:57 bf7c7f30031888f4e796e429ab3978879485813aaca6f641c7b33e4e09459bcc",
+        "sqlite_version": "3.53.4"
+      },
+      "mixed_contention_ownership": {
+        "blocked_attempts": 192,
+        "clients": 16,
+        "injected_owner_delay_seconds": 0.002,
+        "max_wait_seconds": 1.157,
+        "schema": 3,
+        "schema_version": "dml-ownership-wait-evidence-v1",
+        "successful_acquisitions": 26,
+        "timing_domain": "first_os_lock_attempt_to_acquired",
+        "unfinished_acquisitions": 0
+      },
+      "mode": "bounded",
+      "operation_seconds_max": 1.5,
+      "ownership_rejections": 0,
+      "ownership_release_progress_seconds": 0.03099999999994907,
+      "passed": 334,
+      "physical_source_manifest_sha256": "bd28eb2f2debac2e0b264d9b19a995bec55bf086a5c1f821e56b1939a4b0a9c2",
+      "platform_skips": [
+        {
+          "case": "test_inherited_profile_rejects_all_authority_paths_before_work",
+          "module": "test_profile_concurrency_runtime",
+          "reason": "POSIX fork inheritance is unavailable on this platform"
+        }
+      ],
+      "qualified": true,
+      "retained_histories_sha256": {
+        "schema2-http-1.json.gz": "ab2495fbd6d88f5016a370e9be91dd7e36a8e188dfe5a7bbebdb8170bb3ed468",
+        "schema2-http-16.json.gz": "5b316e24cc24027b236e28dc0c42895003fbb817164ef47860769b9698ec577e",
+        "schema2-processes-1.json.gz": "266e3f8a1db712d7ee633c48ccdb151b42f0316da97d34cc3a2df676e986f84d",
+        "schema2-processes-16.json.gz": "4ccdeb1470f794198412da59df9a859b9ee488299b8833eb97449f65c364d356",
+        "schema2-threads-separate-1.json.gz": "eaccf23ce17f504b747e98818f9355b079a88b9e5729b46af205ed34260ad22b",
+        "schema2-threads-separate-16.json.gz": "1b1d72e85740c70a3fc3e64af3eb587fddc2c1107abf99eddb034abd2e83aafe",
+        "schema2-threads-shared-1.json.gz": "ec35a8c05ad356830e8fdf17d93df131b813348ff4dd8c3ba2e19be31ae37c73",
+        "schema2-threads-shared-16.json.gz": "f185e9215b4f56a10b79a1829489ba19954f61e8ef5c8204f027091d8ad857c2",
+        "schema3-http-1.json.gz": "9ca2ce1c2e8a716d5626d1397a679ea3e9b0c52db17a0a54829342c24c1f1eea",
+        "schema3-http-16.json.gz": "a7027dd4ef7e4bf9a313b29ae14c2dc3a23d75f24f96984bead11b03634e8010",
+        "schema3-processes-1.json.gz": "e921046a6eb595fe0df2c1edbc66b8ed85771b7e25c1250442b624166515bac1",
+        "schema3-processes-16.json.gz": "495b6fea7d76169a8b2ac857d8d2bf58cf084af85144ded8d0fa50a4f62156ea",
+        "schema3-threads-separate-1.json.gz": "8413c672a82f90cbed65c8817e31b128d15b893e5eea255cd7c885ef16929d54",
+        "schema3-threads-separate-16.json.gz": "90e52c0d451d94db5c4f8b3a50d59af6c126993967cf8c9cfbaa74067c44ec70",
+        "schema3-threads-shared-1.json.gz": "5063cbaf8dc70d44aecb7b5d6eb7757198e62064f60944a78ea422ff6f4d1d72",
+        "schema3-threads-shared-16.json.gz": "50f76fdbaf475da35eedb33730ccc002061833e3bf82f67296c7642ebdecf3e9",
+        "schema4-http-1.json.gz": "24a2ee8cbfa9bf877e56dedf238c79a5c6a66ffcfc29625ce5986e3ebee60bee",
+        "schema4-http-16.json.gz": "b6ddb00f249312e1fdf7e72f7e3dd43f2215dd7224d3c7ab568027eeae86b9b6",
+        "schema4-processes-1.json.gz": "2d1c63121b0ee34d7ac02f32812372e34abe60d20b6f6651465c97e4418608f0",
+        "schema4-processes-16.json.gz": "3d0f212c35776659a1e6a139545d0d2419f7799476c53f8f3f3b3e1ce53a419d",
+        "schema4-threads-separate-1.json.gz": "8ed61947c8d5d7aabfae65b67f1a1bfbcee9ef3b93163a9591ae7746dda4cadc",
+        "schema4-threads-separate-16.json.gz": "888392fff8d3fb6d3552d09f42389a15122f2bc119347bbb2c6202388e919b2c",
+        "schema4-threads-shared-1.json.gz": "8076d4992085b757e55ccd963111bd362521a2faba50c84e2107f1df59566fa0",
+        "schema4-threads-shared-16.json.gz": "cec7600e2f06fe9982684d533a90cfbd06673bab83ed6b3b756c66b9b211eaf7"
+      },
+      "scales": [
+        1,
+        16
+      ],
+      "schemas": [
+        2,
+        3,
+        4
+      ],
+      "skipped": 1,
+      "source_commit": "30f15f41f1d86c70b4789c8d41cb61ac87f86a55",
+      "source_files_verified": 205,
+      "source_tree": "2009c1e999e81e0a53db2b54222808bc7468b240",
+      "testcases": 335,
+      "transports": [
+        "threads-shared",
+        "threads-separate",
+        "processes",
+        "http"
+      ]
+    }
+  },
+  "qualified_source": {
+    "canonical_ci_source_files_verified_per_lane": 205,
+    "canonical_ci_source_manifest_sha256": "c31e23bc00f1746964b7631ddbdacf723ed1caa080df9261a54ab72728081db8",
+    "checkout_identity": "Linux/macOS LF and Windows CRLF bytes were separately verified against published Git blobs; physical and canonical manifest digests are recorded per lane.",
+    "published_commit": "6647a0d37b93858da2e14817a7d329b6de347140",
+    "reviewed_correction_files_verified": 20,
+    "tested_merge_commit": "30f15f41f1d86c70b4789c8d41cb61ac87f86a55",
+    "tested_merge_tree_equals_published_tree": true,
+    "tree": "2009c1e999e81e0a53db2b54222808bc7468b240"
+  },
+  "remaining_plan": {
+    "deferred_count": 2,
+    "first_release_closed": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6
+    ],
+    "first_release_open": [
+      7,
+      8,
+      9,
+      10,
+      11
+    ],
+    "first_release_total": 11,
+    "next": "Milestone7: live episode/event producer and independent task verifiers; no new implementation is credited here.",
+    "profile_maturity": "candidate",
+    "repository_maturity": "alpha"
+  },
+  "review_date": "2026-09-19",
+  "schema_version": "dml-concurrency-qualification-v1",
+  "static_verification": "Both full-suite jobs passed maintained Ruff, mypy67 source files and Hermes hygiene. All three dedicated concurrency lanes passed their fixture/evidence lint step. Earlier local benchmark/static checks retain their separate source-review attribution.",
+  "unchanged_bounds": {
+    "campaign_seconds": 90,
+    "ci_job_watchdog_minutes": 20,
+    "first_progress_seconds": 10,
+    "max_attempts": 3,
+    "max_burst_commits": 40,
+    "os_ownership_acquisition_seconds": 30,
+    "ownership_scheduling_tolerance_seconds": 2
+  }
+}

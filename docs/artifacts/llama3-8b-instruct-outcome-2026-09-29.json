@@ -1,0 +1,211 @@
+{
+  "schema_version": "dml-llama3-8b-instruct-compact-outcome-v1",
+  "date": "2026-09-29",
+  "status": "diagnostic_failed_no_promotion",
+  "source_commit": "37471b68a53cb052876409b5d02b5f08ffb175a8",
+  "station_evidence_root": "/home/nvidia/dml-debug/llama3-8b-instruct-20260929",
+  "raw_evidence_published": false,
+  "model": {
+    "repository": "meta-llama/Meta-Llama-3-8B-Instruct",
+    "revision": "8afb486c1db24fe5011ec46dfbe5b5dccdb575c2",
+    "untuned": true,
+    "weight_dtype": "bfloat16",
+    "model_digest": "d8dbd62a06585922c1e7be8e91a684aca8c68f97fdd2d4d518b7272f8944f716",
+    "tokenizer_digest": "e134af98b985517b4f068e3755ae90d4e9cd2d45d328325dc503f1c6b2d06cc7",
+    "vendor_template_digest": "ba03a121d097859c7b5b9cd03af99aafe95275210d2876f642ad9929a150f122",
+    "runtime_identity": "diagnostic-meta-llama3-8b-bf16-dml-json-v1:6d48584191cab3184fb4b3cfc1b6c87c3bfcd56f3073e657cd0f9d10d704a393",
+    "context_tokens": 8192
+  },
+  "runtime": {
+    "image": "sha256:bf05c8a0d56f7ed2fe279e0c0c876dd2bb813dd34702d975fa6ab640860ce825",
+    "device": "cuda:0",
+    "torch": "2.11.0+cu130",
+    "transformers": "5.6.2",
+    "tokenizers": "0.22.2",
+    "xgrammar": "0.1.33",
+    "safetensors": "0.7.0",
+    "apache_tvm_ffi": "0.1.9",
+    "attention": "eager",
+    "kv_dtype": "bfloat16",
+    "fresh_context_per_request": true,
+    "tf32": false,
+    "sampling_device": "cpu",
+    "uid_gid": "1000:1000",
+    "host_driver_and_injected_libraries_bound": true
+  },
+  "design": {
+    "cases": 3,
+    "runs_per_case": 1,
+    "promotion_threshold": 3,
+    "fixture_type": "fresh noncorpus development diagnostic",
+    "case_data_unchanged_across_identity_corrections": true,
+    "policy_provenance": "exact qwen3-8b-gguf-cuda-action-json-retrieval-v2 DML policy bytes; not active Qwen identity",
+    "transport": "vendor Llama3 template; escaped logical JSON messages and explicit tool schemas; tool role mapped to user",
+    "native_tool_protocol_claim": false,
+    "grammar": "original authorized DML action branches or original final schema; no forced branch",
+    "unchanged": [
+      "tool schemas",
+      "action parser",
+      "authorization gateway",
+      "retrieval rules",
+      "original fixture scorers",
+      "final claims/citations verifier",
+      "budgets",
+      "M7 acceptance gates"
+    ],
+    "limits": {
+      "steps": 6,
+      "output_tokens_per_call": 256,
+      "output_tokens_total": 1536,
+      "input_tokens_total": 32768,
+      "seconds_per_case": 300
+    },
+    "sampling": {
+      "temperature": 0.7,
+      "top_k": 20,
+      "top_p": 0.8,
+      "min_p": 0,
+      "seed": 0,
+      "frequency_penalty": 0,
+      "presence_penalty": 0,
+      "repetition_penalty": 1
+    },
+    "no_context_extension_or_truncation": true,
+    "retry": false,
+    "resume": false
+  },
+  "result": {
+    "passed": 0,
+    "declared": 3,
+    "model_calls": 5,
+    "input_tokens": 6564,
+    "output_tokens": 291,
+    "summed_model_call_seconds": 64.582,
+    "syntactically_valid_outputs": 5,
+    "terminal_eos_id": 128009,
+    "truncations": 0,
+    "model_execution_errors": 0,
+    "timeouts": 0,
+    "unknown_usage": false,
+    "cases": [
+      {
+        "id": "paired_records",
+        "passed": false,
+        "behavior": "Finalized without retrieval with placeholder facts and invented citation IDs.",
+        "model_calls": 1,
+        "input_tokens": 1155,
+        "output_tokens": 77,
+        "summed_model_call_seconds": 46.217
+      },
+      {
+        "id": "dependent_feedback",
+        "passed": false,
+        "behavior": "Used the retrieved directory destination key as the fact instead of following the required dependent lookup.",
+        "model_calls": 2,
+        "input_tokens": 2519,
+        "output_tokens": 117,
+        "summed_model_call_seconds": 9.582
+      },
+      {
+        "id": "live_supersession",
+        "passed": false,
+        "behavior": "After current-only retrieval, proposed supersession using known source r1 and nonexistent replacement r2. The original gateway rejected r2 absent from the reference registry before dispatch; no mutation or final.",
+        "status": "invalid_action",
+        "failure_boundary": "tool preparation/authorization, not JSON syntax",
+        "model_calls": 2,
+        "input_tokens": 2890,
+        "output_tokens": 97,
+        "summed_model_call_seconds": 8.783
+      }
+    ],
+    "authority_rejections": 1,
+    "retrievals": 2,
+    "mutations": 0
+  },
+  "qualification": {
+    "reused_source_ci_jobs_passed": 21,
+    "source_ci_scope": "Underlying unchanged source only; station-only scripts separately tested/reviewed.",
+    "compile_only_requests": 3,
+    "successful_nonsampled_forwards_cumulative": 1,
+    "sampled_calls_before_launch": 0,
+    "failed_probe_forwards": 0,
+    "lifecycle_controls_passed": 4,
+    "physical_reboot_during_execution_tested": false,
+    "posthook_function_completed": true,
+    "owned_container_absence_verified": true,
+    "actual_systemd_final_postprocess_exit_claim": false
+  },
+  "gpu_observation": {
+    "samples": 14,
+    "interval_seconds": 10,
+    "observed_owned_container_descendants": 3,
+    "observed_peaks_mib": [
+      16862,
+      3132,
+      16118
+    ],
+    "complete_peak_or_kernel_trace_claim": false,
+    "nemotron_pid": 60281,
+    "nemotron_same_start_and_command_all_samples": true,
+    "nemotron_observed_mib": 177834
+  },
+  "replays": {
+    "primary": {
+      "passed": true,
+      "responses": 5,
+      "frozen_files": 1627
+    },
+    "independent": {
+      "passed": true,
+      "responses": 5,
+      "frozen_files": 1627,
+      "checker_correction": "Original frozen checker omitted valid-JSON gateway rejection handling. Reviewed successor independently reconstructs the absent-reference lookup; seven rejection-path controls passed. Original attempt and erratum retained; no model/tool rerun or evidence repair.",
+      "original_attempt_passed": false
+    }
+  },
+  "limitations": [
+    "No deterministic logits or bitwise sampling regeneration guarantee.",
+    "Different model family, weights precision, runtime and chat transport prevent a model-only causal comparison.",
+    "Short nonsampled forward does not qualify full-context decoding or behavior.",
+    "Periodic GPU samples are incomplete allocation observations.",
+    "This failed diagnostic does not establish general 8B model incapability."
+  ],
+  "retained_preparation_failures": [
+    "Initial admission failed before any forward due isolated UID/user environment; explicit successor environment admitted the same fixed input.",
+    "Tokenizer control metadata and runtime identity corrections retained predecessor files and identical fixture data.",
+    "Initial lifecycle/container and freeze preparation failures retained; corrected ownership/posthook/mount-boundary controls passed."
+  ],
+  "decision": {
+    "candidate_promoted": false,
+    "new_m7_campaign_run": false,
+    "m7_open": true,
+    "historical_m7_passed": 8,
+    "historical_m7_declared": 9,
+    "merged": false,
+    "next_step": "Requires a separately declared decision; no automatic rerun or posthoc success credit."
+  },
+  "evidence_sha256": {
+    "suite.json": "ba703b9993834790b47c232336b78de7f989140d1a1b3c45b47fcb63777159eb",
+    "diagnostic-once/freeze.json": "9056173b489b84d49e05a0de08a64c8851c5c5a70d709b70ec051b02c496eeba",
+    "runtime-policy.json": "ff39d4e111546e9afc2e85f18fdc511cd77dee0072739ac206c30223d4754790",
+    "model-identity.json": "c39e1d0241c40fbab5a8c99a29ff2817a0f885cfd9b23d1f460d3648093eff33",
+    "runtime-attestation.json": "dac515c53455f1ed2ad5cc63f58edd54ebdf51a20d43d56ef4ca6c37360b6903",
+    "readiness-proof-v2.json": "d65cfbc033fdb71e925beb2beb1ed461f7245add0de099b1b96eb4f061db635c",
+    "gpu-admission.json": "6928f789d19a3493e1d8b3a7c8170e359d4828a52804c6654d5b441c51d5b218",
+    "gpu-admission-r2.json": "3728f567161f5bb1577314d46450ee115bebbf145165d9fabeb6331e705c96e7",
+    "compile-preflight-r2.json": "570e23662cae22da002423764346f7fd28ba8955de19d11e011262b4577b1e97",
+    "lifecycle-posthook/qualification.json": "bec640b537c9df11ac234833e66632feb214a511c3bc4c370e23e512c4d9b54e",
+    "completion-proof.json": "4b609e907f9632b1cd204c9634677484220ba2ae34a2c3f0e052e0e403728e58",
+    "gpu-live-monitor/summary.json": "476725c7a310bc25c02538bb8d56c067dee5e909321821922cd9de159b1bb917",
+    "diagnostic-once/start.json": "523d54bc4c7af941ae63ffa810e27800ff4d9788126d5647f7c957f894c02d65",
+    "diagnostic-once/terminal.json": "adcf75257df31cebcc5b55336fed4565a9a1c8f6e89c3ced27cf449d3ce34776",
+    "retained-source-ci/exact-source-ci.json": "f9ae2f23e7fd79f3c082618658a214c11d47d03f31824d1aed659dedb2766e9b",
+    "primary-llama-replay.json": "19aafe4a89885c31b2863e70dfa25f6392198fad9584c1a72a8b9e270ddddd47",
+    "compact-outcome.json": "5ee57836cc03ffb704bd8b460c19c1a9804e81de20b812bdc2134f80bca17adc",
+    "independent-replay-erratum.json": "1dc67f13de6359a6b9243eeb06288c9c57a64a78c70dfe0689b18159a63fb968",
+    "independent-final-review.json": "401510003ad32d06bdd5b05fc00e647ef29c606f725d746958c5fd3b88a9b9ff",
+    "independent-llama-replay-r2.json": "f06ef8f284f16f7c01c3d348d2a9ca48093d47f7a4867534459e51c1a6729dc5",
+    "independent-live-approval.json": "8c7493c82dde90c8c29bd2e1dc2b37cfacc6ed31e9e0828378bb9974a9381ca5",
+    "independent-llama-replay.json": "f711db0489115aeaf45ce30a2088b250dfaf73005a67189567d8d6ede636e69b"
+  }
+}

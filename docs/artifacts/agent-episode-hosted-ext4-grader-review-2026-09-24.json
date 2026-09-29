@@ -1,0 +1,53 @@
+{
+  "accepted_for_integration_and_publication": true,
+  "actual_ci_filesystem_qualified": false,
+  "baseline_commit": "c18f022fe39ad5f9585cbed007501a3a28aed3f0",
+  "blocking_findings": [],
+  "builder_review_sha256": "77251ba9ba0621f060eef0da023ab8cb1908c15bafcb5c8f076270d4e0070a73",
+  "independent_controls": {
+    "actual_mount_or_remount_performed": false,
+    "errors": 0,
+    "failures": 0,
+    "junit_sha256": "a4c4a29a0e545093fce010bd220fcd74b91abad72682f641131771bd00fdcf07",
+    "mutation_commands_mocked_in_all_test_paths": true,
+    "skipped": 0,
+    "tests": 34
+  },
+  "limits": [
+    "This source/control acceptance does not establish that remount permission or barrier support is available on the real GitHub runner. Published-source CI must execute and qualify the measured result.",
+    "No actual filesystem mutation or model execution was performed by the grader.",
+    "Finite crash/concurrency setup is not a power-loss or underlying hardware durability qualification.",
+    "Fresh complete436-source validation, new-source admission, final frozen specification and genuine live/replay gates remain required before M7 closure."
+  ],
+  "live_qualified": false,
+  "milestone_7_closed": false,
+  "patch_sha256": "b44886091368969d3a124867ea2448bf88e197628c3b106e51a73ec078af1ed3",
+  "primary_reference": {
+    "reviewed_claim": "barrier=1 enables ext4 journal write barriers; unsupported/erroring I/O stack may disable them again, so actual readback and final recorder checks remain required.",
+    "url": "https://docs.kernel.org/admin-guide/ext4.html"
+  },
+  "production_ready": false,
+  "recorded_at_utc": "2026-09-24T15:11:59.586253+00:00",
+  "resolved_review_findings": [
+    "Resolved block-device/major7 loop-alias rejection added.",
+    "Linux-only fault controls skip at module collection on non-Linux before platform-only device helpers evaluate."
+  ],
+  "review_scope": [
+    "Read complete shared helper, all fault controls and workflow diff; independently compiled both new Python files, parsed workflow, compared structural invariants and ran all34 focused cases.",
+    "Real remount is restricted to GitHub-hosted Linux and the existing root ext4 block filesystem whose only measured admission disqualifier is disabled write barriers.",
+    "Resolved block-device identity and block major reject loop aliases; source/target/type/device must match before and after. No new or layered filesystem is created.",
+    "Single sudo mount -o remount,barrier=1 / command; actual after-readback retained on command error/nonzero exit. Unchanged admission guard and actual full mount options except barrier forms must pass stable readback.",
+    "Fresh exclusive selection evidence records initial failures, repair and allocation; subsequent unchanged qualification recorders check actual test filesystem/source before and after campaigns.",
+    "All mutation calls in tests are mocked; directory allocation/cleanup controls use only pytest temp paths. Early non-Linux collection skip prevents unsupported os.makedev/os.major import failures.",
+    "Recovery/concurrency matrices, scales, qualification modules/flags and bounds remain unchanged; non-Linux effective basetemp preserved. Other jobs unchanged except expanding CPU source evidence manifest to cover the new helper.",
+    "Source guard and actual recovery/concurrency recorders remain byte-equal to the baseline; no acceptance gate or model behavior change."
+  ],
+  "reviewer": "/root/m7_grader",
+  "schema_version": "dml-hosted-ext4-barrier-repair-grader-review-v1",
+  "source_files_sha256": {
+    ".github/scripts/prepare_qualification_filesystem.py": "f3767fb7883e4638c2bfc2172f08e0a424aadb1318f3e21ac7db81467a491091",
+    ".github/workflows/ci.yml": "c2aa4ce9796582e60240ad00ac9fdda074c6a310a04ebed0b2f3bbb48ebb51da",
+    "dml_core/tests/test_ci_qualification_filesystem.py": "40e8a40b83f2023ffae7775839f0351d553dfc5a521469295c561ed6fbf0e7ac"
+  },
+  "source_review_score": 9.6
+}

@@ -1,0 +1,104 @@
+{
+  "accepted_for_m7_completion": false,
+  "actual_model_calls": 19,
+  "all_nine_attempt_reports_retained_and_match_campaign": true,
+  "attempted_tasks": 9,
+  "campaign_id": "m7-qwen2-coder-action-json-recovery-2026-09-25-isolated-attempt-11",
+  "campaign_sha256": "cd23ba9e2feeb53b12d44e0882c5e44dd366d9a05e20141a65683d045c9ad427",
+  "ci": {
+    "accepted_for_same_source": true,
+    "grader_review_sha256": "eaa487dad14816f1ce247957385b623f4b93b2f1e0eb604584a7d6953bdd8134",
+    "jobs_successful": 20,
+    "run_attempt": 1,
+    "run_id": 36083908802
+  },
+  "completed_tasks": 8,
+  "contradictions": {
+    "known_denominator": 11,
+    "known_numerator": 0
+  },
+  "evidence_review_score": 9.6,
+  "execution_sha256": "7963fc7c484f7d630a2730143ae31fbbcf28d4ec74bd117725c572666d1ad39c",
+  "failed_gates": [
+    "verified_model_owned_supersession"
+  ],
+  "failure": {
+    "effects_unknown": false,
+    "historical_failure_reinterpretation_permitted": false,
+    "observed_behavior": "Model retrieved only current r1, proposed self-supersession, received the trusted no-operation rejection, then chose a final concise claim with empty evidence IDs. No supersession was dispatched or committed.",
+    "report_sha256": "70d4a903f2e6105357c1e5779d7505fb87953ee6a7e7c73fa2da389ca17a05d6",
+    "task_id": "supersede_then_answer",
+    "verified_model_owned_supersession": false,
+    "verifier_reasons": [
+      "unsupported_memory_claim",
+      "unverified_supersession"
+    ]
+  },
+  "false_memory_claims": {
+    "known_denominator": 11,
+    "known_numerator": 1
+  },
+  "fixed_guidance_hypothesis": {
+    "design_sha256": "bb84b9128e9ca5c59c18b12f6fb1e279f980742bed7d22a04ca572c728cd54c3",
+    "result": "failed",
+    "successor_scope": "Any later model/runtime capability comparison or independently demonstrated defect requires a separate explicit review; this release is not successor execution approval.",
+    "wording_placement_or_selected_task_iteration_permitted": false
+  },
+  "freeze_release_scope": "Only completed attempt11 in DML-attempt11-isolated after the original producer and both completed sequential data replays finished and matched. Preserve its exact source and every raw artifact for attribution. Original incomplete attempt8 source/inputs remain frozen; its completion and global process termination are not established.",
+  "freeze_released": true,
+  "gates": {
+    "actual_predecessor_context": true,
+    "all_attempts_generated": true,
+    "all_intents_reached_retrieval_and_final": true,
+    "complete_failure_inclusive_evidence": true,
+    "verified_model_owned_supersession": false
+  },
+  "independent_replays_byte_identical": true,
+  "known_input_tokens": 19362,
+  "known_output_tokens": 1214,
+  "known_total_tokens": 20576,
+  "limitations": [
+    "Data replay verifies retained evidence, tokenization, causality and gates; supervised start/execution receipts separately provide execution provenance. No reviewer model generation occurred.",
+    "All nine terminals completed with known usage/effects; completed_tasks is the existing summary count of eight verifier successes. The mandatory supersession gate fails.",
+    "The false-memory count includes the unsupported final citation. Repeated-error rate has zero measured opportunities and remains null; TTFT was not measured.",
+    "Original attempt8 remains incomplete with unknown full totals/effects. Historical5/6/7 evidence gaps and attempt10 failed first replay-wrapper setup remain bound in the frozen specification. CI does not override live gates or establish production readiness, baseline advantage or general recovery improvement."
+  ],
+  "live_qualified": false,
+  "milestone_7_closed": false,
+  "observed_replay_invocations": {
+    "independent_completed": 1,
+    "independent_setup_failed_without_evidence": 0,
+    "primary_completed": 1
+  },
+  "predeclared_live_gates_passed": false,
+  "production_ready": false,
+  "qualification_status": "rejected",
+  "raw_evidence_complete": true,
+  "recorded_at_utc": "2026-09-25T02:29:58.818044+00:00",
+  "replay_paths": {
+    "independent": "/workspace/scratch/c79340404ab9/DML-attempt11-isolated/docs/artifacts/agent-episode-live-evidence-attempt-11-isolated-independent-2026-09-25.json",
+    "primary": "/workspace/scratch/c79340404ab9/DML-attempt11-isolated/docs/artifacts/agent-episode-live-evidence-attempt-11-isolated-primary-2026-09-25.json"
+  },
+  "replay_receipt_sha256": {
+    "independent": "b743213a0ad97ffe84834b0b36e89722d5741c3c414fb27c24e49922445a5584",
+    "primary": "b1a6ea5970126daf231662ee0bfb96fa091d5644a21e6096c748dca83d8867a8"
+  },
+  "replay_sha256": {
+    "independent": "89b9a7672192ffd0c71339998469f546b0e10303cdb4d419528d156b34dd694c",
+    "primary": "89b9a7672192ffd0c71339998469f546b0e10303cdb4d419528d156b34dd694c"
+  },
+  "reviewer": "/root/m7_grader",
+  "schema_version": "dml-agent-live-completion-grader-review-v1",
+  "sequential_replays_completed": true,
+  "source_commit": "e08c38e3fc2fd73d94acd9f89461ed6f49db117f",
+  "source_runtime_model_verified_before_and_after_both_replays": true,
+  "source_tree": "9408378f0d66b9fc435536cb215bd7227d6a1ce4",
+  "specification_sha256": "6fca9751e8b1a947db51f223075276749c70250e05af87b7f5935106e716c21b",
+  "status_counts": {
+    "completed": 9
+  },
+  "successful_tasks": 8,
+  "terminal_count": 9,
+  "unknown_effect_tasks": 0,
+  "unknown_usage_tasks": 0
+}

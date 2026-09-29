@@ -22,6 +22,14 @@ if hasattr(errno, "EDEADLK"):
     _CONTENTION_ERRNOS.add(errno.EDEADLK)
 
 
+class StoreLockTimeout(TimeoutError):
+    """Store ownership was not acquired before its wait budget expired.
+
+    This distinguishes acquisition rejection from a timeout in an admitted
+    operation, whose mutation outcome may be unknown to the caller.
+    """
+
+
 def _ensure_lock_byte(handle: TextIO) -> None:
     """Ensure Windows has a stable byte range to lock."""
 
@@ -73,6 +81,7 @@ def store_write_lock(
     started = time.perf_counter()
     handle = lock_path.open("a+", encoding="utf-8")
     acquired = False
+    failed = False
     try:
         while True:
             try:
@@ -82,7 +91,7 @@ def store_write_lock(
             except BlockingIOError:
                 waited_ms = (time.perf_counter() - started) * 1000.0
                 if timeout_ms <= 0 or waited_ms >= timeout_ms:
-                    raise TimeoutError(
+                    raise StoreLockTimeout(
                         f"Timed out waiting for DML store lock {lock_path} during {operation}"
                     )
                 time.sleep(min(0.05, max(0.005, (timeout_ms - waited_ms) / 1000.0)))
@@ -94,10 +103,28 @@ def store_write_lock(
         }
         atomic_write_text(metadata_path, json.dumps(metadata, indent=2, sort_keys=True))
         yield metadata
+    except BaseException:
+        failed = True
+        raise
     finally:
+        # Always close the descriptor, even if diagnostic cleanup or explicit
+        # unlocking fails. Closing also releases OS ownership. Preserve a body
+        # or acquisition error instead of replacing it with a cleanup failure.
+        cleanup_error = None
         if acquired:
             try:
                 metadata_path.unlink(missing_ok=True)
-            finally:
+            except BaseException as exc:
+                cleanup_error = exc
+            try:
                 release_file_lock(handle)
-        handle.close()
+            except BaseException as exc:
+                if cleanup_error is None:
+                    cleanup_error = exc
+        try:
+            handle.close()
+        except BaseException as exc:
+            if cleanup_error is None:
+                cleanup_error = exc
+        if cleanup_error is not None and not failed:
+            raise cleanup_error

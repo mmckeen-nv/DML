@@ -1,0 +1,118 @@
+{
+  "schema_version": "dml-llama3-sft-compact-outcome-v2",
+  "status": "heldout_synthetic_qualified_not_m7_qualified",
+  "station_evidence_root": "/home/nvidia/dml-debug/llama3-8b-sft-v2-20260929",
+  "source_commit": "37471b68a53cb052876409b5d02b5f08ffb175a8",
+  "model": "meta-llama/Meta-Llama-3-8B-Instruct",
+  "base_revision": "8afb486c1db24fe5011ec46dfbe5b5dccdb575c2",
+  "adapter_sha256": "554aaf5c73d2e626fe455228d05d679a7dd1d4e35a8b09a391ef3a2768caef36",
+  "candidate_profile": "diagnostic-meta-llama3-8b-bf16-lora-sft-grammar-v2",
+  "training": {
+    "device": "NVIDIA GB300 / cuda:0",
+    "trajectories": 144,
+    "train_targets": 360,
+    "dev_targets": 72,
+    "optimizer_steps": 90,
+    "epochs": 2,
+    "trainable_parameters": 41943040,
+    "elapsed_seconds": 620.521005047,
+    "initial_mean_dev_loss": 0.39137181932003134,
+    "final_mean_dev_loss": 0.0018569447860146385,
+    "selection": "final_scheduled_only",
+    "loss_is_not_task_success": true,
+    "owned_container_removed": true
+  },
+  "compatibility": {
+    "prompt_prefixes_verified": 432,
+    "targets_grammar_verified": 432,
+    "history_actions_grammar_verified": 552,
+    "token_masks_verified": 42165,
+    "vendor_template_pinned": true,
+    "protocol": "Existing explicit constrained DML JSON; not vendor-native tool calling",
+    "exact_token_evidence": "Direct in-process input/output IDs; no guarantee inferred for remote vLLM HTTP endpoint"
+  },
+  "evaluation": {
+    "scope": "Eight predeclared heldout synthetic cases, outside evaluation corpus",
+    "episodes_once": 16,
+    "adapter_enabled": {
+      "passed": 8,
+      "total": 8,
+      "model_calls": 20,
+      "input_tokens": 27433,
+      "output_tokens": 839,
+      "model_latency_seconds": 191.33944705500107,
+      "action_rejections": 0
+    },
+    "adapter_disabled": {
+      "passed": 2,
+      "total": 8,
+      "model_calls": 16,
+      "input_tokens": 20745,
+      "output_tokens": 847,
+      "model_latency_seconds": 168.9595337310002,
+      "action_rejections": 1
+    },
+    "timeouts": 0,
+    "truncated_completions": 0,
+    "model_or_tool_execution_errors": 0,
+    "unknown_usage_or_effects": 0,
+    "primary_replay_passed": true,
+    "independent_replay_passed": true,
+    "responses_replayed": 36,
+    "frozen_files_verified": 1580,
+    "forced_calls": false,
+    "model_retries": 0,
+    "output_repairs": 0,
+    "supersession_readback_enabled_calls": 4
+  },
+  "sampling": {
+    "temperature": 0.7,
+    "top_k": 20,
+    "top_p": 0.8,
+    "min_p": 0,
+    "seed": 0
+  },
+  "budgets": {
+    "steps": 6,
+    "output_per_call": 256,
+    "output_total": 1536,
+    "input_total": 32768,
+    "wall_seconds": 300,
+    "request_context": 8192
+  },
+  "retained_failure": {
+    "kind": "Pre-episode deployment failure writing start marker beside read-only suite",
+    "model_calls": 0,
+    "episodes_dispatched": 0,
+    "cleanup_verified": true,
+    "correction": "Identical read-only suite nested inside writable run directory; separately frozen and independently approved"
+  },
+  "limitations": [
+    "Eight synthetic cases do not establish broad reliability.",
+    "Station-only SFT tooling is not covered by prior repository CI.",
+    "Original planning/readiness gates and full nine-task M7 campaign remain required.",
+    "Adapter-disabled baseline uses the same adapter-capable runtime; it is not exact parity with the prior untuned diagnostic."
+  ],
+  "new_m7_campaign": false,
+  "m7_closed": false,
+  "historical_campaign": "Nemotron 8/9 unchanged",
+  "raw_evidence_published": false,
+  "merged": false,
+  "evidence_sha256": {
+    "preparation": "cba991aeabee816fc3c733cde7d654d09968bc67f0d8a6fdc4bca4773f327483",
+    "deployment_prompt_parity": "3d75d0ed10eec5a3cac7f000b6840230c66e5c8ea912f66d8613e67438690d4c",
+    "grammar_mask_audit": "6114210151f6aa23ceb816620a246415cec779573002e38de4201709e52d165b",
+    "final_checkpoint": "d60fd761bc5f99891d9afeec292c2f491240de5168dc0eec213386bd751b8fc4",
+    "independent_training_review": "48f0d6c8c27725ecd911ef6a3d3035485577547a067a523fafc8e2565750640b",
+    "gpu_admission": "48d912f2154007368e0f4fae2fe70eec84669a121abf5ba7809b6899c82042ce",
+    "pre_episode_failure_review": "b530172a1239dcfd69c585afa5555836695ecf03dcafb21d8d7d55cb5504b3d2",
+    "evaluation_freeze": "cbf8e7109875b0bd625b8c203666315e805234f9ad028600003b86f8c7ab88cf",
+    "evaluation_launch_approval": "479a66a299ba0903ae137e62f1efa2845e3eecc4cbabdc2eb2277ecfe718030f",
+    "evaluation_runtime_observation": "8beb4db9633e548904071662c867271ef27998cd0ac0cc934054ca2709ca1f8e",
+    "evaluation_cleanup": "bdacb12d8d5af6388258f86b28fb76650fde22439a965a9e3606d4653a22ada0",
+    "primary_replay": "7df65f771058943190de83c32ab93c3fcb18a5c8665c41ca3b0103ed0bc10cfc",
+    "independent_replay": "cce3ca76f8b67574f5a11b849ea2920d7c1e309f921b14dd9886ac52167c5363",
+    "observed_metrics": "b398345a62afc00d4641fabc61c7c39349eff704787feef51dce9d8751a4b04c",
+    "independent_final_review": "a1518760dc758825d85d1e1b8b37afca13d87488a39187486a72d4a2868d09f1"
+  }
+}

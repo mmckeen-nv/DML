@@ -1,0 +1,118 @@
+{
+  "format": "dml-validation-profile-diagnostic-v1",
+  "observations": [
+    {
+      "kind": "unchanged",
+      "scans": 4,
+      "seconds": 0.07989691800321452
+    },
+    {
+      "kind": "unchanged",
+      "scans": 4,
+      "seconds": 0.08230188200104749
+    },
+    {
+      "kind": "unchanged",
+      "scans": 4,
+      "seconds": 0.08446795000054408
+    },
+    {
+      "kind": "changed",
+      "scans": 4,
+      "seconds": 0.08702652200008743
+    }
+  ],
+  "profile": {
+    "selected_functions": [
+      {
+        "calls": 3850,
+        "cumulative_seconds": 0.23354618300000002,
+        "function": "_checked",
+        "own_seconds": 0.003209669,
+        "path": "dml_core/daystrom_dml/journal.py",
+        "primitive_calls": 3850
+      },
+      {
+        "calls": 3875,
+        "cumulative_seconds": 0.18241733100000002,
+        "function": "_decode",
+        "own_seconds": 0.002161941,
+        "path": "dml_core/daystrom_dml/journal.py",
+        "primitive_calls": 3875
+      },
+      {
+        "calls": 33775,
+        "cumulative_seconds": 0.365642515,
+        "function": "_encode",
+        "own_seconds": 0.011631899000000001,
+        "path": "dml_core/daystrom_dml/journal.py",
+        "primitive_calls": 33775
+      },
+      {
+        "calls": 25,
+        "cumulative_seconds": 0.8530466050000001,
+        "function": "_read_snapshot",
+        "own_seconds": 0.007835608,
+        "path": "dml_core/daystrom_dml/journal.py",
+        "primitive_calls": 25
+      },
+      {
+        "calls": 25,
+        "cumulative_seconds": 0.639823767,
+        "function": "_validate_outbox",
+        "own_seconds": 0.025622622,
+        "path": "dml_core/daystrom_dml/journal.py",
+        "primitive_calls": 25
+      },
+      {
+        "calls": 25,
+        "cumulative_seconds": 0.8768891900000001,
+        "function": "read_snapshot",
+        "own_seconds": 0.00037447200000000004,
+        "path": "dml_core/daystrom_dml/journal.py",
+        "primitive_calls": 25
+      },
+      {
+        "calls": 950,
+        "cumulative_seconds": 0.30806856800000004,
+        "function": "_validate_owned_outbox_event",
+        "own_seconds": 0.009046572000000001,
+        "path": "dml_core/daystrom_dml/services/journal_outbox.py",
+        "primitive_calls": 950
+      }
+    ],
+    "total_calls": 2075499,
+    "total_seconds": 0.8769181929999998
+  },
+  "purpose": "Single-client cost diagnostic; not a latency or capacity qualification",
+  "recipe": {
+    "additional_ingests": 30,
+    "changed_recalls": 1,
+    "peer_ingests": 1,
+    "profiled_snapshot_reads": 25,
+    "schema": 3,
+    "seed_commits": 7,
+    "synthetic_embedder": true,
+    "unchanged_recalls": 3
+  },
+  "revision": 38,
+  "runtime": {
+    "blas_threads": {
+      "MKL_NUM_THREADS": "1",
+      "OMP_NUM_THREADS": "1",
+      "OPENBLAS_NUM_THREADS": "1"
+    },
+    "platform": "Linux",
+    "python": "3.12.14",
+    "sqlite": "3.53.1"
+  },
+  "source_file_sha256": {
+    "dml_core/daystrom_dml/dml_adapter.py": "8c2a0609090bc117f0d35ddab00af5c563306742825ebb56dc707f2c2be570c0",
+    "dml_core/daystrom_dml/journal.py": "227b75f9e78b63ebb09516cf2612e403ec306d906b9e3657caf138cd98358bad",
+    "dml_core/daystrom_dml/services/journal_outbox.py": "581df22d1b2d45fa1cd984bab97891d88afc8cc17898fd0a6d7a6bbc99ea9fdb",
+    "dml_core/daystrom_dml/services/persistence.py": "1a2185325339217e6aab88107dc0157013a07a39ab7abc20045132d5dd5e288e",
+    "dml_core/tests/profile_concurrency_fixture.py": "6e189181704303d2e632d6156397364face94d0f45120f101a70d331ae938116",
+    "dml_core/tests/profile_crash_fixture.py": "09c82c5f34657ac30f0fb31cbf218096267c595f8a1f55310561f5b5fbe00d49"
+  },
+  "source_manifest_sha256": "daa66326436772af81a113249e98774497878590ce334d5ffaf1dfb39cc8a032"
+}

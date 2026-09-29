@@ -76,15 +76,17 @@ def atomic_write_via(path: str | Path, writer: Callable[[Path], None]) -> Path:
 
 
 def _sync_directory(path: Path) -> None:
-    """Sync directory entries where the platform exposes directory descriptors."""
+    """Sync POSIX directory entries; Windows has no barrier in this helper.
+
+    A failed POSIX open is a failed durability barrier, including an unsupported
+    filesystem. Publication may already be visible; callers must not interpret
+    this error as proof that replacement did not happen.
+    """
 
     if os.name == "nt":
         return
     flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
-    try:
-        fd = os.open(path, flags)
-    except OSError:
-        return
+    fd = os.open(path, flags)
     try:
         os.fsync(fd)
     finally:

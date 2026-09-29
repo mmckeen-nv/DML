@@ -1,0 +1,148 @@
+{
+  "accepted_for_execution_now": false,
+  "attempt_6_disposition": {
+    "current_raw_bytes_available": false,
+    "historical_freeze_disposition": "Prior conversation records explicit release only after campaign and both replay resources completed. This assessment records that historical observation; it does not recreate the missing review or certify global present-day quiescence.",
+    "interrupted_execution_claimed": false,
+    "previously_observed_result": {
+      "attempted_tasks": 9,
+      "failed_gate": "verified_model_owned_supersession",
+      "fully_known_total_tokens": 15534,
+      "milestone_7_closed": false,
+      "other_four_gates_passed": true,
+      "terminal_completed_tasks": 9,
+      "unknown_effect_tasks": 0,
+      "unknown_usage_tasks": 0,
+      "verified_successes": 8
+    },
+    "previously_recorded_hashes_not_freshly_reverified": {
+      "campaign": "0045d1ed19846a201aaf77272016e6e5ea0742c4fbdc8e8ef43e257eb4c50a7f",
+      "completion_review": "839618db27fcaf4b1bf12ecf660073a553d71cefb62bee8ed4a9981cee04d690",
+      "first_replay": "3ba79148aa7a578785698c6f20b686d0abc23eb82acb45aee02425f84672a40c",
+      "pre_generation_review": "1a07b2559e2b176912f3565993d52be726befee9bea087f806e158cc3566d8f0",
+      "second_independent_replay": "3ba79148aa7a578785698c6f20b686d0abc23eb82acb45aee02425f84672a40c",
+      "specification": "39051148674f2143a27b2a8d039e76fa8f697791b50036b6a8c76485b36c0e59",
+      "trained_provenance": "6982ea11a3883b1de65e657cad333f97dd5c9b8e67451b55325cc62d03eaafa5",
+      "zero_generation_admission": "004a695b2f51dc3bf20d6a4b331ffac16f711164784b55f3aca24260d6da3dd3"
+    },
+    "prior_observation_basis": "Earlier visible conversation contains actual campaign completion, two sequential completed replay tool calls with byte-identical evidence, and independent completion review. Those observations are retained as attributed history; current raw files are not available to re-check.",
+    "qualification_from_narrative_permitted": false,
+    "reconstructed_events_or_receipts_created": false,
+    "status": "previously_observed_completed_and_rejected_now_raw_evidence_unavailable_locally"
+  },
+  "attempt_7_disposition": {
+    "basis": "Parent reports publication was interrupted before attempt 7 freeze or launch; no attempt 7 artifact was observed in the accessible recovery paths.",
+    "cannot_repair_past_retention_gap": true,
+    "ci_timing": "Exact-source remote CI may run concurrently after reviewed local validation and a correct published-source freeze, as previously used. Passing final-source CI remains mandatory before milestone closure; any failure is retained and cannot be repaired by changing an active frozen campaign.",
+    "may_proceed_as_new_experiment_after_conditions": true,
+    "must_be_separately_identified": true,
+    "previously_frozen_or_launched": false,
+    "rationale": "Unavailable attempt 6 raw bytes block renewed verification of that attempt and any claim of a complete retained all-attempt archive. They do not make a separately declared experiment impossible. The next experiment must be judged from its own newly retained raw evidence under the unchanged qualification gates and must disclose the historical retention gap.",
+    "required_after_generation": [
+      "Retain the full raw campaign and all failures, execution receipt, both sequential independent replays and final outcome review.",
+      "Keep source and dependencies frozen until the campaign and both known replay resources close.",
+      "A successful next run cannot retroactively repair the attempt 6 retention gap or establish a complete historical evidence archive.",
+      "Do not claim milestone closure, production readiness or PR merge approval from this recovery assessment."
+    ],
+    "required_before_generation": [
+      "Restore reviewed metadata source from exact surviving bytes, independently verify its three-file scope against the recovered public base, and publish a new identifiable commit. Do not claim recovery or publication of unavailable commit 97df9a or tree 97d7 without exact object verification.",
+      "Recreate actual runtime dependencies from pins and run fresh complete mandatory validation, preserving raw JUnit, static-check logs, exact source inventory and fresh independent source acceptance. The surviving 234-case isolated result does not replace the now-unavailable 784-case integrated evidence.",
+      "Reacquire and verify actual trained payloads against fixed pins; prepare them through the reviewed pipeline and record fresh actual provenance. Retain old identity expectations for comparison but do not reuse unavailable old admission as proof of the current runtime.",
+      "Perform a fresh strict zero-generation action-consumer admission, with actual current source/dependency/model identities and observed close. Existing model bytes and environment paths are absent.",
+      "Create a fresh pre-generation specification using the actual published commit/tree, current source and dependency hashes, same complete ordered corpus, gates, limits and declared metadata-only model-facing change. Retain the separate historical attempt 5 interruption and attempt 6 completed-but-unavailable dispositions.",
+      "Obtain independent specification review before any generation, verify all frozen inputs at dispatch, use fresh work/output paths, run each task once without hidden retries or selective task replacement, and preserve completed episode evidence promptly."
+    ]
+  },
+  "current_blockers": [
+    "Unpublished 27-file commit/tree and raw attempt 6 evidence are not currently recoverable from accessible local paths.",
+    "Actual runtime/model/admission and full integrated validation need fresh reconstruction and verification.",
+    "Metadata source publication, correct actual attempt 7 freeze and independent pre-generation acceptance are pending."
+  ],
+  "current_recovery_observations": {
+    "globally_quiescent": null,
+    "head": "1c4ccd591a2162ab64509015f64cef0a75acdb0e",
+    "narrow_local_search": {
+      "matching_raw_attempt_6_or_model_paths_found": [],
+      "roots": [
+        "/workspace/scratch",
+        "/tmp"
+      ],
+      "search_boundary": "Only accessible local files and known historical paths were searched. Absence here is not a claim that no remote archival copy exists.",
+      "targets": [
+        "agent-episode-live-*attempt-6*",
+        "attempt-6-work/*/report.json",
+        "attempt-6-run*",
+        "attempt-6-start*",
+        "dml-m7-coder-20260922-isolated"
+      ]
+    },
+    "parent_reported_unpublished_commit": {
+      "commit": "97df9a569baf0c4c1a81370f91094a13b777946f",
+      "object_available_in_current_checkout": false,
+      "parent": "1c4ccd591a2162ab64509015f64cef0a75acdb0e",
+      "reported_file_count": 27,
+      "tree": "97d7aed92e0cea92e467404bcf173069a58039ba",
+      "tree_recovery_verified": false
+    },
+    "prior_main_recovery_runtime_and_model_paths_absent": [
+      "/workspace/scratch/ad6cdef78c95/DML-core",
+      "/workspace/scratch/ad6cdef78c95/dml-m7-recovery",
+      "/workspace/scratch/ad6cdef78c95/dml-venv",
+      "/tmp/dml-m7-coder-20260922-isolated"
+    ],
+    "process_visibility_boundary": "Missing workspace paths and unavailable old runtime are not proof of global process termination. This assessment makes no global quiescence claim and authorizes no historical process kill, cleanup or deduplication.",
+    "recovered_public_checkout": "/workspace/scratch/c79340404ab9/DML-core",
+    "surviving_hash_verified_evidence": [
+      {
+        "matches_previously_recorded_sha256": true,
+        "path": "/workspace/scratch/c79340404ab9/agent-episode-retrieval-metadata-review-2026-09-22.json",
+        "sha256": "cc7d84a5e8378ceda3b7410b917941520cb45e971c2b6227b6397edf61071d66"
+      },
+      {
+        "matches_previously_recorded_sha256": true,
+        "path": "/workspace/scratch/c79340404ab9/dml-retrieval-worktree/docs/artifacts/agent-episode-session-recovery-review-2026-09-22.json",
+        "sha256": "aafcf7bca5ba20d5579cfc8e70b58fb866627cb0e45456714cf9203e107e99dd"
+      },
+      {
+        "matches_previously_recorded_sha256": true,
+        "path": "/workspace/scratch/c79340404ab9/dml-retrieval-worktree/docs/artifacts/agent-episode-coder-reconstruction-review-2026-09-22.json",
+        "sha256": "232efc7eaa2c0b1f4687310d086c9656b5e3105653f01372a83cdc0d4ab101f7"
+      },
+      {
+        "matches_previously_recorded_sha256": true,
+        "path": "/workspace/scratch/c79340404ab9/coder-independent-review-tests.xml",
+        "sha256": "7a98a3e11b3a8bb5d0a6dcb043975368924dbd258648f599b2fb8b597f1a0732"
+      },
+      {
+        "matches_previously_recorded_sha256": true,
+        "path": "/workspace/scratch/c79340404ab9/coder-focused.xml",
+        "sha256": "e2106a3e15b226ff62f7cc9168737bdf9d7769c2f8fc9494be83f7a2bff0f635"
+      },
+      {
+        "matches_previously_recorded_sha256": true,
+        "path": "/workspace/scratch/c79340404ab9/retrieval-metadata-independent.xml",
+        "sha256": "eb4c71ffff7231a39b08618f3102da4b655f96d91d1ce410328e6d82ad25d53f"
+      },
+      {
+        "matches_previously_recorded_sha256": true,
+        "path": "/workspace/scratch/c79340404ab9/verify_coder_tensors.py",
+        "sha256": "579c4120d7b459f84309a0f655d09915fa9f78d59b4918a6e8656c4f85385747"
+      }
+    ],
+    "surviving_worktree_git_links": "Both surviving source directories refer to the absent former main .git/worktrees directory; their source files remain readable but their Git history is not self-contained.",
+    "tree": "e6da4d82af0bb317b50957ad21fda3f5806b07b2"
+  },
+  "decision": "allow_separately_identified_next_experiment_only_after_fresh_source_runtime_admission_and_freeze_gates",
+  "milestone_7_closed": false,
+  "recorded_at_utc": "2026-09-22T17:32:43.606364+00:00",
+  "reviewer": "independent delegated m7_recovery_review acting as supervisor",
+  "reviewer_actions": {
+    "artifact_reconstruction": false,
+    "model_generation": false,
+    "model_loads": false,
+    "new_assessment_written": true,
+    "source_mutations": false
+  },
+  "schema_version": "dml-supervisor-workspace-recovery-assessment-v1",
+  "scope": "Read-only availability and readiness assessment after loss of the former workspace; this document is a new assessment, not reconstruction of missing historical evidence."
+}

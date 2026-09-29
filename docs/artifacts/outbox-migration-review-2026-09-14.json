@@ -1,0 +1,102 @@
+{
+  "schema_version": "dml-feature-review-v1",
+  "feature": "explicit-schema2-to-schema4-outbox-migration",
+  "base_commit": "3e6aaaa74478b475f4e2b615b925da067802a135",
+  "reviewed_at": "2026-09-14",
+  "reviewer": "independent grading agent, separate from core migration, delivery and adapter builders",
+  "minimum_accepted_score": 9.5,
+  "review_history": [
+    {
+      "score": 9.1,
+      "decision": "rejected",
+      "findings": [
+        "Legacy decisions API incorrectly revalidated retained schema-2 rows as schema 4",
+        "Dangling destination and sidecar symlinks could be overwritten or redirect initialization"
+      ]
+    },
+    {
+      "score": 9.5,
+      "decision": "accepted",
+      "resolution": "Mixed-version decision paging now validates original rows under schema 2. Raw destination and all reserved sidecars use lexists guards before resolution. Eight independent regressions cover paths, typed metadata history, and source identity races. Pre-marker recovery harness preserves reserved init.lock and retries a fresh path."
+    },
+    {
+      "score": 9.5,
+      "decision": "accepted",
+      "resolution": "Independent review accepted test-only Windows portability corrections. All 17 affected adversarial/recovery cases pass; core.autocrlf=true checkout preserves both literal fixture hashes. Runtime hashes unchanged; exact-commit Windows CI remains required."
+    }
+  ],
+  "score": 9.5,
+  "decision": "accepted",
+  "category_scores": {
+    "authority_and_crash_safety": 9.6,
+    "delivery_semantics": 9.6,
+    "compatibility": 9.5,
+    "verification": 9.5,
+    "maintainability_and_scope": 9.3
+  },
+  "source_sha256": {
+    "dml_core/daystrom_dml/contracts/production.py": "252d6ad31b36620e4643d8debcd264ba1a7b6b3f6a131da37e44f40b10662eb9",
+    "dml_core/daystrom_dml/dml_adapter.py": "bf3436e3c5e67868a33964cf74ce6f358455bc446eb89516b8ab842b94e1c9c8",
+    "dml_core/daystrom_dml/journal.py": "df5d04992e6beb7edc266f908c6e06419ef5fee434c4dbdd8f2b54b39d495292",
+    "dml_core/daystrom_dml/services/journal_outbox.py": "ffbb187cb7a1417d1ff257523fdf8ca46da63507ea852d13049a62d15adb8813",
+    "dml_core/daystrom_dml/services/outbox_delivery.py": "020382797860f931b71e88407e0fe437dcc5df5146ac956d976e3d333605e404",
+    "dml_core/daystrom_dml/services/projection.py": "2c72f48302375db4aa65e4578e004900777dad07716b04e4596d8ae7fcbda0e9",
+    "dml_core/scripts/dml_journal.py": "7c34e489e7f8da860c0d03f308d89e86750b7a15c3b3365c3baeacbfdd67aa2b",
+    "dml_core/scripts/dml_outbox.py": "51e9edd384a8fb403e9dc66f8a3d3b80079ead2dea028827ef1b6f472cd1bd49",
+    "dml_core/scripts/dml_projection.py": "2d758407172ea3c7652d8d3ffe4a7160c4d26cb3e91671d34597c8ca72260bc9",
+    "dml_core/tests/test_journal_outbox.py": "c0074488fbaaff76ad0c7f7dd430a73d6ef1791f1975cd05672bcaf33d19868e",
+    "dml_core/daystrom_dml/services/outbox_migration.py": "d8b661189e187346f855e2aedea32786de4405294c996649556193e6e4450d46",
+    "dml_core/tests/fixtures/journal_schema2_8a08efa.json": "479df0cffbf124435861332a917264e4dfa9bfc1aa30594d50825167c2595a5e",
+    "dml_core/tests/fixtures/journal_schema2_8a08efa.sql": "054c8691516ee44f9bcee84716539cf1ffe7f6cef7054f4dc1cfed187a075797",
+    "dml_core/tests/fixtures/journal_schema2_reader_8a08efa.py": "f3db12707a260765462961bdbed2b9d00a80887ec2c0071421d4795b41a4759e",
+    "dml_core/tests/test_migrated_outbox_delivery.py": "862582bdc5936ba8f9ac51774486b6a5f076466d3395e10e2f4847571950b556",
+    "dml_core/tests/test_migration_adversarial.py": "8610102fdaf79a28825bdd9e4d929b67af69f9dbeb5f051c9514b62fb2b469cf",
+    "dml_core/tests/test_outbox_migration.py": "79ec3c7d5700cb104cb0c02a2e079957008638a56b24172060cffe466795ca0f",
+    "dml_core/tests/test_outbox_migration_integration.py": "a7cf85371b0dc24f8db85440e7d2964d580cce4b2e86fa4b96300501d18a1cd6",
+    "dml_core/tests/test_outbox_migration_recovery.py": "28e70e1cdd76b1229d8e8229d4010b347de12d0dfc6351ea7bda19ca6ea88dfc",
+    ".gitattributes": "c874ed13e10fb517af83e69fb6ed6ad12cda52e732ab387ef679bd1d2f19d62e"
+  },
+  "verification": {
+    "independent_focused": "139 passed, zero skips/failures/errors in 8.784s",
+    "core_migration_cases": 44,
+    "consumer_cases": 37,
+    "adapter_cli_cases": 41,
+    "pinned_fixture_and_process_recovery_cases": 9,
+    "independent_adversarial_cases": 8,
+    "actual_migration_process_kill_boundaries": 7,
+    "simultaneous_delivery_clients": 256,
+    "stress": "Both R0 and R3 baseline scenarios passed with 256 workers and a 256-party barrier; exactly two event commits plus initialization",
+    "full_suite": "1601 passed, 9 optional-dependency skips, 2 known warnings in 66.63s",
+    "ruff": "passed",
+    "mypy": "51 maintained files passed; local Python target 3.12",
+    "hermes_hygiene": "passed",
+    "windows_harness_correction": "17 affected cases passed independently; both pinned fixture byte hashes preserved under core.autocrlf=true checkout; Ruff passed; final exact-commit Windows CI required"
+  },
+  "compatibility_fixture": {
+    "generator_commit": "8a08efa0976677ac813597956f87c19543be6ac8",
+    "semantic_release_claim": false,
+    "historical_reader_included": true,
+    "source_revision": 4,
+    "receipt_count": 2
+  },
+  "limitations": [
+    "Qualified candidate, not whole-platform production readiness",
+    "Offline manual cutover requires every writer stopped; final source drift check is not an online cutover protocol",
+    "Original source is stale rollback after first destination write",
+    "Baseline starts full-state delivery; legacy operations are never claimed as delivered",
+    "No in-place downgrade or automatic startup upgrade",
+    "Checksums detect corruption, not authenticated untrusted authority",
+    "Full-state event storage and full-history verification retain unqualified growing-store cost",
+    "Seven process-kill boundaries do not establish physical power-loss or every-filesystem durability",
+    "Lifecycle receipts, retention and ordered background delivery remain separate gates",
+    "Final exact-commit remote CI remains a separate integration gate recorded on PR118"
+  ],
+  "ci_history": [
+    {
+      "commit": "eb639b9380f418fcfac7e531c1de64fb6716e934",
+      "run_id": 34848463959,
+      "decision": "rejected",
+      "finding": "Windows3.13 found test-only CRLF hash changes in pinned text fixtures and native readlink path-prefix differences. Windows3.10 canceled by matrix; both fullsuite jobs, all Linux/macOS portability jobs and production evidence passed. Corrections preserve literal fixture hashes and compare actual raw symlink target before/after migration; runtime unchanged."
+    }
+  ]
+}

@@ -1,0 +1,126 @@
+{
+  "base_commit": "0d4364d116d75ed24b60e441845518b47f39ad57",
+  "candidate_assessment": {
+    "path": "docs/artifacts/agent-episode-coder-candidate-assessment-2026-09-20.json",
+    "sha256": "33fc817faa502b64fefcb80e6bc3c0ef8b6b618d3701ae85fc6ff17e5a173db1"
+  },
+  "candidate_profile": {
+    "entry_point": "daystrom_dml.services.qwen_pretrained_snapshot.prepare_qwen_coder_snapshot",
+    "model_id": "Qwen/Qwen2.5-Coder-1.5B-Instruct",
+    "model_revision": "2e1fd397ee46e1388853d2af2c993145b0f1098a",
+    "provenance_schema": "dml-pretrained-qwen2-coder-instruct-v1",
+    "source_pins": {
+      "LICENSE": [
+        11343,
+        "832dd9e00a68dd83b3c3fb9f5588dad7dcf337a0db50f7d9483f310cd292e92e"
+      ],
+      "config.json": [
+        660,
+        "88f9a17863c05fb313515d2ff74b1098e0c35579f99068e32beda00618508ae0"
+      ],
+      "model.safetensors": [
+        3087467144,
+        "c1b9b30e907950516ba3c646bdf570d8084c25a6410a0cdca80cf04b11bc13a8"
+      ],
+      "tokenizer.json": [
+        7031645,
+        "c0382117ea329cdf097041132f6d735924b697924d6f6fc3945713e96ce87539"
+      ],
+      "tokenizer_config.json": [
+        7305,
+        "959e7f1d9a1b7641a6d6ce05ca97b75c7894fcb66cbe5a040406458fb1128ee4"
+      ]
+    }
+  },
+  "decision": "accepted_scoped_source_revision",
+  "dedup_helper_review": {
+    "decision": "accepted_only_after_current_workers_and_both_replay_consumers_close",
+    "executed_by_reviewer": false,
+    "final_guards": "Stable comparisons include ctime; both original weights must have nlink1 before mutation. Retained paths/bytes are rehashed, source blobs become readonly, unique same-filesystem link replaces only the duplicate atomically, and both historical inventories are verified.",
+    "plan_sha256": "7def1168422469bda05977406868c6bc862338492334a42bf699fa801267fac8",
+    "private_consumer_copies_may_be_deduplicated": false,
+    "required_next_storage_gate": "Measured available bytes must cover two raw payloads plus two F32 payloads, full metadata/copy overhead and1GiB reserve before any new weight download.",
+    "script_sha256": "f6cf926688ae124da3ca15657e082629c3c18765a10746d2a00f57836851f392"
+  },
+  "findings": [
+    "Original prepare_qwen_snapshot signature/model/revision/source pins and original provenance version remain distinct. New prepare_qwen_coder_snapshot accepts only the separately hard-coded Coder revision and complete source inventory. Neither public entry point accepts caller trust pins or an arbitrary model selector.",
+    "Both built-in pin maps are read-only; wrappers capture model ID, revision, schema version and tuple pins in a frozen source-profile value before any preparation I/O. Mid-copy global changes cannot silently rewrite the chosen provenance.",
+    "The shared pipeline retains exact source copying/hash validation, admitted configuration, complete learned tensor coverage, finite CPU BF16 validation, exact BF16/F32 round trips, serialized tensor verification, strict private snapshot admission and completion-marker publication.",
+    "Independent AST comparison verifies normalize_state and tensor_digest are unchanged. Model admission bounds, runtime, model consumer, action grammar, policy/descriptions, task corpus and verifiers are unchanged from the currently accepted source.",
+    "All code defining source pins and normalization remains in the one normalizer module covered by normalizer_sha256. New model/config/learned-weight identity is explicit; the preparer does not pretend this is the old trained source.",
+    "Six meaningful new controls cover exact distinct provenance and tensor bytes, immutable public pins/no caller overrides, bidirectional source substitution before loading, mid-copy profile mutation, unchanged architecture ceiling and failed-publication cleanup preserving input.",
+    "The workflow adds the new module to both the mandatory CPU command and complete required-module set. Existing optional-dependency admission occurs before fixture heavy imports. No existing required gate is removed."
+  ],
+  "historical_evidence_mutated": false,
+  "independent_source_pin_review": {
+    "candidate_weight_payload_verified": false,
+    "dedup_script_sha256": "f6cf926688ae124da3ca15657e082629c3c18765a10746d2a00f57836851f392",
+    "model_weight_pin_matches_official_lfs_metadata": true,
+    "original_tokenizer_bytes_match_candidate_official_blob": true,
+    "retained_metadata_payloads_independently_verified": {
+      "LICENSE": {
+        "bytes": 11343,
+        "official_git_blob_sha1": "6634c8cc3133b3848ec74b9f275acaaa1ea618ab",
+        "sha256": "832dd9e00a68dd83b3c3fb9f5588dad7dcf337a0db50f7d9483f310cd292e92e"
+      },
+      "README.md": {
+        "bytes": 5258,
+        "official_git_blob_sha1": "ae7c2e1a888ccc658813a6779ba63625ceeac946",
+        "sha256": "a8504fd3e1247c90e4fe640d84df963237134bf29db02b0de7d502eed6c93c33"
+      },
+      "config.json": {
+        "bytes": 660,
+        "official_git_blob_sha1": "b4831594221a81ea1540f0c6aeae93b6a8aeae56",
+        "sha256": "88f9a17863c05fb313515d2ff74b1098e0c35579f99068e32beda00618508ae0"
+      },
+      "tokenizer_config.json": {
+        "bytes": 7305,
+        "official_git_blob_sha1": "acee076f49bf3c0298e15de0909d1da7b392f0c3",
+        "sha256": "959e7f1d9a1b7641a6d6ce05ca97b75c7894fcb66cbe5a040406458fb1128ee4"
+      }
+    },
+    "source_sha256": "f8d015d3bce8b0bb1bb3a4bd30bb5ec5a1f1e49fc75bc527fcb7854194395725"
+  },
+  "milestone_7_closed": false,
+  "minimum_acceptable_score": 9.5,
+  "model_admitted": false,
+  "production_ready": false,
+  "recorded_at_utc": "2026-09-20T15:14:13.672620+00:00",
+  "remaining_requirements": [
+    "Finish every attempt5 task and both sequential replays, retain failures and genuine partial lifecycle evidence, and release the current freeze before integration or resource changes.",
+    "Integrate the exact three reviewed files and run final mandatory validation with the new21st module (780 cases expected), strict lint and maintained type checks under unchanged source hashes.",
+    "Perform only the reviewed storage operation when quiescent, record all historical hashes/inventories, measure headroom, then verify all five actual pinned source payloads and all338 actual tensors through the reviewed pipeline.",
+    "Independently review actual preparation provenance and strict zero-generation admission; declare the stock model change with a new exact model identity while preserving policy, tools, grammar, limits and gates.",
+    "Freeze and run one fresh complete nine-task campaign, preserve all historical attempts, independently replay outcomes and pass required final-source CI without merging PR118."
+  ],
+  "reviewed_files_sha256": {
+    ".github/workflows/ci.yml": "5cb14a978cd1ccdd2e20b09191dc86d9504ea5345f02749d9b52fbcdad961d95",
+    "dml_core/daystrom_dml/services/qwen_pretrained_snapshot.py": "f8d015d3bce8b0bb1bb3a4bd30bb5ec5a1f1e49fc75bc527fcb7854194395725",
+    "dml_core/tests/test_qwen_coder_pretrained_snapshot.py": "e75e1689f48ab03d5279febe7d6a05791f11256c22bca0da861a360185eea6e5"
+  },
+  "reviewer": "independent delegated m7_final_grader",
+  "schema_version": "dml-independent-coder-preparer-review-v1",
+  "scope": "Separate exact-source Coder preparation entry point, immutable per-call provenance binding and required CI controls. No trained Coder payload admission or semantic qualification is claimed.",
+  "score": 9.6,
+  "source_blockers": [],
+  "trained_live_qualified": false,
+  "validation": {
+    "actual_trained_coder_payload_verified": false,
+    "builder_focused": {
+      "errors": 0,
+      "failures": 0,
+      "sha256": "fc468556e87cc3dccaf18ff9cf20d627527b27825f5a9b0afc13c21d7caebf87",
+      "skipped": 0,
+      "tests": 37
+    },
+    "counts_overlap": true,
+    "independent_new_controls": {
+      "errors": 0,
+      "failures": 0,
+      "sha256": "8835a6de8f4afee5a9532353b03385e0f4a6d804981f5cc07f6ba763c8df1bbc",
+      "skipped": 0,
+      "tests": 6
+    },
+    "static_checks": "Maintained mypy, Ruff and git diff --check passed."
+  }
+}

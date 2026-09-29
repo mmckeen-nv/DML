@@ -1,0 +1,59 @@
+# Candidate support target; this file does not qualify a production deployment.
+# Replace both absolute paths and the illustrative identity before deployment.
+# Windows operators must use absolute paths appropriate to that host.
+# HTTP startup separately requires DML_API_TOKEN and/or DML_ADMIN_TOKEN.
+production_profile: dml-receipted-local-v1
+storage_dir: /var/lib/dml-receipted-local-v1
+
+# The selected profile does not admit generation or summarization.
+model_name: dummy
+llm_backend: dummy
+strict_llm_required: false
+
+# Load a real, immutable local SentenceTransformer artifact. Install its provider
+# dependencies. A missing model must fail, never select random fallback.
+embedding_model: /opt/dml/models/immutable-embedding-model
+embedding_device: cpu
+strict_embedding_required: true
+
+persistence:
+  # enable controls legacy JSONL persistence; the journal below stays durable.
+  enable: false
+  interval_sec: 0
+  journal: true
+  receipts: true
+  # false selects schema 2. true selects fresh schema 3 or migrated schema 4.
+  outbox: false
+  # Operator assertion: pin actual model bytes/revision and preprocessing.
+  # This illustrative value is not a verified model identity.
+  receipt_embedding_identity: operator-replace:model-sha256-and-preprocessing-v1
+  snapshot_interval: 128
+
+capacity: 2000
+top_k: 6
+dml_top_k: 8
+token_budget: 600
+
+rag_store:
+  enable: false
+skip_rag_state_import: true
+mirror_agentic_memory_to_rag: false
+ann_min_items: 0
+gpu_acceleration: false
+checkpoint_interval_seconds: 0
+survival_ledger_enabled: false
+background_processing_enabled: false
+enable_stm_controller: false
+enable_workflow_cache: false
+enable_quality_on_retrieval: false
+agentic_mode:
+  enabled: false
+  router:
+    enabled: false
+router:
+  enabled: false
+dpm:
+  enable: false
+  mode: disabled
+  include_in_context: false
+  include_in_preamble: false

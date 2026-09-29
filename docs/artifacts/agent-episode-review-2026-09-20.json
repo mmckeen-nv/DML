@@ -1,0 +1,246 @@
+{
+  "acceptance_boundaries": {
+    "milestone_7_closed": false,
+    "production_ready": false,
+    "publication_instruction": "Publish only the reviewed files and this review to the existing PR 118; do not merge.",
+    "published_source_ci_qualified_at_review": false,
+    "source_accepted": true,
+    "status_time_boundary": "Publication and exact-source CI were pending at this immutable source-review freeze. Subsequent results require their own source and artifact attribution.",
+    "trained_model_live_qualified": false
+  },
+  "blocking_source_findings": [],
+  "decision": "accepted_for_source_publication_and_ci",
+  "independent_adversarial_controls": {
+    "coverage": [
+      "Authority injection, duplicate or ambiguous JSON, wrong types and citation equality aliases.",
+      "Plausible incorrect answers with bad provenance, scope, state or causal observations.",
+      "Rehashed transcript rewrites, task substitution and unsupported terminal failure claims.",
+      "Startup stall, process creation failure, pending model/tool kill and repeated malformed-frame reader cleanup.",
+      "Pinned-time stale salience, exact byte boundaries, diagnostic reserve exhaustion and synthetic-failure classification.",
+      "Failure-inclusive cost, undefined zero-success rates, unknown work and live/injected pooling rejection.",
+      "Actual prior wrong structured answer reaches the next model request as untrusted context and permits a grounded correction.",
+      "Typed pinned-corpus admission and strict nested verifier-version rejection."
+    ],
+    "passing_parameterized_cases_in_final_cpu_selection": 74,
+    "path": "dml_core/tests/test_agent_episode_adversarial.py",
+    "sha256": "f4376e4093e4b459724b9490744934f1a14a1578a299aaff9d7d18689d572fc6"
+  },
+  "milestone": 7,
+  "minimum_accepted_score": 9.5,
+  "model_feasibility_evidence": {
+    "kind": "Tokenizer/configuration-only feasibility, with explicitly synthetic planned actions and predecessor context.",
+    "path": "docs/artifacts/agent-episode-model-preflight-2026-09-20.json",
+    "qualified_live_campaign": false,
+    "retained_findings": "Nine recorded initial requests fit. A planned prior-context follow-up totals 585 tokens with reservation 128. The planned compact-reference supersession path overflows the 1024-token window by 50 at the default reservation 128; a separately labeled reservation 64 fits that one path. Actual generated history remains subject to runtime admission.",
+    "sha256": "681c037657dc69bd77fb13d806de819c4d480bb54c452d0eebe41315329d6c25",
+    "strict_trained_snapshot_verified": false,
+    "trained_model_executed": false,
+    "trained_weights_downloaded": false,
+    "upstream_model": "openai-community/gpt2",
+    "upstream_revision": "607a30d783dfa663caf39e06633721c8d4cfcd7e"
+  },
+  "remaining_qualification_limits": [
+    "No compatible provenance-bound trained snapshot or genuine trained-model semantic campaign is qualified. M7 remains open until separately frozen live acceptance evidence is independently verified.",
+    "The random tiny model demonstrates execution plumbing. Scripted tests are test_injected; lexical ranking is synthetic_fixture. Neither establishes learned retrieval or model task quality.",
+    "Scheduled related peer writes do not qualify live multi-agent concurrency. The corpus has one required model-owned supersession; other tasks have bounded read-only expectations.",
+    "Structural validation and public digests establish consistency, not producer authentication, trained provenance or verifier truth for imported artifacts.",
+    "The child deadline includes startup. Bounded cleanup and authority read, then verification/publication, follow separately; the child limit is not an end-to-end latency guarantee.",
+    "Terminal completeness assumes a surviving supervisor. Atomic CLI output does not provide durable parent-death journaling or replay.",
+    "The actual prior answer may be correct or unavailable, so a repeat-error opportunity is not guaranteed. Missing denominators and interrupted cost/effects remain unavailable.",
+    "Published exact-source CI, baseline value comparisons, recurring large campaigns, durable audit/export and release qualification retain their separate gates."
+  ],
+  "review_date": "2026-09-20",
+  "review_iterations": [
+    {
+      "confirmed_repair_areas": [
+        "Bind the complete causal model transcript, identity, tools and reservation, including prior raw assistant output and exact tool messages.",
+        "Prevent reader-thread leaks after malformed IPC; terminalize process creation failures; preserve admitted unknown work after child termination.",
+        "Require raw failure evidence for each specific terminal status and derive measured latency from the actual event sequence.",
+        "Pin retrieval and verifier effective time, and enforce exact producer/diagnostic byte budgets with bounded failure evidence."
+      ],
+      "decision": "rejected",
+      "reason": "The candidate had unresolved source correctness and evidence gaps; it did not meet the 9.5 threshold.",
+      "score": 9.2
+    },
+    {
+      "additional_final_repairs_verified": [
+        "Replay the actual prior structured model answer and terminal reference as explicitly untrusted follow-up context; derive verifier history from the same bound context.",
+        "Use typed canonical JSON identity for packaged corpus admission before writes; reject integer/float and boolean/integer substitutions.",
+        "Require the exact known nested verifier version and unify runtime/CLI verdicts.",
+        "Retain original raw receipt/state evidence, exact allowed final authority IDs and incomplete-evidence flags without inventing metrics."
+      ],
+      "blocking_source_findings": [],
+      "decision": "accepted_for_source_publication_and_ci",
+      "score": 9.6
+    }
+  ],
+  "review_scope": [
+    "Strict versioned action/event/terminal contracts and immutable complete model-input binding, including untrusted prior context.",
+    "Concrete local-model episode runner with bootstrap-inclusive child deadline, nonblocking bounded IPC and ACK-before-work.",
+    "Receipt tool gateway with harness-owned scope/trust/idempotency, task allowlists, immutable complete-record CAS handles and raw/model-view separation.",
+    "Eight packaged semantic scenarios with independent typed truth, causal citations, full state and model-owned supersession checks.",
+    "Failure-inclusive outcome aggregation with known lower bounds, unknown totals/effects and unchanged dml-task-outcome-v1 semantics.",
+    "Concrete-only campaign CLI, atomic bounded no-clobber reports, actual previous-terminal handoff, package data and entry point.",
+    "Mandatory zero-skip CPU CI selection, strict maintained checks, source manifest, finite running plan and honest evidence labels."
+  ],
+  "reviewed_source_identity": {
+    "complete_tested_source_map": {
+      "artifact_sha256": "85ae95d4d399345b9f83f99eb06de182f0ecb8a82e062f4dae72790ce806a699",
+      "canonical_map_sha256": "5ba7b5f39343557d77b009173f8fd9216cbbb1b570d19558255a61f9f4154ba2",
+      "canonicalization": "UTF-8 JSON, sorted keys, compact separators, ensure_ascii=false, without trailing newline",
+      "json_field": "source_sha256",
+      "path": "docs/artifacts/agent-episode-local-validation-2026-09-20.json"
+    },
+    "coverage_note": "All 417 source/configuration hashes were checked for test-run stability. Direct M7 review covers the 22 publication files listed above; unchanged historical source is reused evidence rather than a claim of a fresh line-by-line audit.",
+    "identity_kind": "Uncommitted reviewed file-content snapshot based on the parent commit; the parent commit does not contain these new changes.",
+    "parent_commit": "a5fdf71677ccefa198f8a84bdb8722a66779c87a",
+    "publication_file_count_excluding_this_review": 22,
+    "publication_sha256": {
+      ".github/workflows/ci.yml": "a54f2c9de2c39594c92c70d067081366e110a66d73f452e34b784450c345c2c7",
+      "dml_core/daystrom_dml/contracts/agent_episode.py": "1ddf0247df6806be1ac0bb70507aa2dab1ac4e7de09721f59626a2c65e05497d",
+      "dml_core/daystrom_dml/services/agent_episode.py": "53a592d3a382d3798e8ba4ce79986e9761240a563c3d724cb1179b9e3dd862fc",
+      "dml_core/daystrom_dml/services/episode_outcomes.py": "f88344281f057c5dbd0d55e9d488bea64405078d0241e18ee52451f409c093d7",
+      "dml_core/daystrom_dml/services/episode_tools.py": "bfcf2ac855b60e664340250ffa141126af456459c5762da1995c2a0773c55d45",
+      "dml_core/daystrom_dml/services/episode_verifiers.py": "b6a98db4c61770a8b3cc60abb75fd65d200cb670858e9cb0440d687bf78af396",
+      "dml_core/daystrom_dml/services/fixtures/agent_episodes_v1.json": "40439624b48d3fc4948585f03f5d8fd210db1e35d6cdfc2b20b0a3bb4aa5d8cb",
+      "dml_core/scripts/agent_episodes.py": "f349d35824aacda9978a5a1fb0d8cb85d77437ea3f6a05df782b62a2a86a8eba",
+      "dml_core/tests/test_agent_episode_adversarial.py": "f4376e4093e4b459724b9490744934f1a14a1578a299aaff9d7d18689d572fc6",
+      "dml_core/tests/test_agent_episode_cli.py": "09a0b4313382dbc119a113607b6009ca55ce48fe8bd92bcd5a81bce572d6d841",
+      "dml_core/tests/test_agent_episode_contract.py": "313fd8e85101e708a052a123156a6ba9fbaa624b2ff1d1c2478b8755c47eda08",
+      "dml_core/tests/test_agent_episode_runtime.py": "331fda8b236ea19035ebc42975215025c9995efcd9d9f65fb27a02e6d523267e",
+      "dml_core/tests/test_episode_outcomes.py": "04a377cab7a649c5d3a2eec0bd42f502a3cd2f31938da62f01b18167201ab15f",
+      "dml_core/tests/test_episode_tools.py": "a86f8ed04e662153e2afd541d3dc603cf9887dfdfbd58924888c3c91c40c0bdf",
+      "dml_core/tests/test_episode_verifiers.py": "829cde35211a122b947a696a758e44625be60dea78f9a305a624304cf00e8ad7",
+      "docs/artifacts/agent-episode-local-validation-2026-09-20.json": "85ae95d4d399345b9f83f99eb06de182f0ecb8a82e062f4dae72790ce806a699",
+      "docs/artifacts/agent-episode-model-preflight-2026-09-20.json": "681c037657dc69bd77fb13d806de819c4d480bb54c452d0eebe41315329d6c25",
+      "docs/live-agent-outcomes-2026-09-20.md": "4d766a6ad02d8a60f8a3cc28f00712aa224362f2119ca242053f55cafc078601",
+      "docs/production-foundations-2026-09-12.md": "12651ab1bea5c3efdf82152b086f216b125cd6149109a039faaa176c725fa476",
+      "docs/production-remaining-work-2026-09-18.md": "7c9126a238aa001f8a194d2b3b87b8be023f7037afd900436e4f7c381211f79c",
+      "pyproject.toml": "7a1577798c42e75472e22ad04afe2eadb35d242177cc2bbc57acc1506593ceaf",
+      "setup.py": "ad779bdc30316ff3e1b5f73c94e7b53c14b92ee551e89f4bd6507fade650739e"
+    },
+    "self_exclusion": "This review is the twenty-third publication file. Its own hash is excluded to avoid a recursive identity; retain that hash separately in publication evidence.",
+    "source_after_manifest_sha256": "f216460ca68b586512752dd3774204915b6c252d1ab8a4c2a3635fa8f0790f10",
+    "source_before_manifest_sha256": "f216460ca68b586512752dd3774204915b6c252d1ab8a4c2a3635fa8f0790f10",
+    "tested_source_before_after_equal": true,
+    "tested_source_current_hashes_equal": true,
+    "tested_source_file_count": 417
+  },
+  "reviewer_role": "Independent delegated M7 grader; production implementation owned by separate builders.",
+  "schema_version": "dml-independent-agent-episode-review-v1",
+  "score": 9.6,
+  "score_basis": "The bounded source contract, supervised execution, receipt authority, independent semantic verification and failure-inclusive accounting satisfy the frozen source scope. Independent negative controls and unchanged-source regression evidence support acceptance. The remaining gap is explicitly separate trained-model qualification, not represented as source-test success.",
+  "serial_source_gate": 20,
+  "validation": {
+    "focused_existing_exact_input_cases": 256,
+    "focused_module_counts": {
+      "dml_core.tests.test_agent_episode_adversarial": 74,
+      "dml_core.tests.test_agent_episode_cli": 20,
+      "dml_core.tests.test_agent_episode_contract": 59,
+      "dml_core.tests.test_agent_episode_runtime": 15,
+      "dml_core.tests.test_episode_outcomes": 23,
+      "dml_core.tests.test_episode_tools": 13,
+      "dml_core.tests.test_episode_verifiers": 69,
+      "dml_core.tests.test_model_input_adversarial": 57,
+      "dml_core.tests.test_model_input_contract": 109,
+      "dml_core.tests.test_model_input_integration": 7,
+      "dml_core.tests.test_model_input_runtime": 8,
+      "dml_core.tests.test_model_input_snapshot": 75
+    },
+    "focused_new_m7_cases": 273,
+    "full_suite_skip_categories": {
+      "dedicated_linux_ext4_actual_enospc_volume": 15,
+      "legacy_online_model_fixture_unavailable_offline": 1,
+      "unavailable_cuda": 1,
+      "unavailable_mcp_extra": 6,
+      "windows_acl_only": 1
+    },
+    "local_typecheck_boundary": "Local mypy used --python-version 3.12 because installed NumPy 2.5.3 stubs use Python 3.12 syntax. Published CI retains its Python 3.10 and 3.11 type-check gates.",
+    "new_m7_or_mandatory_cpu_skips": 0,
+    "overlap_notice": "The focused CPU selection is contained in the full regression suite; do not add the counts.",
+    "package_smoke": {
+      "evidence_attribution": "Root integration validation: wheel included the corpus and CLI entry point; isolated wheel import loaded all eight scenarios and CLI help. Packaging definitions and retained manifest were independently reviewed.",
+      "result": "passed"
+    },
+    "results_json_sha256": "fd3859679a0ad125d623072d8a61bb0054013cbcbaa5987abeaa987086a58ccf",
+    "retained_public_manifest": {
+      "path": "docs/artifacts/agent-episode-local-validation-2026-09-20.json",
+      "sha256": "85ae95d4d399345b9f83f99eb06de182f0ecb8a82e062f4dae72790ce806a699"
+    },
+    "runtime": {
+      "dependencies": {
+        "jinja2": "3.1.6",
+        "mypy": "2.3.1",
+        "numpy": "2.5.3",
+        "pytest": "9.1.1",
+        "ruff": "0.16.7",
+        "safetensors": "0.6.2",
+        "tokenizers": "0.22.0",
+        "torch": "2.8.0+cpu",
+        "transformers": "4.56.2"
+      },
+      "machine": "x86_64",
+      "platform": "Linux",
+      "python": "3.12.14",
+      "sqlite": "3.53.1"
+    },
+    "static_checks": {
+      "hermes_hygiene": {
+        "exit_code": 0,
+        "log_sha256": "62df660d0f6a37ea1fd0482ebefd85a1cca95a533f319dda0ea71cab2fc113b3"
+      },
+      "mypy_maintained_local312": {
+        "exit_code": 0,
+        "log_sha256": "085707a7e483c3285495922d9cf667a59e5e0911e054859371e389ee03d50e15"
+      },
+      "ruff_maintained": {
+        "exit_code": 0,
+        "log_sha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18"
+      }
+    },
+    "static_results_json_sha256": "d7e362111baa2d4886da12350a45adf7a13d848536dd690a8ea7105606b8a0e8",
+    "static_verification": "Inspected retained exit codes and pass logs; independently checked their hashes against the public validation manifest.",
+    "tests": {
+      "cpu": {
+        "errors": 0,
+        "failures": 0,
+        "independent_verification": "Parsed retained JUnit cases and verified JUnit/log hashes against the public local-validation manifest.",
+        "junit_sha256": "d5440f26f681892a2477397e9aab3cae0056c8df9cae4bfa1eb441a0bed3b351",
+        "log_sha256": "8d80f840c2d3234269b6260e663de5cd20e9fed8aa9b5cbc2b1dcb3f9cf4514a",
+        "passed": 529,
+        "skipped": 0,
+        "targets": [
+          "dml_core/tests/test_model_input_contract.py",
+          "dml_core/tests/test_model_input_snapshot.py",
+          "dml_core/tests/test_model_input_runtime.py",
+          "dml_core/tests/test_model_input_integration.py",
+          "dml_core/tests/test_model_input_adversarial.py",
+          "dml_core/tests/test_agent_episode_contract.py",
+          "dml_core/tests/test_episode_outcomes.py",
+          "dml_core/tests/test_episode_verifiers.py",
+          "dml_core/tests/test_agent_episode_adversarial.py",
+          "dml_core/tests/test_agent_episode_runtime.py",
+          "dml_core/tests/test_episode_tools.py",
+          "dml_core/tests/test_agent_episode_cli.py"
+        ],
+        "testcases": 529
+      },
+      "full": {
+        "errors": 0,
+        "failures": 0,
+        "independent_verification": "Parsed retained JUnit cases and verified JUnit/log hashes against the public local-validation manifest.",
+        "junit_sha256": "c16b52c6f8548910742737d25690d587acf33f56d9709eb852dcb9fb2cd9f3c1",
+        "log_sha256": "9c3e5585d12b59424fc1edcdd645916e73cda51e1bb2ca60003ee09b9c7c6b42",
+        "passed": 4667,
+        "skipped": 24,
+        "targets": [
+          "dml_core/daystrom_dml/tests",
+          "dml_core/tests",
+          "integrations/hermes/tests",
+          "openclaw-wrapper/tests"
+        ],
+        "testcases": 4691
+      }
+    }
+  }
+}

@@ -1,0 +1,471 @@
+{
+  "acceptance_basis": [
+    "The selected profile fences all eight admitted authority/status operations during shutdown, drains active calls before dependency cleanup, rejects inherited adapters before lifetime locks, and preserves legacy behavior outside the profile.",
+    "Concurrent and reentrant close, cleanup failure and BaseException paths are independently challenged; failed draining leaves dependencies live and close remains retryable without reopening admission.",
+    "Refresh now carries the exact payload and revision from one validated snapshot, eliminating the demonstrated shared advisory-revision race across schemas 2, 3 and 4.",
+    "StoreLockTimeout identifies actual OS acquisition expiry without changing the existing ownership budget. Generic callback/backend timeouts remain uncertain and are not relabeled as ownership rejection.",
+    "The independently reviewed oracle reconstructs full state, receipts, decisions, outbox, scoped retrieval, exact rendered context and retention from immutable intents. Precise corruption controls reject invented context with recomputed hashes, read regression and missed acknowledged commits after rejected attempts.",
+    "The frozen complete matrix executes actual shared and separate adapter threads, up to four spawned processes hosting caller threads, and real H11 loopback HTTP at 1/16/64/256 clients for schemas 2/3/4. Ready clients, arrived requests and active workers remain distinct measurements.",
+    "All 48 independently replayed histories complete their original logical intents under the original 90-second bound, retaining every typed ownership rejection and retry. The 37-unique-commit high-scale recipe was not reduced.",
+    "Separate real disconnect, timeout and cancellation cases on both sides of commit resolve the exact original key after restart. Related-state conflicts, backend progress, cooperating SQLite maintenance and verified backup/reopen have additional controlled tests.",
+    "The evidence gate binds the exact collected, executed and JUnit case identities and outcomes, verifies strict transport-specific attempts, and reopens every SHA-bound raw history rather than trusting a success boolean.",
+    "The final source freeze and independent replay close the first rejected integration findings. Local source acceptance honestly retains the dirty-tree and volatile-overlay environment exclusions, and actual platform CI remains mandatory."
+  ],
+  "base_commit": "cd55a55b60abf1d32f3f1e7e3c6f1fea5fdde634",
+  "blockers": [],
+  "ci_gate": {
+    "allowed_windows_skip": {
+      "case": "test_inherited_profile_rejects_all_authority_paths_before_work",
+      "module": "test_profile_concurrency_runtime",
+      "reason": "POSIX fork inheritance is unavailable on this platform"
+    },
+    "artifact_requirements": "Each accepted JSON must bind its exact source/runtime/filesystem and JUnit, and all raw histories must independently replay. All required cases must pass; only the precisely identified POSIX-fork case may skip on Windows.",
+    "closure_rule": "Do not close milestone 6 until the published source passes full integration and all required CI jobs and measured-platform artifacts are accepted.",
+    "expected_total_jobs": 20,
+    "merge_authorized": false,
+    "pull_request": "https://github.com/mmckeen-nv/DML/pull/118",
+    "required_concurrency_artifacts": [
+      {
+        "campaign_cells": 48,
+        "name": "profile-concurrency-ubuntu-latest-full",
+        "python": "3.12",
+        "scales": [
+          1,
+          16,
+          64,
+          256
+        ],
+        "schemas": [
+          2,
+          3,
+          4
+        ]
+      },
+      {
+        "campaign_cells": 24,
+        "name": "profile-concurrency-macos-latest-bounded",
+        "python": "3.12",
+        "scales": [
+          1,
+          16
+        ],
+        "schemas": [
+          2,
+          3,
+          4
+        ]
+      },
+      {
+        "campaign_cells": 24,
+        "name": "profile-concurrency-windows-latest-bounded",
+        "python": "3.12",
+        "scales": [
+          1,
+          16
+        ],
+        "schemas": [
+          2,
+          3,
+          4
+        ]
+      }
+    ],
+    "status": "pending"
+  },
+  "declared_http_transport": {
+    "client_keepalive_expiry_seconds": 1,
+    "controlled_idle_probe": {
+      "evidence": "Matching socket and monotonic times establish selection, actual idle timer, request write, normal close and read failure. The declared 1-second control selects a fresh socket and receives HTTP 200; authority stays unchanged.",
+      "failed": 0,
+      "junit_sha256": "a73d9b0f869e0c6657016aa6b357f2245850fa0a83f05d50484cce11f506113d",
+      "observed_exception_chain": [
+        "httpx.ReadError",
+        "httpcore.ReadError",
+        "anyio.BrokenResourceError",
+        "ConnectionResetError(104)"
+      ],
+      "passed": 2,
+      "retrospective_attribution": "The exact cause of the initial 640-operation transport failure was not conclusively traced. The controlled mechanism and final passing matrix qualify only the now-declared policy.",
+      "skipped": 0,
+      "testcases": 2
+    },
+    "installed_libraries": {
+      "fastapi": "0.141.1",
+      "h11": "0.16.0",
+      "httpcore": "1.0.9",
+      "httpx": "0.28.1",
+      "starlette": "1.6.0",
+      "uvicorn": "0.53.0"
+    },
+    "maximum_total_attempts": 3,
+    "original_campaign_deadline_seconds": 90,
+    "retention_retry": false,
+    "server_keepalive_timeout_seconds": 5,
+    "topology": "One shared AsyncClient pool; real loopback child server with explicit H11 protocol",
+    "transport_error_retry": false,
+    "typed_mutation_retry_detail": {
+      "code": "receipt_ownership_unavailable",
+      "retry_same_key": true
+    },
+    "typed_retrieval_retry_detail": {
+      "code": "retrieval_outcome_unavailable",
+      "reason": "store_ownership_timeout"
+    }
+  },
+  "documentation_updates_after_execution": {
+    "docs/production-concurrency-2026-09-19.md": {
+      "reviewed_sha256": "30ea0c99515a43b6b22ffb00b80970f01781dfb882ed13ee3f7eb1206b69b3f2",
+      "tested_sha256": "c0f44450f6ee9adf443e3e65cff387b8aec4c6086477e73b32b74b78909e2a6f"
+    },
+    "docs/production-foundations-2026-09-12.md": {
+      "reviewed_sha256": "69fd8c68e6a2dc20ee6da5a720e4c215593d7ea98b0791a4c5f5c44bbdd8a96c",
+      "tested_sha256": "10bfda9325f598e5c393fa4c844635d89c150710d44f0af64f1d0572464460d7"
+    },
+    "docs/production-remaining-work-2026-09-18.md": {
+      "reviewed_sha256": "72fe7e8f0398042ba6db8b3a176e51f621d3886277694fa8194f4274cbc159df",
+      "tested_sha256": "bc6e27470bb50076b7f04edd29190fb6db3fda6629bca75a1688fff50c72139e"
+    },
+    "docs/supported-production-profile-v1.md": {
+      "reviewed_sha256": "cc93091c9dad43a38239943cf5d99dba819eaaf4d1392707165fadad6313b76c",
+      "tested_sha256": "31342bada6e36b43988236b503484bd693be4767c5341fe9c94e13592e9cf252"
+    }
+  },
+  "final_local_evidence": {
+    "cases": 318,
+    "completed_at_utc": "2026-09-19T20:19:48.634330+00:00",
+    "default_lock_seconds": [
+      30.058794794000278,
+      30.065362716999516,
+      30.043223886001215,
+      30.05086157900223,
+      30.062676768997335,
+      30.059031521999714
+    ],
+    "failed": 0,
+    "history_sha256": {
+      "schema2-http-1.json.gz": "eff2bb4340e272fae3d88315977cfd95f9497953c177e7fe3377016150083681",
+      "schema2-http-16.json.gz": "7608e7867be7254e32e49748c5f5ea2be2ae2b18903bcedf90f5a621689848bf",
+      "schema2-http-256.json.gz": "f510d05b0f37f7c19af4375f562708f686303c4b19742d9b09543c47b6bfcfdc",
+      "schema2-http-64.json.gz": "4fe92e8fbbaf216332fc348071ad0460be197704ad35adaf6805bc2f89cbb089",
+      "schema2-processes-1.json.gz": "8596bb1d8c2ef60b1b96545cd3793706118f65cf8964dfe9f528731e0b3423aa",
+      "schema2-processes-16.json.gz": "ff4efbef7ce8e31b7bd0b4f1962c87bb298650170a78e2ea922ec63642208f90",
+      "schema2-processes-256.json.gz": "19a1ab21e46ea77db9e085d41d988be0007d9351408209dfe07a8e9f784c4708",
+      "schema2-processes-64.json.gz": "ea0cbd845698ef44cbe704b82c34657c49bcef5fedfbe398328dd8c662bc0de5",
+      "schema2-threads-separate-1.json.gz": "11b29ba6d68eeff85c1a60c2e7d4a1b2296a479cc5b59b6a0d2a176c947f11ba",
+      "schema2-threads-separate-16.json.gz": "4f000602d2218f08a743abc61a1a5a4ffd87af3742a2d10fe6809c5edc1805bc",
+      "schema2-threads-separate-256.json.gz": "944b88f06a65faf811d1cdd8f09bf10a861f64a4fce49b6b3885b1c7414efa02",
+      "schema2-threads-separate-64.json.gz": "b13446fcd7faa60405afa3fa9175049835bf0c2358b4da4ab29a5b46d9035094",
+      "schema2-threads-shared-1.json.gz": "d2bc7ea08f680ab3c4c1d20c0f6ce5535b079ff81b42f65e42cda7ee10c2824c",
+      "schema2-threads-shared-16.json.gz": "7472505f29c774890d46587c741e87a027f79808ff9fef2c36dd1656fb5e526b",
+      "schema2-threads-shared-256.json.gz": "76b785d0556283182147160dcff5bf558907367178e9136cd14f75091c90cad5",
+      "schema2-threads-shared-64.json.gz": "e945fc74aa4fa64098d0b4f5b2372bd99c9f935a1a2a3be0288ed406bc20364d",
+      "schema3-http-1.json.gz": "4cd13f9197a8d3d7d3f6ab176e358e00fc0e273e9f11bc5a6466221644c28599",
+      "schema3-http-16.json.gz": "9ad263e101de6bfe3177151eceda7e4de9086b2dbe9dba1b0d8515037aad7f22",
+      "schema3-http-256.json.gz": "0ae5fdbf1a04547656d21161a7396203d73f948c83e1d07227a67d9a068c879b",
+      "schema3-http-64.json.gz": "b95d7b89629254d680d1eaddd036322494e84e882dac9b3929509bc8847b0f92",
+      "schema3-processes-1.json.gz": "f2a631829367f732d8b2e97f13ec7eac8ff66c57359cc0b898909fccf819c417",
+      "schema3-processes-16.json.gz": "64a9555cd1c7698d2ed329c302a80aac652f881419649da1caf012c6cb5a73b2",
+      "schema3-processes-256.json.gz": "beab28bcb592896946fefccd5e9de0ac6094efd19d998d78484c92a386e644fb",
+      "schema3-processes-64.json.gz": "1119641cd6197b4951ac47cd24c8e9e71fcf60fd92e8cd66f8628093af6faa57",
+      "schema3-threads-separate-1.json.gz": "9ca61e2f6e4a383f7d804d4e3b849cd6eb934181dee6104941c7142007ce7189",
+      "schema3-threads-separate-16.json.gz": "d601c58b55880a15a966dc6c08eba254a7a72e3cf5f98fa2ce9ef0331c98a6c0",
+      "schema3-threads-separate-256.json.gz": "8fba2dd936e9f2f31f0544c1c47f7a64347948786a91b9851f4090c38cbbb7b6",
+      "schema3-threads-separate-64.json.gz": "9ec3dc10cf2bd8266b777d864aa4b73215902bc5363ddea5c1b50c2c15fc217b",
+      "schema3-threads-shared-1.json.gz": "5b04556e2707c8929a96aeabef32a2475adf643bbabc1344136d33231a900c98",
+      "schema3-threads-shared-16.json.gz": "9cd6f963e943d8adfc7f1d657002a0952f39f8b182828dfde269885e6235eaa0",
+      "schema3-threads-shared-256.json.gz": "90b7ab9822165f9472d47745fd6be5b243e006b9e53455ecff6da64d58623553",
+      "schema3-threads-shared-64.json.gz": "254a6560ff57ee035657a14dc65fcd68532c5cbf374d682ad9b7b7e6aedcdcec",
+      "schema4-http-1.json.gz": "af6ce916fbea7e7caffcf55a76b2fe49e56833182624935f68260aa62dbe7d8f",
+      "schema4-http-16.json.gz": "1f907a994ad24fae1a8bff5e528ad5e84b28249d5991a3abded1d6588b757453",
+      "schema4-http-256.json.gz": "82903feffd18a8f6b2285934cf34cd9a2284c4dabcd2f11b1ab538f675ef7f1c",
+      "schema4-http-64.json.gz": "d1aeb7e059f0fa25bdc2caa159a063041ae050404aaf0dd9e18e0822c083daaa",
+      "schema4-processes-1.json.gz": "03e0830766a2ef38d57781acbecbe8e96bafad8bf34deab96d22df76ddab8325",
+      "schema4-processes-16.json.gz": "ca9f5a874b565b6045356222d5c6684a76b54aa887b464da642716f341ba3635",
+      "schema4-processes-256.json.gz": "b00df83055e84d39069889fdfe65aea9495ebee1f400598b418134fc0ad7ffe4",
+      "schema4-processes-64.json.gz": "22ff248aa1039fa00c30c89bbaa8121cbeb11d5ff929cf01c88fd0bb9e687803",
+      "schema4-threads-separate-1.json.gz": "807b7818d88d17544018ad8427bcf81c03b00d2515ba436bd8e88ccba6aaf0d5",
+      "schema4-threads-separate-16.json.gz": "1f3cda6824dcc9d17769a95973cdeb707e9ca5fdc7d83a89865389819daf5722",
+      "schema4-threads-separate-256.json.gz": "b653d11cc4c596b4f21d57724a41dc9355f2fc9529ab46c1023d5d195c2a9b34",
+      "schema4-threads-separate-64.json.gz": "8f5e45d6bc591ce32b09b4b5979ff27a840740f3eef9b93a627dc7d41e2afb8a",
+      "schema4-threads-shared-1.json.gz": "9ebce9c5eb456f7777ceceeb0763e12ca9c5e98dc15295719319ca2bb0d6f41e",
+      "schema4-threads-shared-16.json.gz": "4648b2e8a8a8ac8e1cd2006afe2fe61f849e0cb79022ae3c5c1401c990168254",
+      "schema4-threads-shared-256.json.gz": "87c859a02c608e693624453662aacd105ad01cfeaffd6a825443ba9e7eacad15",
+      "schema4-threads-shared-64.json.gz": "fd617312339f5eaf00033c370d14f7e229cd0cc6e40e34f5b966fc2b5b33ab38"
+    },
+    "http_libraries": {
+      "fastapi": "0.141.1",
+      "h11": "0.16.0",
+      "httpcore": "1.0.9",
+      "httpx": "0.28.1",
+      "starlette": "1.6.0",
+      "uvicorn": "0.53.0"
+    },
+    "independent_verification": "The grader parsed the actual JUnit and JSON, verified their digest binding and exact outcomes, independently replayed all 48 raw gzip histories through the reviewed complete-history oracle, checked matrix identities and metrics, and compared both frozen manifests.",
+    "independently_replayed_histories": 48,
+    "junit_sha256": "96e6c2fb1da31853a2d6ad56b19c2807cc1c749410c8246563c133e1cfd24313",
+    "local_environment_qualified": false,
+    "max_active_http_workers": 40,
+    "max_attempts": 2,
+    "max_campaign_seconds": 50.557503168,
+    "max_first_progress_seconds": 6.657918314,
+    "max_http_in_flight": 256,
+    "max_operation_seconds": 49.202182122,
+    "mixed_contention_ownership": {
+      "blocked_attempts": 141,
+      "clients": 16,
+      "injected_owner_delay_seconds": 0.002,
+      "max_wait_seconds": 0.877312428,
+      "schema": 3,
+      "schema_version": "dml-ownership-wait-evidence-v1",
+      "successful_acquisitions": 26,
+      "timing_domain": "first_os_lock_attempt_to_acquired",
+      "unfinished_acquisitions": 0
+    },
+    "module_counts": {
+      "test_profile_concurrency": 65,
+      "test_profile_concurrency_adversarial": 25,
+      "test_profile_concurrency_evidence": 107,
+      "test_profile_concurrency_http": 61,
+      "test_profile_concurrency_runtime": 60
+    },
+    "passed": 318,
+    "power_loss_qualified": false,
+    "pytest_seconds": 572.87,
+    "qualification_errors": [
+      "Actual test filesystem is changed or unqualified",
+      "Source identity changed or source tree is dirty"
+    ],
+    "release_progress_seconds": 0.009814768000069307,
+    "report_sha256": "e64de9831da7fb72369a47ae5b539711cbb351c2a5b487bf6aa13dd133b4ce5e",
+    "runtime": {
+      "filesystem": {
+        "device_id": 28,
+        "local": false,
+        "options": [
+          "fsync=volatile",
+          "relatime",
+          "rw"
+        ],
+        "source": "proc-self-mountinfo",
+        "type": "overlay"
+      },
+      "platform": "Linux",
+      "python": "3.12.14",
+      "sqlite_version": "3.53.1"
+    },
+    "skipped": 0,
+    "source_attribution": "All 23 planned implementation, harness, workflow and contract files were byte-identical before and after the final run. Four documentation files were subsequently updated with these completed results and independently reviewed below.",
+    "source_file_count": 23,
+    "source_manifest_sha256": "5a56dcfeff4af40a39361bc6c0d934e9ec1142b84972168dd59ae80bdf9fbabc",
+    "source_unchanged_during_run": true,
+    "started_at_utc": "2026-09-19T20:10:15.766979+00:00",
+    "total_logical_events": 10320,
+    "total_ownership_rejections": 107
+  },
+  "frozen_test_source_sha256": {
+    ".github/workflows/ci.yml": "f40b6abac3324dd25c3d784d867a49ef7fcb3626e4eb2f5ce789c7f6eb60acf3",
+    ".gitignore": "1e254d973d24dd29be2198850faf59b003c93bf26746651799d9a7724f77d5ec",
+    "dml_core/daystrom_dml/dml_adapter.py": "8dd85bac0dc7c7f37821750c7f7d770ab5d6e98f815d44c07b5cd853618ae4bf",
+    "dml_core/daystrom_dml/services/persistence.py": "9795d2d17f931b57949151361971725c7ae0baad3ecdedcc1bdb681bcc98f51d",
+    "dml_core/daystrom_dml/services/profile_http.py": "a23ff5a30d6cc99370c0ba9db18c49a1fa6bd7e66a869e24184ec08968d752aa",
+    "dml_core/daystrom_dml/services/profile_runtime.py": "ed4387cccffbd9bcdb53b4e5339eeb680b403af22a65ccb52dbf9938da833b1f",
+    "dml_core/daystrom_dml/store_lock.py": "80a3ec19da7c48802d02b562a96f3e395a75e6e64a69859e48e90e896f279211",
+    "dml_core/scripts/profile_concurrency_evidence.py": "c19fd4ca192e4de2a25194804024c18d9d6480af27bc0a5cce5d26a58dc3e872",
+    "dml_core/tests/profile_concurrency_fixture.py": "ecd65519c1d8cccf31141fd5849010887f4c90dacbd7acf596605c8df4c24efe",
+    "dml_core/tests/profile_concurrency_http_fixture.py": "a06968e73b254f43bb71d5c98aad94664c4d6bde8fc82476104d2495d604e675",
+    "dml_core/tests/test_persistence_service.py": "12c7de1eee856db3078c1ee4fef6112f693894234768fe8516921934cd93a2fa",
+    "dml_core/tests/test_profile_concurrency.py": "129c9c68003d36df29a351dcb4de4e6457a3ab615c2b56dc1f62a502a7d3ec37",
+    "dml_core/tests/test_profile_concurrency_adversarial.py": "44df1d3c8c74dddf366a2cf388925cdcdd3c8766e70738f849e339fdf9aefcb6",
+    "dml_core/tests/test_profile_concurrency_evidence.py": "009ad6b6d727c3fb70d02cd5a5753d3c872d68f29af157ba50b0f029da7b9a8c",
+    "dml_core/tests/test_profile_concurrency_http.py": "1a874e6e471bad545911bf6943b28aca68b2962b0141d875732aeffa2320e08b",
+    "dml_core/tests/test_profile_concurrency_runtime.py": "2bcc41f70293dd86505e99775202e2a2df7e780bdd1e3b86b68ca3a414205c9d",
+    "dml_core/tests/test_receipt_adapter.py": "f2ca08d4563171932983a52fc5803bb2ce9288917cfc3d06435093ba3d8fb9c3",
+    "dml_core/tests/test_store_lock.py": "f742f201acc042264f26705bb490750a5d1f8393fb3488a8288ebe0709a9fdea",
+    "dml_core/tests/test_transaction_adversarial.py": "7d8b138fcb5b082b8a24d4fe9aecee404e28324bea3102c4dfa1f2feb1806a61",
+    "docs/production-concurrency-2026-09-19.md": "c0f44450f6ee9adf443e3e65cff387b8aec4c6086477e73b32b74b78909e2a6f",
+    "docs/production-foundations-2026-09-12.md": "10bfda9325f598e5c393fa4c844635d89c150710d44f0af64f1d0572464460d7",
+    "docs/production-remaining-work-2026-09-18.md": "bc6e27470bb50076b7f04edd29190fb6db3fda6629bca75a1688fff50c72139e",
+    "docs/supported-production-profile-v1.md": "31342bada6e36b43988236b503484bd693be4767c5341fe9c94e13592e9cf252"
+  },
+  "grade": 9.6,
+  "grade_basis": {
+    "concurrency_and_oracle_coverage": 9.6,
+    "evidence_integrity": 9.6,
+    "failure_and_lifecycle_handling": 9.6,
+    "interpretation": "Source acceptance within the declared finite candidate scope. This is not full production release or environment qualification.",
+    "maintainability_and_documentation": 9.5,
+    "runtime_correctness": 9.7
+  },
+  "historical_and_focused_evidence": {
+    "affected_existing_regression": {
+      "failed": 0,
+      "junit_sha256": "e0335caa0a0e635e15ea1bb51a0874e76ce26bb74f97a08590c9ae108c28d583",
+      "passed": 240,
+      "skipped": 0,
+      "source_attribution": "Executed after the paired-snapshot fix, before the later additive typed recall reason; final selected HTTP boundary tests are included in the 318-case run.",
+      "testcases": 240
+    },
+    "counting_rule": "Selections overlap and are separately attributed; these test counts must not be summed into a purported final-source full-suite count.",
+    "earlier_full_suite": {
+      "failed": 0,
+      "junit_sha256": "6a456605d8d1b34427c97f6d299f4b1b85c4ad74777f8cfb99afe92c8d89ed55",
+      "passed": 4058,
+      "pytest_seconds": 277.81,
+      "skipped": 24,
+      "source_attribution": "Executed before the typed StoreLockTimeout and paired-snapshot fixes. It is historical regression evidence, not final-source full integration.",
+      "testcases": 4082,
+      "warnings": 3
+    },
+    "independent_adversarial": {
+      "failed": 0,
+      "junit_sha256": "4ec2e5910b8bca5fa50a25e8f03c3d53352eb39f7e654a7f65c9e9ea91593c4b",
+      "passed": 25,
+      "skipped": 0,
+      "source_attribution": "25 independently authored cases passed with qualification environment variables present; all 25 also passed in the final combined run.",
+      "testcases": 25
+    },
+    "independent_paired_refresh": {
+      "failed": 0,
+      "junit_sha256": "e62959837da4c84c338fd39fa256f3a948c2eb6524579fa8fd2572f622980aff",
+      "passed": 21,
+      "skipped": 0,
+      "source_attribution": "Focused paired-refresh and existing persistence tests; overlaps the affected regression selection.",
+      "testcases": 21
+    },
+    "paired_snapshot_green": {
+      "failed": 0,
+      "junit_sha256": "4410b319f9928884278c710f496b8923befdd4ffb1b5576c51ab6dc406ec531b",
+      "passed": 3,
+      "skipped": 0,
+      "testcases": 3
+    },
+    "paired_snapshot_red": {
+      "failed": 3,
+      "junit_sha256": "c297cb0eac7a926bff190976e1192c477fdfbab0406384fe4b49dd4ee85dee28",
+      "passed": 0,
+      "skipped": 0,
+      "testcases": 3
+    },
+    "typed_recall_reason_green": {
+      "failed": 0,
+      "junit_sha256": "b802317a2f03a8c96c2d041622f848d3f686268f3934830e827d42df556cc0df",
+      "passed": 6,
+      "skipped": 0,
+      "testcases": 6
+    },
+    "typed_recall_reason_red": {
+      "failed": 1,
+      "junit_sha256": "8d4d5e63af242d9e7359a2bed529bb505023825ac5fa6d2ada6fc5436b19aaaf",
+      "passed": 1,
+      "skipped": 0,
+      "testcases": 2
+    }
+  },
+  "limits": [
+    "Finite histories and deterministic schedules do not prove correctness under every possible scheduler or establish a production throughput, latency or arbitrary-starvation SLO.",
+    "The 256-client matrix does not mean 256 OS processes or 256 simultaneously executing HTTP workers. Actual process/worker counts are retained separately.",
+    "The 30-second OS budget excludes earlier local mutex waits, embedding/preparation and complete request latency. Shutdown admission/drain bounds do not bound all dependency cleanup or cancel arbitrary backends.",
+    "The declared HTTP idle policy reduces the demonstrated reuse boundary; it does not promise immunity to arbitrary scheduling pauses, network failure or transport loss. Unexpected transport errors still fail a mixed campaign.",
+    "The local overlay and dirty source are deliberately unqualified; this review does not convert them into filesystem or physical power-loss evidence.",
+    "Only cooperating trusted callers on one host and the admitted local SQLite profile are covered; multi-host/network-filesystem and noncooperating writers remain excluded.",
+    "Live-agent semantic outcomes, baseline value, growing-store/1k/10k/100k-turn measurements, operator replay/retention and release support remain milestones 7 through 11.",
+    "Milestones 1 through 5 remain closed; milestone 6 remains open pending CI. Native-KV compatibility and broader legacy orchestration remain the two deferred milestones."
+  ],
+  "maintained_static_checks": {
+    "hermes_hygiene_smoke": "passed",
+    "log_sha256": "bf21982e67561116a7e4dbb66f6e41cc76aac197d8f9873a5163d0f99e0e5baa",
+    "maintained_ruff": "passed",
+    "mypy": "passed",
+    "mypy_maintained_source_files": 67,
+    "new_eight_file_strict_ruff": "passed",
+    "source_attribution": "Executed against the frozen final implementation and harness, before documentation-only evidence updates."
+  },
+  "maturity": "alpha; selected profile remains candidate",
+  "milestone_status": "Implementation and local checks complete; exact-source CI and milestone closure pending",
+  "minimum_accepted_grade": 9.5,
+  "production_ready": false,
+  "review_artifact_hash_rule": "This review artifact excludes its own hash to avoid a circular dependency. The published Git tree must contain exactly these reviewed files and this review artifact.",
+  "review_date": "2026-09-19",
+  "review_history": [
+    {
+      "blockers": [
+        "83 test setup failures from DML_CONCURRENCY_SCALES/HISTORY_DIR interpreted as strict profile configuration",
+        "Real loopback HTTP256/schema4 ReadError not resolved",
+        "HTTP evidence artifacts mismatch transient imported timing fields; frozen-source verification required"
+      ],
+      "checksums": {
+        "concurrency.xml": "13e7ab53ef32e89dd2a4b83274ee9082281e8cda654f7014c4c56b6d08043bb1",
+        "evidence.json": "9b9e383ea1bef28920597d539e6417e635dc69b2df384df6c42383664ed5c5a9"
+      },
+      "failed": 84,
+      "grade": 9.2,
+      "module_results": {
+        "evidence": {
+          "passed": 85
+        },
+        "history": {
+          "passed": 57
+        },
+        "http": {
+          "failed": 1,
+          "passed": 49
+        },
+        "independent_adversarial": {
+          "cause": "qualification harness environment rejected before runtime assertions",
+          "failed": 25
+        },
+        "runtime": {
+          "cause": "qualification harness environment rejected before runtime assertions",
+          "failed": 58
+        }
+      },
+      "passed": 191,
+      "resolution": [
+        "The runtime and independent test modules isolate qualification-only DML environment inputs from strict profile construction; all 85 current cases in those two modules pass in the final combined run.",
+        "The controlled real-socket probe demonstrates an idle-close mechanism and its fresh-socket control. The final matrix declares a 1-second client idle expiry below the 5-second server timeout, keeps the shared pool, retains the probe, and never retries ReadError. It does not retrospectively establish the exact cause of the original transport failure.",
+        "All 23 planned files were frozen before final execution and their before/after hashes matched exactly. The final evidence plugin accepted all 48 history/case/bound checks, with only the expected local source/filesystem qualification exclusions."
+      ],
+      "skipped": 0,
+      "verdict": "REJECT"
+    },
+    {
+      "failed": 0,
+      "grade": 9.6,
+      "independently_replayed_histories": 48,
+      "passed": 318,
+      "qualification_pending": "Actual published-source CI on measured target filesystems",
+      "skipped": 0,
+      "verdict": "ACCEPT_REVIEWED_SOURCE"
+    }
+  ],
+  "review_revision": 1,
+  "reviewed_file_sha256": {
+    ".github/workflows/ci.yml": "f40b6abac3324dd25c3d784d867a49ef7fcb3626e4eb2f5ce789c7f6eb60acf3",
+    ".gitignore": "1e254d973d24dd29be2198850faf59b003c93bf26746651799d9a7724f77d5ec",
+    "dml_core/daystrom_dml/dml_adapter.py": "8dd85bac0dc7c7f37821750c7f7d770ab5d6e98f815d44c07b5cd853618ae4bf",
+    "dml_core/daystrom_dml/services/persistence.py": "9795d2d17f931b57949151361971725c7ae0baad3ecdedcc1bdb681bcc98f51d",
+    "dml_core/daystrom_dml/services/profile_http.py": "a23ff5a30d6cc99370c0ba9db18c49a1fa6bd7e66a869e24184ec08968d752aa",
+    "dml_core/daystrom_dml/services/profile_runtime.py": "ed4387cccffbd9bcdb53b4e5339eeb680b403af22a65ccb52dbf9938da833b1f",
+    "dml_core/daystrom_dml/store_lock.py": "80a3ec19da7c48802d02b562a96f3e395a75e6e64a69859e48e90e896f279211",
+    "dml_core/scripts/profile_concurrency_evidence.py": "c19fd4ca192e4de2a25194804024c18d9d6480af27bc0a5cce5d26a58dc3e872",
+    "dml_core/tests/profile_concurrency_fixture.py": "ecd65519c1d8cccf31141fd5849010887f4c90dacbd7acf596605c8df4c24efe",
+    "dml_core/tests/profile_concurrency_http_fixture.py": "a06968e73b254f43bb71d5c98aad94664c4d6bde8fc82476104d2495d604e675",
+    "dml_core/tests/test_persistence_service.py": "12c7de1eee856db3078c1ee4fef6112f693894234768fe8516921934cd93a2fa",
+    "dml_core/tests/test_profile_concurrency.py": "129c9c68003d36df29a351dcb4de4e6457a3ab615c2b56dc1f62a502a7d3ec37",
+    "dml_core/tests/test_profile_concurrency_adversarial.py": "44df1d3c8c74dddf366a2cf388925cdcdd3c8766e70738f849e339fdf9aefcb6",
+    "dml_core/tests/test_profile_concurrency_evidence.py": "009ad6b6d727c3fb70d02cd5a5753d3c872d68f29af157ba50b0f029da7b9a8c",
+    "dml_core/tests/test_profile_concurrency_http.py": "1a874e6e471bad545911bf6943b28aca68b2962b0141d875732aeffa2320e08b",
+    "dml_core/tests/test_profile_concurrency_runtime.py": "2bcc41f70293dd86505e99775202e2a2df7e780bdd1e3b86b68ca3a414205c9d",
+    "dml_core/tests/test_receipt_adapter.py": "f2ca08d4563171932983a52fc5803bb2ce9288917cfc3d06435093ba3d8fb9c3",
+    "dml_core/tests/test_store_lock.py": "f742f201acc042264f26705bb490750a5d1f8393fb3488a8288ebe0709a9fdea",
+    "dml_core/tests/test_transaction_adversarial.py": "7d8b138fcb5b082b8a24d4fe9aecee404e28324bea3102c4dfa1f2feb1806a61",
+    "docs/production-concurrency-2026-09-19.md": "30ea0c99515a43b6b22ffb00b80970f01781dfb882ed13ee3f7eb1206b69b3f2",
+    "docs/production-foundations-2026-09-12.md": "69fd8c68e6a2dc20ee6da5a720e4c215593d7ea98b0791a4c5f5c44bbdd8a96c",
+    "docs/production-remaining-work-2026-09-18.md": "72fe7e8f0398042ba6db8b3a176e51f621d3886277694fa8194f4274cbc159df",
+    "docs/supported-production-profile-v1.md": "cc93091c9dad43a38239943cf5d99dba819eaaf4d1392707165fadad6313b76c"
+  },
+  "reviewer": "Independent concurrency grading agent; separate from runtime, history, HTTP and evidence builders",
+  "schema_version": 1,
+  "scope": "Serial hardening gate 19 / release milestone 6: finite selected-profile mixed-operation concurrency on dml-receipted-local-v1",
+  "verdict": "ACCEPT_REVIEWED_SOURCE"
+}

@@ -1,0 +1,55 @@
+{
+  "accepted_for_execution": false,
+  "accepted_for_source_publication": true,
+  "base_commit": "35b5cf2d5400705ee57b9b0685dc55b97590a960",
+  "blocking_findings": [],
+  "candidate_source_review_sha256": "0011051dc3da221b24e567c87045b8ad3d5a11712a5aaaff3dc3a40277a87249",
+  "candidate_source_sha256": "2e8af0e6c9d03bf6e41c974f95580f28fd17ce4e55daadd0b46b474c11770615",
+  "conditions": [
+    "Final isolated recovery helper must be independently reviewed before admission/dispatch.",
+    "Reuse existing actual prepared model only by exact verified byte identity; fresh current-worktree zero-generation admission is required.",
+    "Publish exact new source, obtain independent exact pre-generation review and run new full9 campaign with both sequential replays and exact-source successful CI.",
+    "Old DML-core/attempt8 source and work paths remain frozen; late evidence stays separate."
+  ],
+  "documentation_scope": "Correctly records incomplete8 with five retained reports and9659known-token lower bound, unknown full outcomes/effects, no fabricated completion/termination, isolated9 and unchanged live gates.",
+  "documentation_sha256": {
+    "docs/agent-episode-live-qualification-2026-09-20.md": "b43c2e703242cf8179a745999809db700c48d7175c0d933b46826f88bdbe2a64",
+    "docs/production-handoff-2026-09-24.md": "738603f6ca8329c6ba580acc1ddd7d6df487fee84da88e5cdb0f9b87ba58932d",
+    "docs/production-remaining-work-2026-09-18.md": "fbbf4ddda1ecfd2dade6657c4aab79fc95a8549ad05b80bbe7c40eb356f2405c"
+  },
+  "full_local_validation_sha256": "3dc31342ee610e63293aa75707640e8e3a5a521ca3c15d85444dca89e8386715",
+  "independent_verification": {
+    "all436_current_source_hashes": true,
+    "all_exact_case_ids_match_prior803_plus34": true,
+    "all_raw_log_hashes": true,
+    "both_lint_and_mypy_pass": true,
+    "compact_summary_matches_full_receipt": true,
+    "only_reviewed_supersede_description_source_changed": true,
+    "original_attempt8_head_and_all436_source_hashes_preserved": true,
+    "raw_cpu_counts": {
+      "error": 0,
+      "failure": 0,
+      "skipped": 0,
+      "testcase": 803
+    },
+    "raw_cpu_module_count": 21,
+    "raw_filesystem_counts": {
+      "error": 0,
+      "failure": 0,
+      "skipped": 0,
+      "testcase": 34
+    },
+    "same_complete_manifest": true,
+    "same_five_commands_except_fresh_output_paths": true
+  },
+  "live_qualified": false,
+  "milestone_7_closed": false,
+  "new_worktree": "/workspace/scratch/c79340404ab9/DML-attempt9-isolated",
+  "production_ready": false,
+  "recorded_at_utc": "2026-09-24T23:29:25.320904+00:00",
+  "review_score": 9.6,
+  "reviewer": "/root/m7_grader",
+  "schema_version": "dml-isolated-attempt9-integrated-grader-review-v1",
+  "validation_helper_sha256": "2fce4549e08dfb1535a1e20ca32e6f2b30bcb66738d48448006f90f05610635a",
+  "validation_summary_sha256": "7fee0bd0bd4660f98b74ce58a98ead9e5b2b42ec43ffafd3303b20aad67588e6"
+}

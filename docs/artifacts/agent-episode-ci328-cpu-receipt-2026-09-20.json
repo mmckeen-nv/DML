@@ -1,0 +1,81 @@
+{
+  "artifact": {
+    "archive_sha256": "31221c2ccf8c06b90ee2418a66c0ba48fc8a7dd892e6eb9b8ed11ac2aa8290d5",
+    "id": 10606421338,
+    "name": "model-input-cpu-evidence",
+    "url": "https://github.com/mmckeen-nv/DML/actions/runs/35514202959/artifacts/10606421338"
+  },
+  "historical_attribution": "This immutable receipt covers source 2915b65 and the observed CPU lane only. Later workflow retries, source revisions and live outcomes require separately attributed records.",
+  "independent_verification": {
+    "all_required_modules_present": true,
+    "archive_downloaded_and_hashed": true,
+    "attribution": "Root independently downloaded and verified the artifact and fetched the tested merge. This compact receipt preserves that verification; no new test run is claimed.",
+    "every_manifest_hash_compared": true,
+    "junit_parsed_independently": true,
+    "original_receipt_sha256": "83b63c85f3bd79dc8bf59ed0a5464152cd722814e58bf2bde1a260d740385093"
+  },
+  "junit": {
+    "errors": 0,
+    "failures": 0,
+    "passed": 715,
+    "required_module_count": 18,
+    "required_modules": [
+      "dml_core.tests.test_agent_campaign_evidence",
+      "dml_core.tests.test_agent_episode_adversarial",
+      "dml_core.tests.test_agent_episode_cli",
+      "dml_core.tests.test_agent_episode_contract",
+      "dml_core.tests.test_agent_episode_runtime",
+      "dml_core.tests.test_episode_outcomes",
+      "dml_core.tests.test_episode_tools",
+      "dml_core.tests.test_episode_verifiers",
+      "dml_core.tests.test_model_input_adversarial",
+      "dml_core.tests.test_model_input_contract",
+      "dml_core.tests.test_model_input_integration",
+      "dml_core.tests.test_model_input_runtime",
+      "dml_core.tests.test_model_input_snapshot",
+      "dml_core.tests.test_pretrained_snapshot",
+      "dml_core.tests.test_qwen_chat_template",
+      "dml_core.tests.test_qwen_model_adversarial",
+      "dml_core.tests.test_qwen_model_equivalence",
+      "dml_core.tests.test_qwen_pretrained_snapshot"
+    ],
+    "seconds": 39.316,
+    "skipped": 0,
+    "testcases": 715
+  },
+  "pull_request": {
+    "merged": false,
+    "number": 118,
+    "url": "https://github.com/mmckeen-nv/DML/pull/118"
+  },
+  "qualification_boundaries": {
+    "milestone_7_closed": false,
+    "note": "Passing this CPU source/fixture lane does not establish genuine model campaign coverage, all-workflow success or release readiness.",
+    "overall_ci_qualified": false,
+    "production_ready": false,
+    "required_cpu_source_lane_verified": true,
+    "trained_live_campaign_qualified": false
+  },
+  "recorded_at_utc": "2026-09-20T13:55:05.763696+00:00",
+  "repository": "mmckeen-nv/DML",
+  "schema_version": "dml-agent-episode-ci-source-receipt-v1",
+  "scope": "source_and_fixture_harness_only",
+  "source": {
+    "merge_tree_verified_by_git_fetch": true,
+    "published_source_tree": "4846330e9ea97ba156467d973fda90c488857b1b",
+    "reviewed_pr_head": "2915b65290315e4eead5ee05bbb5179e31cfc189",
+    "source_comparison": "Every file in the downloaded CPU source manifest was compared with the exact published source tree; all 366 matched.",
+    "source_manifest_files_independently_verified": 366,
+    "source_mismatches": [],
+    "tested_merge_commit": "e33d70c3eb9724d65a0f0b1bfd6621e100826641",
+    "tested_merge_tree": "4846330e9ea97ba156467d973fda90c488857b1b"
+  },
+  "workflow": {
+    "observed_failure": "The legacy production 256-client lane exceeded its 30-second ownership acquisition bound. Its original failure is retained; a same-source diagnostic retry cannot erase it.",
+    "overall_status_at_recording": "qualification_pending_with_observed_failure",
+    "retry_result": null,
+    "run_id": 35514202959,
+    "run_number": 328,
+    "url": "https://github.com/mmckeen-nv/DML/actions/runs/35514202959"
+  }
+}

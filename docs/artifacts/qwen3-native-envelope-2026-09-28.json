@@ -1,0 +1,190 @@
+{
+  "cases": [
+    {
+      "case": "paired_records",
+      "failure": "Fabricated unseen current value and cited old evidence; original verifier found contradiction and unsupported memory claim.",
+      "input_tokens": 2464,
+      "model_calls": 2,
+      "output_tokens": 144,
+      "passed": false,
+      "status": "completed"
+    },
+    {
+      "case": "dependent_feedback",
+      "input_tokens": 3886,
+      "model_calls": 3,
+      "output_tokens": 149,
+      "passed": true,
+      "status": "completed"
+    },
+    {
+      "case": "live_supersession",
+      "correct_current_claim": true,
+      "failure": "Final added an unsupported old-suffixed claim citing superseded evidence; original verifier rejected claim coverage and support.",
+      "input_tokens": 6889,
+      "model_calls": 4,
+      "mutation_and_readback_passed": true,
+      "output_tokens": 284,
+      "passed": false,
+      "status": "completed"
+    }
+  ],
+  "checks": {
+    "backend_tests_passed": 36,
+    "compile_forward_calls": 0,
+    "compile_generation_calls": 0,
+    "compile_preflight_requests": 3,
+    "gpu_runtime_admission": "Previously qualified runtime reused unchanged",
+    "independent_compile_checks": 3,
+    "independent_grammar_controls_passed": 17,
+    "independent_replay": {
+      "model_calls_replayed": 9,
+      "passed": true
+    },
+    "nonmodel_reachability_cases_passed": 3,
+    "primary_replay": {
+      "checker_repairs": 0,
+      "frozen_files_checked": 22773,
+      "model_calls_replayed": 9,
+      "passed": true
+    },
+    "reachability_authorities_separate_from_live": true,
+    "runner_tests_passed": 12
+  },
+  "classification": "fresh development diagnostic; not M7 qualification",
+  "design": {
+    "arms": [
+      "native envelope grammar"
+    ],
+    "automatic_retries": 0,
+    "comparison_limit": "Fresh data differs from preceding comparison; not a paired estimate of grammar effect.",
+    "fresh_cases": 3,
+    "model_choice_preserved": true,
+    "original_scorers": true,
+    "posthoc_repair": false,
+    "runs_per_case": 1
+  },
+  "evidence_sha256": {
+    "backend-tests-r2.log": "7996f170182ebc3ec93d7f4493ed58f64a94e19ab4a6b19faddae861a573bf1a",
+    "compact-envelope-summary.json": "916fb333dbcce1a790a507cabc4cf1f26e03b3f7fbf8ec8f4f351e6ea24c2dbb",
+    "compile-preflight.json": "474a7e796b8bf34b75305ce7a7c474507bb9239787c5f905e4cd425ac4ab4ce7",
+    "diagnostic-once/freeze.json": "5ce7598effa995182e778af9292f021f6a4f9724e3b7930e734bd8b968437bfb",
+    "diagnostic-once/results/summary.json": "71d02d519e9ac63efe46d5ae7205d1b4ededd7813f5eb44d00b5262d6db3cc81",
+    "envelope_runner.py": "01785862c6d63da1e22077ca80fa05ddc4ee93350935b353fb8976a92714958a",
+    "gpu-live-monitor/baseline-continuity.json": "0c6a5a91b5dbb747970292af3667580f582c8317071c0269e8aa59d3cc455abb",
+    "gpu-live-monitor/summary.json": "973d6c2524ccd4a09256416e037116e446abf02a388d6368e53d7c1a2e9ee4f9",
+    "independent-compile-check.json": "e186c37bb329f0aa8f69c7552e3db162e204db6e9bded7f31437969be8c8ecb6",
+    "independent-envelope-replay.json": "c1df2d42daeff0d62071381010cdb389d41eea8450daafc1a8a7c0db2dffc957",
+    "independent-final-envelope-review.json": "faddbbf360c82aa08d8df18581b1f9021c07a4348562d065eedaf8796c5ce5b1",
+    "independent-grammar-controls.json": "c36f392bc0204c6f0e63c423d0fa4c73dce50357ef56c6bd8513f8a39666d0c1",
+    "independent-live-approval.json": "03500dafe7f6dc77fad4722f7af832c467d22825b883c7b6ae08db0d36bd001f",
+    "independent-preparation-review.json": "487cce97cb277994b91e1f47415f9349ee7875154c5caa75c8e59e46718afac8",
+    "native_envelope_backend.py": "98899da915f2df07b4f79a9e90d00a58994e8089b3a955b53ed63ac185c1100b",
+    "nonmodel-reachability/receipt.json": "2d1bdf1ff43b170b0b48e0ca7746c794fb693da52f6bd1aff12268a4b6c8c21a",
+    "primary-envelope-replay.json": "7e24f73e1aafb8ccb32a8c876ceeed480220b7283713978cf7058720373fc043",
+    "protocol-identity.json": "f5b2493e3e547f6e382855ae77827a4dfadaa5f3ee6d9793120c111b0bb592de",
+    "runner-tests.log": "56e704d95947c3e8b5ccb43e1447bc0ef78d83d58fd44ecd76bd4b7fa1fa15c0",
+    "suite.json": "ebbf55a318630cd19333c1cb0a9e9fc3ed5dc2226c2a64120a855cfc7700e3dc",
+    "suite_payload": "6f88d61c218ba6cfb21a9e8a094ef0c954ba627b77f2a00c1bc09a13bf62128b"
+  },
+  "gpu": {
+    "cuda": "13.1",
+    "device": "NVIDIA GB300",
+    "driver": "590.48.01",
+    "llama_cpp_python": "0.3.35",
+    "monitor_samples": 17,
+    "nemotron_matches_prelaunch_baseline": true,
+    "nemotron_mib_all_samples": 179890,
+    "nemotron_pid": 349594,
+    "qwen_allocations_released_after_terminal": true,
+    "scope": "Periodic allocation observations and ancestry, not per-kernel tracing.",
+    "torch": "2.8.0+cpu",
+    "worker_peaks_mib": [
+      5204,
+      5206,
+      5208
+    ],
+    "workers_observed": 3
+  },
+  "grammar": {
+    "actual_request_grammar": "Bound separately in every compiled artifact; original allowed-tools selection retained",
+    "any_order": false,
+    "any_whitespace": true,
+    "apache_tvm_ffi": "0.1.12",
+    "full_six_tool_reference_ebnf_sha256": "4cc6010eb97b7a26c6d4a26ce7cdbf86c7c971bc07e1311e294aaf3c8c6152fe",
+    "optional_reasoning": "Exact empty wrapper only; substantive reasoning rejected",
+    "scope": "Request-owned permitted tool schema inside one native tool-call envelope OR original final-action JSON; neither branch forced",
+    "semantic_validation": "Original parser, authorized gateway and original task verifier remain authoritative",
+    "strict_mode": true,
+    "terminal_eos_required": true,
+    "xgrammar": "0.2.7"
+  },
+  "limits_per_episode": {
+    "episode_bytes": 16777216,
+    "event_bytes": 4194304,
+    "model_calls": 6,
+    "output_tokens_per_call": 256,
+    "total_input_tokens": 32768,
+    "total_output_tokens": 1536,
+    "transcript_bytes": 262144,
+    "wall_seconds": 300
+  },
+  "model": {
+    "quantization": "Q4_K_M",
+    "repository": "Qwen/Qwen3-8B-GGUF",
+    "revision": "7c41481f57cb95916b40956ab2f0b139b296d974",
+    "tokenizer_digest": "7edfd17627c6e211f4a8dd3969f3a756f9163b21c486504045fc3bcd1a84253d",
+    "tokenizer_repository": "Qwen/Qwen3-8B",
+    "tokenizer_revision": "b968826d9c46dd6066d109eabc6255188de91218",
+    "weights_sha256": "d98cdcbd03e17ce47681435b5150e34c1417f50b5c0019dd560e4882c5745785"
+  },
+  "native_template_sha256": "a55ee1b1660128b7098723e0abcd92caa0788061051c62d51cbe87d9cf1974d8",
+  "next_investigation": "Separately admit a stronger-model comparison on fresh cases; no specific model approved and no additional execution authorized by this outcome.",
+  "preserved": [
+    "weights",
+    "CUDA backend",
+    "tokenizer rows",
+    "CPU Torch sampling",
+    "tool authorization and action validation",
+    "strict final claims/citation parser",
+    "retrieval implementation",
+    "original task verifier and case scorers",
+    "budgets",
+    "historical evidence"
+  ],
+  "publication": "Metadata only; raw requests/responses, token IDs, grammars, authority stores and journals retained on station.",
+  "repository_source_unchanged": true,
+  "result": {
+    "declared": 3,
+    "historical_nemotron_m7_result": "8/9; M7 open",
+    "new_m7_campaign_run": false,
+    "passed": 1,
+    "promoted": false,
+    "promotion_threshold": "3/3 motivates later candidate implementation only",
+    "replay_status": "Both primary and independent passed all nine calls"
+  },
+  "runtime_identity": "diagnostic-qwen3-native-envelope-grammar-v1:22fa638759950a1a35bb226522c19b9c51fc6062ab75bd816f6e220816e890d3",
+  "sampling": {
+    "min_p": 0,
+    "repetition_penalty": 1,
+    "reset": "per generation",
+    "sampler": "Original CPU Torch multinomial after request-owned native-envelope grammar and verified token-row masks",
+    "seed": 0,
+    "temperature": 0.7,
+    "top_k": 20,
+    "top_p": 0.8
+  },
+  "schema_version": "dml-qwen3-native-envelope-outcome-v1",
+  "source_commit": "37471b68a53cb052876409b5d02b5f08ffb175a8",
+  "station_root": "/home/nvidia/dml-debug/qwen3-native-envelope-20260928",
+  "usage": {
+    "action_rejections": 0,
+    "all_usage_known": true,
+    "calls": 9,
+    "execution_errors": 0,
+    "input_tokens": 13239,
+    "output_tokens": 577,
+    "timeouts": 0,
+    "truncations": 0
+  }
+}

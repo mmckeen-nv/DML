@@ -1,0 +1,198 @@
+{
+  "accepted_scoped_reviews": {
+    "grounding": {
+      "decision": "accepted_scoped_source_revision",
+      "path": "docs/artifacts/agent-episode-grounding-review-2026-09-20.json",
+      "score": 9.7,
+      "sha256": "cf420c7d3f56536f6e03155a6b01eca799edeb61d2e1a6404ff97bc6976ed520"
+    },
+    "worker_cleanup": {
+      "decision": "accepted_scoped_source_repair",
+      "path": "docs/artifacts/agent-episode-worker-cleanup-review-2026-09-20.json",
+      "score": 9.6,
+      "sha256": "9ebb21ccbf182967224fd0fb294e9232fec615baff366046d8e666efe3325558"
+    }
+  },
+  "change_scope": "General evidence-grounding and lifecycle policy/tool-description clarification, request-bound grammar identity update, and parent-owned supervised-worker scratch cleanup; original action parser, corpus, model, runtime bounds and acceptance gates remain unchanged.",
+  "cpu_duration_seconds": 58.727,
+  "evidence_scope": "combined_source_and_fixture_harness_only",
+  "grammar_dependency_scope": "Existing isolated pinned distribution target /tmp/dml-m7-grammar-deps with the existing exact CPU runtime; shared venv unchanged. Fresh public CI still must install the declared optional extra.",
+  "limitations": [
+    "Whole-parent death may still leave temporary scratch.",
+    "Local fixture validation does not establish pretrained agent task success."
+  ],
+  "maintained_mypy_note": "Fresh non-incremental cache and local Python 3.12 target accommodate installed NumPy stubs; published CI retains its declared Python targets.",
+  "mandatory_module_count": 20,
+  "parent_source_commit": "da526eb58d7556c455b2b534f9261cc68f74becf",
+  "prior_evidence_mutated": false,
+  "qualification_boundaries": {
+    "milestone_7_closed": false,
+    "production_ready": false,
+    "published_combined_source_ci_qualified": false,
+    "trained_live_campaign_qualified": false
+  },
+  "raw_results_sha256": "e6ace4e477caf3c3e5759569cbc1f595d4e3c7e3caade144090d5707baa8e03a",
+  "recorded_at_utc": "2026-09-20T14:51:40.813171+00:00",
+  "remaining_requirements": [
+    "Independent integrated-source acceptance and publication with exact-source CI.",
+    "Fresh zero-generation model admission and full nine-task campaign freeze on the reviewed integrated source, followed by independent replays."
+  ],
+  "reviewed_replacement_files_sha256": {
+    "dml_core/daystrom_dml/contracts/agent_episode.py": "22082fb2b6f288c974e4b4e1a5fb7dcb273283e88834334957f36034145d86c3",
+    "dml_core/daystrom_dml/services/agent_action_grammar.py": "8568f8cfc86ff9511fe5c3fd26a3c28ba7e4641f7ec1c648eae5130694ee7623",
+    "dml_core/daystrom_dml/services/agent_episode.py": "65e8fc06a95e827a48e667da7abc0181d162e4d371b2764fd4912417c1668c69",
+    "dml_core/tests/test_agent_action_grammar.py": "64747ffd4c75785d0a32ce5180a8bc456919e74d7fa46d16dcfb75a3e0dac205",
+    "dml_core/tests/test_agent_episode_adversarial.py": "4ab4f44fce8837826154e109fbc44f44f5082fabeacbca8159846033bf8c457d",
+    "dml_core/tests/test_agent_episode_contract.py": "9b0c1f19c364f66948748b7917450cb4b9e31b883b0104fff345e4760ebdf9fc",
+    "dml_core/tests/test_agent_episode_runtime.py": "0f6c2d467553d394538217b024a144a5dca8e86a5106518379150be6d12d04a4"
+  },
+  "runner_sha256": "954f305e5b073348e3b0d2177dc9fdee3328a4c9f24f25a94f1c07f50eaff0a1",
+  "runtime_versions": {
+    "apache-tvm-ffi": "0.1.12",
+    "jinja2": "3.1.6",
+    "safetensors": "0.6.2",
+    "tokenizers": "0.22.0",
+    "torch": "2.8.0+cpu",
+    "transformers": "4.56.2",
+    "xgrammar": "0.2.7"
+  },
+  "schema_version": "dml-grounding-cleanup-validation-v1",
+  "source_after_manifest_sha256": "9d5a4745c646b52436d0f5b54629e499bca99e958609806b48ecee1deac92b81",
+  "source_before_manifest_sha256": "9d5a4745c646b52436d0f5b54629e499bca99e958609806b48ecee1deac92b81",
+  "source_identity": "Uncommitted reviewed changes are bound by the complete source manifest; the parent commit alone is not the validated source.",
+  "source_manifest": {
+    "path": "docs/artifacts/agent-episode-grounding-cleanup-source-2026-09-20.json",
+    "sha256": "398baa445a6b2b0f104b539013047ed2484bd5df673f117d6bce4b03ed8b4e60",
+    "source_file_count": 433
+  },
+  "source_unchanged": true,
+  "validated_worktree_head": "da526eb58d7556c455b2b534f9261cc68f74becf",
+  "validation": {
+    "cpu": {
+      "command": [
+        "/workspace/scratch/ad6cdef78c95/dml-venv/bin/python",
+        "-m",
+        "pytest",
+        "dml_core/tests/test_model_input_contract.py",
+        "dml_core/tests/test_model_input_snapshot.py",
+        "dml_core/tests/test_model_input_runtime.py",
+        "dml_core/tests/test_model_input_integration.py",
+        "dml_core/tests/test_model_input_adversarial.py",
+        "dml_core/tests/test_agent_episode_contract.py",
+        "dml_core/tests/test_episode_outcomes.py",
+        "dml_core/tests/test_episode_verifiers.py",
+        "dml_core/tests/test_agent_episode_adversarial.py",
+        "dml_core/tests/test_agent_episode_runtime.py",
+        "dml_core/tests/test_episode_tools.py",
+        "dml_core/tests/test_agent_episode_cli.py",
+        "dml_core/tests/test_pretrained_snapshot.py",
+        "dml_core/tests/test_agent_campaign_evidence.py",
+        "dml_core/tests/test_qwen_model_adversarial.py",
+        "dml_core/tests/test_qwen_pretrained_snapshot.py",
+        "dml_core/tests/test_qwen_model_equivalence.py",
+        "dml_core/tests/test_qwen_chat_template.py",
+        "dml_core/tests/test_agent_action_grammar.py",
+        "dml_core/tests/test_qwen_action_input.py",
+        "-o",
+        "addopts=",
+        "-q",
+        "--junitxml=/tmp/dml-m7-grounding-cleanup-validation/cpu.xml"
+      ],
+      "complete_required_modules": true,
+      "counts": {
+        "error": 0,
+        "failure": 0,
+        "skipped": 0,
+        "testcase": 774
+      },
+      "exit_code": 0,
+      "junit_sha256": "a48a39c66db6a87e9f3927d494e8dd1c95bc36d0d7a0d13698e2849821c725b8",
+      "log_sha256": "27046d4ce00fca214d93f654a32f9f4234c2d7113b0511dbb1e0d0d176e61216",
+      "modules": [
+        "dml_core.tests.test_agent_action_grammar",
+        "dml_core.tests.test_agent_campaign_evidence",
+        "dml_core.tests.test_agent_episode_adversarial",
+        "dml_core.tests.test_agent_episode_cli",
+        "dml_core.tests.test_agent_episode_contract",
+        "dml_core.tests.test_agent_episode_runtime",
+        "dml_core.tests.test_episode_outcomes",
+        "dml_core.tests.test_episode_tools",
+        "dml_core.tests.test_episode_verifiers",
+        "dml_core.tests.test_model_input_adversarial",
+        "dml_core.tests.test_model_input_contract",
+        "dml_core.tests.test_model_input_integration",
+        "dml_core.tests.test_model_input_runtime",
+        "dml_core.tests.test_model_input_snapshot",
+        "dml_core.tests.test_pretrained_snapshot",
+        "dml_core.tests.test_qwen_action_input",
+        "dml_core.tests.test_qwen_chat_template",
+        "dml_core.tests.test_qwen_model_adversarial",
+        "dml_core.tests.test_qwen_model_equivalence",
+        "dml_core.tests.test_qwen_pretrained_snapshot"
+      ]
+    },
+    "mypy": {
+      "command": [
+        "/workspace/scratch/ad6cdef78c95/dml-venv/bin/python",
+        "-m",
+        "mypy",
+        "--python-version",
+        "3.12",
+        "--no-incremental",
+        "--cache-dir",
+        "/tmp/dml-m7-grounding-cleanup-validation/mypy-cache",
+        "dml_core/daystrom_dml/personality_matrix.py",
+        "dml_core/daystrom_dml/config.py",
+        "dml_core/daystrom_dml/settings.py",
+        "dml_core/daystrom_dml/context",
+        "dml_core/daystrom_dml/services",
+        "dml_mcp/dml_mcp_server.py",
+        "dml_core/daystrom_dml/journal.py",
+        "dml_core/daystrom_dml/checkpoint.py",
+        "dml_core/daystrom_dml/contracts/retention.py",
+        "dml_core/daystrom_dml/contracts/profile.py",
+        "dml_core/daystrom_dml/contracts/production.py",
+        "dml_core/daystrom_dml/contracts/model_input.py",
+        "dml_core/daystrom_dml/contracts/agent_episode.py"
+      ],
+      "exit_code": 0,
+      "log_sha256": "05e45eecc5eb3c6dd8962b0962fad0b38bcff6d6bda5ad7636baf44cbee6a688"
+    },
+    "strict-lint-of-agent-episode-companion": {
+      "command": [
+        "/workspace/scratch/ad6cdef78c95/dml-venv/bin/python",
+        "-m",
+        "ruff",
+        "check",
+        "dml_core/daystrom_dml/contracts/agent_episode.py",
+        "dml_core/daystrom_dml/services/agent_episode.py",
+        "dml_core/daystrom_dml/services/episode_tools.py",
+        "dml_core/daystrom_dml/services/episode_outcomes.py",
+        "dml_core/daystrom_dml/services/episode_verifiers.py",
+        "dml_core/scripts/agent_episodes.py",
+        "dml_core/daystrom_dml/services/pretrained_snapshot.py",
+        "dml_core/daystrom_dml/services/qwen_model_snapshot.py",
+        "dml_core/daystrom_dml/services/qwen_model_input.py",
+        "dml_core/daystrom_dml/services/qwen_pretrained_snapshot.py",
+        "dml_core/daystrom_dml/services/agent_action_grammar.py",
+        "dml_core/daystrom_dml/services/qwen_action_input.py",
+        "dml_core/scripts/agent_campaign_evidence.py"
+      ],
+      "exit_code": 0,
+      "log_sha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18"
+    },
+    "strict-lint-of-exact-model-input-surfaces": {
+      "command": [
+        "/workspace/scratch/ad6cdef78c95/dml-venv/bin/python",
+        "-m",
+        "ruff",
+        "check",
+        "dml_core/daystrom_dml/contracts/model_input.py",
+        "dml_core/daystrom_dml/services/model_input.py",
+        "dml_core/daystrom_dml/services/model_input_snapshot.py"
+      ],
+      "exit_code": 0,
+      "log_sha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18"
+    }
+  }
+}

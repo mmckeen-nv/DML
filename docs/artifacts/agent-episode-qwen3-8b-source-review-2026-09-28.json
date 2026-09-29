@@ -1,0 +1,148 @@
+{
+  "accepted_for_generation": false,
+  "accepted_for_publication": true,
+  "actual_validation": {
+    "consumer_closed": true,
+    "failed": 0,
+    "generation_calls": 0,
+    "impact_junit": {
+      "path": "/workspace/scratch/c79340404ab9/m7-resume/attempt15-qwen3-8b-20260928/local-impact.xml",
+      "sha256": "bad6ae3c74c491e8bb54301d7dda521e276d1288d606689f657e77aaa8a52210"
+    },
+    "lint_type_validation_record": {
+      "path": "/workspace/scratch/c79340404ab9/DML-qwen3-8b-20260928/docs/artifacts/agent-episode-qwen3-8b-prequalification-2026-09-28.json",
+      "sha256": "ca225f40b97d1f1c77e854dce97e150d31fdd2334b98bbf3479868194c2a2ce1"
+    },
+    "native_forward_requests": 1,
+    "native_smoke": {
+      "path": "/workspace/scratch/c79340404ab9/m7-resume/attempt15-qwen3-8b-20260928/prepublication-native-smoke-r2.json",
+      "sha256": "bf31a68bdc72218f0e6e2d622d9e5f1efc8b5595864d00a1087bedb73e22c564"
+    },
+    "native_smoke_source_inventory": {
+      "path": "/workspace/scratch/c79340404ab9/m7-resume/attempt15-qwen3-8b-20260928/native-smoke-r2-source-inventory.json",
+      "sha256": "8e2d39912d74adc942140aabc0f6f5a290d803fa3b2317b7b12bfa5a93427fc1"
+    },
+    "oom": 0,
+    "passed": 139,
+    "peak_rss_bytes": 5433688064,
+    "published_source_files_match_smoke_source": true,
+    "sampled_tokens": 0,
+    "skipped": 0
+  },
+  "approved_paths": {
+    ".github/workflows/ci.yml": {
+      "bytes": 35202,
+      "sha256": "dda0edfce8cd01bc346f0907aeeed6886659e9521b208f7d50fbf7972a82f5a9"
+    },
+    "dml_core/daystrom_dml/contracts/agent_episode.py": {
+      "bytes": 59242,
+      "sha256": "253a607e1bb834dda63a1e04aaf932b8b854570a4fb0be5abcff0c70b312f374"
+    },
+    "dml_core/daystrom_dml/services/agent_episode.py": {
+      "bytes": 42907,
+      "sha256": "c571c4a2f71c5f433b120403b30b2c6819a39ddf5d698abad64333405557b123"
+    },
+    "dml_core/daystrom_dml/services/qwen3_gguf_action_input.py": {
+      "bytes": 10687,
+      "sha256": "48e86e7e1b07eb6e3b50decf4a0f6542aaec2a3d12860ff8952979e7ee8a8d01"
+    },
+    "dml_core/daystrom_dml/services/qwen3_gguf_model_input.py": {
+      "bytes": 14849,
+      "sha256": "ab8ac0321d376e92641905d2d460e41b211862ee50ba3da7aa4ead4ae5dff5d1"
+    },
+    "dml_core/daystrom_dml/services/qwen3_gguf_model_snapshot.py": {
+      "bytes": 14585,
+      "sha256": "75116e905407f0ffdc8a01a883b9b8f100273fed2bffd7a6670de6b18d32ff8d"
+    },
+    "dml_core/daystrom_dml/services/qwen3_gguf_pretrained_snapshot.py": {
+      "bytes": 3297,
+      "sha256": "1ccf5c3af05c1887e5e223b90219882a1d0cb2e5f73cae55a6f5eff52ed79ff0"
+    },
+    "dml_core/scripts/agent_campaign_evidence.py": {
+      "bytes": 26756,
+      "sha256": "20eee5d9091f59e5f646b917fe9fde7ff64238ab75d62e99eb6ab26d1caaafdb"
+    },
+    "dml_core/scripts/agent_episodes.py": {
+      "bytes": 13820,
+      "sha256": "3a0c71ebdcdbe2427d22fc21be57186b8ae2a655158fb70870bbf5db58b36ab1"
+    },
+    "dml_core/tests/test_qwen3_gguf_input.py": {
+      "bytes": 13098,
+      "sha256": "d950b74fcb25f55682c4ad231543bb7739bfbfe2ac3a75848e0bdd1349a9d78a"
+    },
+    "dml_core/tests/test_qwen3_gguf_model_snapshot.py": {
+      "bytes": 4386,
+      "sha256": "c45e1b465e703593e45d73df659269a23fcbe990cc9de9352cc1b60ed3728ccb"
+    },
+    "dml_core/tests/test_qwen3_gguf_pretrained_snapshot.py": {
+      "bytes": 1653,
+      "sha256": "098baab46660d99a39a0199f1144eb398b2f319d3fcc2117bfed1781540918ee"
+    },
+    "dml_core/tests/test_qwen3_gguf_profile.py": {
+      "bytes": 11182,
+      "sha256": "4acf4698d4329e95759facfe628631fb3462331ca09956bf1628f49a5f52ab9a"
+    },
+    "docs/agent-episode-live-qualification-2026-09-20.md": {
+      "bytes": 58377,
+      "sha256": "9954ef1dd23bfde066a7104245de4f1e9ad70b3a094ce83fba206ba7c4c781c0"
+    },
+    "docs/artifacts/agent-episode-attempt-14-relation-outcome-2026-09-27.json": {
+      "bytes": 4704,
+      "sha256": "51d1010c0cb0b628a4035c57993b3c41c9ec0789a15b08d4298fdcabcd070ee8"
+    },
+    "docs/artifacts/agent-episode-qwen3-8b-prequalification-2026-09-28.json": {
+      "bytes": 6077,
+      "sha256": "ca225f40b97d1f1c77e854dce97e150d31fdd2334b98bbf3479868194c2a2ce1"
+    },
+    "docs/production-handoff-2026-09-24.md": {
+      "bytes": 39488,
+      "sha256": "9291802efcb9cf76a60039bd7d237962b365fec797845c09cf10fce1d7463841"
+    },
+    "docs/production-remaining-work-2026-09-18.md": {
+      "bytes": 40140,
+      "sha256": "129419e3e740aec279aace479b4ecf98b01da113bf8e79f0700dfd55515fb42e"
+    },
+    "pyproject.toml": {
+      "bytes": 3054,
+      "sha256": "5d6ecb240dfb8494204d68a63d57d352d99340b1ed57da8c3514f75efac73009"
+    }
+  },
+  "approved_payload_bytes": 403504,
+  "grade": 9.3,
+  "grade_scope": "Source/protocol and bounded native compatibility only; no quality or milestone qualification",
+  "limitations": [
+    "Synthetic native forward establishes ABI compatibility only; no model quality improvement demonstrated.",
+    "Short-input peak RSS does not establish worst-case 32768-token feasibility; no budget reduction or truncation permitted.",
+    "Both named tasks and original milestone gates must pass; all-nine-success is not a new gate."
+  ],
+  "merge_authorized": false,
+  "milestone_7_closed": false,
+  "preserved_failures": [
+    "Previous completed relation candidate remains rejected with both requested tasks unresolved.",
+    "Earlier interrupted c51 retry remains incomplete and nonresumable.",
+    "Initial TLS acquisition failure, initial compiler setup failure and first smoke harness accessor failure remain recorded."
+  ],
+  "production_ready": false,
+  "publication_manifest": {
+    "path": "/workspace/scratch/c79340404ab9/m7-resume/attempt15-qwen3-8b-20260928/publication-manifest.json",
+    "sha256": "07d9669bdba87547afdc3214a0c753411cde580fcd067d35e73f8b6c12b91e14"
+  },
+  "recorded_at_utc": "2026-09-28T03:15:04.898124+00:00",
+  "remaining_required_checks": [
+    "Publish exact reviewed bytes and qualify that source in CI.",
+    "Bind actual prepared model/runtime assets to published source; complete zero-generation admission and immutable pre-generation declaration.",
+    "Run one complete nine-task campaign, preserve all failures and independently replay evidence before qualification."
+  ],
+  "reviewer": "independent supervisor/grader",
+  "schema_version": "dml-qwen3-8b-source-review-v1",
+  "source_and_workflow_findings": [
+    "Distinct official vendor Q4_K_M profile with exact model/tokenizer/config/license pins and separate runtime identity; no BF16 equivalence claim.",
+    "Pinned CPU-only llama.cpp backend receives exact authenticated HF token IDs, checks complete used token-row parity, uses mmap with no optional extra repacking buffers and fresh bounded F16-KV request contexts.",
+    "Existing QWEN3_CHAT_TEMPLATE preserves transport metadata, authority escaping, advertised tools and non-thinking suffix; official conflicting XML tool-call template is not substituted.",
+    "Last-position float32 logits pass unchanged action grammar, then existing Transformers temperature/top-k/top-p warpers and fixed per-call Torch multinomial sampling. No output repair, task-specific guidance or selection retries.",
+    "Shared source changes are explicit profile dispatch/identity and replay support. Existing task policy, corpus, retrieval, budgets and acceptance gates remain intact.",
+    "CI retains existing lanes and zero-skip model-input evidence requirement, adds four exact new test modules and pinned CPU native dependency build.",
+    "Only 19 reviewed source/test/doc/compact-evidence paths are approved; an exact copy of this review may be the twentieth path. No model files, raw campaigns or logs."
+  ],
+  "source_parent": "8c792ae39514624ca6ec28392daa6a67b4dba857"
+}
