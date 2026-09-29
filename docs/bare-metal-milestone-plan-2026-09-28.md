@@ -1,7 +1,9 @@
 # DML milestone status and M7 execution plan
-As of September 28, 2026. Latest full campaign: remote Nemotron native-tools-v4; latest qualification: Qwen3-8B CUDA retrieval-policy v2, planning 0/2 and readiness unrun.
+As of September 29, 2026. Latest full campaign: remote Nemotron native-tools-v4; latest qualification: Qwen3-8B CUDA retrieval-policy v2, planning 0/2 and readiness unrun. Latest diagnostic: original Llama 3 8B Instruct, 0/3.
 
 ## Current position
+
+The latest [original Llama 3 8B Instruct diagnostic](llama3-8b-instruct-trial-2026-09-29.md) passed **0/3** fresh cases, once each. Both primary and independent replays passed all five responses. No candidate was promoted and no new M7 campaign ran; the original gates and historical 8/9 result remain unchanged.
 
 Latest diagnostics: the [paired protocol comparison](qwen3-protocol-comparison-2026-09-28.md) passed **1/3 baseline versus 2/3 native**, and the subsequent [fresh native-envelope diagnostic](qwen3-native-envelope-2026-09-28.md) passed **1/3**. Both primary and independent replays passed for each run. The envelope addressed syntax admission, but unsupported factual claims still failed the original verifier. Neither result promotes a candidate or changes the original gates. **M7 remains open**; the historical full campaign remains 8/9, and no new M7 campaign ran.
 
