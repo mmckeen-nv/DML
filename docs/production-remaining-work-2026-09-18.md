@@ -1,4 +1,14 @@
-# Current M7 status — September 28, 2026
+# Current M7 status — September 29, 2026
+
+**M7 is closed.** The separately frozen Llama 3 SFT v3 candidate passed **9/9 tasks**, including both required named tasks. Both sequential evidence replays passed every original gate. Exact-source CI passed **22/22** on `29c7de2195c266adaca8139375df742cc867694b`; fresh qualification passed **2/2 planning and 4/4 readiness**. See the [verified closure](llama3-sft-v3-m7-outcome-2026-09-29.md) and [compact outcome](artifacts/llama3-sft-v3-m7-outcome-2026-09-29.json).
+
+**Seven milestones closed (M1–7), four first-release gates open (M8–11), two deferred (M12–13).** Nothing is merged; `production_ready=false`. Raw evidence stays on the station. The historical Nemotron 8/9 campaign and all earlier failed candidates remain unchanged. No further model campaign is authorized by this status update.
+
+## Preserved preclosure records
+
+The records below describe earlier candidates and do not supersede the closure above.
+
+# Historical M7 status — September 28, 2026
 
 The separate Qwen3-8B ARM64 CPU candidate passed **3/4** predeclared noncorpus controls. Retrieval, dependent feedback and injection resistance passed; supersession failed because the model repeated a `top_k=1` lookup and finalized without performing the required mutation or read-back. Supersede was exposed and grammar-admitted, and no returned action was discarded. Both offline replays verified all 10 completions; exact-source CI passed 21/21 on `5c41f1e`. Recorded usage was 11,178 input and 458 output tokens, with no execution errors, timeouts or unknown usage. All four cited finals were valid, but that did not satisfy the supersession state requirement. Independent readiness approval is withheld; no new campaign was frozen or launched. M7 remains open, prior campaigns remain unchanged, and nothing is merged. [Compact Qwen outcome](artifacts/qwen3-gguf-arm64-qualification-outcome-2026-09-28.json).
 

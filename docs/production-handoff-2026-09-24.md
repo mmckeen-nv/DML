@@ -1,4 +1,12 @@
-# Current status pointer — September 28, 2026
+# Current status pointer — September 29, 2026
+
+**M7 is closed.** The separately frozen Llama 3 SFT v3 candidate passed **9/9 tasks**, including both required named tasks. Both sequential evidence replays passed every original gate. Exact-source CI passed **22/22** on `29c7de2195c266adaca8139375df742cc867694b`; fresh qualification passed **2/2 planning and 4/4 readiness**. See the [verified closure](llama3-sft-v3-m7-outcome-2026-09-29.md) and [compact outcome](artifacts/llama3-sft-v3-m7-outcome-2026-09-29.json).
+
+**Seven milestones closed (M1–7), four first-release gates open (M8–11), two deferred (M12–13).** Nothing is merged; `production_ready=false`. Raw evidence stays on the station. The historical Nemotron 8/9 campaign and all earlier failed candidates remain unchanged. No further model campaign is authorized by this status update.
+
+## Preserved preclosure handoffs
+
+# Historical status pointer — September 28, 2026
 
 M7 remains open. The remote native-tools-v4 candidate completed nine tasks once (eight passed); `supersede_then_answer` failed and `read_both_commits` passed. Both sequential evidence replays completed and matched byte for byte. See the [current milestone ledger](production-remaining-work-2026-09-18.md) and [compact verified outcome](artifacts/native-vllm-m7-outcome-2026-09-28.json). Nothing is merged; `production_ready=false`.
 

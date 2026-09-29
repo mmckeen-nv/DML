@@ -1,6 +1,16 @@
 # Desktop Codex handoff: DML bare-metal testing
 
-## Current status
+## Current status — September 29, 2026
+
+**M7 is closed.** The separately frozen Llama 3 SFT v3 candidate passed **9/9 tasks**, including both required named tasks. Both sequential evidence replays passed every original gate. Exact-source CI passed **22/22** on `29c7de2195c266adaca8139375df742cc867694b`; fresh qualification passed **2/2 planning and 4/4 readiness**. See the [verified closure](docs/llama3-sft-v3-m7-outcome-2026-09-29.md) and [compact outcome](docs/artifacts/llama3-sft-v3-m7-outcome-2026-09-29.json).
+
+**Seven milestones closed (M1–7), four first-release gates open (M8–11), two deferred (M12–13).** Nothing is merged; `production_ready=false`. Raw evidence stays on the station. The historical Nemotron 8/9 campaign and all earlier failed candidates remain unchanged. No further model campaign is authorized by this status update.
+
+## Current continuation
+
+Preserve the frozen V3 execution source and station evidence. M7 is complete; M8–11 remain separate work. No merge, rerun, retraining, or new campaign is authorized by this handoff. The earlier instructions below are historical.
+
+## Historical preclosure status
 
 The separate Qwen3-8B ARM64 CPU qualification passed **3/4** predeclared noncorpus controls. Retrieval, dependent feedback and injection resistance passed. Supersession failed: the model repeated a `top_k=1` lookup, saw only the current record, then produced a valid cited final without the required mutation or read-back. The tool was exposed and grammar-admitted; no returned action was discarded. Both offline replays verified all 10 completions. Exact-source CI passed 21/21 jobs on `5c41f1e`; there were no execution errors, timeouts or unknown usage. Candidate readiness requires 4/4, so no new campaign was frozen or launched. M7 remains open; prior campaigns remain unchanged. See the [compact Qwen outcome](docs/artifacts/qwen3-gguf-arm64-qualification-outcome-2026-09-28.json) and [ARM64 profile](docs/qwen3-gguf-arm64-candidate.md).
 
@@ -14,7 +24,7 @@ The model committed a supersession, received its acknowledgment and readback, th
 
 M1–6 remain closed, M7–11 open, M12–13 deferred. No merge or production-readiness claim is made. Preserve the completed run and all earlier attempts; do not selectively retry tasks or change acceptance gates. Raw evidence stays on the station. See the [current milestone plan](docs/bare-metal-milestone-plan-2026-09-28.md) and [authoritative ledger](docs/production-remaining-work-2026-09-18.md).
 
-## Paste into desktop Codex
+## Historical desktop prompt — superseded
 
 > Read the current milestone plan and ledger first. Preserve the frozen remote candidate source and raw evidence. Use the completed primary and independent evidence reviews and compact outcome; retain the failed named task. No further campaign execution is authorized by this status update. M7 cannot close while `supersede_then_answer` fails. No new generation, selective retry, changed gate or merge is implied by this handoff.
 

@@ -1,7 +1,16 @@
 # DML milestone status and M7 execution plan
+
+## Current status — September 29, 2026
+
+**M7 is closed.** The separately frozen Llama 3 SFT v3 candidate passed **9/9 tasks**, including both required named tasks. Both sequential evidence replays passed every original gate. Exact-source CI passed **22/22** on `29c7de2195c266adaca8139375df742cc867694b`; fresh qualification passed **2/2 planning and 4/4 readiness**. See the [verified closure](llama3-sft-v3-m7-outcome-2026-09-29.md) and [compact outcome](artifacts/llama3-sft-v3-m7-outcome-2026-09-29.json).
+
+**Seven milestones closed (M1–7), four first-release gates open (M8–11), two deferred (M12–13).** Nothing is merged; `production_ready=false`. Raw evidence stays on the station. The historical Nemotron 8/9 campaign and all earlier failed candidates remain unchanged. No further model campaign is authorized by this status update.
+
+## Historical preclosure status
+
 As of September 29, 2026. Latest full campaign: remote Nemotron native-tools-v4; latest qualification: Qwen3-8B CUDA retrieval-policy v2, planning 0/2 and readiness unrun. Prior untuned diagnostic: original Llama 3 8B Instruct, 0/3. Llama SFT v2 subsequently passed 8/8 held-out synthetic cases versus 2/8 with the adapter disabled; both evidence replays passed. M7 remains open.
 
-## Current position
+## Historical candidate records before M7 closure
 
 The [Llama SFT v2 diagnostic](llama3-8b-sft-v2-2026-09-29.md) passed **8/8** predeclared held-out synthetic cases after correcting training/deployment serialization. The same frozen runtime with the adapter disabled passed **2/8**. Both replays verified all 16 episodes and 36 responses, including supersession/read-back with a valid cited final. Preserve the zero-episode failed deployment and its reviewed correction. This qualifies the limited synthetic diagnostic only: station-only SFT tooling still requires source integration and exact-source CI, followed by the original planning/readiness gates and a new complete M7 campaign. [Compact outcome](artifacts/llama3-8b-sft-v2-outcome-2026-09-29.json).
 
@@ -27,7 +36,7 @@ Execution source: `e970252d1b2afff582fd741f137cb4334e95a06c`. Recorded usage: 30
 
 The [compact verified outcome](artifacts/native-vllm-m7-outcome-2026-09-28.json) records the failed gates `all_intents_reached_retrieval_and_final` and `verified_model_owned_supersession`. The model repeated a stale supersession after the first mutation committed and readback was provided; the gateway rejected it without additional effects, and no final answer followed. Both replays passed integrity checks; their exit 1 reflects failed acceptance.
 
-## Milestone ledger
+## Current milestone ledger
 | # | Milestone | Status and remaining acceptance |
 |---|---|---|
 | 1 | Freeze supported production profile | Closed at reviewed-source gate 16. Supported boundaries and limits recorded; does not imply release readiness. |
@@ -36,7 +45,7 @@ The [compact verified outcome](artifacts/native-vllm-m7-outcome-2026-09-28.json)
 | 4 | Qualify crash recovery and supported filesystems | Closed at gate 18; CI320 17/17, six measured environments, 15 real ENOSPC cases. No physical power-loss claim. |
 | 5 | Complete persisted-format and migration coverage | Closed by reconciliation September 19. Credit existing foundations and gates 3, 8 and 18; do not reopen or recount. |
 | 6 | Qualify mixed-operation concurrency | Closed at gate 19; CI324 20/20, 96 independently verified platform histories. |
-| 7 | Wire live-agent semantic and outcome harness | ACTIVE. Native-tools-v4 completed nine tasks once (8 pass); `supersede_then_answer` failed, `read_both_commits` passed. Both evidence replays matched; two original gates failed. Both named tasks and all original gates must pass before closure. |
+| 7 | Wire live-agent semantic and outcome harness | CLOSED September 29: registered Llama 3 SFT v3 passed 9/9, both named tasks, every original gate, and both replays; exact-source CI 22/22. [Closure evidence](llama3-sft-v3-m7-outcome-2026-09-29.md). |
 | 8 | Demonstrate fair baseline value | OPEN. Independent durable baseline exists. Freeze fairness/thresholds; run paired held-out no-memory/baseline/DML comparison with equal resources, confidence intervals and quality/latency gates. |
 | 9 | Run continuous 1k/10k lanes and 100k campaign | OPEN. Offline runner exists. Provision recurring live lanes and complete 100k-turn campaign with growing-store, recovery and quality/latency evidence. |
 | 10 | Deliver durable decision replay and audit export/retention | OPEN. Mutation decisions/response traces exist. Demonstrate complete product decision/context reconstruction across restart, export/access controls and bounded retention. |
