@@ -1,0 +1,56 @@
+{
+  "schema": "dml.m8.development-foundation.v1",
+  "date": "2026-09-29",
+  "base_commit": "4032dd02dbdf3faf5cb8fbb02e745288cdd3c7b8",
+  "status": "independently_approved_development_foundation",
+  "m8_closed": false,
+  "execution_authorized": false,
+  "source_sha256": {
+    "dml_core/daystrom_dml/services/m8_accounting.py": "8fc32b418d88de86971d8617ef44a9b06ad972696551745ad9ed3857f6332ec4",
+    "dml_core/daystrom_dml/services/m8_dml_memory.py": "b5f17e2bc448e6d2ac194b8945b2f910de192258ff9123a911fac3cded06ae08",
+    "dml_core/daystrom_dml/services/m8_memory_baseline.py": "115ee0bf813dbe127af4655d53f2f06ef59389bd501b5bfdc606af8c3ab105a3",
+    "dml_core/daystrom_dml/services/m8_protocol.py": "57bebec654393eb3e93ecea7f77abc9818b9bd96a1544fe71fa0ff4e3409fd16",
+    "dml_core/tests/test_m8_accounting.py": "130401c3bea7b0e660244dc84dc7b9ca63e5a9400c6278078eb50585f3154a68",
+    "dml_core/tests/test_m8_development_integration.py": "c0d32a727243a45c76e671ddcca996afb1775d6c476fa1e6793380ff176ee43d",
+    "dml_core/tests/test_m8_dml_memory.py": "202667832d90e4def25715d1828878880bc0c3e5ad19684c30767123738c819c",
+    "dml_core/tests/test_m8_memory_baseline.py": "54f5c01375e7952b6e861857ad8b669d3c98500c71bbcfb2b648a0f2940571b7",
+    "dml_core/tests/test_m8_protocol.py": "b48218f68aecf68c532b53d4a9e4dbf585c6004ac912f163f97557803c6c95c0"
+  },
+  "tests": {
+    "total": 128,
+    "new_m8": 90,
+    "historical_contract_controls": 38,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 5.931,
+    "junit_sha256": "bdd66d8e7db8fc828c35a6676d72308cbcf4b2e1f10f0e25e11516d9f0919018",
+    "ruff": "passed nine new code/test files",
+    "mypy": "passed four modules using local Python 3.12 target; default 3.10 target cannot parse installed NumPy 2.5 stubs",
+    "model_calls": 0,
+    "learned_embedding_calls": 0,
+    "three_arm_integration": "actual memory stores with scripted actions and explicit byte-tokenizer double; not live agent evidence"
+  },
+  "review": {
+    "reviewer": "/root/remote_consumer",
+    "decision": "approved_for_development_foundation_only",
+    "independence": "Non-author of these modules/tests; prior runtime/training contributor. Not the independent training-leakage auditor.",
+    "resolved_findings": [
+      "complete owned-scope authority drift checks before operations and after retrieval",
+      "aligned scope, integer and chronological admission",
+      "authentic untrusted correction rejection retained and authority parity explicitly blocked"
+    ]
+  },
+  "pending_execution_gates": [
+    "historical event-clock parity through separately reviewed versioned API",
+    "common authenticated source/correction authority semantics",
+    "actual neutral tokenizer/grammar/model runtime qualification",
+    "semantic embedding admission and durable full-cost accounting",
+    "independent leakage seal, workloads, statistical coverage/power and resource decision",
+    "exact-source CI and independent complete campaign freeze"
+  ],
+  "station_evidence_root": "/home/nvidia/dml-debug/m8-development-foundation-20260929",
+  "history_preserved": true,
+  "held_out_runs": 0,
+  "training_runs": 0
+}
