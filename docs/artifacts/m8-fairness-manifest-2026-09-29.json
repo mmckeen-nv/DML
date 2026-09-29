@@ -1,0 +1,193 @@
+{
+  "schema": "dml.m8.fairness-preparation.v1",
+  "date": "2026-09-29",
+  "status": "proposed_for_independent_preparation_review",
+  "execution_authorized": false,
+  "execution_frozen": false,
+  "m8_closed": false,
+  "audited_source": "45aca1066aed03ed85da97aa91980c844a9a1da6",
+  "claim": "Quality advantage over conventional persistent RAG, with context-only non-inferiority, for this fixed DML-trained agent on externally ingested scoped evolving-memory queries. Not adapter-independent memory causality or autonomous mutation superiority.",
+  "arms": {
+    "context_only": {
+      "adapter_enabled": true,
+      "storage": "bounded chronological in-memory event buffer",
+      "tools": [],
+      "overflow": "newest whole records that fit, preserving chronology; no query-aware selection"
+    },
+    "persistent_rag": {
+      "adapter_enabled": true,
+      "storage": "existing independent SQLiteBaseline WAL/FULL; immutable history plus separately qualified ordinary current-view metadata wrapper",
+      "tools": [
+        "retrieve(query, top_k<=8)"
+      ],
+      "ranking": "exact cosine + 0.15/(1+max(0,now-timestamp)/3600), ID tie-break"
+    },
+    "dml": {
+      "adapter_enabled": true,
+      "storage": "supported DML with existing validation and authorization",
+      "tools": [
+        "retrieve(query, top_k<=8)"
+      ],
+      "ranking": "existing supported DML retrieval rules, separately qualified with shared semantic embeddings"
+    }
+  },
+  "model": {
+    "id": "meta-llama/Meta-Llama-3-8B-Instruct",
+    "revision": "8afb486c1db24fe5011ec46dfbe5b5dccdb575c2",
+    "adapter_sha256": "e7bb69e35d5275be8aefdc9f2088db1eccb8503c4460cee27554125d2434cd1a",
+    "adapter_config_sha256": "3bbc80266e4c54239cbe77da587fdf6ac61df98bdc7757097dd064045f1aedf6",
+    "tokenizer_sha256": "e134af98b985517b4f068e3755ae90d4e9cd2d45d328325dc503f1c6b2d06cc7",
+    "vendor_chat_template_sha256": "ba03a121d097859c7b5b9cd03af99aafe95275210d2876f642ad9929a150f122",
+    "base_dtype": "bfloat16",
+    "adapter_dtype": "float32",
+    "image_digest": "sha256:bf05c8a0d56f7ed2fe279e0c0c876dd2bb813dd34702d975fa6ab640860ce825",
+    "neutral_runtime_identity": null
+  },
+  "sampling": {
+    "temperature": 0.7,
+    "top_k": 20,
+    "top_p": 0.8,
+    "min_p": 0,
+    "repetition_penalty": 1,
+    "frequency_penalty": 0,
+    "presence_penalty": 0,
+    "seed": 0,
+    "sampler": "CPU torch.multinomial, reset per request",
+    "automatic_tool_choice": true,
+    "retries": 0,
+    "output_repair": false
+  },
+  "embeddings": {
+    "id": "sentence-transformers/all-MiniLM-L6-v2",
+    "revision": "c9745ed1d9f207416be6d2e6f8de32d1f16199bf",
+    "weights_sha256": "53aa51172d142c89d9012cce15ae4d6cc0ca6895895114379cacb4fab128d9db",
+    "tokenizer_sha256": "be50c3628f2bf5bb5e3a7f17b1f74611b2561a3a27eeab05e5aa30f411572037",
+    "dimensions": 384,
+    "pooling": "mean",
+    "normalization": "L2",
+    "device": "CPU",
+    "dtype": "float32",
+    "batch_size": 1,
+    "threads": 4,
+    "maximum_tokens": 256,
+    "chunk_content_tokens": 192,
+    "silent_truncation_allowed": false,
+    "shared_across_persistent_arms": true,
+    "runtime_qualified": false,
+    "inventory_sha256": "602d14a407c53069309f82b37b15110fe9083cc66c492219c2dd1feee18a7442"
+  },
+  "budgets": {
+    "model_calls": 6,
+    "output_tokens_per_call": 256,
+    "output_tokens_total": 1536,
+    "input_tokens_total": 32768,
+    "request_context_tokens": 8192,
+    "query_wall_seconds": 300,
+    "retrieval_response_tokens_including_metadata": 2048,
+    "retrieval_top_k": 8,
+    "token_counting": "actual pinned tokenizer IDs; all rendered prompts, tool descriptions, evidence and feedback included"
+  },
+  "hardware": {
+    "station": "192.168.50.91",
+    "gpu": "NVIDIA GB300 SM10.3",
+    "driver": "590.48.01",
+    "inference_concurrency": 1,
+    "timing_requires": "dedicated allocation or qualified absence of competing work; no service changes during this preparation"
+  },
+  "workloads": {
+    "families": [
+      "changing facts",
+      "explicit corrections",
+      "conflicting independent sources",
+      "dependent lookups",
+      "isolated project scopes",
+      "stable and memory-adverse controls"
+    ],
+    "development_scenarios": 216,
+    "held_out_scenarios_proposed": 4320,
+    "held_out_arm_episodes": 12960,
+    "independent_unit": "unique scenario/project/store, one scored query",
+    "allocation": "6 families x 2 context pressure bands x 3 cache conditions x 6 arm orders x 20 distinct scenarios",
+    "pressure_bands_event_tokens": {
+      "fits": [
+        2048,
+        4096
+      ],
+      "exceeds": [
+        16384,
+        24576
+      ]
+    },
+    "weights": "equal cells",
+    "cases_created": false,
+    "leakage_cleared": false,
+    "fits_validation": "complete rendered context-only request including metadata/system/task and reserved output fits without dropping records"
+  },
+  "cache_conditions": [
+    "cold process, not asserted cold OS",
+    "warm model resident with independent arm caches and reset KV/RNG",
+    "event-log rebuild before query"
+  ],
+  "acceptance_proposal": {
+    "route": "quality-primary conjunction only; no post-hoc efficiency alternative",
+    "confidence": "one-sided nominal 95% per required component; not simultaneous interval coverage",
+    "success_difference_dml_rag_lower_strictly_greater_than": 0.05,
+    "success_difference_dml_context_lower_strictly_greater_than": -0.02,
+    "absolute_dml_success_lower_at_least": 0.9,
+    "stale_rate_upper_at_most": 0.02,
+    "stale_excess_each_baseline_upper_at_most": 0.01,
+    "unsupported_or_contradictory_claim_excess_each_baseline_upper_at_most": 0.01,
+    "deterministic_safety_failures": 0,
+    "query_p95_upper_seconds": 120,
+    "full_lifecycle_p95_upper_seconds": 180,
+    "full_lifecycle_p95_dml_rag_ratio_upper": 1.25,
+    "llm_tokens_per_correct_success_dml_rag_ratio_upper": 1.1,
+    "subgroup_observed_success_regression_limit": 0.05,
+    "subgroup_regression_scope": "each family x context-pressure marginal against either baseline",
+    "both_replays_required": true,
+    "absolute_latency_scope": "each family x cache marginal",
+    "lifecycle_latency_ratio_scope": "each cache condition"
+  },
+  "statistics": {
+    "binary_difference": "stratified paired trinomial constrained profile likelihood; implementation, boundary rules and coverage calibration pending before execution freeze",
+    "cost_and_latency": "20000 fixed-seed paired cell-stratified scenario bootstrap resamples; boundary/tail calibration pending",
+    "bootstrap_seed": 20260929,
+    "power_status": "normal planning only, not full-conjunction qualification",
+    "optional_stopping": false,
+    "binary_estimand": "Delta=sum(w_c*delta_c); heterogeneous cell-specific delta_c,q_c; constrain weighted mean null and profile nuisance parameters, no common-effect assumption"
+  },
+  "baseline_audit": {
+    "existing_tests_passed": 3,
+    "additional_controls_passed": 8,
+    "offline_hits_each_arm": 1000,
+    "offline_queries_each_arm": 1000,
+    "model_calls": 0,
+    "station_retention_manifest_sha256": "abb368513fe3bb5685c1273ba6c7a9fc1a091f19240eb6549fd6b307bfed0600",
+    "smoke_quality_limitation": "query contains target answer; retrieval functionality only, no agent quality evidence"
+  },
+  "pending_execution_bindings": [
+    "neutral interface implementation, exact source CI and all-arm protocol competence",
+    "full prompts/tool schemas/source envelopes and neutral evidence verifier hashes",
+    "embedding runtime parity, validation and provenance attestation",
+    "complete exposure registry and independent held-out leakage audit/seal",
+    "generator/case/truth/order hashes and fixed seed schedule",
+    "cache ownership, block sizing, warmup and full-cost instrumentation qualification",
+    "statistical implementation, boundary coverage and full-conjunction power calibration",
+    "development pilot and retained defects/failures",
+    "resource forecast and execution budget decision",
+    "independent execution approval and immutable complete run freeze"
+  ],
+  "evidence_policy": "Raw evidence on station. Publish compact outcomes/hashes only. Retain every attempt/failure; no selective retries, tuning on held-out outcomes or merge.",
+  "ingestion": {
+    "driver": "authenticated non-model drivers consuming identical explicit event fields; no answer-key access",
+    "current_view": "apply explicit same-source correction/version eligibility before ranking, top-k and compaction; retain immutable history separately",
+    "independent_sources": "preserve conflicting independent sources; never resolve ambiguity for one arm",
+    "cost": "all ingestion, checkpoint, maintenance and rebuild charged to receiving arm"
+  },
+  "final_contract": {
+    "shared": "required facts plus valid claims/citations supported by evidence actually presented to that arm",
+    "context_evidence": "inline source envelopes accepted without fabricated DML receipts",
+    "invalid_final": "reject without repair or conversion",
+    "baseline_operational_receipts_required": false
+  }
+}

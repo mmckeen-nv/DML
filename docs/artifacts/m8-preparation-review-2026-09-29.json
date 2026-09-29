@@ -1,0 +1,33 @@
+{
+  "schema": "dml.m8.preparation-review.v1",
+  "date": "2026-09-29",
+  "status": "approved_for_preparation_only",
+  "m8_closed": false,
+  "execution_authorized": false,
+  "reviewer": "independent non-author subagent /root/remote_consumer",
+  "independence_disclosure": "Non-author of M8 design artifacts; prior runtime and training-data contributor. This is not an independent training-leakage audit. A separate qualified leakage auditor remains required.",
+  "baseline_reviewer": "/root/m8_baseline_audit; baseline-specific preparation approved after corrections",
+  "artifact_sha256": {
+    "docs/m8-fairness-manifest-2026-09-29.md": "daa24b24c7d42bd0035230d29123335b9e990323bf94c85677c2a88757fea8be",
+    "docs/artifacts/m8-fairness-manifest-2026-09-29.json": "688f9c0fe0e688a67dbb8aaa7ee1ef9a3b6f4a5272bf0a86916f924e594a7199",
+    "docs/m8-baseline-audit-2026-09-29.md": "ff50c9e10135276b564beb6d164c9eb366ede8179a7a74f5f95d13e53c992ebe",
+    "docs/artifacts/m8-power-planning-2026-09-29.json": "6fc374a9f493c159316811b788cc2023b4e1563e8726ebcfec3bc283ca824e86"
+  },
+  "resolved_findings": [
+    "RAG current-view eligibility before ranking/top-k/compaction",
+    "JSON includes ingestion, corrections/conflicts, final evidence and latency scopes",
+    "audit discloses answer-containing legacy smoke queries",
+    "heterogeneous per-cell effects with constrained weighted-mean estimand",
+    "context-fit validation includes complete rendered request and output reserve"
+  ],
+  "remaining_execution_prerequisites": [
+    "neutral harness and exact-source CI",
+    "embedding admission and runtime attestation",
+    "independent leakage audit and sealed fresh workloads",
+    "inference coverage calibration and full-conjunction power planning",
+    "development pilot and resource forecast",
+    "independent execution approval and complete immutable freeze"
+  ],
+  "verification": "JSON syntax, document links, allocation arithmetic, shared-adapter/no-retry/open-gate consistency and git diff whitespace checked; no new model inference/training/search",
+  "station_evidence_root": "/home/nvidia/dml-debug/m8-preparation-20260929"
+}

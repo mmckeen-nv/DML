@@ -1,0 +1,21 @@
+{
+  "schema": "dml.m8.power-planning.v1",
+  "n": 4320,
+  "method": "normal approximation using Var(D)=q-delta^2, one-sided alpha .05",
+  "rag": {
+    "true_delta": 0.1,
+    "null_margin": 0.05,
+    "discordance": 1,
+    "power": 0.9513450682184325
+  },
+  "context": {
+    "true_delta": 0,
+    "null_margin": -0.02,
+    "discordance": 0.2,
+    "power": 0.902259494591412
+  },
+  "two_component_joint_union_bound": 0.8536045628098443,
+  "context_worst_discordance_power": 0.37057928428679765,
+  "full_conjunction_power": null,
+  "qualification": "planning only; additional acceptance guards and calibrated inference need prospective simulation before freeze"
+}
