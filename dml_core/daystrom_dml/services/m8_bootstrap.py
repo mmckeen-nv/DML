@@ -337,7 +337,7 @@ def _pooled_stats(
     latency: dict[str, np.ndarray] = {}
     for arm in arms:
         vals = np.concatenate([p.latency[arm][ix] for p, ix in zip(prepped, idxs)])
-        latency[arm] = np.quantile(vals, LATENCY_QUANTILES)
+        latency[arm] = np.asarray(np.quantile(vals, LATENCY_QUANTILES), dtype=np.float64)
     lifecycle: dict[str, Stat] = {}
     for ci, cond in enumerate(conditions):
         p95: dict[str, float] = {}
