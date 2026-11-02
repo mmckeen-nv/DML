@@ -1,5 +1,6 @@
 """No-model controls for the pinned M8 embedding pipeline; doubles only."""
 
+from pathlib import Path
 import sys
 
 import numpy as np
@@ -57,11 +58,28 @@ def test_identity_pins():
 
 
 def test_import_and_pure_pipeline_load_no_heavy_backend():
-    assert "torch" not in sys.modules
-    assert "transformers" not in sys.modules
-    embedder_for(one_hot_rows(4), [1, 1, 1, 1]).embed("text")
-    assert "torch" not in sys.modules
-    assert "transformers" not in sys.modules
+    # Isolation: the suite may have imported heavy backends already; prove
+    # laziness in a fresh interpreter where only this module is imported.
+    import subprocess
+
+    dml_core = Path(__file__).resolve().parents[1]
+    code = (
+        "import sys\n"
+        "import numpy as np\n"
+        "import daystrom_dml.services.m8_embeddings as m\n"
+        "assert 'torch' not in sys.modules and 'transformers' not in sys.modules\n"
+        "hidden = np.ones((2, m.EMBEDDING_DIMENSIONS), dtype=np.float32)\n"
+        "mask = np.ones(2, dtype=np.int64)\n"
+        "backend = lambda text: m.EncodedInput(hidden, mask, 0)\n"
+        "out = m.PinnedMiniLMEmbedder(backend).embed('x')\n"
+        "assert out.shape == (m.EMBEDDING_DIMENSIONS,)\n"
+        "assert 'torch' not in sys.modules and 'transformers' not in sys.modules\n"
+    )
+    subprocess.run(
+        [sys.executable, "-c", code],
+        check=True,
+        env={"PYTHONPATH": str(dml_core), "PATH": "/usr/bin:/bin"},
+    )
 
 
 def test_embed_shape_dtype_l2_and_finite():
