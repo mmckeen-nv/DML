@@ -1,0 +1,26 @@
+{
+  "schema": "dml.m8.station-attestation.v1",
+  "date": "2026-11-02",
+  "station": "nvidia-GB300-DGX-Station (192.168.50.91)",
+  "mode": "read-only independent inventory; nothing installed, modified or deleted",
+  "verifier": "delegated non-author agent; hashes recomputed against live files using the original station procedures (prepare_v3_snapshot_r3.py; m8-preparation-20260929 inventory file)",
+  "results": [
+    {"asset": "all-MiniLM-L6-v2 cache inventory @ c9745ed1", "expected": "602d14a407c53069309f82b37b15110fe9083cc66c492219c2dd1feee18a7442", "observed": "inventory file hashes to expected; all 11 cache files re-hashed byte-identical to its files section", "match": true},
+    {"asset": "embedding weights model.safetensors", "expected": "53aa51172d142c89d9012cce15ae4d6cc0ca6895895114379cacb4fab128d9db", "observed": "53aa51172d142c89d9012cce15ae4d6cc0ca6895895114379cacb4fab128d9db", "match": true},
+    {"asset": "embedding tokenizer.json", "expected": "be50c3628f2bf5bb5e3a7f17b1f74611b2561a3a27eeab05e5aa30f411572037", "observed": "be50c3628f2bf5bb5e3a7f17b1f74611b2561a3a27eeab05e5aa30f411572037", "match": true},
+    {"asset": "Llama 3 8B Instruct @ 8afb486c (dml-debug snapshot, hard-linked)", "expected": "snapshot manifest revision pin + 13 file hashes", "observed": "all 13 files re-hashed match snapshot manifest incl. 4 safetensors shards", "match": true},
+    {"asset": "Llama tokenizer.json", "expected": "e134af98b985517b4f068e3755ae90d4e9cd2d45d328325dc503f1c6b2d06cc7", "observed": "e134af98b985517b4f068e3755ae90d4e9cd2d45d328325dc503f1c6b2d06cc7", "match": true},
+    {"asset": "vendor chat template", "expected": "ba03a121d097859c7b5b9cd03af99aafe95275210d2876f642ad9929a150f122", "observed": "ba03a121d097859c7b5b9cd03af99aafe95275210d2876f642ad9929a150f122", "match": true},
+    {"asset": "V3 adapter_model.safetensors", "expected": "e7bb69e35d5275be8aefdc9f2088db1eccb8503c4460cee27554125d2434cd1a", "observed": "e7bb69e35d5275be8aefdc9f2088db1eccb8503c4460cee27554125d2434cd1a", "match": true},
+    {"asset": "V3 adapter_config.json", "expected": "3bbc80266e4c54239cbe77da587fdf6ac61df98bdc7757097dd064045f1aedf6", "observed": "3bbc80266e4c54239cbe77da587fdf6ac61df98bdc7757097dd064045f1aedf6", "match": true},
+    {"asset": "container image vllm/vllm-openai:v0.20.0", "expected": "sha256:bf05c8a0d56f7ed2fe279e0c0c876dd2bb813dd34702d975fa6ab640860ce825", "observed": "present in docker images --digests", "match": true},
+    {"asset": "GPU driver", "expected": "590.48.01", "observed": "590.48.01", "match": true},
+    {"asset": "GPU free of competing work", "expected": "idle", "observed": "CONFLICT: ComfyUI (pid 15270, 672 MiB, :8188) and vision-server.py (pid 15274, 4736 MiB) resident ~1h40m", "match": false}
+  ],
+  "notes": [
+    "Llama weights live in the dml-debug snapshot tree (hard links), not the HF hub cache; attestation covers the snapshot the manifest hashes refer to.",
+    "inventory_sha256 is the hash of the station's embedding-cache-inventory.json; its files section recomputed exactly. The cosmetic config-block serialization of that file is not documented; no generator script found. All content hashes match.",
+    "Live development smoke requires a dedicated window: the manifest admits no competing GPU work during frozen or timing-qualified runs."
+  ],
+  "m8_closed": false
+}
