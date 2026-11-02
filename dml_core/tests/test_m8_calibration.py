@@ -79,9 +79,7 @@ def test_true_delta_weighting():
 
 
 def test_cell_config_validation_and_from_probabilities():
-    cfg = CellConfig.from_probabilities(
-        "p", 2.0, 8, p_win=0.35, p_loss=0.15, p_tie=0.5
-    )
+    cfg = CellConfig.from_probabilities("p", 2.0, 8, p_win=0.35, p_loss=0.15, p_tie=0.5)
     assert cfg.q == pytest.approx(0.5)
     assert cfg.delta == pytest.approx(0.2)
     assert cfg.p_win == pytest.approx(0.35)
@@ -218,6 +216,7 @@ def test_coverage_report_schema_stability():
 
 def bootstrap_configs(ratio=1.0):
     """Two cells, two arms, ratio-scaled DML metrics vs RAG."""
+
     def cell(name, condition):
         return BootstrapCellConfig(
             name=name,
@@ -231,22 +230,17 @@ def bootstrap_configs(ratio=1.0):
                     tokens=int(round(100 * ratio)),
                     success_rate=1.0,  # deterministic successes: ratio tests isolate metric ratios
                 ),
-                "rag": ArmMetricConfig(
-                    latency_ms=10.0, lifecycle_ms=10.0, tokens=100, success_rate=1.0
-                ),
+                "rag": ArmMetricConfig(latency_ms=10.0, lifecycle_ms=10.0, tokens=100, success_rate=1.0),
             },
         )
+
     return (cell("c0", "cold"), cell("c1", "warm"))
 
 
 def test_bootstrap_gate_simulation_determinism_and_gates():
     configs = bootstrap_configs(ratio=1.0)
-    first = bootstrap_gate_simulation(
-        configs, structure="boot", datasets=2, resamples=100
-    )
-    second = bootstrap_gate_simulation(
-        configs, structure="boot", datasets=2, resamples=100
-    )
+    first = bootstrap_gate_simulation(configs, structure="boot", datasets=2, resamples=100)
+    second = bootstrap_gate_simulation(configs, structure="boot", datasets=2, resamples=100)
     assert first == second
     gate_names = [g.gate for g in first.gates]
     assert gate_names == ["lifecycle_ratio:cold", "lifecycle_ratio:warm", "tokens_ratio"]
@@ -260,9 +254,7 @@ def test_bootstrap_gate_simulation_determinism_and_gates():
 
 def test_bootstrap_gate_simulation_failing_ratio():
     configs = bootstrap_configs(ratio=2.0)
-    report = bootstrap_gate_simulation(
-        configs, structure="boot-bad", datasets=2, resamples=100
-    )
+    report = bootstrap_gate_simulation(configs, structure="boot-bad", datasets=2, resamples=100)
     for gate in report.gates:
         assert gate.pass_fraction == pytest.approx(0.0)
         assert gate.blocked_fraction == pytest.approx(0.0)  # fails on bound, not blocking
@@ -270,9 +262,7 @@ def test_bootstrap_gate_simulation_failing_ratio():
 
 
 def test_bootstrap_gate_report_schema_stability():
-    report = bootstrap_gate_simulation(
-        bootstrap_configs(), structure="schema", datasets=1, resamples=100
-    )
+    report = bootstrap_gate_simulation(bootstrap_configs(), structure="schema", datasets=1, resamples=100)
     assert set(report.to_dict()) == {
         "structure",
         "seed",

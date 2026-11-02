@@ -304,9 +304,7 @@ def simulate_trinomial_counts(
 def _bound_worker(job: BoundKey) -> tuple[BoundKey, BoundValues]:
     """One deterministic service call; top-level for process-pool pickling."""
     alpha, weights, wins, losses, ties = job
-    result = paired_trinomial_inference(
-        list(weights), list(wins), list(losses), list(ties), alpha=alpha
-    )
+    result = paired_trinomial_inference(list(weights), list(wins), list(losses), list(ties), alpha=alpha)
     return job, (result.delta_hat, result.lower_bound, result.upper_bound)
 
 
@@ -671,9 +669,9 @@ def exact_single_cell_coverage(
             if (w > 0 and log_pw is None) or (lo > 0 and log_pl is None) or (t > 0 and log_pt is None):
                 continue  # zero-probability outcome
             logp = log_n_factorial - math.lgamma(w + 1) - math.lgamma(lo + 1) - math.lgamma(t + 1)
-            logp += (w * log_pw if w > 0 and log_pw is not None else 0.0)
-            logp += (lo * log_pl if lo > 0 and log_pl is not None else 0.0)
-            logp += (t * log_pt if t > 0 and log_pt is not None else 0.0)
+            logp += w * log_pw if w > 0 and log_pw is not None else 0.0
+            logp += lo * log_pl if lo > 0 and log_pl is not None else 0.0
+            logp += t * log_pt if t > 0 and log_pt is not None else 0.0
             logps.append(logp)
             requests.append(((1.0,), (w,), (lo,), (t,)))
 
