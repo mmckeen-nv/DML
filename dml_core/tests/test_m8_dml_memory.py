@@ -156,14 +156,50 @@ def test_external_retirement_blocks_live_read(setup):
         read(bridge)
 
 
-def test_untrusted_replacement_remains_authentically_rejected(setup):
+def test_unauthenticated_events_rejected_before_dispatch_without_poisoning(setup):
+    # Common all-arm authority contract: identical pre-dispatch rejection, no
+    # partial ingestion and no fail-closed bridge for a caller-contract error.
+    adapter, bridge, path = setup
+    bridge.ingest(event(1))
+    before = (path / "evidence.jsonl").read_bytes()
+    for bad in (
+        replace(event(2), metadata={"source_trust": "untrusted"}),
+        replace(event(3, version=2, corrects=1), metadata={"source_trust": "untrusted"}),
+        replace(event(4), metadata={"source_trust": "expired"}),
+    ):
+        with pytest.raises(ValueError, match="unauthenticated|invalid explicit source trust"):
+            bridge.ingest(bad)
+    assert (path / "evidence.jsonl").read_bytes() == before
+    assert not bridge.failed
+    assert len(bridge.receipts) == 1
+    assert [r["record_id"] for r in read(bridge)["evidence"].records] == [1]
+
+
+def test_native_supersession_still_rejects_untrusted_replacement(setup):
+    # The supported DML authority keeps its authentic rejection: an untrusted
+    # record may exist in the store but is never eligible for supersession or
+    # retrieval. The neutral contract simply never requests it.
+    from daystrom_dml.services.episode_tools import _digest
     from daystrom_dml.services.receipt_lifecycle import ReceiptLifecycleConflict
 
     adapter, bridge, path = setup
     bridge.ingest(event(1))
+    untrusted = adapter.ingest_memory_receipted(
+        "Replacement claim from an unauthenticated source",
+        idempotency_key="native-untrusted",
+        meta={"source_trust": "untrusted", "source": "notice"},
+        **SCOPE,
+    )
+    old = bridge.records[1]
+    replacement = untrusted["result"]["memory"]
     with pytest.raises(ReceiptLifecycleConflict):
-        bridge.ingest(replace(event(2, version=2, corrects=1), metadata={"source_trust": "untrusted"}))
-    assert bridge.failed
-    assert len(bridge.receipts) == 2  # Both append acknowledgements retained.
-    with pytest.raises(ValueError, match="unresolved"):
-        read(bridge)
+        adapter.supersede_memory_receipted(
+            old["id"],
+            replacement_memory_id=replacement["id"],
+            expected_memory_digest=_digest(old),
+            expected_replacement_digest=_digest(replacement),
+            reason="explicit source correction",
+            idempotency_key="native-untrusted-supersede",
+            **SCOPE,
+        )
+    assert old["meta"].get("memory_state") != "superseded"

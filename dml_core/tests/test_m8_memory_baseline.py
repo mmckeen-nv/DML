@@ -16,7 +16,11 @@ VEC = [1., 0.]
 
 
 def event(index, **changes):
-    return replace(MemoryEvent(index, f"fact {index}", SCOPE, f"source {index}", "setting", 1, 10.), **changes)
+    return replace(
+        MemoryEvent(index, f"fact {index}", SCOPE, f"source {index}", "setting", 1, 10.,
+                    metadata={"source_trust": "trusted"}),
+        **changes,
+    )
 
 
 def render(records):
@@ -174,7 +178,7 @@ def test_presentation_rejects_invalid_counter_or_envelope_budget():
 
 
 def test_context_returned_envelopes_cannot_mutate_retained_state():
-    item = event(1, metadata={"nested": {"value": "original"}})
+    item = event(1, metadata={"source_trust": "trusted", "nested": {"value": "original"}})
     buffer = ContextBuffer(scope=SCOPE, token_budget=2000, count_tokens=count, render_records=render)
     buffer.ingest(item)
     item.metadata["nested"]["value"] = "caller mutation"
@@ -220,3 +224,30 @@ def test_maximum_supported_int64_and_scope_bytes(tmp_path):
     store.ingest(item, VEC)
     assert store.history(scope=scoped)[0]["record_id"] == 2**63 - 1
     store.close()
+
+
+@pytest.mark.parametrize("trust", ["untrusted", "expired", None, 1])
+def test_unauthenticated_source_rejected_without_mutation(tmp_path, trust):
+    # Common all-arm authority contract: no untrusted record or correction may
+    # enter the RAG current view; rejection precedes any table mutation.
+    store = store_at(tmp_path / "memory.sqlite")
+    store.ingest(event(1, source_id="authority"), VEC)
+    before = store.history(scope=SCOPE)
+    for bad in (
+        event(2, metadata={"source_trust": trust}),
+        event(3, source_id="authority", version=2, corrects=1, timestamp=20,
+              metadata={"source_trust": trust}),
+    ):
+        with pytest.raises(ValueError, match="unauthenticated|invalid explicit source trust"):
+            store.ingest(bad, VEC)
+    assert store.history(scope=SCOPE) == before
+    assert store.store.connection.execute("SELECT count(*) FROM memory").fetchone() == (1,)
+    store.close()
+
+
+def test_context_buffer_rejects_unauthenticated_without_mutation():
+    buffer = ContextBuffer(scope=SCOPE, token_budget=2000, count_tokens=count, render_records=render)
+    buffer.ingest(event(1))
+    with pytest.raises(ValueError, match="unauthenticated"):
+        buffer.ingest(event(2, metadata={"source_trust": "untrusted"}))
+    assert [r["record_id"] for r in buffer.present().records] == [1]

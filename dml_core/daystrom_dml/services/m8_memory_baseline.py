@@ -47,6 +47,28 @@ def _time(value):
         raise ValueError("invalid timestamp")
 
 
+AUTHORITY_PROFILE = "m8-external-correction-authority-v1"
+
+
+def source_authenticated(envelope: dict) -> bool:
+    """External source/correction authentication asserted on the event envelope.
+
+    Common all-arm semantics (proposed; pending independent review): an
+    unauthenticated event is admitted nowhere — it cannot enter a current view,
+    replace a predecessor, or be presented as evidence, in ANY arm. Source TEXT
+    remains untrusted as instructions even when the envelope is authenticated.
+    """
+    trust = envelope.get("metadata", {}).get("source_trust", "untrusted")
+    if trust not in ("trusted", "untrusted"):
+        raise ValueError("invalid explicit source trust")
+    return trust == "trusted"
+
+
+def require_authenticated_source(envelope: dict) -> None:
+    if not source_authenticated(envelope):
+        raise ValueError("unauthenticated source cannot be admitted to any arm")
+
+
 def validate_scope(scope):
     if not isinstance(scope, dict) or set(scope) != {"tenant_id", "client_id", "session_id", "instance_id"}:
         raise ValueError("nonempty exact scope required")
@@ -134,6 +156,9 @@ class PersistentRAGBaseline:
 
     def ingest(self, event: MemoryEvent, vector):
         envelope = validate_event(event)
+        # Identical external-authority admission in every arm; an
+        # unauthenticated correction can never enter this current view either.
+        require_authenticated_source(envelope)
         values = self._vector(vector)
         connection = self.store.connection
         # Both legacy memory and provenance commit together; remember() commits
@@ -211,6 +236,7 @@ class ContextBuffer:
         record = validate_event(event)
         if record["scope"] != self.scope:
             raise ValueError("scope mismatch")
+        require_authenticated_source(record)
         if event.record_id in self._ids or event.timestamp < self._last_timestamp:
             raise ValueError("duplicate or nonchronological input")
         candidate = self._records + [record]

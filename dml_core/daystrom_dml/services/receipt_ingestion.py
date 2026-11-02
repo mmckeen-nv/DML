@@ -141,9 +141,48 @@ def canonical_request(text: str, *, tenant_id: str, client_id=None, session_id=N
     return json.loads(raw), hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
+EVENT_APPEND_SCHEMA = "dml-append-request-v2"
+
+
+def validate_event_time(value) -> float:
+    """Require an explicit finite nonnegative event time; never coerce text."""
+    if type(value) not in (int, float) or not math.isfinite(value) or value < 0:
+        raise ValueError("Event time must be a finite nonnegative number")
+    return float(value)
+
+
+def canonical_event_request(text: str, *, event_time, tenant_id: str, client_id=None,
+                            session_id=None, instance_id=None, kind=None, meta=None) -> tuple[dict, str]:
+    """Bind a caller-supplied event time into the canonical request and digest.
+
+    Separately versioned (dml-append-request-v2): the historical commit-time
+    request schema and digest are unchanged, and the commit time is retained
+    separately in record metadata at commit. Pending independent API review.
+    """
+    base, _ = canonical_request(text, tenant_id=tenant_id, client_id=client_id,
+        session_id=session_id, instance_id=instance_id,
+        kind=kind if kind is not None else "memory", meta=meta)
+    request = {**base, "schema_version": EVENT_APPEND_SCHEMA,
+               "event_time": validate_event_time(event_time)}
+    _strict_json(request)
+    raw = json.dumps(request, sort_keys=True, separators=(",", ":"), allow_nan=False)
+    if len(raw.encode("utf-8")) > 1024 * 1024:
+        raise ValueError("Receipt request exceeds 1 MiB")
+    return json.loads(raw), hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
 def append_receipted(journal: JournalStateStore, *, request: dict, request_digest: str,
                     key: str, embed: Callable, capacity: int, embedding_space: Callable[[], dict],
-                    hydrate: Callable[[int, dict], None], degraded: Callable[[Exception], None]) -> dict:
+                    hydrate: Callable[[int, dict], None], degraded: Callable[[Exception], None],
+                    event_time=None) -> dict:
+    if event_time is None:
+        if request.get("schema_version") == EVENT_APPEND_SCHEMA:
+            raise ValueError("An event-time request cannot be committed without its bound event_time")
+    else:
+        if request.get("schema_version") != EVENT_APPEND_SCHEMA:
+            raise ValueError("event_time requires the event-time request schema")
+        if validate_event_time(event_time) != request.get("event_time"):
+            raise ValueError("event_time differs from its canonical request binding")
     scope = request["scope"]
     existing = journal.lookup_receipt(scope=scope, key=key, request_digest=request_digest)
     if existing is not None:
@@ -182,8 +221,16 @@ def append_receipted(journal: JournalStateStore, *, request: dict, request_diges
             if type(next_id) is not int or next_id < 0:
                 raise ValueError("Invalid persisted memory ID allocator")
             ident = max(next_id, max(ids, default=-1) + 1)
+            commit_time = time.time()
+            if event_time is None:
+                stamp, meta = commit_time, request["meta"]
+            else:
+                # The bound event time is the authority timestamp; commit time
+                # is retained separately and never rewrites committed history.
+                stamp = float(event_time)
+                meta = {**request["meta"], "commit_time": commit_time}
             record = MemoryItem(id=ident, text=request["text"], embedding=vector,
-                timestamp=time.time(), salience=1.0, fidelity=1.0, level=0, meta=request["meta"]).to_dict()
+                timestamp=stamp, salience=1.0, fidelity=1.0, level=0, meta=meta).to_dict()
             payload["items"].append(record)
             payload["next_id"] = ident + 1
             validate_snapshot(payload)

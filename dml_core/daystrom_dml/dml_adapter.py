@@ -57,7 +57,7 @@ from .services.transactions import (
     PersistenceRollbackError,
     TransactionCoordinator,
 )
-from .services.receipt_ingestion import append_receipted, canonical_request, embedding_identity, validate_embedding_contract, ReceiptEmbeddingCompatibilityError
+from .services.receipt_ingestion import append_receipted, canonical_event_request, canonical_request, embedding_identity, validate_embedding_contract, ReceiptEmbeddingCompatibilityError
 from .services.receipt_lifecycle import canonical_retirement_request, retire_receipted
 from .services.receipt_supersession import canonical_supersession_request, supersede_receipted
 from .services.receipt_promotion import canonical_promotion_request, promote_receipted
@@ -2158,6 +2158,43 @@ class DMLAdapter:
         return append_receipted(self._journal, request=request, request_digest=digest,
             key=idempotency_key, embed=self.embedder.embed, capacity=self.store.capacity,
             embedding_space=self._receipt_embedding_space, hydrate=hydrate, degraded=degraded)
+
+    @admitted_profile_operation
+    def ingest_memory_event_receipted(self, text: str, *, event_time, idempotency_key: str,
+                               tenant_id: str, client_id: Optional[str] = None,
+                               session_id: Optional[str] = None, instance_id: Optional[str] = None,
+                               kind: Optional[str] = None, meta: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Append one journal-only memory whose authority timestamp is event time.
+
+        Separately versioned (dml-append-request-v2): the finite event time is
+        bound into the canonical request, its idempotency digest and the stored
+        timestamp, while commit time is retained in record metadata. The
+        historical commit-time ingestion API above is unchanged. Admission to
+        the frozen profile contract remains pending independent API review.
+        """
+        if int(getattr(self._mutation_local, "depth", 0)):
+            raise ValueError("Receipt ingestion cannot be nested in a compensating transaction")
+        if not self._receipts_enabled or self._journal is None:
+            raise ValueError("Receipt ingestion requires persistence.journal and persistence.receipts")
+        if self.mirror_agentic_memory_to_rag:
+            raise ValueError("Receipt ingestion does not support external RAG mirroring")
+        request, digest = canonical_event_request(text, event_time=event_time, tenant_id=tenant_id,
+            client_id=client_id, session_id=session_id, instance_id=instance_id, kind=kind, meta=meta)
+        def hydrate(revision, payload):
+            validate_snapshot(payload)
+            self.store.import_state(payload)
+            self.query_cache.clear()
+            self._last_observed_state = (revision, self._journal.path.stat().st_mtime_ns)
+            with self._persist_lock:
+                self._clear_durability_failure_locked("receipt_runtime")
+        def degraded(exc):
+            self._last_observed_state = None
+            with self._persist_lock:
+                self._durability_failures["receipt_runtime"] = type(exc).__name__
+        return append_receipted(self._journal, request=request, request_digest=digest,
+            key=idempotency_key, embed=self.embedder.embed, capacity=self.store.capacity,
+            embedding_space=self._receipt_embedding_space, hydrate=hydrate, degraded=degraded,
+            event_time=event_time)
 
     @admitted_profile_operation
     def retire_memory_receipted(self, memory_id: int, *, expected_memory_digest: str,

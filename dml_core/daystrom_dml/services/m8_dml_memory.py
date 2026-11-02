@@ -3,6 +3,12 @@
 This bridge does not qualify historical event-clock parity or a model runtime.
 It never rewrites authority timestamps. Incomplete multi-operation ingestion is
 retained and fail-closed, including across bridge restart.
+
+DMLDevelopmentEventMemory is the separately versioned event-time profile: it
+ingests through the proposed dml-append-request-v2 API so record authority
+timestamps equal authenticated event times, with commit time retained in
+record metadata. Its chain is version-isolated from v1 evidence. Independent
+API review and qualification remain pending; event_clock_qualified stays False.
 """
 
 from __future__ import annotations
@@ -17,7 +23,9 @@ from pathlib import Path
 from ..contracts.profile import PROFILE_ID
 from ..contracts.agent_episode import decode_json
 from .episode_tools import _digest, _scope
-from .m8_memory_baseline import MemoryEvent, validate_event, present_records
+from .m8_memory_baseline import (
+    MemoryEvent, present_records, require_authenticated_source, validate_event,
+)
 
 
 def _bytes(value):
@@ -34,6 +42,7 @@ class DMLDevelopmentMemory:
 
     version = "dml-m8-development-memory-v1"
     event_clock_qualified = False
+    event_time_profile = False
 
     def __init__(self, adapter, *, scope, evidence_path):
         if adapter.production_profile_id != PROFILE_ID:
@@ -132,11 +141,19 @@ class DMLDevelopmentMemory:
             raise ValueError("unresolved ingestion; no further dispatch permitted")
         self._assert_owned_state()
 
+    def _receipt_append(self, value, meta):
+        return self.adapter.ingest_memory_receipted(
+            value["text"], idempotency_key=f"m8:{value['record_id']}:append", meta=meta, **self.scope
+        )
+
     def ingest(self, event: MemoryEvent):
         self._ready()
         value = validate_event(event)
         if value["scope"] != self.scope:
             raise ValueError("event outside owned scope")
+        # Common externally authenticated authority: identical pre-dispatch
+        # rejection in every arm; no partial ingestion, no poisoned bridge.
+        require_authenticated_source(value)
         if event.record_id in self.events:
             raise ValueError("duplicate event; no automatic retry")
         if self.events and event.timestamp < max(e["timestamp"] for e in self.events.values()):
@@ -171,9 +188,7 @@ class DMLDevelopmentMemory:
             "source_trust": event.metadata.get("source_trust", "untrusted"),
             "m8_event": value,
         }
-        receipt = self.adapter.ingest_memory_receipted(
-            event.text, idempotency_key=f"m8:{event.record_id}:append", meta=meta, **self.scope
-        )
+        receipt = self._receipt_append(value, meta)
         self._append("receipt", receipt)
         self.receipts.append(deepcopy(receipt))
         record = receipt["result"]["memory"]
@@ -241,4 +256,29 @@ class DMLDevelopmentMemory:
             "evidence": present_records(records, token_budget, count_tokens, render_records),
             "raw_report": deepcopy(report),
             "event_clock_qualified": False,
+            "event_time_profile": self.event_time_profile,
         }
+
+
+class DMLDevelopmentEventMemory(DMLDevelopmentMemory):
+    """Event-time ingestion profile on the proposed dml-append-request-v2 API.
+
+    Record authority timestamps equal the authenticated event times, so DML
+    presentation and any timestamp-derived behavior match RAG's explicit event
+    clock; commit times remain in record metadata. The v1 bridge and evidence
+    chains are untouched. Independent API review remains a pending gate.
+    """
+
+    version = "dml-m8-development-memory-v2"
+    event_time_profile = True
+
+    def __init__(self, adapter, *, scope, evidence_path):
+        if not callable(getattr(adapter, "ingest_memory_event_receipted", None)):
+            raise ValueError("event-time ingestion API is not admitted on this adapter")
+        super().__init__(adapter, scope=scope, evidence_path=evidence_path)
+
+    def _receipt_append(self, value, meta):
+        return self.adapter.ingest_memory_event_receipted(
+            value["text"], event_time=value["timestamp"],
+            idempotency_key=f"m8:{value['record_id']}:append", meta=meta, **self.scope
+        )

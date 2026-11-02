@@ -1,0 +1,66 @@
+{
+  "schema": "dml.m8.fairness-blockers.v1",
+  "date": "2026-11-02",
+  "base_commit": "b7b1fedcd41cfed195f7cfc48613572f94a9f46c",
+  "base_ci": {
+    "run": 36641399096,
+    "conclusion": "success",
+    "jobs_green": 23,
+    "verified_before_work": true
+  },
+  "status": "proposed_contracts_pending_independent_review",
+  "m8_closed": false,
+  "execution_authorized": false,
+  "event_clock_qualified": false,
+  "blocker_1_event_clock": {
+    "proposal": "dml-append-request-v2 canonical event request binds finite nonnegative event_time into request and idempotency digest; record authority timestamp equals event time; wall commit_time retained in record metadata; historical commit-time API behavior pinned unchanged by tests",
+    "new_api": "DMLAdapter.ingest_memory_event_receipted (opt-in, admission to frozen profile pending independent API review)",
+    "new_bridge_profile": "DMLDevelopmentEventMemory / dml-m8-development-memory-v2, version-isolated evidence chain",
+    "invariants": ["no global clock patching", "no rewriting committed snapshots", "old API byte-identical digests and timestamps"]
+  },
+  "blocker_2_correction_authority": {
+    "proposal": "m8-external-correction-authority-v1: envelope metadata.source_trust=='trusted' is external authentication; unauthenticated events rejected identically pre-dispatch in all three arms without mutation or fail-closed state; authenticated corrections keep existing monotonic same-source replacement before ranking; source text remains untrusted as instructions; native untrusted-supersession rejection retained at the DML authority layer",
+    "not_done": ["no silent trusted-by-default", "no weakening of RAG visibility", "no change to supported DML retrieval/suppression rules"]
+  },
+  "source_sha256": {
+    "dml_core/daystrom_dml/services/receipt_ingestion.py": "824024eacdd1c4a2068bfce35c8ca9760e13c41548062a7824799824fb78f775",
+    "dml_core/daystrom_dml/services/m8_memory_baseline.py": "623c6b09eb9b81a5267b627b0fa0d402c86e6a9c1fcaf3317997d4cdc65065ff",
+    "dml_core/daystrom_dml/services/m8_dml_memory.py": "a253a260beedc5c864d44abb61a97a0dceab54cfc78647fc131b432e5d38e009",
+    "dml_core/daystrom_dml/dml_adapter.py": "1e19a9eee803b0bfc71387589dc5c17d1bc03ff13d05437379d7966b70df0ad3",
+    "dml_core/tests/test_m8_event_ingestion.py": "343d1e343fe9e8ee8657de72b127d981e1778c94f68f8b0937ab553a6a58f364",
+    "dml_core/tests/test_m8_memory_baseline.py": "e64e2b26788ddf62d49f290d3fc98ed2c77f9b8bde4c29d3b7085bf4cbb19f53",
+    "dml_core/tests/test_m8_dml_memory.py": "506f08605b0956ae8b53db09935d6010d9cbf75430fad5d068b1c242befc9136"
+  },
+  "tests": {
+    "total": 536,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 50.189,
+    "files": 17,
+    "new_tests": 25,
+    "junit_sha256": "6975c572c6bd1e076d8c7e87bcfa350ff38e5a3dbe2b640e445a1b85164b810f",
+    "ruff": "passed all touched M8-scope files; 4 pre-existing unused-import findings in dml_adapter.py present on HEAD and unchanged",
+    "mypy": "clean on m8_memory_baseline, m8_dml_memory, receipt_ingestion (Python 3.12 target)",
+    "environment": "macOS, Homebrew Python 3.12.13, NumPy 2.5.4, pinned SQLite 3.53.4 (CI-pinned amalgamation, SHA3-256 verified), single BLAS/OMP threads",
+    "model_calls": 0,
+    "learned_embedding_calls": 0
+  },
+  "pending_gates": [
+    "independent review and admission of the dml-append-request-v2 API/profile",
+    "independent review and admission of m8-external-correction-authority-v1 semantics",
+    "neutral GPU runtime qualification with pinned tokenizer/grammar/adapter/sampling",
+    "pinned semantic embedding admission and durable full-cost instrumentation",
+    "independent leakage audit and held-out sealing",
+    "statistical boundary coverage and full-conjunction power calibration",
+    "resource forecast, exact-source CI and independent execution approval before any campaign freeze"
+  ],
+  "station": {
+    "reachable_during_work": true,
+    "evidence_modified": false,
+    "services_modified": false
+  },
+  "history_preserved": true,
+  "held_out_runs": 0,
+  "training_runs": 0
+}
