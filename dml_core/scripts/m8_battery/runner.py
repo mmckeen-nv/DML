@@ -13,6 +13,17 @@ verification, and every failure is retained as evidence.
 Station use plugs the pinned MiniLM in through the embedder factory and the
 authenticated snapshot consumer through the consumer factory; tests inject
 doubles and never load a model.
+
+Cost accounting (development-only instrumentation, not cost qualification):
+every arm-episode records model call and token totals, runner-issued
+embedding calls and their wall seconds, retrieval count and episode wall
+seconds. gpu_wall_seconds is caller-reported only — the runner leaves it
+null and the station wrapper reports it later. Every admitted episode
+(failures included) is also appended to a hash-chained DurableLedger at
+<output>.ledger.jsonl, and the summary gains a per-arm accounting block
+whose cost_per_valid_final follows cost_per_correct_success semantics:
+all attempted episode costs in the numerator, unknown denominators fail
+loudly instead of passing.
 """
 
 from __future__ import annotations
@@ -24,6 +35,7 @@ from pathlib import Path
 import sys
 import time
 
+from daystrom_dml.services import m8_accounting
 from daystrom_dml.services import m8_protocol as protocol
 from scripts.m8_battery import schema as fixture_schema
 from scripts.m8_battery import verifiers
@@ -136,6 +148,17 @@ def default_store_factory(scenario, workdir, *, embedder, snapshot):
     return stores, close
 
 
+def _token_total(calls, key):
+    """Sum a per-call token count; any unknown (None) count makes the total unknown."""
+    total = 0
+    for call in calls:
+        value = call.get(key)
+        if value is None:
+            return None
+        total += value
+    return total
+
+
 def run_arm_episode(
     arm,
     scenario,
@@ -146,8 +169,22 @@ def run_arm_episode(
     snapshot,
     max_model_calls=MAX_MODEL_CALLS,
     seed=0,
+    clock=time.monotonic,
 ):
-    """One neutral consumer lifecycle for one scenario arm; retain everything."""
+    """One neutral consumer lifecycle for one scenario arm; retain everything.
+
+    Development-only metering: input/output token totals are summed from
+    consumer-reported per-call counts and become None when any call reports
+    unknown usage. embedding_calls and embedding_wall_seconds cover only the
+    embedder calls issued by THIS runner in its retrieval path (the
+    persistent_rag arm); the dml arm embeds inside its bridge and is not
+    attributed here. gpu_wall_seconds stays null: it is caller-reported by
+    the station wrapper after the run, never measured by the runner.
+    """
+    started = clock()
+    embedding_calls = 0
+    embedding_wall_seconds = 0.0
+    retrievals = 0
     record = {
         "schema": EVIDENCE_SCHEMA,
         "scenario_id": scenario.scenario_id,
@@ -160,6 +197,14 @@ def run_arm_episode(
         "presented_record_ids": [],
         "verdict": None,
         "failure": None,
+        "model_calls": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "embedding_calls": 0,
+        "embedding_wall_seconds": 0.0,
+        "retrievals": 0,
+        "wall_seconds": 0.0,
+        "gpu_wall_seconds": None,
     }
     supports = verifiers.supports_for_truth(scenario.truth)
     scope = scenario.scope
@@ -203,8 +248,12 @@ def run_arm_episode(
                 record["retrieval_attempted"] = True
                 args = action["arguments"]
                 if arm == "persistent_rag":
+                    embed_started = clock()
+                    vector = embedder.embed(args["query"])
+                    embedding_wall_seconds += clock() - embed_started
+                    embedding_calls += 1
                     ev = stores["rag"].retrieve(
-                        embedder.embed(args["query"]),
+                        vector,
                         scope=scope,
                         now=scenario.query_clock,
                         top_k=args["top_k"],
@@ -212,6 +261,7 @@ def run_arm_episode(
                         count_tokens=count,
                         render_records=protocol.render_records,
                     )
+                    retrievals += 1
                 elif arm == "dml":
                     ev = stores["bridge"].retrieve(
                         args["query"],
@@ -221,6 +271,7 @@ def run_arm_episode(
                         count_tokens=count,
                         render_records=protocol.render_records,
                     )["evidence"]
+                    retrievals += 1
                 else:
                     record["failure"] = "context_only issued a tool action"
                     break
@@ -236,6 +287,13 @@ def run_arm_episode(
                 record["failure"] = "model call ceiling reached without final"
     except Exception as exc:  # noqa: BLE001 — every failure is retained evidence
         record["failure"] = f"{type(exc).__name__}: {exc}"
+    record["model_calls"] = len(record["calls"])
+    record["input_tokens"] = _token_total(record["calls"], "input_token_count")
+    record["output_tokens"] = _token_total(record["calls"], "output_token_count")
+    record["embedding_calls"] = embedding_calls
+    record["embedding_wall_seconds"] = embedding_wall_seconds
+    record["retrievals"] = retrievals
+    record["wall_seconds"] = clock() - started
     record["presented_record_ids"] = [r["record_id"] for r in presented]
     return record
 
@@ -251,6 +309,7 @@ def run_scenario(
     consumer_factory,
     max_model_calls=MAX_MODEL_CALLS,
     seed=0,
+    clock=time.monotonic,
 ):
     """Run every requested arm for one scenario in its own fresh workdir."""
     stores, close = store_factory(scenario, workdir, embedder=embedder, snapshot=snapshot)
@@ -265,6 +324,7 @@ def run_scenario(
                 snapshot=snapshot,
                 max_model_calls=max_model_calls,
                 seed=seed,
+                clock=clock,
             )
             for arm in arms
         ]
@@ -326,6 +386,74 @@ def summarize(episodes):
             "failures": entry["failures"],
         }
     return summary
+
+
+LEDGER_SUFFIX = ".ledger.jsonl"
+
+
+def ledger_payload(episode):
+    """Durable-ledger 'step' payload capturing one admitted episode record.
+
+    The full episode record (failure included) rides under "episode"; the
+    step-level fields duplicate the episode's own wall seconds, embedding
+    calls and caller-reported GPU seconds so the ledger stays replayable
+    without the JSONL. Unknown GPU seconds stay None, never zero.
+    """
+    return {
+        "name": f"episode:{episode['scenario_id']}:{episode['arm']}:seed{episode['sampling_seed']}",
+        "wall_seconds": episode["wall_seconds"],
+        "cpu_seconds": None,
+        "gpu_seconds": episode["gpu_wall_seconds"],
+        "embedding_calls": episode["embedding_calls"],
+        "episode": episode,
+    }
+
+
+def _optional_total(values):
+    """Sum measurements; any unknown (None) value makes the aggregate unknown."""
+    total = 0
+    for value in values:
+        if value is None:
+            return None
+        total += value
+    return total
+
+
+def accounting_summary(episodes):
+    """Per-arm cost accounting over attempted arm-episode records.
+
+    Cost is measured in consumer-reported tokens (input + output) per
+    attempted episode — development-only metering, not qualified execution
+    cost. cost_per_valid_final applies m8_accounting.cost_per_correct_success
+    semantics: every attempted episode's cost is in the numerator, only
+    valid cited finals count in the denominator, and a zero-success arm or
+    an unknown episode cost raises instead of silently passing. GPU wall
+    seconds are caller-reported by the station wrapper after the run; the
+    aggregate stays None until every episode carries a measurement.
+    """
+    per_arm = {}
+    for arm in ARMS:
+        arm_episodes = [episode for episode in episodes if episode["arm"] == arm]
+        if not arm_episodes:
+            continue
+        attempts = []
+        for episode in arm_episodes:
+            cost = _optional_total((episode["input_tokens"], episode["output_tokens"]))
+            attempts.append({"correct": episode.get("verdict") == "valid_cited_final", "cost": cost})
+        per_arm[arm] = {
+            "episodes": len(arm_episodes),
+            "model_calls": sum(episode["model_calls"] for episode in arm_episodes),
+            "input_tokens": _optional_total(episode["input_tokens"] for episode in arm_episodes),
+            "output_tokens": _optional_total(episode["output_tokens"] for episode in arm_episodes),
+            "embedding_calls": sum(episode["embedding_calls"] for episode in arm_episodes),
+            "embedding_wall_seconds": round(sum(episode["embedding_wall_seconds"] for episode in arm_episodes), 6),
+            "retrievals": sum(episode["retrievals"] for episode in arm_episodes),
+            "wall_seconds": round(sum(episode["wall_seconds"] for episode in arm_episodes), 6),
+            "gpu_wall_seconds": _optional_total(episode["gpu_wall_seconds"] for episode in arm_episodes),
+            "valid_cited_final": sum(episode.get("verdict") == "valid_cited_final" for episode in arm_episodes),
+            "cost_per_valid_final": m8_accounting.cost_per_correct_success(attempts),
+        }
+    return per_arm
 
 
 def _parse_arms(value):
@@ -409,6 +537,8 @@ def main(argv=None, *, embedder_factory=None, consumer_factory=None, store_facto
     output.parent.mkdir(parents=True, exist_ok=True)
 
     episodes = []
+    ledger_path = output.with_suffix(LEDGER_SUFFIX)
+    ledger = m8_accounting.DurableLedger(ledger_path)
     try:
         with output.open("w", encoding="utf-8") as stream:
             for seed in args.seeds:
@@ -434,6 +564,7 @@ def main(argv=None, *, embedder_factory=None, consumer_factory=None, store_facto
                         episodes.append(episode)
                         stream.write(json.dumps(episode, sort_keys=True) + "\n")
                         stream.flush()
+                        ledger.record("step", ledger_payload(episode))
     except fixture_schema.FixtureError as exc:
         print(json.dumps({"fixture_error": str(exc)}), file=sys.stderr)
         return 1
@@ -447,6 +578,15 @@ def main(argv=None, *, embedder_factory=None, consumer_factory=None, store_facto
         "scenarios": len(scenarios),
         "episodes": len(episodes),
         "families": summarize(episodes),
+        "accounting": {
+            "cost_unit": "tokens",
+            "cost_basis": (
+                "consumer-reported input+output tokens per attempted episode; "
+                "development-only metering, not qualified execution cost"
+            ),
+            "ledger": str(ledger_path),
+            "per_arm": accounting_summary(episodes),
+        },
         "limitations": (
             "Development protocol-competence battery only: fixture workloads, "
             "scripted retrieval dispatch, no benchmark, no held-out data, no "

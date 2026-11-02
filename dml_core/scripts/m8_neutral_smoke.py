@@ -19,55 +19,31 @@ from pathlib import Path
 import sys
 import time
 
-SNAPSHOT_REVISION = "c9745ed1d9f207416be6d2e6f8de32d1f16199bf"
-EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
-EMBEDDING_IDENTITY = (
-    "sentence-transformers/all-MiniLM-L6-v2@c9745ed1d9f207416be6d2e6f8de32d1f16199bf+cpu-fp32-meanpool-l2-384-v1"
+from daystrom_dml.services.m8_embeddings import (
+    EMBEDDING_IDENTITY,
+    EMBEDDING_MODEL,
+    PinnedMiniLMEmbedder,
 )
+
 SCOPE = {"tenant_id": "m8-smoke", "client_id": None, "session_id": "project", "instance_id": None}
 QUERY = "What is the project status?"
 QUERY_CLOCK = 2000.0
 MAX_MODEL_CALLS = 6
 
 
-class MiniLMEmbedder:
-    """Pinned MiniLM embeddings without sentence-transformers (same semantics).
+class MiniLMEmbedder(PinnedMiniLMEmbedder):
+    """Compatibility shim: the pinned MiniLM embedder lives in
+    daystrom_dml.services.m8_embeddings; this name stays importable.
 
-    CPU float32, batch one, mean pooling over attention tokens, L2 normalize.
-    At most 192 content tokens; silent truncation is rejected.
+    MiniLMEmbedder() builds the real pinned CPU backend exactly as
+    PinnedMiniLMEmbedder.from_pretrained() does.
     """
 
-    model_name = EMBEDDING_MODEL
-
-    def __init__(self):
-        import torch
-        from transformers import AutoModel, AutoTokenizer
-
-        torch.set_num_threads(4)
-        self._tokenizer = AutoTokenizer.from_pretrained(
-            self.model_name, revision=SNAPSHOT_REVISION, local_files_only=True
-        )
-        self._model = AutoModel.from_pretrained(
-            self.model_name, revision=SNAPSHOT_REVISION, local_files_only=True, dtype=torch.float32
-        ).eval()
-
-    def embed(self, text):
-        import numpy as np
-        import torch
-
-        if type(text) is not str or not text.strip():
-            raise ValueError("Embedding requires nonempty text")
-        batch = self._tokenizer(text, return_tensors="pt", truncation=False)
-        if int(batch["attention_mask"].sum()) > 192:
-            raise ValueError("Event exceeds 192 content tokens; chunking is out of smoke scope")
-        with torch.inference_mode():
-            hidden = self._model(**batch).last_hidden_state[0]
-        mask = batch["attention_mask"][0].unsqueeze(-1).float()
-        pooled = (hidden * mask).sum(0) / mask.sum()
-        vector = torch.nn.functional.normalize(pooled, p=2, dim=0).numpy().astype(np.float32)
-        if vector.shape != (384,) or not np.isfinite(vector).all():
-            raise ValueError("Invalid embedding row")
-        return vector
+    def __init__(self, backend=None, count_tokens=None):
+        if backend is None:
+            delegate = PinnedMiniLMEmbedder.from_pretrained()
+            backend, count_tokens = delegate._backend, delegate._count_tokens
+        super().__init__(backend, count_tokens)
 
 
 def fixture_events():

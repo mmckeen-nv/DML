@@ -9,6 +9,7 @@ import types
 
 import pytest
 
+from daystrom_dml.services import m8_accounting
 from daystrom_dml.services import m8_protocol as protocol
 from daystrom_dml.services.m8_memory_baseline import PresentedEvidence
 from scripts.m8_battery import runner, schema, verifiers
@@ -573,3 +574,240 @@ def test_seeds_validation_rejects_duplicates_and_negatives(tmp_path):
                     "--dry-run",
                 ]
             )
+
+
+# --- cost accounting with doubles ------------------------------------------
+
+METERING_FIELDS = (
+    "model_calls",
+    "input_tokens",
+    "output_tokens",
+    "embedding_calls",
+    "embedding_wall_seconds",
+    "retrievals",
+    "wall_seconds",
+    "gpu_wall_seconds",
+)
+
+
+class CountingEmbedder(EmbedderDouble):
+    def __init__(self):
+        self.calls = 0
+
+    def embed(self, text):
+        self.calls += 1
+        return super().embed(text)
+
+
+class UnknownUsageConsumerDouble(ConsumerDouble):
+    """Consumer double whose backend cannot report usage (None counts)."""
+
+    def execute(self, compiled):
+        result = super().execute(compiled)
+        result["input_token_count"] = None
+        result["output_token_count"] = None
+        return result
+
+
+def test_episode_metering_fields_exist_and_are_consistent(tmp_path):
+    scenario = schema.load_scenario(FIXTURES / "changing_facts_project_status.json")
+    store_factory, consumer_factory = double_factories(success_scripts)
+    embedder = CountingEmbedder()
+    episodes = runner.run_scenario(
+        scenario,
+        arms=runner.ARMS,
+        workdir=tmp_path,
+        snapshot="double-snapshot",
+        embedder=embedder,
+        store_factory=store_factory,
+        consumer_factory=consumer_factory,
+    )
+    by_arm = {e["arm"]: e for e in episodes}
+    for episode in episodes:
+        for field in METERING_FIELDS:
+            assert field in episode, field
+        assert episode["model_calls"] == len(episode["calls"])
+        assert episode["input_tokens"] == sum(c["input_token_count"] for c in episode["calls"])
+        assert episode["output_tokens"] == sum(c["output_token_count"] for c in episode["calls"])
+        assert 0.0 <= episode["embedding_wall_seconds"] <= episode["wall_seconds"]
+        assert episode["gpu_wall_seconds"] is None  # caller-reported by the station wrapper
+    assert by_arm["context_only"]["retrievals"] == 0
+    assert by_arm["context_only"]["embedding_calls"] == 0
+    assert by_arm["persistent_rag"]["retrievals"] == 1
+    assert by_arm["persistent_rag"]["embedding_calls"] == 1
+    assert by_arm["dml"]["retrievals"] == 1
+    # The dml arm embeds inside its bridge, not in the runner's retrieval path.
+    assert by_arm["dml"]["embedding_calls"] == 0
+    assert embedder.calls == 1
+
+
+def test_episode_metering_uses_injected_clock(tmp_path):
+    scenario = schema.load_scenario(FIXTURES / "changing_facts_project_status.json")
+    store_factory, consumer_factory = double_factories(success_scripts)
+    ticks = iter([0.0, 1.0, 1.25, 3.5])  # start, embed start, embed end, episode end
+    (episode,) = runner.run_scenario(
+        scenario,
+        arms=("persistent_rag",),
+        workdir=tmp_path,
+        snapshot="double-snapshot",
+        embedder=EmbedderDouble(),
+        store_factory=store_factory,
+        consumer_factory=consumer_factory,
+        clock=lambda: next(ticks),
+    )
+    assert episode["embedding_wall_seconds"] == 0.25
+    assert episode["wall_seconds"] == 3.5
+
+
+def test_unknown_usage_makes_token_totals_unknown(tmp_path):
+    scenario = schema.load_scenario(FIXTURES / "changing_facts_project_status.json")
+    store_factory, _ = double_factories(success_scripts)
+    (episode,) = runner.run_scenario(
+        scenario,
+        arms=("context_only",),
+        workdir=tmp_path,
+        snapshot="double-snapshot",
+        embedder=EmbedderDouble(),
+        store_factory=store_factory,
+        consumer_factory=lambda snapshot, arm: UnknownUsageConsumerDouble(arm, success_scripts(scenario, arm)),
+    )
+    assert episode["model_calls"] == len(episode["calls"]) == 1
+    assert episode["input_tokens"] is None
+    assert episode["output_tokens"] is None
+
+
+def _accounting_episode(arm, **overrides):
+    episode = {
+        "arm": arm,
+        "verdict": "valid_cited_final",
+        "model_calls": 1,
+        "input_tokens": 10,
+        "output_tokens": 5,
+        "embedding_calls": 0,
+        "embedding_wall_seconds": 0.0,
+        "retrievals": 1,
+        "wall_seconds": 1.0,
+        "gpu_wall_seconds": None,
+    }
+    episode.update(overrides)
+    return episode
+
+
+def test_accounting_summary_per_arm_totals_and_cost():
+    episodes = [
+        _accounting_episode("dml"),
+        _accounting_episode("dml", verdict=None, failure="boom", input_tokens=20, output_tokens=6),
+        _accounting_episode("context_only", input_tokens=4, output_tokens=2, retrievals=0),
+    ]
+    per_arm = runner.accounting_summary(episodes)
+    assert "persistent_rag" not in per_arm  # arms without episodes are omitted
+    dml = per_arm["dml"]
+    assert dml["episodes"] == 2
+    assert dml["model_calls"] == 2
+    assert dml["input_tokens"] == 30
+    assert dml["output_tokens"] == 11
+    assert dml["retrievals"] == 2
+    assert dml["valid_cited_final"] == 1
+    # cost_per_correct_success semantics: the failed attempt is in the numerator.
+    assert dml["cost_per_valid_final"] == 41.0
+    assert dml["gpu_wall_seconds"] is None
+    assert per_arm["context_only"]["cost_per_valid_final"] == 6.0
+    reported = [
+        _accounting_episode("dml", gpu_wall_seconds=2.0),
+        _accounting_episode("dml", gpu_wall_seconds=3.5),
+    ]
+    assert runner.accounting_summary(reported)["dml"]["gpu_wall_seconds"] == 5.5
+
+
+def test_accounting_summary_fails_loud_on_unknown_denominator():
+    with pytest.raises(ValueError, match="zero correct successes"):
+        runner.accounting_summary([_accounting_episode("dml", verdict=None, failure="boom")])
+    with pytest.raises(ValueError, match="unknown attempt cost"):
+        runner.accounting_summary([_accounting_episode("dml", input_tokens=None)])
+
+
+def test_main_writes_durable_ledger_and_accounting_block(tmp_path):
+    def scripts(scenario, arm):
+        if arm == "dml" and scenario.scenario_id == "changing_facts_project_status":
+            return ["garbage"]
+        return success_scripts(scenario, arm)
+
+    store_factory, consumer_factory = double_factories(scripts)
+    output = tmp_path / "evidence.jsonl"
+    code = runner.main(
+        [
+            "--scenarios-dir",
+            str(FIXTURES),
+            "--workdir-root",
+            str(tmp_path / "work"),
+            "--output",
+            str(output),
+            "--arms",
+            "context_only,dml",
+            "--snapshot",
+            "double-snapshot",
+        ],
+        embedder_factory=EmbedderDouble,
+        consumer_factory=consumer_factory,
+        store_factory=store_factory,
+    )
+    assert code == 0
+    episodes = [json.loads(line) for line in output.read_text().splitlines()]
+    for episode in episodes:
+        for field in METERING_FIELDS:
+            assert field in episode, field
+    # Reloading the ledger from disk validates the hash chain; failures included.
+    ledger_path = output.with_suffix(".ledger.jsonl")
+    ledger = m8_accounting.DurableLedger(ledger_path)
+    records = ledger.records()
+    assert len(records) == len(episodes) > 0
+    assert all(record["kind"] == "step" for record in records)
+    assert [record["payload"]["episode"] for record in records] == episodes
+    assert all(record["payload"]["name"].startswith("episode:") for record in records)
+    retained = [r for r in records if r["payload"]["episode"]["failure"]]
+    assert retained and all(r["payload"]["episode"]["arm"] == "dml" for r in retained)
+    summary = json.loads(output.with_suffix(".summary.json").read_text())
+    accounting = summary["accounting"]
+    assert accounting["cost_unit"] == "tokens"
+    assert accounting["ledger"] == str(ledger_path)
+    per_arm = accounting["per_arm"]
+    assert set(per_arm) == {"context_only", "dml"}
+    for arm, entry in per_arm.items():
+        arm_episodes = [e for e in episodes if e["arm"] == arm]
+        assert entry["episodes"] == len(arm_episodes)
+        assert entry["model_calls"] == sum(e["model_calls"] for e in arm_episodes)
+        assert entry["input_tokens"] == sum(e["input_tokens"] for e in arm_episodes)
+        assert entry["output_tokens"] == sum(e["output_tokens"] for e in arm_episodes)
+        assert entry["embedding_calls"] == sum(e["embedding_calls"] for e in arm_episodes)
+        assert entry["retrievals"] == sum(e["retrievals"] for e in arm_episodes)
+        assert entry["gpu_wall_seconds"] is None
+        expected = (entry["input_tokens"] + entry["output_tokens"]) / entry["valid_cited_final"]
+        assert entry["cost_per_valid_final"] == pytest.approx(expected)
+    assert per_arm["dml"]["valid_cited_final"] < per_arm["dml"]["episodes"]
+
+
+def test_main_fails_loud_when_an_arm_has_no_valid_final(tmp_path):
+    store_factory, consumer_factory = double_factories(lambda s, a: ["garbage"])
+    output = tmp_path / "evidence.jsonl"
+    with pytest.raises(ValueError, match="zero correct successes"):
+        runner.main(
+            [
+                "--scenarios-dir",
+                str(FIXTURES),
+                "--workdir-root",
+                str(tmp_path / "work"),
+                "--output",
+                str(output),
+                "--snapshot",
+                "double-snapshot",
+            ],
+            embedder_factory=EmbedderDouble,
+            consumer_factory=consumer_factory,
+            store_factory=store_factory,
+        )
+    # The unknown denominator never passes, but episode evidence is retained.
+    assert output.exists()
+    episodes = [json.loads(line) for line in output.read_text().splitlines()]
+    assert episodes and all(e["verdict"] is None for e in episodes)
+    ledger = m8_accounting.DurableLedger(output.with_suffix(".ledger.jsonl"))
+    assert len(ledger.records()) == len(episodes)
