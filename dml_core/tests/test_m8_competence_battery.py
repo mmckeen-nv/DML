@@ -53,15 +53,13 @@ def scenario_dict(**overrides):
 
 def test_shipped_fixtures_load_and_validate():
     scenarios = schema.load_scenarios(FIXTURES)
-    assert [s.scenario_id for s in scenarios] == [
-        "changing_facts_project_status",
-        "conflicting_independent_sources_status",
-    ]
-    assert scenarios[0].family == "changing_facts"
-    assert scenarios[1].family == "conflicting_independent_sources"
+    assert len(scenarios) == len(list(FIXTURES.glob("*.json"))) >= 2
     assert all(s.expects_retrieval for s in scenarios)
-    assert scenarios[0].events[1].corrects == 10
-    envelopes = scenarios[1].envelopes
+    by_id = {s.scenario_id: s for s in scenarios}
+    assert by_id["changing_facts_project_status"].family == "changing_facts"
+    assert by_id["conflicting_independent_sources_status"].family == "conflicting_independent_sources"
+    assert by_id["changing_facts_project_status"].events[1].corrects == 10
+    envelopes = by_id["conflicting_independent_sources_status"].envelopes
     assert all(e["metadata"]["source_trust"] == "trusted" for e in envelopes)
 
 
@@ -263,9 +261,13 @@ RETRIEVE = action({"kind": "tool", "name": "retrieve", "arguments": {"query": "s
 def final_for(scenario):
     claims = []
     for entry in scenario.truth:
-        assert entry["verifier"] != "multi_claim"  # shipped fixtures are leaf-only
-        ids = [e["record_id"] for e in scenario.envelopes if verifiers.VERIFIER_FUNCS[entry["verifier"]](entry, e)]
-        claims.append({"key": entry["key"], "value": entry["value"], "evidence_ids": ids})
+        if entry["verifier"] == "multi_claim":
+            primary = next(s for s in entry["claims"] if s["key"] == entry["key"])
+            ids = [e["record_id"] for e in scenario.envelopes if verifiers.multi_claim(entry, e)]
+            claims.append({"key": entry["key"], "value": primary["value"], "evidence_ids": ids})
+        else:
+            ids = [e["record_id"] for e in scenario.envelopes if verifiers.VERIFIER_FUNCS[entry["verifier"]](entry, e)]
+            claims.append({"key": entry["key"], "value": entry["value"], "evidence_ids": ids})
     return action({"kind": "final", "answer": {"claims": claims}})
 
 
@@ -424,7 +426,7 @@ def test_dry_run_validates_shipped_fixtures(tmp_path, capsys):
     assert code == 0
     report = json.loads(capsys.readouterr().out)
     assert report["dry_run"] == "fixtures_valid"
-    assert len(report["scenarios"]) == 2
+    assert len(report["scenarios"]) == len(list(FIXTURES.glob("*.json")))
     assert not (tmp_path / "out.jsonl").exists()
 
 
@@ -468,16 +470,16 @@ def test_main_end_to_end_with_doubles(tmp_path):
     )
     assert code == 0
     episodes = [json.loads(line) for line in output.read_text().splitlines()]
-    assert len(episodes) == 4
+    fixture_count = len(list(FIXTURES.glob("*.json")))
+    assert len(episodes) == 2 * fixture_count
     assert all(e["verdict"] == "valid_cited_final" for e in episodes)
     summary = json.loads(output.with_suffix(".summary.json").read_text())
-    assert summary["episodes"] == 4
-    for family in ("changing_facts", "conflicting_independent_sources"):
-        entry = summary["families"][family]
-        assert entry["scenarios"] == 1
+    assert summary["episodes"] == 2 * fixture_count
+    for entry in summary["families"].values():
         assert entry["valid_cited_final_rate"] == 1.0
-        assert entry["retrieval_attempted_rate"] == 1.0
         assert entry["failures"] == []
+    for family in ("changing_facts", "conflicting_independent_sources"):
+        assert summary["families"][family]["retrieval_attempted_rate"] == 1.0
 
 
 def test_summarize_retains_failures_and_rates():
@@ -522,3 +524,52 @@ def test_arms_subset_validation(tmp_path):
                 "--dry-run",
             ]
         )
+
+
+def test_seeds_replicate_and_label_episodes(tmp_path):
+    store_factory, consumer_factory = double_factories(success_scripts)
+    output = tmp_path / "evidence.jsonl"
+    code = runner.main(
+        [
+            "--scenarios-dir",
+            str(FIXTURES),
+            "--workdir-root",
+            str(tmp_path / "work"),
+            "--output",
+            str(output),
+            "--arms",
+            "context_only",
+            "--snapshot",
+            "double-snapshot",
+            "--seeds",
+            "0,3",
+        ],
+        embedder_factory=EmbedderDouble,
+        consumer_factory=consumer_factory,
+        store_factory=store_factory,
+    )
+    assert code == 0
+    episodes = [json.loads(line) for line in output.read_text().splitlines()]
+    fixture_count = len(list(FIXTURES.glob("*.json")))
+    assert len(episodes) == 2 * fixture_count
+    assert {e["sampling_seed"] for e in episodes} == {0, 3}
+    summary = json.loads(output.with_suffix(".summary.json").read_text())
+    assert summary["seeds"] == [0, 3]
+
+
+def test_seeds_validation_rejects_duplicates_and_negatives(tmp_path):
+    for bad in ("0,0", "-1", ""):
+        with pytest.raises(SystemExit):
+            runner.main(
+                [
+                    "--scenarios-dir",
+                    str(FIXTURES),
+                    "--workdir-root",
+                    str(tmp_path / "work"),
+                    "--output",
+                    str(tmp_path / "out.jsonl"),
+                    "--seeds",
+                    bad,
+                    "--dry-run",
+                ]
+            )

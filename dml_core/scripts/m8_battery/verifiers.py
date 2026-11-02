@@ -112,11 +112,19 @@ def supports_for_truth(truth):
 
 
 def expected_claims(truth):
-    """Flatten truth to the leaf ``(key, value)`` pairs a full answer covers."""
+    """Flatten truth to the leaf ``(key, value)`` pairs a full answer covers.
+
+    A multi_claim entry contributes only its primary subclaims — those whose
+    key equals the entry key (the answer cites the entry key with the primary
+    value; the joint-record requirement enforces the rest at validation). If
+    no subclaim key matches the entry key, all subclaims are kept so coverage
+    is still checkable.
+    """
     expected = set()
     for entry in truth:
         if entry["verifier"] == "multi_claim":
-            expected.update((sub["key"], sub["value"]) for sub in entry["claims"])
+            primaries = [sub for sub in entry["claims"] if sub["key"] == entry["key"]]
+            expected.update((sub["key"], sub["value"]) for sub in (primaries or entry["claims"]))
         else:
             expected.add((entry["key"], entry["value"]))
     return expected

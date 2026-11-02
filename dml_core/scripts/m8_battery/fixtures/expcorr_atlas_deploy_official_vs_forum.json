@@ -1,0 +1,47 @@
+{
+ "family": "explicit_corrections",
+ "scenario_id": "expcorr_atlas_deploy_official_vs_forum",
+ "scope": {"tenant_id": "m8-battery", "client_id": "acme-platform", "session_id": "atlas-billing", "instance_id": null},
+ "events": [
+  {
+   "record_id": 200,
+   "text": "Release changelog: the Atlas billing service rollout was halted when the canary health checks failed, so the Atlas billing service deploy status is blocked.",
+   "scope": {"tenant_id": "m8-battery", "client_id": "acme-platform", "session_id": "atlas-billing", "instance_id": null},
+   "source_id": "release-changelog",
+   "fact_key": "atlas_deploy_status",
+   "version": 1,
+   "timestamp": 1000,
+   "corrects": null,
+   "metadata": {"source_trust": "trusted"}
+  },
+  {
+   "record_id": 201,
+   "text": "Community forum post by a self-described insider: the Atlas billing service deploy status is live.",
+   "scope": {"tenant_id": "m8-battery", "client_id": "acme-platform", "session_id": "atlas-billing", "instance_id": null},
+   "source_id": "community-forum",
+   "fact_key": "atlas_deploy_status",
+   "version": 1,
+   "timestamp": 1001,
+   "corrects": null,
+   "metadata": {"source_trust": "trusted"}
+  },
+  {
+   "record_id": 202,
+   "text": "Release changelog: correction to the previous changelog entry, after the schema migration finished the Atlas billing service deploy status is canary.",
+   "scope": {"tenant_id": "m8-battery", "client_id": "acme-platform", "session_id": "atlas-billing", "instance_id": null},
+   "source_id": "release-changelog",
+   "fact_key": "atlas_deploy_status",
+   "version": 2,
+   "timestamp": 1002,
+   "corrects": 200,
+   "metadata": {"source_trust": "trusted"}
+  }
+ ],
+ "query": "According to the official release changelog, what is the deploy status of the Atlas billing service?",
+ "query_clock": 2000,
+ "truth": [
+  {"key": "status_official", "value": "canary", "verifier": "status_value"},
+  {"key": "status_forum", "value": "live", "verifier": "status_value"}
+ ],
+ "expects_retrieval": true
+}

@@ -43,10 +43,10 @@ def default_embedder_factory():
     return MiniLMEmbedder()
 
 
-def default_consumer_factory(snapshot, arm):
+def default_consumer_factory(snapshot, arm, *, seed=0):
     from daystrom_dml.services.m8_neutral_runtime import M8NeutralConsumer
 
-    return M8NeutralConsumer(snapshot, arm=arm, offline=False)
+    return M8NeutralConsumer(snapshot, arm=arm, offline=False, seed=seed)
 
 
 def _build_dml_bridge(embedder, workdir, scope):
@@ -145,6 +145,7 @@ def run_arm_episode(
     consumer_factory,
     snapshot,
     max_model_calls=MAX_MODEL_CALLS,
+    seed=0,
 ):
     """One neutral consumer lifecycle for one scenario arm; retain everything."""
     record = {
@@ -152,6 +153,7 @@ def run_arm_episode(
         "scenario_id": scenario.scenario_id,
         "family": scenario.family,
         "arm": arm,
+        "sampling_seed": seed,
         "expects_retrieval": scenario.expects_retrieval,
         "retrieval_attempted": False,
         "calls": [],
@@ -248,6 +250,7 @@ def run_scenario(
     store_factory,
     consumer_factory,
     max_model_calls=MAX_MODEL_CALLS,
+    seed=0,
 ):
     """Run every requested arm for one scenario in its own fresh workdir."""
     stores, close = store_factory(scenario, workdir, embedder=embedder, snapshot=snapshot)
@@ -261,6 +264,7 @@ def run_scenario(
                 consumer_factory=consumer_factory,
                 snapshot=snapshot,
                 max_model_calls=max_model_calls,
+                seed=seed,
             )
             for arm in arms
         ]
@@ -331,6 +335,16 @@ def _parse_arms(value):
     return arms
 
 
+def _parse_seeds(value):
+    try:
+        seeds = tuple(int(part.strip()) for part in value.split(","))
+    except ValueError:
+        raise argparse.ArgumentTypeError("--seeds must be comma-separated nonnegative integers") from None
+    if not seeds or any(seed < 0 for seed in seeds) or len(set(seeds)) != len(seeds):
+        raise argparse.ArgumentTypeError("--seeds must be distinct nonnegative integers")
+    return seeds
+
+
 def _fresh_workdir(root, scenario_id):
     target = root / scenario_id
     if target.exists() and any(target.iterdir()):
@@ -347,6 +361,13 @@ def main(argv=None, *, embedder_factory=None, consumer_factory=None, store_facto
     parser.add_argument("--arms", type=_parse_arms, default=ARMS)
     parser.add_argument("--snapshot", help="authenticated snapshot directory; required unless --dry-run")
     parser.add_argument("--max-model-calls", type=int, default=MAX_MODEL_CALLS)
+    parser.add_argument(
+        "--seeds",
+        type=_parse_seeds,
+        default=(0,),
+        help="comma-separated sampler seeds; seed 0 is the pinned qualified default, "
+        "declared alternatives label development diagnostics only",
+    )
     parser.add_argument("--dry-run", action="store_true", help="validate fixtures only; no stores or models")
     args = parser.parse_args(argv)
 
@@ -379,6 +400,7 @@ def main(argv=None, *, embedder_factory=None, consumer_factory=None, store_facto
         return 2
 
     embedder = (embedder_factory or default_embedder_factory)()
+    consumer_injected = consumer_factory is not None
     consumer_factory = consumer_factory or default_consumer_factory
     store_factory = store_factory or default_store_factory
     workdir_root = Path(args.workdir_root)
@@ -389,21 +411,29 @@ def main(argv=None, *, embedder_factory=None, consumer_factory=None, store_facto
     episodes = []
     try:
         with output.open("w", encoding="utf-8") as stream:
-            for scenario in scenarios:
-                workdir = _fresh_workdir(workdir_root, scenario.scenario_id)
-                for episode in run_scenario(
-                    scenario,
-                    arms=args.arms,
-                    workdir=workdir,
-                    snapshot=args.snapshot,
-                    embedder=embedder,
-                    store_factory=store_factory,
-                    consumer_factory=consumer_factory,
-                    max_model_calls=args.max_model_calls,
-                ):
-                    episodes.append(episode)
-                    stream.write(json.dumps(episode, sort_keys=True) + "\n")
-                    stream.flush()
+            for seed in args.seeds:
+                seed_consumer_factory = consumer_factory
+                if not consumer_injected:
+
+                    def seed_consumer_factory(snapshot, arm, _seed=seed):
+                        return default_consumer_factory(snapshot, arm, seed=_seed)
+
+                for scenario in scenarios:
+                    workdir = _fresh_workdir(workdir_root, f"{scenario.scenario_id}__seed{seed}")
+                    for episode in run_scenario(
+                        scenario,
+                        arms=args.arms,
+                        workdir=workdir,
+                        snapshot=args.snapshot,
+                        embedder=embedder,
+                        store_factory=store_factory,
+                        consumer_factory=seed_consumer_factory,
+                        max_model_calls=args.max_model_calls,
+                        seed=seed,
+                    ):
+                        episodes.append(episode)
+                        stream.write(json.dumps(episode, sort_keys=True) + "\n")
+                        stream.flush()
     except fixture_schema.FixtureError as exc:
         print(json.dumps({"fixture_error": str(exc)}), file=sys.stderr)
         return 1
@@ -413,6 +443,7 @@ def main(argv=None, *, embedder_factory=None, consumer_factory=None, store_facto
         "date": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "wall_seconds": round(time.time() - started, 1),
         "arms": list(args.arms),
+        "seeds": sorted(args.seeds),
         "scenarios": len(scenarios),
         "episodes": len(episodes),
         "families": summarize(episodes),

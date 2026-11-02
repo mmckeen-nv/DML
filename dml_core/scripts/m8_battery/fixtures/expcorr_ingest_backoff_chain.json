@@ -1,0 +1,57 @@
+{
+ "family": "explicit_corrections",
+ "scenario_id": "expcorr_ingest_backoff_chain",
+ "scope": {"tenant_id": "m8-battery", "client_id": "northwind-infra", "session_id": "ingest-pipeline", "instance_id": null},
+ "events": [
+  {
+   "record_id": 100,
+   "text": "Deploy ledger entry: after the queue saturation incident, the ingest pipeline retry backoff cap is 60 seconds.",
+   "scope": {"tenant_id": "m8-battery", "client_id": "northwind-infra", "session_id": "ingest-pipeline", "instance_id": null},
+   "source_id": "deploy-ledger",
+   "fact_key": "ingest_retry_backoff_cap",
+   "version": 1,
+   "timestamp": 1000,
+   "corrects": null,
+   "metadata": {"source_trust": "trusted"}
+  },
+  {
+   "record_id": 101,
+   "text": "Team chat thread: someone remembered the staging cluster once ran with a 45 second backoff cap, but that was a one-off load test override and never applied to production.",
+   "scope": {"tenant_id": "m8-battery", "client_id": "northwind-infra", "session_id": "ingest-pipeline", "instance_id": null},
+   "source_id": "team-chat",
+   "fact_key": "staging_backoff_anecdote",
+   "version": 1,
+   "timestamp": 1001,
+   "corrects": null,
+   "metadata": {"source_trust": "trusted", "distractor": true}
+  },
+  {
+   "record_id": 102,
+   "text": "Deploy ledger entry: correction to the earlier entry, the ingest pipeline retry backoff cap is 120 seconds.",
+   "scope": {"tenant_id": "m8-battery", "client_id": "northwind-infra", "session_id": "ingest-pipeline", "instance_id": null},
+   "source_id": "deploy-ledger",
+   "fact_key": "ingest_retry_backoff_cap",
+   "version": 2,
+   "timestamp": 1002,
+   "corrects": 100,
+   "metadata": {"source_trust": "trusted"}
+  },
+  {
+   "record_id": 103,
+   "text": "Deploy ledger entry: second correction after the on-call review, the ingest pipeline retry backoff cap is 300 seconds.",
+   "scope": {"tenant_id": "m8-battery", "client_id": "northwind-infra", "session_id": "ingest-pipeline", "instance_id": null},
+   "source_id": "deploy-ledger",
+   "fact_key": "ingest_retry_backoff_cap",
+   "version": 3,
+   "timestamp": 1003,
+   "corrects": 102,
+   "metadata": {"source_trust": "trusted"}
+  }
+ ],
+ "query": "What is the current retry backoff cap for the production ingest pipeline?",
+ "query_clock": 2000,
+ "truth": [
+  {"key": "ingest_retry_backoff_cap", "value": "300 seconds", "verifier": "status_value"}
+ ],
+ "expects_retrieval": true
+}
