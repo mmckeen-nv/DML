@@ -1,0 +1,68 @@
+{
+ "family": "isolated_project_scopes",
+ "scenario_id": "isoscope_atlas_gateway_version",
+ "scope": {"tenant_id": "acme-dev", "client_id": "atlas-infra", "session_id": "deploy-2026q3", "instance_id": null},
+ "events": [
+  {
+   "record_id": 101,
+   "text": "The deployed version of atlas-gateway is 2.4.1.",
+   "scope": {"tenant_id": "acme-dev", "client_id": "atlas-infra", "session_id": "deploy-2026q3", "instance_id": null},
+   "source_id": "deploy-log",
+   "fact_key": "atlas_gateway_version",
+   "version": 1,
+   "timestamp": 1727000000,
+   "corrects": null,
+   "metadata": {"source_trust": "trusted"}
+  },
+  {
+   "record_id": 102,
+   "text": "The deployed version of atlas-worker is 2.4.9.",
+   "scope": {"tenant_id": "acme-dev", "client_id": "atlas-infra", "session_id": "deploy-2026q3", "instance_id": null},
+   "source_id": "deploy-log",
+   "fact_key": "atlas_worker_version",
+   "version": 1,
+   "timestamp": 1727000100,
+   "corrects": null,
+   "metadata": {"source_trust": "trusted", "distractor": true, "distractor_note": "atlas-worker is a sibling service; easy to conflate with atlas-gateway"}
+  },
+  {
+   "record_id": 103,
+   "text": "The deployed version of atlas-gateway-canary is 2.5.0-rc1.",
+   "scope": {"tenant_id": "acme-dev", "client_id": "atlas-infra", "session_id": "deploy-2026q3", "instance_id": null},
+   "source_id": "deploy-log",
+   "fact_key": "atlas_gateway_canary_version",
+   "version": 1,
+   "timestamp": 1727000200,
+   "corrects": null,
+   "metadata": {"source_trust": "trusted", "distractor": true, "distractor_note": "canary track of the gateway, not the production track"}
+  },
+  {
+   "record_id": 104,
+   "text": "The deployed version of atlas-worker is 2.5.1.",
+   "scope": {"tenant_id": "acme-dev", "client_id": "atlas-infra", "session_id": "deploy-2026q3", "instance_id": null},
+   "source_id": "deploy-log",
+   "fact_key": "atlas_worker_version",
+   "version": 2,
+   "timestamp": 1727000300,
+   "corrects": 102,
+   "metadata": {"source_trust": "trusted", "distractor": true, "distractor_note": "atlas-worker is a sibling service; easy to conflate with atlas-gateway"}
+  },
+  {
+   "record_id": 105,
+   "text": "The deployed version of atlas-gateway is 2.5.0.",
+   "scope": {"tenant_id": "acme-dev", "client_id": "atlas-infra", "session_id": "deploy-2026q3", "instance_id": null},
+   "source_id": "deploy-log",
+   "fact_key": "atlas_gateway_version",
+   "version": 2,
+   "timestamp": 1727000400,
+   "corrects": 101,
+   "metadata": {"source_trust": "trusted"}
+  }
+ ],
+ "query": "What is the currently deployed version of atlas-gateway in the acme-dev deploy-2026q3 scope?",
+ "query_clock": 1727001000,
+ "truth": [
+  {"key": "atlas_gateway_version", "value": "2.5.0", "verifier": "status_value"}
+ ],
+ "expects_retrieval": true
+}

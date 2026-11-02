@@ -145,6 +145,22 @@ def test_execute_requires_exact_matching_compiled_request():
         runtime.execute(compiled("persistent_rag"))
 
 
+def test_sampler_seed_defaults_to_pinned_zero_and_validates():
+    runtime = neutral.NeutralM8AdapterRuntime(
+        "model", "checkpoint", TokenizerDouble(), {"identity": "double"}, lambda: None, arm="dml"
+    )
+    assert runtime._seed == 0
+    seeded = neutral.NeutralM8AdapterRuntime(
+        "model", "checkpoint", TokenizerDouble(), {"identity": "double"}, lambda: None, arm="dml", seed=7
+    )
+    assert seeded._seed == 7
+    for bad in (-1, True, "3", 1.5):
+        with pytest.raises(ValueError, match="seed"):
+            neutral.NeutralM8AdapterRuntime(
+                "model", "checkpoint", TokenizerDouble(), {"identity": "double"}, lambda: None, arm="dml", seed=bad
+            )
+
+
 def test_neutral_module_never_binds_dml_policy():
     # The neutral runtime must not consult the M7 fixed system policy or the
     # original DML tool definitions; action authority comes from m8_protocol.

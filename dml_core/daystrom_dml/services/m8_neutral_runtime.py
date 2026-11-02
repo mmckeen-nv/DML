@@ -12,6 +12,7 @@ No model is loaded by importing this module; heavy dependencies stay lazy.
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from copy import deepcopy
 import hashlib
 import importlib.metadata
@@ -30,12 +31,20 @@ from .llama3_sft_runtime import (
     STOPS,
     VOCAB,
     EnabledAdapterRuntime,
-    cpu_rng,
     sample_next,
     special_ids,
 )
 from .llama3_sft_v3_action_input import sampling_policy_identity
 from .model_input import ModelInputExecutionError
+
+
+@contextmanager
+def _seeded_cpu_rng(torch, seed):
+    """Per-request forked CPU RNG with an explicit declared seed (default 0)."""
+    with torch.random.fork_rng(devices=[], enabled=True):
+        torch.manual_seed(seed)
+        yield
+
 
 RUNTIME_PREFIX = "dml-m8-neutral-action-runtime-v1:"
 GRAMMAR_IDENTITY = "xgrammar0.1.33 strict any-whitespace; neutral retrieve/final branches"
@@ -108,11 +117,19 @@ def project_output(output_ids, tokenizer, arm):
 
 
 class NeutralM8AdapterRuntime(EnabledAdapterRuntime):
-    """Enabled-adapter generation bound to one neutral arm's grammar/parser."""
+    """Enabled-adapter generation bound to one neutral arm's grammar/parser.
 
-    def __init__(self, model_path, checkpoint, tokenizer, identity, validate, *, arm):
+    The qualified sampler pins seed 0 per request. Development diagnostics
+    (e.g. the competence battery) may declare alternative seeds; every result
+    records the seed actually used. This never changes a qualified run's seed.
+    """
+
+    def __init__(self, model_path, checkpoint, tokenizer, identity, validate, *, arm, seed=0):
         _arm(arm)
+        if type(seed) is not int or seed < 0:
+            raise ValueError("Sampler seed must be a nonnegative integer")
         self._arm = arm
+        self._seed = seed
         super().__init__(model_path, checkpoint, tokenizer, identity, validate)
 
     def execute(self, compiled):
@@ -127,6 +144,7 @@ class NeutralM8AdapterRuntime(EnabledAdapterRuntime):
         result: dict = dict(
             arm=self._arm,
             protocol_profile=m8_protocol.PROFILE,
+            sampling_seed=self._seed,
             input_ids=list(compiled.input_ids),
             output_ids=[],
             model_identity=self.identity,
@@ -153,7 +171,11 @@ class NeutralM8AdapterRuntime(EnabledAdapterRuntime):
             allowed[list(special_ids(self.tokenizer) - set(STOPS))] = False
             all_ids = tuple(compiled.input_ids)
             input_tensor = torch.tensor([all_ids], dtype=torch.long, device="cuda:0")
-            with torch.inference_mode(), cpu_rng(torch), torch.autocast("cuda", dtype=torch.bfloat16):
+            with (
+                torch.inference_mode(),
+                _seeded_cpu_rng(torch, self._seed),
+                torch.autocast("cuda", dtype=torch.bfloat16),
+            ):
                 for step in range(compiled.output_reserved_tokens):
                     output = model(input_ids=input_tensor, past_key_values=past, use_cache=True, logits_to_keep=1)
                     past = output.past_key_values
@@ -205,9 +227,12 @@ class M8NeutralConsumer:
     single-use; failures are retained in last_execution, never repaired.
     """
 
-    def __init__(self, snapshot_directory, *, arm, offline=False):
+    def __init__(self, snapshot_directory, *, arm, offline=False, seed=0):
         _arm(arm)
+        if type(seed) is not int or seed < 0:
+            raise ModelInputError("Sampler seed must be a nonnegative integer")
         self._arm = arm
+        self._seed = seed
         self._lock = RLock()
         self._offline = offline
         self._closed = False
@@ -369,6 +394,7 @@ class M8NeutralConsumer:
                     self._identity,
                     self._validate_runtime,
                     arm=self._arm,
+                    seed=self._seed,
                 )
             self._consumed.add(compiled.request_digest)
             result = self._runtime.execute(compiled)

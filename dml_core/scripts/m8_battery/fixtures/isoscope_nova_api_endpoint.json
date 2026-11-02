@@ -1,0 +1,68 @@
+{
+ "family": "isolated_project_scopes",
+ "scenario_id": "isoscope_nova_api_endpoint",
+ "scope": {"tenant_id": "northwind-labs", "client_id": "billing-platform", "session_id": "nova-migration", "instance_id": null},
+ "events": [
+  {
+   "record_id": 201,
+   "text": "The production endpoint for nova-api is https://nova-api-v1.northwind.internal.",
+   "scope": {"tenant_id": "northwind-labs", "client_id": "billing-platform", "session_id": "nova-migration", "instance_id": null},
+   "source_id": "config-registry",
+   "fact_key": "nova_api_production_endpoint",
+   "version": 1,
+   "timestamp": 1729100000,
+   "corrects": null,
+   "metadata": {"source_trust": "trusted"}
+  },
+  {
+   "record_id": 202,
+   "text": "The production endpoint for nova-batch is https://nova-batch-v3.northwind.internal.",
+   "scope": {"tenant_id": "northwind-labs", "client_id": "billing-platform", "session_id": "nova-migration", "instance_id": null},
+   "source_id": "config-registry",
+   "fact_key": "nova_batch_production_endpoint",
+   "version": 1,
+   "timestamp": 1729100100,
+   "corrects": null,
+   "metadata": {"source_trust": "trusted", "distractor": true, "distractor_note": "nova-batch is a similarly named sibling service of nova-api"}
+  },
+  {
+   "record_id": 203,
+   "text": "The staging endpoint for nova-api is https://nova-api-staging.northwind.internal.",
+   "scope": {"tenant_id": "northwind-labs", "client_id": "billing-platform", "session_id": "nova-migration", "instance_id": null},
+   "source_id": "config-registry",
+   "fact_key": "nova_api_staging_endpoint",
+   "version": 1,
+   "timestamp": 1729100200,
+   "corrects": null,
+   "metadata": {"source_trust": "trusted", "distractor": true, "distractor_note": "staging track of nova-api, not the production track"}
+  },
+  {
+   "record_id": 204,
+   "text": "The production endpoint for nova-batch is https://nova-batch-v4.northwind.internal.",
+   "scope": {"tenant_id": "northwind-labs", "client_id": "billing-platform", "session_id": "nova-migration", "instance_id": null},
+   "source_id": "config-registry",
+   "fact_key": "nova_batch_production_endpoint",
+   "version": 2,
+   "timestamp": 1729100300,
+   "corrects": 202,
+   "metadata": {"source_trust": "trusted", "distractor": true, "distractor_note": "nova-batch is a similarly named sibling service of nova-api"}
+  },
+  {
+   "record_id": 205,
+   "text": "The production endpoint for nova-api is https://nova-api-v2.northwind.internal.",
+   "scope": {"tenant_id": "northwind-labs", "client_id": "billing-platform", "session_id": "nova-migration", "instance_id": null},
+   "source_id": "config-registry",
+   "fact_key": "nova_api_production_endpoint",
+   "version": 2,
+   "timestamp": 1729100400,
+   "corrects": 201,
+   "metadata": {"source_trust": "trusted"}
+  }
+ ],
+ "query": "What is the current production endpoint for nova-api in the northwind-labs nova-migration scope?",
+ "query_clock": 1729101000,
+ "truth": [
+  {"key": "nova_api_production_endpoint", "value": "https://nova-api-v2.northwind.internal", "verifier": "status_value"}
+ ],
+ "expects_retrieval": true
+}
