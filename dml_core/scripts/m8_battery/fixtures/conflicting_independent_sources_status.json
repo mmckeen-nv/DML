@@ -1,0 +1,36 @@
+{
+ "family": "conflicting_independent_sources",
+ "scenario_id": "conflicting_independent_sources_status",
+ "scope": {"tenant_id": "m8-battery", "client_id": null, "session_id": "project", "instance_id": null},
+ "events": [
+  {
+   "record_id": 20,
+   "text": "Project status is green.",
+   "scope": {"tenant_id": "m8-battery", "client_id": null, "session_id": "project", "instance_id": null},
+   "source_id": "bulletin",
+   "fact_key": "status",
+   "version": 1,
+   "timestamp": 1000,
+   "corrects": null,
+   "metadata": {"source_trust": "trusted"}
+  },
+  {
+   "record_id": 21,
+   "text": "Project status is red.",
+   "scope": {"tenant_id": "m8-battery", "client_id": null, "session_id": "project", "instance_id": null},
+   "source_id": "independent-witness",
+   "fact_key": "status",
+   "version": 1,
+   "timestamp": 1001,
+   "corrects": null,
+   "metadata": {"source_trust": "trusted"}
+  }
+ ],
+ "query": "What is the project status?",
+ "query_clock": 2000,
+ "truth": [
+  {"key": "status_bulletin", "value": "green", "verifier": "status_value"},
+  {"key": "status_independent", "value": "red", "verifier": "status_value"}
+ ],
+ "expects_retrieval": true
+}
