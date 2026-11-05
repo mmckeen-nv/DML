@@ -99,7 +99,22 @@ from scripts.m8_battery import verifiers
 ARM = "dml_policy"
 CELLS = ("answer_present", "correction_chain", "conflicting", "empty_store")
 CONTROLS = ("none", "inline_evidence", "empty_store")
-EVIDENCE_SCHEMA = "dml.m8.policy-control.v2"
+EVIDENCE_SCHEMA = "dml.m8.policy-control.v3"
+
+AMENDMENTS = {
+    "none": "",
+    # terminate-on-empty-v1: development amendment probing whether the trained
+    # policy follows explicit termination rules for the loop attractors found
+    # in the 2026-11-05 control run (identical-retrieve x6 on empty stores).
+    "terminate-on-empty-v1": (
+        "\n\nRules:\n"
+        "- If a retrieve call returns zero records, do not repeat an identical retrieve; "
+        "you may issue at most one refined query, then you must emit final.\n"
+        "- Never emit the same tool call twice in a row.\n"
+        "- If the records or the provided text already contain the answer, emit final "
+        "immediately, citing those records."
+    ),
+}
 SUMMARY_SCHEMA = "dml.m8.policy-control-summary.v1"
 CONSUMER_PROFILE = LLAMA3_SFT_V3_CONSUMER_PROFILE
 TASK_ID = "m8-policy-control"
@@ -124,6 +139,7 @@ RECORD_KEYS = (
     "expects_retrieval",
     "runtime_identity",
     "development_runtime",
+    "prompt_amendment",
     "retrieval_attempted",
     "retrieve_first",
     "calls",
@@ -229,8 +245,10 @@ def build_prompt(scenario, control):
     return "\n".join(lines)
 
 
-def build_task(scenario, control):
-    return {"id": TASK_ID, "prompt": build_prompt(scenario, control)}
+def build_task(scenario, control, amendment="none"):
+    if amendment not in AMENDMENTS:
+        raise fixture_schema.FixtureError(f"unknown prompt amendment: {amendment}")
+    return {"id": TASK_ID, "prompt": build_prompt(scenario, control) + AMENDMENTS[amendment]}
 
 
 def control_verifier(scenario):
@@ -406,6 +424,7 @@ def run_control_episode(
     consumer_factory,
     limits,
     seed=0,
+    amendment="none",
     adapter_factory=_fixture_adapter,
     clock=time.monotonic,
 ):
@@ -426,6 +445,7 @@ def run_control_episode(
         "expects_retrieval": scenario.expects_retrieval,
         "runtime_identity": None,
         "development_runtime": None,
+        "prompt_amendment": amendment,
         "retrieval_attempted": False,
         "retrieve_first": None,
         "calls": [],
@@ -474,7 +494,7 @@ def run_control_episode(
         report = run_episode_with_test_dependencies(
             consumer=consumer,
             toolbox=toolbox,
-            task=build_task(scenario, control),
+            task=build_task(scenario, control, amendment),
             scenario={"id": scenario.scenario_id, "scope": deepcopy(scenario.scope)},
             seed_records=seed_records,
             current_records=lambda: _read_records(directory),
@@ -635,6 +655,12 @@ def main(argv=None, *, consumer_factory=None, adapter_factory=None):
         help="development-only: use the declared x86 runtime identity "
         "(requires DML_DEV_RUNTIME=development-x86-20261102 in the environment)",
     )
+    parser.add_argument(
+        "--prompt-amendment",
+        default="none",
+        choices=sorted(AMENDMENTS),
+        help="named development prompt amendment, recorded in every episode",
+    )
     args = parser.parse_args(argv)
 
     started = time.time()
@@ -693,6 +719,7 @@ def main(argv=None, *, consumer_factory=None, adapter_factory=None):
                             adapter_factory=adapter_factory,
                             limits=limits,
                             seed=seed,
+                            amendment=args.prompt_amendment,
                         )
                         episodes.append(episode)
                         stream.write(json.dumps(episode, sort_keys=True) + "\n")
@@ -709,6 +736,7 @@ def main(argv=None, *, consumer_factory=None, adapter_factory=None):
         "consumer_profile": CONSUMER_PROFILE,
         "controls": list(args.controls),
         "seeds": sorted(args.seeds),
+        "prompt_amendment": args.prompt_amendment,
         "scenarios": len(scenarios),
         "episodes": len(episodes),
         "cells": summarize(episodes),

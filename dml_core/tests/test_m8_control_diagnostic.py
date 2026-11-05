@@ -556,3 +556,19 @@ def test_development_flag_uses_dev_factory(monkeypatch, tmp_path):
         ]
     )
     assert code == 0 and selected["used"] is True
+
+
+def test_prompt_amendment_appended_and_recorded(tmp_path):
+    record = run_episode(chain_scenario(), "none", [final({"claims": []})], tmp_path,
+                         amendment="terminate-on-empty-v1")
+    assert record["prompt_amendment"] == "terminate-on-empty-v1"
+    task = control.build_task(chain_scenario(), "none", "terminate-on-empty-v1")
+    assert "Never emit the same tool call twice in a row" in task["prompt"]
+    assert task["prompt"].startswith(chain_scenario().query)
+
+
+def test_unknown_prompt_amendment_fails_closed(tmp_path):
+    with pytest.raises(Exception, match="unknown prompt amendment"):
+        control.build_task(chain_scenario(), "none", "invented")
+    record = run_episode(chain_scenario(), "none", [final({"claims": []})], tmp_path)
+    assert record["prompt_amendment"] == "none"
