@@ -57,6 +57,27 @@ VERSIONS = {
     "safetensors": "0.7.0",
     "peft": "0.21.1",
 }
+
+_DEVELOPMENT_RUNTIME_KEYS = frozenset({"label", "platform_machine", "driver", "device_name", "capability"})
+
+
+def _validate_development_runtime(identity):
+    """Shape-check a development runtime identity (never a production/qualified identity)."""
+    if type(identity) is not dict or set(identity) != _DEVELOPMENT_RUNTIME_KEYS:
+        raise ModelInputError(
+            "development_runtime must declare exactly: label, platform_machine, driver, device_name, capability"
+        )
+    label = identity["label"]
+    if type(label) is not str or not label.startswith("development-"):
+        raise ModelInputError("development_runtime label must be a 'development-*' string")
+    for key in ("platform_machine", "driver", "device_name"):
+        if type(identity[key]) is not str or not identity[key]:
+            raise ModelInputError(f"development_runtime {key} must be a non-empty string")
+    capability = identity["capability"]
+    if type(capability) is not tuple or len(capability) != 2 or any(type(v) is not int for v in capability):
+        raise ModelInputError("development_runtime capability must be a (major, minor) int tuple")
+
+
 IMAGE = "sha256:bf05c8a0d56f7ed2fe279e0c0c876dd2bb813dd34702d975fa6ab640860ce825"
 
 
@@ -285,7 +306,17 @@ def identity_for_manifest(manifest):
 class LocalLlama3SFTV3ActionInputConsumer:
     """Own bounded, authenticated, single-use exact-input artifacts."""
 
-    def __init__(self, snapshot_directory, *, consumer_profile=LLAMA3_SFT_V3_CONSUMER_PROFILE, offline=False):
+    def __init__(
+        self,
+        snapshot_directory,
+        *,
+        consumer_profile=LLAMA3_SFT_V3_CONSUMER_PROFILE,
+        offline=False,
+        development_runtime=None,
+    ):
+        if development_runtime is not None:
+            _validate_development_runtime(development_runtime)
+        self._development_runtime = None if development_runtime is None else dict(development_runtime)
         if consumer_profile != LLAMA3_SFT_V3_CONSUMER_PROFILE:
             raise ModelInputError("Unknown Llama SFT consumer profile")
         self._lock = RLock()
@@ -342,12 +373,22 @@ class LocalLlama3SFTV3ActionInputConsumer:
             observed_driver = subprocess.check_output(
                 ["nvidia-smi", "--query-gpu=driver_version", "--format=csv,noheader"], text=True
             ).strip()
+            if self._development_runtime is not None:
+                expected = (
+                    self._development_runtime["driver"],
+                    self._development_runtime["device_name"],
+                    self._development_runtime["capability"],
+                )
+                label = "Development"
+            else:
+                expected = ("590.48.01", "NVIDIA GB300", (10, 3))
+                label = "Qualified"
             if (
-                observed_driver != "590.48.01"
-                or torch.cuda.get_device_name(0) != "NVIDIA GB300"
-                or torch.cuda.get_device_capability(0) != (10, 3)
-            ):
-                raise ModelInputError("Qualified CUDA hardware/driver differs")
+                observed_driver,
+                torch.cuda.get_device_name(0),
+                torch.cuda.get_device_capability(0),
+            ) != expected:
+                raise ModelInputError(f"{label} CUDA hardware/driver differs")
 
     def __enter__(self):
         self._require_open()
@@ -386,17 +427,29 @@ class LocalLlama3SFTV3ActionInputConsumer:
             raise ModelInputError("Tokenizer drift")
         if not self._offline:
             actual = {name: importlib.metadata.version(name) for name in VERSIONS}
+            machine = (
+                self._development_runtime["platform_machine"] if self._development_runtime is not None else "aarch64"
+            )
             if (
                 actual != VERSIONS
                 or platform.system() != "Linux"
-                or platform.machine() != "aarch64"
+                or platform.machine() != machine
                 or os.getuid() != 1000
                 or os.getgid() != 1000
             ):
-                raise ModelInputError("Inference runtime differs")
+                raise ModelInputError(
+                    "Development inference runtime differs"
+                    if self._development_runtime is not None
+                    else "Inference runtime differs"
+                )
             env = self.manifest["runtime"]["required_environment"]
             if env.get("CUBLAS_WORKSPACE_CONFIG") != ":4096:8" or any(os.environ.get(k) != v for k, v in env.items()):
                 raise ModelInputError("Inference environment differs")
+
+    @property
+    def development_runtime_identity(self):
+        """Declared development identity (None on the qualified runtime path)."""
+        return None if self._development_runtime is None else dict(self._development_runtime)
 
     def _auth_tag(self, artifact):
         return hmac.new(self._auth_key, canonical_json(artifact.signing_payload()), hashlib.sha256).hexdigest()

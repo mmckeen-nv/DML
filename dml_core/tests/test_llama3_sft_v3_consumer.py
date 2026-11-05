@@ -154,3 +154,25 @@ def test_other_adapter_checkpoint_rejected_even_with_matching_caller_inventory(t
     (tmp_path / module.MANIFEST_NAME).write_text(json.dumps(m))
     with pytest.raises(ModelInputError, match="final scheduled"):
         module.verify_manifest(tmp_path)
+
+
+def test_v3_development_identity_property_recorded_and_immutable():
+    identity = {
+        "label": "development-x86-20261102",
+        "platform_machine": "x86_64",
+        "driver": "595.99.02",
+        "device_name": "NVIDIA RTX PRO 5000 72GB Blackwell",
+        "capability": (12, 0),
+    }
+    c = legacy_fake()
+    c.__class__ = v3.LocalLlama3SFTV3ActionInputConsumer
+    c._development_runtime = dict(identity)
+    assert c.development_runtime_identity == identity
+    assert c.development_runtime_identity is not c._development_runtime
+    identity["driver"] = "mutated"
+    assert c.development_runtime_identity["driver"] == "595.99.02"
+
+    c2 = legacy_fake()
+    c2.__class__ = v3.LocalLlama3SFTV3ActionInputConsumer
+    c2._development_runtime = None
+    assert c2.development_runtime_identity is None

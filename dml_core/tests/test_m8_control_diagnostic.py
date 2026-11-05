@@ -491,3 +491,68 @@ def test_main_end_to_end_with_doubles(tmp_path):
     assert summary["episodes"] == 2
     assert summary["cells"]["correction_chain"]["retrieval_attempted_rate"] == 1.0
     assert summary["cells"]["empty_store"]["needless_retrieval_rate"] == 1.0
+
+
+def test_development_x86_factory_requires_declared_env(tmp_path, monkeypatch):
+    monkeypatch.delenv("DML_DEV_RUNTIME", raising=False)
+    with pytest.raises(RuntimeError, match="DML_DEV_RUNTIME=development-x86-20261102"):
+        control.dev_x86_consumer_factory(tmp_path)
+    monkeypatch.setenv("DML_DEV_RUNTIME", "development-x86-20261102")
+    with pytest.raises(Exception) as excinfo:  # gate passed; fails on the absent snapshot instead
+        control.dev_x86_consumer_factory(tmp_path)
+    assert "DML_DEV_RUNTIME" not in str(excinfo.value)
+
+
+def test_record_carries_declared_development_identity(tmp_path):
+    class DevConsumer(Llama3ControlConsumer):
+        @property
+        def development_runtime_identity(self):
+            return dict(control.DEVELOPMENT_X86_RUNTIME)
+
+    scenario = chain_scenario()
+    record = control.run_control_episode(
+        scenario,
+        "none",
+        workdir=tmp_path,
+        snapshot=None,
+        consumer_factory=lambda snapshot: DevConsumer([final({"claims": []})]),
+        limits=LIMITS,
+    )
+    assert record["development_runtime"] == dict(control.DEVELOPMENT_X86_RUNTIME)
+    json.dumps(record)  # still JSONL-serializable with the identity present
+
+
+def test_record_development_identity_none_on_qualified_path(tmp_path):
+    record = run_episode(chain_scenario(), "none", [final({"claims": []})], tmp_path)
+    assert record["development_runtime"] is None
+
+
+def test_development_flag_uses_dev_factory(monkeypatch, tmp_path):
+    monkeypatch.setenv("DML_DEV_RUNTIME", "development-x86-20261102")
+    selected = {}
+    original = control.dev_x86_consumer_factory
+
+    def wrapped(snapshot):
+        selected["used"] = True
+        pytest.raises(Exception, original, snapshot)
+        raise RuntimeError("dev factory selected")
+
+    monkeypatch.setattr(control, "dev_x86_consumer_factory", wrapped)
+    code = control.main(
+        [
+            "--scenarios-dir",
+            str(FIXTURES),
+            "--workdir-root",
+            str(tmp_path / "work"),
+            "--output",
+            str(tmp_path / "out.jsonl"),
+            "--snapshot",
+            str(tmp_path),
+            "--fixtures-subset",
+            "changing_facts_project_status",
+            "--controls",
+            "none",
+            "--development-runtime-x86",
+        ]
+    )
+    assert code == 0 and selected["used"] is True

@@ -304,3 +304,30 @@ def test_snapshot_paths_cannot_escape(tmp_path, relative):
 
     with pytest.raises(ModelInputError):
         _relative(tmp_path, relative)
+
+
+def test_development_runtime_identity_shape_validation():
+    from daystrom_dml.services.llama3_sft_v3_action_input import _validate_development_runtime
+
+    valid = {
+        "label": "development-x86-20261102",
+        "platform_machine": "x86_64",
+        "driver": "595.99.02",
+        "device_name": "NVIDIA RTX PRO 5000 72GB Blackwell",
+        "capability": (12, 0),
+    }
+    _validate_development_runtime(valid)
+
+    with pytest.raises(ModelInputError, match="must declare exactly"):
+        _validate_development_runtime({**valid, "extra": 1})
+    with pytest.raises(ModelInputError, match="must declare exactly"):
+        _validate_development_runtime({k: v for k, v in valid.items() if k != "driver"})
+    with pytest.raises(ModelInputError, match="development-"):
+        _validate_development_runtime({**valid, "label": "qualified-x86"})
+        # development identities can never claim a qualified label
+    with pytest.raises(ModelInputError, match="driver"):
+        _validate_development_runtime({**valid, "driver": ""})
+    with pytest.raises(ModelInputError, match="capability"):
+        _validate_development_runtime({**valid, "capability": [12, 0]})
+    with pytest.raises(ModelInputError, match="capability"):
+        _validate_development_runtime({**valid, "capability": (12, "0")})

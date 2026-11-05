@@ -99,7 +99,7 @@ from scripts.m8_battery import verifiers
 ARM = "dml_policy"
 CELLS = ("answer_present", "correction_chain", "conflicting", "empty_store")
 CONTROLS = ("none", "inline_evidence", "empty_store")
-EVIDENCE_SCHEMA = "dml.m8.policy-control.v1"
+EVIDENCE_SCHEMA = "dml.m8.policy-control.v2"
 SUMMARY_SCHEMA = "dml.m8.policy-control-summary.v1"
 CONSUMER_PROFILE = LLAMA3_SFT_V3_CONSUMER_PROFILE
 TASK_ID = "m8-policy-control"
@@ -123,6 +123,7 @@ RECORD_KEYS = (
     "sampling_seed",
     "expects_retrieval",
     "runtime_identity",
+    "development_runtime",
     "retrieval_attempted",
     "retrieve_first",
     "calls",
@@ -307,6 +308,32 @@ def default_consumer_factory(snapshot):
     return LocalLlama3SFTV3ActionInputConsumer(snapshot)
 
 
+DEVELOPMENT_X86_RUNTIME = {
+    "label": "development-x86-20261102",
+    "platform_machine": "x86_64",
+    "driver": "595.99.02",
+    "device_name": "NVIDIA RTX PRO 5000 72GB Blackwell",
+    "capability": (12, 0),
+}
+
+
+def dev_x86_consumer_factory(snapshot):
+    """Development-only consumer for the x86 runtime (192.168.50.133).
+
+    Same authenticated snapshot and admission checks as the qualified path;
+    the GB300 hardware pin is replaced by the declared x86 development
+    identity, recorded in every episode. Fail-closed unless the environment
+    declares DML_DEV_RUNTIME=development-x86-20261102.
+    """
+    import os
+
+    if os.environ.get("DML_DEV_RUNTIME") != DEVELOPMENT_X86_RUNTIME["label"]:
+        raise RuntimeError("development x86 consumer requires DML_DEV_RUNTIME=" + DEVELOPMENT_X86_RUNTIME["label"])
+    from daystrom_dml.services.llama3_sft_v3_action_input import LocalLlama3SFTV3ActionInputConsumer
+
+    return LocalLlama3SFTV3ActionInputConsumer(snapshot, development_runtime=dict(DEVELOPMENT_X86_RUNTIME))
+
+
 def _classify(terminal):
     if terminal["status"] != "completed":
         return None
@@ -398,6 +425,7 @@ def run_control_episode(
         "sampling_seed": seed,
         "expects_retrieval": scenario.expects_retrieval,
         "runtime_identity": None,
+        "development_runtime": None,
         "retrieval_attempted": False,
         "retrieve_first": None,
         "calls": [],
@@ -442,6 +470,7 @@ def run_control_episode(
         consumer = consumer_factory(snapshot)
         identity = getattr(consumer, "identity", None)
         record["runtime_identity"] = getattr(identity, "runtime_identity", None)
+        record["development_runtime"] = getattr(consumer, "development_runtime_identity", None)
         report = run_episode_with_test_dependencies(
             consumer=consumer,
             toolbox=toolbox,
@@ -600,6 +629,12 @@ def main(argv=None, *, consumer_factory=None, adapter_factory=None):
     parser.add_argument("--max-steps", type=int, default=6)
     parser.add_argument("--output-tokens", type=int, default=128)
     parser.add_argument("--dry-run", action="store_true", help="validate fixtures and labels only")
+    parser.add_argument(
+        "--development-runtime-x86",
+        action="store_true",
+        help="development-only: use the declared x86 runtime identity "
+        "(requires DML_DEV_RUNTIME=development-x86-20261102 in the environment)",
+    )
     args = parser.parse_args(argv)
 
     started = time.time()
@@ -633,7 +668,9 @@ def main(argv=None, *, consumer_factory=None, adapter_factory=None):
         print(json.dumps({"error": str(exc)}), file=sys.stderr)
         return 2
 
-    consumer_factory = consumer_factory or default_consumer_factory
+    consumer_factory = consumer_factory or (
+        dev_x86_consumer_factory if args.development_runtime_x86 else default_consumer_factory
+    )
     adapter_factory = adapter_factory or _fixture_adapter
     workdir_root = Path(args.workdir_root)
     workdir_root.mkdir(parents=True, exist_ok=True)
