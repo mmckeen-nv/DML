@@ -114,6 +114,20 @@ AMENDMENTS = {
         "- If the records or the provided text already contain the answer, emit final "
         "immediately, citing those records."
     ),
+    # abstain-on-empty-v2: v1 plus the calibrated-abstention rule. In the v1 run
+    # the policy terminated but fabricated unsupported finals on empty stores
+    # (unsupported 21->29); the declared insufficiency signal (final with empty
+    # claims) was never emitted in either run (0/72 episodes).
+    "abstain-on-empty-v2": (
+        "\n\nRules:\n"
+        "- If a retrieve call returns zero records, do not repeat an identical retrieve; "
+        "you may issue at most one refined query, then you must emit final.\n"
+        "- Never emit the same tool call twice in a row.\n"
+        "- If the records or the provided text already contain the answer, emit final "
+        "immediately, citing those records.\n"
+        "- If no retrieved or provided record supports an answer, emit final with an "
+        "empty claims list. Never state facts that no presented record supports."
+    ),
 }
 SUMMARY_SCHEMA = "dml.m8.policy-control-summary.v1"
 CONSUMER_PROFILE = LLAMA3_SFT_V3_CONSUMER_PROFILE
