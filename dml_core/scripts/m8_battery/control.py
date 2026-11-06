@@ -145,6 +145,25 @@ AMENDMENTS = {
         "Example of the required abstention shape, exactly:\n"
         '{"action": "final", "answer": {"claims": []}}'
     ),
+    # no-phantom-citation-v4: v3 plus the anti-phantom-citation rule. In v3, 5/12
+    # empty-store episodes still fabricated finals citing record ids that were
+    # never returned (phantom evidence against an empty store). Final probe
+    # iteration; diminishing returns expected beyond this point.
+    "no-phantom-citation-v4": (
+        "\n\nRules:\n"
+        "- If a retrieve call returns zero records, do not repeat an identical retrieve; "
+        "you may issue at most one refined query, then you must emit final.\n"
+        "- Never emit the same tool call twice in a row.\n"
+        "- If the records or the provided text already contain the answer, emit final "
+        "immediately, citing those records.\n"
+        "- If no retrieved or provided record supports an answer, emit final with an "
+        "empty claims list. Never state facts that no presented record supports.\n"
+        "Example of the required abstention shape, exactly:\n"
+        '{"action": "final", "answer": {"claims": []}}\n'
+        "- evidence_ids may only be ids of records returned by retrieve in this episode. "
+        "If retrieve returned zero records, no evidence id is valid: claims must be empty. "
+        "A fabricated citation is worse than abstaining."
+    ),
 }
 SUMMARY_SCHEMA = "dml.m8.policy-control-summary.v1"
 CONSUMER_PROFILE = LLAMA3_SFT_V3_CONSUMER_PROFILE
