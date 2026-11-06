@@ -176,3 +176,99 @@ def test_v3_development_identity_property_recorded_and_immutable():
     c2.__class__ = v3.LocalLlama3SFTV3ActionInputConsumer
     c2._development_runtime = None
     assert c2.development_runtime_identity is None
+
+
+def test_v3_development_checkpoint_identity_property_recorded_and_immutable():
+    identity = {
+        "label": "development-m9-candidate-20261106",
+        "manifest_sha256": "c" * 64,
+        "adapter_sha256": "d" * 64,
+    }
+    c = legacy_fake()
+    c.__class__ = v3.LocalLlama3SFTV3ActionInputConsumer
+    c._development_checkpoint = dict(identity)
+    assert c.development_checkpoint_identity == identity
+    assert c.development_checkpoint_identity is not c._development_checkpoint
+    identity["adapter_sha256"] = "e" * 64
+    assert c.development_checkpoint_identity["adapter_sha256"] == "d" * 64
+
+    c2 = legacy_fake()
+    c2.__class__ = v3.LocalLlama3SFTV3ActionInputConsumer
+    c2._development_checkpoint = None
+    assert c2.development_checkpoint_identity is None
+
+
+@pytest.mark.parametrize("module", [v2, v3])
+def test_development_checkpoint_admission_compares_declared_hashes(tmp_path, monkeypatch, module):
+    # Synthetic file fixture exercises declared-candidate admission, not actual pretrained qualification.
+    model = tmp_path / "model"
+    adapter = tmp_path / "adapter"
+    model.mkdir()
+    adapter.mkdir()
+    model_files = {
+        "model.safetensors.index.json": json.dumps({"weight_map": {"w": "shard.safetensors"}}),
+        "config.json": json.dumps(
+            {
+                "max_position_embeddings": module.runtime.WINDOW,
+                "vocab_size": module.runtime.VOCAB,
+                "torch_dtype": "bfloat16",
+                "eos_token_id": 128009,
+            }
+        ),
+        "tokenizer.json": "{}",
+        "tokenizer_config.json": "{}",
+        "generation_config.json": json.dumps({"eos_token_id": module.runtime.STOPS}),
+        "special_tokens_map.json": "{}",
+        "shard.safetensors": "x",
+    }
+    for name, value in model_files.items():
+        (model / name).write_text(value)
+    (adapter / "adapter_config.json").write_text("{}")
+    header = json.dumps(
+        {
+            f"base_model.model.layers.{index}.self_attn.q_proj.lora_A.weight": {
+                "dtype": "F32",
+                "shape": [1],
+                "data_offsets": [0, 4],
+            }
+            for index in range(448)
+        }
+    ).encode()
+    (adapter / "adapter_model.safetensors").write_bytes(struct.pack("<Q", len(header)) + header)
+    m = manifest(module)
+    actual_sha = module.sha
+    candidate_adapter_sha = actual_sha(adapter / "adapter_model.safetensors")
+    m["files"] = {str(p.relative_to(tmp_path)): actual_sha(p) for p in model.iterdir()}
+    m["files"].update(
+        {
+            "adapter/adapter_config.json": module.CHECKPOINT["adapter_config.json"],
+            "adapter/adapter_model.safetensors": candidate_adapter_sha,
+        }
+    )
+    monkeypatch.setattr(
+        module, "OFFICIAL_INVENTORY_DIGEST", module._digest({p.name: actual_sha(p) for p in model.iterdir()})
+    )
+    monkeypatch.setattr(
+        module,
+        "sha",
+        lambda p: (
+            module.CHECKPOINT["adapter_config.json"] if Path(p) == adapter / "adapter_config.json" else actual_sha(p)
+        ),
+    )
+    (tmp_path / module.MANIFEST_NAME).write_text(json.dumps(m))
+    candidate = {
+        "label": "development-m9-candidate-20261106",
+        "manifest_sha256": actual_sha(tmp_path / module.MANIFEST_NAME),
+        "adapter_sha256": candidate_adapter_sha,
+    }
+    # The undeclared candidate weights stay refused on the qualified admission path.
+    with pytest.raises(ModelInputError, match="final scheduled"):
+        module.verify_manifest(tmp_path)
+    _, verified, _, _, _ = module.verify_manifest(tmp_path, development_checkpoint=candidate)
+    assert verified == m
+    with pytest.raises(ModelInputError, match="Development checkpoint manifest digest differs"):
+        module.verify_manifest(tmp_path, development_checkpoint={**candidate, "manifest_sha256": "0" * 64})
+    with pytest.raises(ModelInputError, match="Development checkpoint adapter hash differs"):
+        module.verify_manifest(tmp_path, development_checkpoint={**candidate, "adapter_sha256": "0" * 64})
+    with pytest.raises(ModelInputError, match="development_checkpoint label"):
+        module.verify_manifest(tmp_path, development_checkpoint={**candidate, "label": "qualified-m9-candidate"})

@@ -64,6 +64,22 @@ def _validate_development_runtime(identity):
         raise ModelInputError("development_runtime capability must be a (major, minor) int tuple")
 
 
+_DEVELOPMENT_CHECKPOINT_KEYS = frozenset({"label", "manifest_sha256", "adapter_sha256"})
+
+
+def _validate_development_checkpoint(identity):
+    """Shape-check a development checkpoint identity (never a qualified/production checkpoint)."""
+    if type(identity) is not dict or set(identity) != _DEVELOPMENT_CHECKPOINT_KEYS:
+        raise ModelInputError("development_checkpoint must declare exactly: label, manifest_sha256, adapter_sha256")
+    label = identity["label"]
+    if type(label) is not str or not label.startswith("development-"):
+        raise ModelInputError("development_checkpoint label must be a 'development-*' string")
+    for key in ("manifest_sha256", "adapter_sha256"):
+        value = identity[key]
+        if type(value) is not str or len(value) != 64 or any(c not in "0123456789abcdef" for c in value):
+            raise ModelInputError(f"development_checkpoint {key} must be a 64-character lowercase hex string")
+
+
 IMAGE = "sha256:bf05c8a0d56f7ed2fe279e0c0c876dd2bb813dd34702d975fa6ab640860ce825"
 
 
@@ -165,9 +181,13 @@ def _relative(root, name):
     return resolved
 
 
-def verify_manifest(directory):
+def verify_manifest(directory, *, development_checkpoint=None):
+    if development_checkpoint is not None:
+        _validate_development_checkpoint(development_checkpoint)
     root = Path(directory).resolve(strict=True)
     manifest = json.loads((root / MANIFEST_NAME).read_text())
+    if development_checkpoint is not None and sha(root / MANIFEST_NAME) != development_checkpoint["manifest_sha256"]:
+        raise ModelInputError("Development checkpoint manifest digest differs")
     if (
         manifest.get("schema_version") != MANIFEST_VERSION
         or manifest.get("model_id") != MODEL
@@ -214,9 +234,15 @@ def verify_manifest(directory):
     for name in required:
         if model / name not in paths.values():
             raise ModelInputError("Model inventory incomplete")
-    for name, expected in CHECKPOINT.items():
+    if development_checkpoint is not None:
+        checkpoint = {**CHECKPOINT, "adapter_model.safetensors": development_checkpoint["adapter_sha256"]}
+        checkpoint_error = "Development checkpoint adapter hash differs"
+    else:
+        checkpoint = CHECKPOINT
+        checkpoint_error = "Only final scheduled SFTv2 checkpoint is admitted"
+    for name, expected in checkpoint.items():
         if adapter / name not in paths.values() or sha(adapter / name) != expected:
-            raise ModelInputError("Only final scheduled SFTv2 checkpoint is admitted")
+            raise ModelInputError(checkpoint_error)
     config = json.loads((model / "config.json").read_text())
     generation = json.loads((model / "generation_config.json").read_text())
     if (
@@ -297,17 +323,21 @@ class LocalLlama3SFTActionInputConsumer:
         consumer_profile=LLAMA3_SFT_CONSUMER_PROFILE,
         offline=False,
         development_runtime=None,
+        development_checkpoint=None,
     ):
         if development_runtime is not None:
             _validate_development_runtime(development_runtime)
         self._development_runtime = None if development_runtime is None else dict(development_runtime)
+        if development_checkpoint is not None:
+            _validate_development_checkpoint(development_checkpoint)
+        self._development_checkpoint = None if development_checkpoint is None else dict(development_checkpoint)
         if consumer_profile != LLAMA3_SFT_CONSUMER_PROFILE:
             raise ModelInputError("Unknown Llama SFT consumer profile")
         self._lock = RLock()
         self._offline = offline
         self._closed = False
         self._root, self.manifest, self._files, self._model_path, self._adapter_path = verify_manifest(
-            snapshot_directory
+            snapshot_directory, development_checkpoint=self._development_checkpoint
         )
         self._manifest_digest = sha(self._root / MANIFEST_NAME)
         self._stats = {str(p): p.stat() for p in self._files.values()}
@@ -434,6 +464,11 @@ class LocalLlama3SFTActionInputConsumer:
     def development_runtime_identity(self):
         """Declared development identity (None on the qualified runtime path)."""
         return None if self._development_runtime is None else dict(self._development_runtime)
+
+    @property
+    def development_checkpoint_identity(self):
+        """Declared development checkpoint identity (None on the qualified snapshot path)."""
+        return None if self._development_checkpoint is None else dict(self._development_checkpoint)
 
     def _auth_tag(self, artifact):
         return hmac.new(self._auth_key, canonical_json(artifact.signing_payload()), hashlib.sha256).hexdigest()

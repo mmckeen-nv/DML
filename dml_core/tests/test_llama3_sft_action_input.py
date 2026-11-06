@@ -331,3 +331,33 @@ def test_development_runtime_identity_shape_validation():
         _validate_development_runtime({**valid, "capability": [12, 0]})
     with pytest.raises(ModelInputError, match="capability"):
         _validate_development_runtime({**valid, "capability": (12, "0")})
+
+
+def test_development_checkpoint_identity_shape_validation():
+    from daystrom_dml.services.llama3_sft_v3_action_input import _validate_development_checkpoint
+
+    valid = {
+        "label": "development-m9-candidate-20261106",
+        "manifest_sha256": "a" * 64,
+        "adapter_sha256": "b" * 64,
+    }
+    _validate_development_checkpoint(valid)
+
+    with pytest.raises(ModelInputError, match="must declare exactly"):
+        _validate_development_checkpoint({**valid, "extra": 1})
+    with pytest.raises(ModelInputError, match="must declare exactly"):
+        _validate_development_checkpoint({k: v for k, v in valid.items() if k != "manifest_sha256"})
+    with pytest.raises(ModelInputError, match="development-"):
+        _validate_development_checkpoint({**valid, "label": "qualified-m9-candidate"})
+        # development identities can never claim a qualified label
+    with pytest.raises(ModelInputError, match="development-"):
+        _validate_development_checkpoint({**valid, "label": "production-m9-candidate"})
+        # development identities can never claim a production label
+    with pytest.raises(ModelInputError, match="manifest_sha256"):
+        _validate_development_checkpoint({**valid, "manifest_sha256": "a" * 63})
+    with pytest.raises(ModelInputError, match="manifest_sha256"):
+        _validate_development_checkpoint({**valid, "manifest_sha256": "A" * 64})
+    with pytest.raises(ModelInputError, match="adapter_sha256"):
+        _validate_development_checkpoint({**valid, "adapter_sha256": "g" * 64})
+    with pytest.raises(ModelInputError, match="adapter_sha256"):
+        _validate_development_checkpoint({**valid, "adapter_sha256": 123})
