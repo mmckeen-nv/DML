@@ -128,6 +128,23 @@ AMENDMENTS = {
         "- If no retrieved or provided record supports an answer, emit final with an "
         "empty claims list. Never state facts that no presented record supports."
     ),
+    # exact-shape-abstain-v3: v2 plus an exact-shape example. v2 taught value-level
+    # abstention ("unknown"/null claims, empty evidence_ids) but not the declared
+    # insufficiency shape (claims == []): the model never saw that idiom in training.
+    # Few-shot exact-shape example is the last prompt-level lever before the
+    # training question.
+    "exact-shape-abstain-v3": (
+        "\n\nRules:\n"
+        "- If a retrieve call returns zero records, do not repeat an identical retrieve; "
+        "you may issue at most one refined query, then you must emit final.\n"
+        "- Never emit the same tool call twice in a row.\n"
+        "- If the records or the provided text already contain the answer, emit final "
+        "immediately, citing those records.\n"
+        "- If no retrieved or provided record supports an answer, emit final with an "
+        "empty claims list. Never state facts that no presented record supports.\n"
+        "Example of the required abstention shape, exactly:\n"
+        '{"action": "final", "answer": {"claims": []}}'
+    ),
 }
 SUMMARY_SCHEMA = "dml.m8.policy-control-summary.v1"
 CONSUMER_PROFILE = LLAMA3_SFT_V3_CONSUMER_PROFILE
