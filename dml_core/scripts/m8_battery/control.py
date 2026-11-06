@@ -9,7 +9,10 @@ through the neutral M8 consumer.
 
 Surface composition (all existing, unchanged machinery): the episode request
 is built by ``initial_messages(..., consumer_profile=LLAMA3_SFT_V3_CONSUMER_PROFILE)``
-(AGENT_POLICY + recovery/completion/retrieval guidance), the advertised tools
+(AGENT_POLICY + recovery/completion/retrieval guidance) by default; the
+``--consumer-profile qwen3`` development option runs the same surface under
+the registered M9 Track-B ``QWEN3_SFT_V1_CONSUMER_PROFILE`` (identical policy
+composition, Qwen3.5 transport/runtime identity). The advertised tools
 are the fixed ``episode_tool_definitions()`` filtered to ``("retrieve",)`` per
 the readout allowlist, and dispatch goes through the receipted
 ``SelectedProfileEpisodeTools`` bridge. Fixture events enter DML authority
@@ -84,6 +87,7 @@ import time
 from daystrom_dml.contracts.agent_episode import (
     EXECUTION_PROTOCOL_V2,
     LLAMA3_SFT_V3_CONSUMER_PROFILE,
+    QWEN3_SFT_V1_CONSUMER_PROFILE,
     parse_agent_action,
 )
 from daystrom_dml.services.agent_episode import (
@@ -399,6 +403,9 @@ def default_consumer_factory(snapshot):
     return LocalLlama3SFTV3ActionInputConsumer(snapshot)
 
 
+PROFILES = {"llama3": LLAMA3_SFT_V3_CONSUMER_PROFILE, "qwen3": QWEN3_SFT_V1_CONSUMER_PROFILE}
+
+
 DEVELOPMENT_X86_RUNTIME = {
     "label": "development-x86-20261102",
     "platform_machine": "x86_64",
@@ -408,7 +415,7 @@ DEVELOPMENT_X86_RUNTIME = {
 }
 
 
-def dev_x86_consumer_factory(snapshot, development_checkpoint=None):
+def dev_x86_consumer_factory(snapshot, development_checkpoint=None, profile=LLAMA3_SFT_V3_CONSUMER_PROFILE):
     """Development-only consumer for the x86 runtime (192.168.50.133).
 
     Same authenticated snapshot and admission checks as the qualified path;
@@ -416,12 +423,23 @@ def dev_x86_consumer_factory(snapshot, development_checkpoint=None):
     identity, recorded in every episode. Fail-closed unless the environment
     declares DML_DEV_RUNTIME=development-x86-20261102. With
     development_checkpoint, a declared candidate snapshot (M9) is admitted
-    by its declared hashes instead of the qualified pins.
+    by its declared hashes instead of the qualified pins. ``profile`` selects
+    the consumer implementation (llama3 SFTv3 or the M9 Track-B qwen3 SFTv1,
+    whose qualified pins are placeholders and admit only declared development
+    checkpoints).
     """
     import os
 
     if os.environ.get("DML_DEV_RUNTIME") != DEVELOPMENT_X86_RUNTIME["label"]:
         raise RuntimeError("development x86 consumer requires DML_DEV_RUNTIME=" + DEVELOPMENT_X86_RUNTIME["label"])
+    if profile == QWEN3_SFT_V1_CONSUMER_PROFILE:
+        from daystrom_dml.services.qwen3_sft_v1_action_input import LocalQwen3SFTV1ActionInputConsumer
+
+        return LocalQwen3SFTV1ActionInputConsumer(
+            snapshot,
+            development_runtime=dict(DEVELOPMENT_X86_RUNTIME),
+            development_checkpoint=development_checkpoint,
+        )
     from daystrom_dml.services.llama3_sft_v3_action_input import LocalLlama3SFTV3ActionInputConsumer
 
     return LocalLlama3SFTV3ActionInputConsumer(
@@ -504,6 +522,7 @@ def run_control_episode(
     limits,
     seed=0,
     amendment="none",
+    consumer_profile=LLAMA3_SFT_V3_CONSUMER_PROFILE,
     adapter_factory=_fixture_adapter,
     clock=time.monotonic,
     shared_consumer=None,
@@ -525,7 +544,7 @@ def run_control_episode(
         "cell": cell_for(scenario, control),
         "control": control,
         "retrieval_needless": control != "none",
-        "consumer_profile": CONSUMER_PROFILE,
+        "consumer_profile": consumer_profile,
         "sampling_seed": seed,
         "expects_retrieval": scenario.expects_retrieval,
         "runtime_identity": None,
@@ -589,7 +608,7 @@ def run_control_episode(
             verifier=control_verifier(scenario),
             effective_time=EPISODE_EFFECTIVE_TIME,
             episode_id=f"m8ctl-{scenario.scenario_id}-{control}-s{seed}"[:128],
-            consumer_profile=CONSUMER_PROFILE,
+            consumer_profile=consumer_profile,
         )
         _fill_from_report(record, report)
     except Exception as exc:  # noqa: BLE001 — every failure is retained evidence
@@ -734,6 +753,13 @@ def main(argv=None, *, consumer_factory=None, adapter_factory=None):
         help="comma-separated run replications; the qualified runtime pins sampler "
         "seed 0 per request, so seeds replicate identical runs (development only)",
     )
+    parser.add_argument(
+        "--consumer-profile",
+        default="llama3",
+        choices=sorted(PROFILES),
+        help="policy consumer profile: llama3 (default; qualified SFTv3) or qwen3 "
+        "(M9 Track-B Qwen3.5 SFTv1; requires --development-runtime-x86)",
+    )
     parser.add_argument("--max-steps", type=int, default=6)
     parser.add_argument("--output-tokens", type=int, default=128)
     parser.add_argument("--dry-run", action="store_true", help="validate fixtures and labels only")
@@ -788,16 +814,35 @@ def main(argv=None, *, consumer_factory=None, adapter_factory=None):
         print(json.dumps({"error": str(exc)}), file=sys.stderr)
         return 2
 
+    profile = PROFILES[args.consumer_profile]
     injected_factory = consumer_factory is not None
-    consumer_factory = consumer_factory or (
-        dev_x86_consumer_factory if args.development_runtime_x86 else default_consumer_factory
-    )
+    if profile == QWEN3_SFT_V1_CONSUMER_PROFILE and not args.development_runtime_x86 and not injected_factory:
+        # The qwen3 SFTv1 qualified pins are fail-closed placeholders (no
+        # trained adapter admitted yet); only the declared x86 development
+        # runtime can construct its consumer.
+        print(json.dumps({"error": "--consumer-profile qwen3 requires --development-runtime-x86"}), file=sys.stderr)
+        return 2
+    if consumer_factory is None:
+        if args.development_runtime_x86:
+            if profile == QWEN3_SFT_V1_CONSUMER_PROFILE:
+
+                def consumer_factory(snapshot, _profile=profile):
+                    return dev_x86_consumer_factory(snapshot, profile=_profile)
+
+            else:
+                consumer_factory = dev_x86_consumer_factory
+        else:
+            consumer_factory = default_consumer_factory
     if args.development_checkpoint:
         if not args.development_runtime_x86:
             print(json.dumps({"error": "--development-checkpoint requires --development-runtime-x86"}), file=sys.stderr)
             return 2
         from daystrom_dml.contracts.model_input import ModelInputError
-        from daystrom_dml.services.llama3_sft_v3_action_input import _validate_development_checkpoint
+
+        if profile == QWEN3_SFT_V1_CONSUMER_PROFILE:
+            from daystrom_dml.services.qwen3_sft_v1_action_input import _validate_development_checkpoint
+        else:
+            from daystrom_dml.services.llama3_sft_v3_action_input import _validate_development_checkpoint
 
         try:
             checkpoint_identity = json.loads(Path(args.development_checkpoint).read_text(encoding="utf-8"))
@@ -806,8 +851,15 @@ def main(argv=None, *, consumer_factory=None, adapter_factory=None):
             print(json.dumps({"error": f"invalid development checkpoint declaration: {exc}"}), file=sys.stderr)
             return 2
 
-        def consumer_factory(snapshot, _identity=checkpoint_identity):
-            return dev_x86_consumer_factory(snapshot, development_checkpoint=_identity)
+        if profile == QWEN3_SFT_V1_CONSUMER_PROFILE:
+
+            def consumer_factory(snapshot, _identity=checkpoint_identity, _profile=profile):
+                return dev_x86_consumer_factory(snapshot, development_checkpoint=_identity, profile=_profile)
+
+        else:
+
+            def consumer_factory(snapshot, _identity=checkpoint_identity):
+                return dev_x86_consumer_factory(snapshot, development_checkpoint=_identity)
 
     adapter_factory = adapter_factory or _fixture_adapter
     workdir_root = Path(args.workdir_root)
@@ -845,6 +897,7 @@ def main(argv=None, *, consumer_factory=None, adapter_factory=None):
                             limits=limits,
                             seed=seed,
                             amendment=args.prompt_amendment,
+                            consumer_profile=profile,
                             shared_consumer=shared_consumer,
                         )
                         episodes.append(episode)
@@ -864,7 +917,7 @@ def main(argv=None, *, consumer_factory=None, adapter_factory=None):
         "date": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "wall_seconds": round(time.time() - started, 1),
         "arm": ARM,
-        "consumer_profile": CONSUMER_PROFILE,
+        "consumer_profile": profile,
         "controls": list(args.controls),
         "seeds": sorted(args.seeds),
         "prompt_amendment": args.prompt_amendment,

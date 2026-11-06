@@ -28,14 +28,10 @@ import struct
 import subprocess
 from threading import RLock
 
-from ..contracts.agent_episode import canonical_json, episode_tool_definitions
+from ..contracts.agent_episode import QWEN3_SFT_V1_CONSUMER_PROFILE, canonical_json, episode_tool_definitions
 from ..contracts.model_input import CompiledModelInput, ModelInputError, ModelInputIdentity, ModelInputRequest
 from .model_input import ModelInputExecutionError, ModelInputResult
 from . import qwen3_sft_runtime as runtime
-
-# Module-local until the integration tranche registers the profile in
-# contracts/agent_episode.py; this tranche adds new files only.
-QWEN3_SFT_V1_CONSUMER_PROFILE = "qwen3_5-9b-sft-v1-bf16-action-json-v1"
 
 MANIFEST_NAME = "qwen3-sft-v1-manifest.json"
 MANIFEST_VERSION = "dml-qwen3-sft-snapshot-v1"
