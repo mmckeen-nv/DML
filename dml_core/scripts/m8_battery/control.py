@@ -808,6 +808,7 @@ def main(argv=None, *, consumer_factory=None, adapter_factory=None):
 
         def consumer_factory(snapshot, _identity=checkpoint_identity):
             return dev_x86_consumer_factory(snapshot, development_checkpoint=_identity)
+
     adapter_factory = adapter_factory or _fixture_adapter
     workdir_root = Path(args.workdir_root)
     workdir_root.mkdir(parents=True, exist_ok=True)
