@@ -558,6 +558,94 @@ def test_development_flag_uses_dev_factory(monkeypatch, tmp_path):
     assert code == 0 and selected["used"] is True
 
 
+def test_inline_only_citation_is_not_supported(tmp_path):
+    # Pin: in an inline_evidence episode, a final that cites ONLY the fixture
+    # record id from the inline-embedded text (record 11 states "The service
+    # port is 9000." in the prompt) is scored unsupported_final, even though
+    # the cited text states the truth. control_verifier credits a claim only
+    # via observed_records, which the episode contract builds exclusively from
+    # tool_completed (retrieve) presentations; the inline prompt text never
+    # enters observed_records, and its fixture record_ids are not DML ids
+    # anyway (module docstring: presented_record_ids are "the DML-assigned
+    # integer record ids the model could cite, not fixture record_ids").
+    # Intended contract of the verifier: yes — INLINE_HEADER declares the
+    # inline records untrusted source data, so support must be grounded in a
+    # retrieved (verified-memory) record.
+    # TODO(observer question "should inline-only citations be creditable in
+    # inline_evidence?"): this contract is in tension with the control's own
+    # design note that retrieval is "needless" in inline_evidence and with
+    # amendments v2+ inviting the model to cite "the provided text" — an
+    # immediate inline-citing final can never score valid_cited_final.
+    record = run_episode(
+        chain_scenario(),
+        "inline_evidence",
+        [final({"claims": [{"key": "port", "value": "9000", "evidence_ids": [11]}]})],
+        tmp_path,
+    )
+    assert record["terminal_status"] == "completed"
+    assert record["verdict"] == "unsupported_final" and record["truth_covered"] is False
+    assert record["presented_record_ids"] == []
+
+
+def test_unretrieved_dml_record_citation_is_not_supported(tmp_path):
+    # Pin (stronger form of the inline-only rule): even a genuine DML record
+    # id whose stored text states the truth (id 1 = "The service port is
+    # 9000.") is unsupported when that record was never presented by a
+    # retrieve call in the episode. Support requires tool presentation, not
+    # store membership — "the episode oracle is never consulted beyond
+    # presented records".
+    record = run_episode(
+        chain_scenario(),
+        "inline_evidence",
+        [final({"claims": [{"key": "port", "value": "9000", "evidence_ids": [1]}]})],
+        tmp_path,
+    )
+    assert record["verdict"] == "unsupported_final" and record["truth_covered"] is False
+
+
+def test_retrieved_supporting_citation_is_supported_inline(tmp_path):
+    # Pin: a claim citing a retrieved DML id whose text supports it is
+    # credited — valid_cited_final with truth covered, and the cited id is
+    # exactly a member of presented_record_ids.
+    record = run_episode(
+        chain_scenario(),
+        "inline_evidence",
+        [tool(query="service port", top_k=10), cite_containing("port", "9000")],
+        tmp_path,
+    )
+    assert record["verdict"] == "valid_cited_final" and record["truth_covered"] is True
+    cited = record["answer"]["claims"][0]["evidence_ids"]
+    assert cited and set(cited) <= set(record["presented_record_ids"])
+
+
+def test_inline_evidence_empty_claims_final_classification(tmp_path):
+    # Pin: an empty-claims final in an inline_evidence episode classifies as
+    # empty_claims_final (the declared insufficiency signal), not a failure.
+    record = run_episode(chain_scenario(), "inline_evidence", [final({"claims": []})], tmp_path)
+    assert record["terminal_status"] == "completed"
+    assert record["verdict"] == "empty_claims_final" and record["truth_covered"] is False
+    assert record["retrieval_needless"] is True
+
+
+def test_inline_presented_record_ids_are_exactly_retrieved_dml_ids(tmp_path):
+    # Pin: presented_record_ids in an inline_evidence episode is exactly the
+    # deduplicated set of DML-assigned ids the retrieve tool showed the model,
+    # in first-shown order. For the chain fixture ingested as DML ids 0, 1, 2
+    # (in event order), retrieve top_k=10 returns only the two non-superseded
+    # records: id 1 ("The service port is 9000.") and id 2 (the 7000
+    # anecdote). The superseded id 0 ("The service port is 8000.") is stored
+    # but never presented, and the inline fixture record ids 10/11/12 never
+    # appear — presented_record_ids is DML ids only.
+    record = run_episode(
+        chain_scenario(),
+        "inline_evidence",
+        [tool(query="service port", top_k=10), final({"claims": []})],
+        tmp_path,
+    )
+    assert record["presented_record_ids"] == [1, 2]
+    assert not (set(record["presented_record_ids"]) & {10, 11, 12})
+
+
 def test_prompt_amendment_appended_and_recorded(tmp_path):
     record = run_episode(chain_scenario(), "none", [final({"claims": []})], tmp_path,
                          amendment="terminate-on-empty-v1")
@@ -572,3 +660,58 @@ def test_unknown_prompt_amendment_fails_closed(tmp_path):
         control.build_task(chain_scenario(), "none", "invented")
     record = run_episode(chain_scenario(), "none", [final({"claims": []})], tmp_path)
     assert record["prompt_amendment"] == "none"
+
+
+# --- _fill_from_report token-total edges ------------------------------------
+
+
+def test_token_total_unknown_when_any_count_unknown():
+    assert control._token_total([], "input_token_count") == 0
+    calls = [{"input_token_count": 3}, {"input_token_count": 4}]
+    assert control._token_total(calls, "input_token_count") == 7
+    # Any unknown (None) count makes the whole total unknown, never a partial sum.
+    assert control._token_total(calls + [{"input_token_count": None}], "input_token_count") is None
+    # A missing key reads as unknown (None) and poisons the total the same way.
+    assert control._token_total([{"output_token_count": 1}], "input_token_count") is None
+
+
+def _report_record():
+    return {"retrieve_first": None, "retrieval_attempted": False, "failure": None}
+
+
+def test_fill_from_report_requested_without_completion_leaves_unknown_tokens():
+    record = _report_record()
+    report = {
+        "events": [
+            {"kind": "model_requested", "payload": {"step": 0, "artifact_digest": "d0"}},
+            # A completion for a step with no request is dropped, not invented.
+            {"kind": "model_completed", "payload": {"step": 1, "input_token_count": 5, "output_token_count": 2, "text": "garbage"}},
+        ],
+        "terminal": {"status": "completed", "answer": {"claims": []}, "success": False},
+    }
+    control._fill_from_report(record, report)
+    assert [call["step"] for call in record["calls"]] == [0]
+    assert record["calls"][0]["input_token_count"] is None
+    assert record["calls"][0]["output_token_count"] is None
+    # The runner.py-shaped totals then come out unknown, matching the accounting rule.
+    assert control._token_total(record["calls"], "input_token_count") is None
+    assert control._token_total(record["calls"], "output_token_count") is None
+    assert record["verdict"] == "empty_claims_final"
+
+
+def test_fill_from_report_explicit_none_counts_poison_totals():
+    record = _report_record()
+    report = {
+        "events": [
+            {"kind": "model_requested", "payload": {"step": 0, "artifact_digest": "d0"}},
+            {"kind": "model_completed", "payload": {"step": 0, "input_token_count": None, "output_token_count": 2, "text": "garbage"}},
+            {"kind": "model_requested", "payload": {"step": 1, "artifact_digest": "d1"}},
+            {"kind": "model_completed", "payload": {"step": 1, "input_token_count": 5, "output_token_count": 3, "text": "garbage"}},
+        ],
+        "terminal": {"status": "completed", "answer": {"claims": []}, "success": False},
+    }
+    control._fill_from_report(record, report)
+    assert len(record["calls"]) == 2
+    # One unknown input count makes the input total unknown; outputs stay summable.
+    assert control._token_total(record["calls"], "input_token_count") is None
+    assert control._token_total(record["calls"], "output_token_count") == 5

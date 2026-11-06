@@ -249,6 +249,128 @@ def test_supports_for_truth_key_admission_and_conflict():
     }
 
 
+def test_status_value_splits_on_last_is():
+    claim = {"key": "status", "value": "amber"}
+    # rpartition: the value is everything after the LAST " is ".
+    assert verifiers.status_value(claim, {"text": "The status is green is amber."}) is True
+    assert verifiers.status_value({"key": "status", "value": "green"}, {"text": "The status is green is amber."}) is False
+    # Empty head or empty value is not a statement.
+    assert verifiers.status_value(claim, {"text": " is amber."}) is False
+    assert verifiers.status_value({"key": "status", "value": ""}, {"text": "Status is ."}) is False
+    with pytest.raises(verifiers.VerifierError):
+        verifiers.status_value({"key": "  ", "value": "amber"}, GREEN)
+
+
+def test_record_text_contains_substring_semantics():
+    # TODO: substring match crosses word boundaries ("green" inside "evergreen");
+    # a cited record can "support" a value it never states as a token.
+    assert verifiers.record_text_contains({"key": "n", "value": "green"}, {"text": "evergreen."}) is True
+    assert verifiers.record_text_contains({"key": "n", "value": "Green"}, GREEN) is False  # case-sensitive
+    assert verifiers.record_text_contains({"key": "n", "value": ""}, GREEN) is True  # empty substring matches
+    assert verifiers.record_text_contains({"key": "n", "value": "green"}, "not a record") is False
+    assert verifiers.record_text_contains({"key": "n", "value": "green"}, {"text": 42}) is False
+    with pytest.raises(verifiers.VerifierError):
+        verifiers.record_text_contains({"key": "n", "value": None}, GREEN)
+
+
+def test_multi_claim_fail_closed_edges():
+    joint = {"text": "Project status is green."}
+    with pytest.raises(verifiers.VerifierError):
+        verifiers.multi_claim({"key": "pair", "claims": []}, joint)
+    with pytest.raises(verifiers.VerifierError):
+        verifiers.multi_claim({"key": "pair", "claims": "nope"}, joint)
+    with pytest.raises(verifiers.VerifierError):
+        verifiers.multi_claim({"key": "pair", "claims": ["nope"]}, joint)
+    # A subclaim with an unknown or missing verifier propagates fail-closed, not False.
+    bad_sub = {"key": "pair", "claims": [{"key": "s", "value": "green", "verifier": "invented"}]}
+    with pytest.raises(verifiers.VerifierError):
+        verifiers.multi_claim(bad_sub, joint)
+    missing_verifier = {"key": "pair", "claims": [{"key": "s", "value": "green"}]}
+    with pytest.raises(verifiers.VerifierError):
+        verifiers.multi_claim(missing_verifier, joint)
+
+
+def test_multi_claim_entry_support_ignores_model_value():
+    truth = (
+        {
+            "key": "pair",
+            "verifier": "multi_claim",
+            "claims": [
+                {"key": "pair", "value": "green", "verifier": "status_value"},
+                {"key": "note", "value": "green", "verifier": "record_text_contains"},
+            ],
+        },
+    )
+    supports = verifiers.supports_for_truth(truth)
+    joint = {"record_id": 1, "text": "Project status is green."}
+    assert supports({"key": "pair", "value": "green"}, joint) is True
+    # TODO: suspicious — a multi_claim truth entry never checks the model's stated
+    # value; any value (or none) is supported once the record backs the subclaims.
+    assert supports({"key": "pair", "value": "blue"}, joint) is True
+    assert supports({"key": "pair"}, joint) is True
+    assert supports({"key": "pair", "value": "green"}, RED) is False
+    assert supports({"key": "other", "value": "green"}, joint) is False
+
+
+def test_supports_for_truth_conflicting_same_key_entries():
+    truth = (
+        {"key": "status", "value": "green", "verifier": "status_value"},
+        {"key": "status", "value": "red", "verifier": "status_value"},
+    )
+    supports = verifiers.supports_for_truth(truth)
+    assert supports({"key": "status", "value": "green"}, GREEN) is True
+    assert supports({"key": "status", "value": "red"}, RED) is True
+    assert supports({"key": "status", "value": "red"}, GREEN) is False
+    assert supports({"key": "status", "value": "green"}, RED) is False
+    # expected_claims keeps both (key, value) pairs for the duplicated key.
+    assert verifiers.expected_claims(truth) == {("status", "green"), ("status", "red")}
+
+
+def test_supports_for_truth_empty_truth_and_missing_value():
+    supports = verifiers.supports_for_truth(())
+    assert supports({"key": "status", "value": "green"}, GREEN) is False
+    assert verifiers.expected_claims(()) == set()
+
+    supports = verifiers.supports_for_truth(({"key": "status", "value": "green", "verifier": "status_value"},))
+    # Leaf entries require a string value; a claim without one is unsupported, never repaired.
+    assert supports({"key": "status"}, GREEN) is False
+    assert supports({"key": "status", "value": None}, GREEN) is False
+
+
+def test_supports_for_truth_ignores_evidence_ids():
+    # The supports oracle judges (key, value) against the presented record only;
+    # evidence_ids are not consulted — citation validity is the caller's discipline.
+    supports = verifiers.supports_for_truth(({"key": "status", "value": "green", "verifier": "status_value"},))
+    assert supports({"key": "status", "value": "green"}, GREEN) is True
+    assert supports({"key": "status", "value": "green", "evidence_ids": []}, GREEN) is True
+    assert supports({"key": "status", "value": "green", "evidence_ids": [999]}, GREEN) is True
+
+
+def test_expected_claims_multi_claim_primary_vs_subclaims():
+    multi = {
+        "key": "pair",
+        "verifier": "multi_claim",
+        "claims": [
+            {"key": "pair", "value": "green", "verifier": "status_value"},
+            {"key": "note", "value": "green", "verifier": "record_text_contains"},
+        ],
+    }
+    # Only primary subclaims (key == entry key) are expected of the answer.
+    assert verifiers.expected_claims([multi]) == {("pair", "green")}
+    # No primary subclaim: all subclaims are kept so coverage is still checkable.
+    orphaned = {
+        "key": "pair",
+        "verifier": "multi_claim",
+        "claims": [
+            {"key": "status", "value": "green", "verifier": "status_value"},
+            {"key": "note", "value": "green", "verifier": "record_text_contains"},
+        ],
+    }
+    assert verifiers.expected_claims([orphaned]) == {("status", "green"), ("note", "green")}
+    mixed = (multi, {"key": "status", "value": "red", "verifier": "status_value"})
+    assert verifiers.expected_claims(mixed) == {("pair", "green"), ("status", "red")}
+
+
 # --- runner with doubles ---------------------------------------------------
 
 
@@ -811,3 +933,125 @@ def test_main_fails_loud_when_an_arm_has_no_valid_final(tmp_path):
     assert episodes and all(e["verdict"] is None for e in episodes)
     ledger = m8_accounting.DurableLedger(output.with_suffix(".ledger.jsonl"))
     assert len(ledger.records()) == len(episodes)
+
+
+# ---------------------------------------------------------------------------
+# Fixture-authoring hygiene rules (WS-A).
+#
+# RED by design: these tests encode the hygiene rules the fixture repair must
+# satisfy and are expected to FAIL on several shipped fixtures. The failing
+# output is the repair spec. Rules judge the raw fixture JSON exactly as
+# authored: the readable surface is the query text plus event ``text`` fields
+# (fact_key/metadata are scaffolding, not language a model could read).
+# ---------------------------------------------------------------------------
+
+import re as _re
+
+_HYGIENE_FIXTURES = sorted(FIXTURES.glob("*.json"))
+_HYGIENE_IDS = [p.stem for p in _HYGIENE_FIXTURES]
+
+_TOKEN_RE = _re.compile(r"[a-z0-9]+")
+_SNAKE_RE = _re.compile(r"[a-z0-9]+(_[a-z0-9]+)*")
+
+_UNIT_WORDS = frozenset({
+    "second", "seconds", "minute", "minutes", "hour", "hours",
+    "day", "days", "week", "weeks", "month", "months", "year", "years",
+    "ms", "millisecond", "milliseconds",
+    "percent", "percentage",
+    "byte", "bytes", "kb", "mb", "gb", "tb",
+})
+
+
+def _hygiene_tokens(text):
+    return set(_TOKEN_RE.findall(text.lower()))
+
+
+def _hygiene_corpus(raw):
+    """(token set, lowered text) of everything readable: query + event texts."""
+    texts = [raw["query"], *(e["text"] for e in raw["events"])]
+    return set().union(*(_hygiene_tokens(t) for t in texts)), "\n".join(texts).lower()
+
+
+def _hygiene_truth_leaves(raw):
+    """Every truth entry whose key a model could claim.
+
+    Leaf entries plus multi_claim entries themselves and their subclaims:
+    a final answer cites the entry key, and expected_claims flattens to the
+    subclaim (key, value) pairs.
+    """
+    for entry in raw["truth"]:
+        if entry["verifier"] == "multi_claim":
+            yield entry
+            yield from entry["claims"]
+        else:
+            yield entry
+
+
+@pytest.mark.parametrize("path", _HYGIENE_FIXTURES, ids=_HYGIENE_IDS)
+def test_fixture_hygiene_truth_keys_snake_case(path):
+    """Rule 1a: every truth key (incl. multi_claim subclaims) is snake_case."""
+    raw = json.loads(path.read_text())
+    bad = sorted({
+        leaf["key"]
+        for leaf in _hygiene_truth_leaves(raw)
+        if not _SNAKE_RE.fullmatch(leaf["key"])
+    })
+    assert not bad, f"{path.name}: non-snake_case truth keys: {bad}"
+
+
+@pytest.mark.parametrize("path", _HYGIENE_FIXTURES, ids=_HYGIENE_IDS)
+def test_fixture_hygiene_truth_keys_natural(path):
+    """Rule 1b: every truth key is NATURAL — each of its words appears
+    (case-insensitive token match) in the query text or an event text, so a
+    model could plausibly produce the key from what it read."""
+    raw = json.loads(path.read_text())
+    corpus_tokens, _ = _hygiene_corpus(raw)
+    problems = {}
+    for leaf in _hygiene_truth_leaves(raw):
+        missing = [w for w in leaf["key"].split("_") if w not in corpus_tokens]
+        if missing:
+            problems.setdefault(leaf["key"], missing)
+    assert not problems, (
+        f"{path.name}: truth keys a reader could not plausibly produce: "
+        + "; ".join(f"{key} (missing words: {words})" for key, words in sorted(problems.items()))
+    )
+
+
+@pytest.mark.parametrize("path", _HYGIENE_FIXTURES, ids=_HYGIENE_IDS)
+def test_fixture_hygiene_truth_value_units_grounded(path):
+    """Rule 2: a truth value carrying a unit (seconds/percent/...) must have
+    that unit present in the query or event text."""
+    raw = json.loads(path.read_text())
+    corpus_tokens, corpus_text = _hygiene_corpus(raw)
+    problems = []
+    for leaf in _hygiene_truth_leaves(raw):
+        value = leaf.get("value")
+        if type(value) is not str:
+            continue
+        units = {t for t in _hygiene_tokens(value) if t in _UNIT_WORDS}
+        if "%" in value:
+            units.add("%")
+        missing = [
+            u for u in sorted(units)
+            if (u == "%" and "%" not in corpus_text) or (u != "%" and u not in corpus_tokens)
+        ]
+        if missing:
+            problems.append({"key": leaf["key"], "value": value, "units_absent_from_text": missing})
+    assert not problems, f"{path.name}: unit-bearing truth values with ungrounded units: {problems}"
+
+
+@pytest.mark.parametrize("path", _HYGIENE_FIXTURES, ids=_HYGIENE_IDS)
+def test_fixture_hygiene_conflicting_query_names_both_sources(path):
+    """Rule 3: a conflicting-family query must explicitly ask about BOTH
+    sources — every event source_id contributes at least one token to the
+    query text."""
+    raw = json.loads(path.read_text())
+    if raw["family"] != "conflicting_independent_sources":
+        pytest.skip("not a conflicting-family fixture")
+    query_tokens = _hygiene_tokens(raw["query"])
+    sources = sorted({e["source_id"] for e in raw["events"]})
+    missing = [s for s in sources if not (_hygiene_tokens(s) & query_tokens)]
+    assert not missing, (
+        f"{path.name}: conflicting-family query does not explicitly ask about "
+        f"source(s) {missing}; query: {raw['query']!r}"
+    )
