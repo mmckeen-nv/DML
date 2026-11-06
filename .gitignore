@@ -25,3 +25,6 @@ dist/
 # Local tool lockfiles / generated config variants
 uv.lock
 *config-no-rag.yaml
+
+# M9 curriculum generated train data (regenerate via scripts.m9_curriculum.generate)
+dml_core/scripts/m9_curriculum/out/
