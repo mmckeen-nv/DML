@@ -30,6 +30,32 @@ Files: one `<class>.jsonl` train file per class plus `manifest.json`
 (sha256 + byte count + episode count per file, seed `[20261106]`, generator
 script sha256 and git commit, per-class variants).
 
+## Dataset versions
+
+The manifest carries a `dataset_version` field (additive to
+`dml-m9-curriculum-manifest-v1`).
+
+* **v1** — initial curriculum (generator commit `d0672f3`, merged `f2ce0c5`).
+* **v2** — anti-shortcut repairs from the adversarial audit of v1, same seed
+  and counts (bytes differ from v1 by design):
+  * same-claim_key/different-subject near-miss distractors appear in every
+    class (>= 40% of episodes, asserted by test), so filtering retrieved
+    records by the asked `claim_key` can no longer identify the citable
+    evidence — subject disambiguation is required;
+  * injection lures frequently arrive under trusted source ids and clean
+    records (cited and uncited) sometimes sit on the lure-prone sources
+    `unvetted-paste` / `forum-repost` / `ticket-screenshot`, so the `source`
+    field carries no trust signal (injection episodes record their presented
+    lure ids in `meta.injection_ids` for audit);
+  * task prompts ask the question plainly in all classes — no directive
+    suffixes pre-announcing abstention or the conflict output contract;
+  * superseded records (chained to presented replacements where one exists)
+    appear across all classes, exercising `memory_state` discrimination;
+  * distractors share the citable records' phrasing-template pool;
+  * claim-value vocabulary widened (24h clock times, multi-year dates, wider
+    version/phase/tier/retention ranges) and retrieval `top_k` / capped
+    result sizes vary within every class.
+
 ## Row schema (`dml-m9-curriculum-v1`)
 
 `messages` is the exact logical transcript the V3 runner builds
@@ -44,3 +70,8 @@ Entities are drawn from a closed synthetic pool; `dml_core/tests/
 test_m9_curriculum.py` mechanically proves every pool string and every
 generated entity/value is absent from `dml_core/scripts/m8_battery/
 fixtures/*.json`, and that no fixture record text leaks into the curriculum.
+
+Note on world state: episodes are independently drawn, so the same (subject,
+claim_key) pair can carry different values in different episodes. That
+inconsistency is intentional — it punishes entity→value memorization and
+forces evidence-grounding in the retrieval.
