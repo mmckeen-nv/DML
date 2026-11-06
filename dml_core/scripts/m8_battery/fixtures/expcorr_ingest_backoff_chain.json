@@ -48,7 +48,7 @@
    "metadata": {"source_trust": "trusted"}
   }
  ],
- "query": "What is the current retry backoff cap for the production ingest pipeline?",
+ "query": "What is the current retry backoff cap in seconds for the production ingest pipeline?",
  "query_clock": 2000,
  "truth": [
   {"key": "ingest_retry_backoff_cap", "value": "300 seconds", "verifier": "status_value"}

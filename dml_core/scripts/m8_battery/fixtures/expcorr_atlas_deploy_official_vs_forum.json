@@ -37,11 +37,11 @@
    "metadata": {"source_trust": "trusted"}
   }
  ],
- "query": "According to the official release changelog, what is the deploy status of the Atlas billing service?",
+ "query": "According to the official release changelog, what is the deploy status of the Atlas billing service, and what deploy status does the community forum claim for the Atlas billing service?",
  "query_clock": 2000,
  "truth": [
-  {"key": "status_official", "value": "canary", "verifier": "status_value"},
-  {"key": "status_forum", "value": "live", "verifier": "status_value"}
+  {"key": "atlas_deploy_status", "value": "canary", "verifier": "status_value"},
+  {"key": "forum_deploy_status", "value": "live", "verifier": "status_value"}
  ],
  "expects_retrieval": true
 }

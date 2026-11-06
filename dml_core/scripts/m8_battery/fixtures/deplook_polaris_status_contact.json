@@ -82,7 +82,7 @@
    ]
   },
   {"key": "owning_team", "value": "the platform team", "verifier": "status_value"},
-  {"key": "contact_rule_dependency", "value": "escalation lead", "verifier": "record_text_contains"}
+  {"key": "status_contact_rule", "value": "escalation lead", "verifier": "record_text_contains"}
  ],
  "expects_retrieval": true
 }

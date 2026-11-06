@@ -26,11 +26,11 @@
    "metadata": {"source_trust": "trusted"}
   }
  ],
- "query": "What is the project status?",
+ "query": "What is the project status according to the bulletin, and what is the project status according to the independent witness?",
  "query_clock": 2000,
  "truth": [
-  {"key": "status_bulletin", "value": "green", "verifier": "status_value"},
-  {"key": "status_independent", "value": "red", "verifier": "status_value"}
+  {"key": "bulletin_status", "value": "green", "verifier": "status_value"},
+  {"key": "independent_witness_status", "value": "red", "verifier": "status_value"}
  ],
  "expects_retrieval": true
 }

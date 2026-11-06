@@ -48,11 +48,11 @@
    "metadata": {"source_trust": "trusted"}
   }
  ],
- "query": "What is the Helios deploy window?",
+ "query": "What is the Helios deploy window in UTC?",
  "query_clock": 2000,
  "truth": [
-  {"key": "deploy_window", "value": "Tuesdays 02:00-04:00 UTC", "verifier": "status_value"},
-  {"key": "deploy_window_dependency", "value": "Project Kestrel", "verifier": "record_text_contains"}
+  {"key": "helios_deploy_window", "value": "Tuesdays 02:00-04:00 UTC", "verifier": "status_value"},
+  {"key": "helios_deploy_window_ref", "value": "Project Kestrel", "verifier": "record_text_contains"}
  ],
  "expects_retrieval": true
 }

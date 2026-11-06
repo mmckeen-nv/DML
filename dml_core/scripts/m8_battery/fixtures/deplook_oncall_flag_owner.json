@@ -64,7 +64,7 @@
  "truth": [
   {"key": "flag_owner", "value": "Daniel Osei", "verifier": "status_value"},
   {"key": "flag_state", "value": "enabled", "verifier": "status_value"},
-  {"key": "ownership_rule", "value": "oncall engineer owns the rollout flag", "verifier": "record_text_contains"}
+  {"key": "flag_ownership_rule", "value": "oncall engineer owns the rollout flag", "verifier": "record_text_contains"}
  ],
  "expects_retrieval": true
 }

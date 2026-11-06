@@ -70,12 +70,12 @@
    "metadata": {"source_trust": "trusted"}
   }
  ],
- "query": "Which tax rate applies to Meridian Labs invoices right now?",
+ "query": "Which tax rate in percent applies to Meridian Labs invoices right now?",
  "query_clock": 2000,
  "truth": [
   {"key": "tax_rate", "value": "19 percent", "verifier": "status_value"},
   {"key": "billing_region", "value": "eu-central", "verifier": "status_value"},
-  {"key": "tax_rule_dependency", "value": "billing region", "verifier": "record_text_contains"}
+  {"key": "tax_rule", "value": "billing region", "verifier": "record_text_contains"}
  ],
  "expects_retrieval": true
 }
