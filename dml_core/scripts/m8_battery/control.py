@@ -477,8 +477,14 @@ def run_control_episode(
     amendment="none",
     adapter_factory=_fixture_adapter,
     clock=time.monotonic,
+    shared_consumer=None,
 ):
-    """One DML-policy control episode; every failure is retained in the record."""
+    """One DML-policy control episode; every failure is retained in the record.
+
+    With shared_consumer the episode reuses a single admitted consumer (one
+    snapshot verification + model load per RUN, not per episode); such a
+    consumer is never closed here — the caller owns its lifecycle.
+    """
     if control not in CONTROLS:
         raise fixture_schema.FixtureError(f"unknown control: {control}")
     started = clock()
@@ -537,7 +543,7 @@ def run_control_episode(
             effective_time=EPISODE_EFFECTIVE_TIME,
             execution_protocol=EXECUTION_PROTOCOL_V2,
         )
-        consumer = consumer_factory(snapshot)
+        consumer = shared_consumer if shared_consumer is not None else consumer_factory(snapshot)
         identity = getattr(consumer, "identity", None)
         record["runtime_identity"] = getattr(identity, "runtime_identity", None)
         record["development_runtime"] = getattr(consumer, "development_runtime_identity", None)
@@ -558,9 +564,10 @@ def run_control_episode(
     except Exception as exc:  # noqa: BLE001 — every failure is retained evidence
         record["failure"] = f"{type(exc).__name__}: {exc}"
     finally:
-        close = getattr(consumer, "close", None)
-        if callable(close):
-            close()
+        if shared_consumer is None:
+            close = getattr(consumer, "close", None)
+            if callable(close):
+                close()
         adapter.close()
     record["model_calls"] = len(record["calls"])
     record["input_tokens"] = _token_total(record["calls"], "input_token_count")
@@ -744,6 +751,7 @@ def main(argv=None, *, consumer_factory=None, adapter_factory=None):
         print(json.dumps({"error": str(exc)}), file=sys.stderr)
         return 2
 
+    injected_factory = consumer_factory is not None
     consumer_factory = consumer_factory or (
         dev_x86_consumer_factory if args.development_runtime_x86 else default_consumer_factory
     )
@@ -752,6 +760,19 @@ def main(argv=None, *, consumer_factory=None, adapter_factory=None):
     workdir_root.mkdir(parents=True, exist_ok=True)
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)
+
+    # One admission + model load per run (not per episode). Injected factories
+    # (tests) keep per-episode construction. A shared-construction failure is
+    # retained as the failure of every planned episode, exactly as the old
+    # per-episode construction would have produced.
+    shared_consumer = None
+    if not injected_factory:
+        try:
+            shared_consumer = consumer_factory(args.snapshot)
+        except Exception as shared_error:  # noqa: BLE001 — retained per episode below
+
+            def consumer_factory(_snapshot, _exc=shared_error):
+                raise _exc
 
     episodes = []
     try:
@@ -770,6 +791,7 @@ def main(argv=None, *, consumer_factory=None, adapter_factory=None):
                             limits=limits,
                             seed=seed,
                             amendment=args.prompt_amendment,
+                            shared_consumer=shared_consumer,
                         )
                         episodes.append(episode)
                         stream.write(json.dumps(episode, sort_keys=True) + "\n")
@@ -777,6 +799,11 @@ def main(argv=None, *, consumer_factory=None, adapter_factory=None):
     except fixture_schema.FixtureError as exc:
         print(json.dumps({"fixture_error": str(exc)}), file=sys.stderr)
         return 1
+    finally:
+        if shared_consumer is not None:
+            close = getattr(shared_consumer, "close", None)
+            if callable(close):
+                close()
 
     summary = {
         "schema": SUMMARY_SCHEMA,

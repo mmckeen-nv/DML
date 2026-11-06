@@ -715,3 +715,72 @@ def test_fill_from_report_explicit_none_counts_poison_totals():
     # One unknown input count makes the input total unknown; outputs stay summable.
     assert control._token_total(record["calls"], "input_token_count") is None
     assert control._token_total(record["calls"], "output_token_count") == 5
+
+
+def test_shared_consumer_reused_and_not_closed_per_episode(tmp_path):
+    closes = []
+
+    class SharedConsumer(Llama3ControlConsumer):
+        def close(self):
+            closes.append(True)
+
+    shared = SharedConsumer([final({"claims": []}), final({"claims": []})])
+    scenario = chain_scenario()
+    for ctl in ("none", "empty_store"):
+        record = control.run_control_episode(
+            scenario,
+            ctl,
+            workdir=tmp_path / ctl,
+            snapshot=None,
+            consumer_factory=lambda snapshot: pytest.fail("factory called despite shared consumer"),
+            limits=LIMITS,
+            shared_consumer=shared,
+        )
+        assert record["failure"] is None
+        assert record["terminal_status"] == "completed"
+    assert closes == []  # caller owns the shared consumer's lifecycle
+
+
+def test_main_shares_one_consumer_across_episodes(monkeypatch, tmp_path):
+    constructions = []
+
+    def factory(snapshot):
+        constructions.append(snapshot)
+        return Llama3ControlConsumer([final({"claims": []})] * 10)
+
+    monkeypatch.setattr(control, "default_consumer_factory", factory)
+    code = control.main(
+        [
+            "--scenarios-dir", str(FIXTURES),
+            "--workdir-root", str(tmp_path / "work"),
+            "--output", str(tmp_path / "out.jsonl"),
+            "--snapshot", str(tmp_path),
+            "--fixtures-subset", "changing_facts_project_status",
+            "--controls", "none,empty_store",
+        ]
+    )
+    assert code == 0
+    assert len(constructions) == 1  # one admission for the whole run
+    records = [json.loads(line) for line in (tmp_path / "out.jsonl").read_text().splitlines()]
+    assert len(records) == 2 and all(r["failure"] is None for r in records)
+
+
+def test_main_shared_construction_failure_retained_per_episode(monkeypatch, tmp_path):
+    def broken(snapshot):
+        raise RuntimeError("station absent")
+
+    monkeypatch.setattr(control, "default_consumer_factory", broken)
+    code = control.main(
+        [
+            "--scenarios-dir", str(FIXTURES),
+            "--workdir-root", str(tmp_path / "work"),
+            "--output", str(tmp_path / "out.jsonl"),
+            "--snapshot", str(tmp_path),
+            "--fixtures-subset", "changing_facts_project_status",
+            "--controls", "none,empty_store",
+        ]
+    )
+    assert code == 0
+    records = [json.loads(line) for line in (tmp_path / "out.jsonl").read_text().splitlines()]
+    assert len(records) == 2
+    assert all(r["failure"] == "RuntimeError: station absent" for r in records)
