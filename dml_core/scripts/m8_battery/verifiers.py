@@ -48,11 +48,29 @@ def status_value(claim, record):
     return value == claim["value"]
 
 
+def _contains_word_bounded(text, value):
+    """Substring match that may not cross word (alphanumeric) boundaries.
+
+    'green' matches 'status is green.' but not 'evergreen.'; '300' matches
+    'cap is 300 seconds' but not '3000'. Values may be multi-word; only the
+    outer edges are bounded.
+    """
+    start = text.find(value)
+    while start != -1:
+        before = text[start - 1] if start > 0 else " "
+        after_index = start + len(value)
+        after = text[after_index] if after_index < len(text) else " "
+        if not (before.isalnum() or before == "_") and not (after.isalnum() or after == "_"):
+            return True
+        start = text.find(value, start + 1)
+    return False
+
+
 def record_text_contains(claim, record):
-    """Supported iff the record text contains the claimed substring."""
+    """Supported iff the record text contains the claimed substring (word-bounded)."""
     _leaf_claim(claim)
     text = _record_text(record)
-    return text is not None and claim["value"] in text
+    return text is not None and _contains_word_bounded(text, claim["value"])
 
 
 def multi_claim(claim, record):

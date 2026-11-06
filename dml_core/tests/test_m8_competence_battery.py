@@ -261,10 +261,14 @@ def test_status_value_splits_on_last_is():
         verifiers.status_value({"key": "  ", "value": "amber"}, GREEN)
 
 
-def test_record_text_contains_substring_semantics():
-    # TODO: substring match crosses word boundaries ("green" inside "evergreen");
-    # a cited record can "support" a value it never states as a token.
-    assert verifiers.record_text_contains({"key": "n", "value": "green"}, {"text": "evergreen."}) is True
+def test_record_text_contains_word_bounded_semantics():
+    # Word-bounded: a cited record may not "support" a value it never states as
+    # a token (repaired from raw substring, which let "green" match "evergreen").
+    assert verifiers.record_text_contains({"key": "n", "value": "green"}, {"text": "evergreen."}) is False
+    assert verifiers.record_text_contains({"key": "n", "value": "green"}, {"text": "status is green."}) is True
+    assert verifiers.record_text_contains({"key": "n", "value": "300"}, {"text": "cap is 3000 seconds"}) is False
+    assert verifiers.record_text_contains({"key": "n", "value": "300"}, {"text": "cap is 300 seconds"}) is True
+    assert verifiers.record_text_contains({"key": "n", "value": "300 seconds"}, {"text": "cap is 300 seconds"}) is True
     assert verifiers.record_text_contains({"key": "n", "value": "Green"}, GREEN) is False  # case-sensitive
     assert verifiers.record_text_contains({"key": "n", "value": ""}, GREEN) is True  # empty substring matches
     assert verifiers.record_text_contains({"key": "n", "value": "green"}, "not a record") is False
