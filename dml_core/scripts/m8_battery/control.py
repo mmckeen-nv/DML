@@ -164,6 +164,28 @@ AMENDMENTS = {
         "If retrieve returned zero records, no evidence id is valid: claims must be empty. "
         "A fabricated citation is worse than abstaining."
     ),
+    # complete-units-v5: v4 plus value-form and coverage rules. In the v4+fixture
+    # run, keys came out right but values dropped units ("19" for "19 percent",
+    # "300" for "300 seconds") and multi-part questions got single-key answers.
+    "complete-units-v5": (
+        "\n\nRules:\n"
+        "- If a retrieve call returns zero records, do not repeat an identical retrieve; "
+        "you may issue at most one refined query, then you must emit final.\n"
+        "- Never emit the same tool call twice in a row.\n"
+        "- If the records or the provided text already contain the answer, emit final "
+        "immediately, citing those records.\n"
+        "- If no retrieved or provided record supports an answer, emit final with an "
+        "empty claims list. Never state facts that no presented record supports.\n"
+        "Example of the required abstention shape, exactly:\n"
+        '{"action": "final", "answer": {"claims": []}}\n'
+        "- evidence_ids may only be ids of records returned by retrieve in this episode. "
+        "If retrieve returned zero records, no evidence id is valid: claims must be empty. "
+        "A fabricated citation is worse than abstaining.\n"
+        "- Answer values must be strings carrying the unit the question asks for: "
+        'write "19 percent" or "300 seconds", never bare numbers.\n'
+        "- Answer every part of the question: if it asks for several facts, emit one "
+        "claim per fact."
+    ),
 }
 SUMMARY_SCHEMA = "dml.m8.policy-control-summary.v1"
 CONSUMER_PROFILE = LLAMA3_SFT_V3_CONSUMER_PROFILE
