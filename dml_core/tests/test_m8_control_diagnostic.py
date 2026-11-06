@@ -784,3 +784,42 @@ def test_main_shared_construction_failure_retained_per_episode(monkeypatch, tmp_
     records = [json.loads(line) for line in (tmp_path / "out.jsonl").read_text().splitlines()]
     assert len(records) == 2
     assert all(r["failure"] == "RuntimeError: station absent" for r in records)
+
+
+def test_development_checkpoint_flag_validation(tmp_path, monkeypatch, capsys):
+    base_args = [
+        "--scenarios-dir", str(FIXTURES),
+        "--workdir-root", str(tmp_path / "work"),
+        "--output", str(tmp_path / "out.jsonl"),
+        "--snapshot", str(tmp_path),
+    ]
+    # requires --development-runtime-x86
+    decl = tmp_path / "decl.json"
+    decl.write_text(json.dumps({
+        "label": "development-v4-gate",
+        "manifest_sha256": "a" * 64,
+        "adapter_sha256": "b" * 64,
+    }))
+    assert control.main(base_args + ["--development-checkpoint", str(decl)]) == 2
+    # malformed declaration rejected fail-closed
+    bad = tmp_path / "bad.json"
+    bad.write_text(json.dumps({"label": "qualified-x"}))
+    assert control.main(base_args + ["--development-runtime-x86", "--development-checkpoint", str(bad)]) == 2
+    # valid declaration reaches the factory with the declared identity
+    seen = {}
+
+    def spy(snapshot, development_checkpoint=None):
+        seen["identity"] = development_checkpoint
+        raise RuntimeError("stop before model load")
+
+    monkeypatch.setattr(control, "dev_x86_consumer_factory", spy)
+    monkeypatch.setenv("DML_DEV_RUNTIME", "development-x86-20261102")
+    code = control.main(base_args + [
+        "--development-runtime-x86",
+        "--development-checkpoint", str(decl),
+        "--fixtures-subset", "changing_facts_project_status",
+        "--controls", "none",
+    ])
+    assert code == 0 and seen["identity"]["label"] == "development-v4-gate"
+    records = [json.loads(line) for line in (tmp_path / "out.jsonl").read_text().splitlines()]
+    assert records and all(r["failure"] == "RuntimeError: stop before model load" for r in records)

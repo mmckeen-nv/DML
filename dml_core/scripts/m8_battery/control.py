@@ -99,7 +99,7 @@ from scripts.m8_battery import verifiers
 ARM = "dml_policy"
 CELLS = ("answer_present", "correction_chain", "conflicting", "empty_store")
 CONTROLS = ("none", "inline_evidence", "empty_store")
-EVIDENCE_SCHEMA = "dml.m8.policy-control.v3"
+EVIDENCE_SCHEMA = "dml.m8.policy-control.v4"
 
 AMENDMENTS = {
     "none": "",
@@ -211,6 +211,7 @@ RECORD_KEYS = (
     "expects_retrieval",
     "runtime_identity",
     "development_runtime",
+    "development_checkpoint",
     "prompt_amendment",
     "retrieval_attempted",
     "retrieve_first",
@@ -407,13 +408,15 @@ DEVELOPMENT_X86_RUNTIME = {
 }
 
 
-def dev_x86_consumer_factory(snapshot):
+def dev_x86_consumer_factory(snapshot, development_checkpoint=None):
     """Development-only consumer for the x86 runtime (192.168.50.133).
 
     Same authenticated snapshot and admission checks as the qualified path;
     the GB300 hardware pin is replaced by the declared x86 development
     identity, recorded in every episode. Fail-closed unless the environment
-    declares DML_DEV_RUNTIME=development-x86-20261102.
+    declares DML_DEV_RUNTIME=development-x86-20261102. With
+    development_checkpoint, a declared candidate snapshot (M9) is admitted
+    by its declared hashes instead of the qualified pins.
     """
     import os
 
@@ -421,7 +424,11 @@ def dev_x86_consumer_factory(snapshot):
         raise RuntimeError("development x86 consumer requires DML_DEV_RUNTIME=" + DEVELOPMENT_X86_RUNTIME["label"])
     from daystrom_dml.services.llama3_sft_v3_action_input import LocalLlama3SFTV3ActionInputConsumer
 
-    return LocalLlama3SFTV3ActionInputConsumer(snapshot, development_runtime=dict(DEVELOPMENT_X86_RUNTIME))
+    return LocalLlama3SFTV3ActionInputConsumer(
+        snapshot,
+        development_runtime=dict(DEVELOPMENT_X86_RUNTIME),
+        development_checkpoint=development_checkpoint,
+    )
 
 
 def _classify(terminal):
@@ -523,6 +530,7 @@ def run_control_episode(
         "expects_retrieval": scenario.expects_retrieval,
         "runtime_identity": None,
         "development_runtime": None,
+        "development_checkpoint": None,
         "prompt_amendment": amendment,
         "retrieval_attempted": False,
         "retrieve_first": None,
@@ -569,6 +577,7 @@ def run_control_episode(
         identity = getattr(consumer, "identity", None)
         record["runtime_identity"] = getattr(identity, "runtime_identity", None)
         record["development_runtime"] = getattr(consumer, "development_runtime_identity", None)
+        record["development_checkpoint"] = getattr(consumer, "development_checkpoint_identity", None)
         report = run_episode_with_test_dependencies(
             consumer=consumer,
             toolbox=toolbox,
@@ -740,6 +749,12 @@ def main(argv=None, *, consumer_factory=None, adapter_factory=None):
         choices=sorted(AMENDMENTS),
         help="named development prompt amendment, recorded in every episode",
     )
+    parser.add_argument(
+        "--development-checkpoint",
+        metavar="PATH",
+        help="JSON file declaring a candidate checkpoint identity "
+        "(label, manifest_sha256, adapter_sha256); requires --development-runtime-x86",
+    )
     args = parser.parse_args(argv)
 
     started = time.time()
@@ -777,6 +792,22 @@ def main(argv=None, *, consumer_factory=None, adapter_factory=None):
     consumer_factory = consumer_factory or (
         dev_x86_consumer_factory if args.development_runtime_x86 else default_consumer_factory
     )
+    if args.development_checkpoint:
+        if not args.development_runtime_x86:
+            print(json.dumps({"error": "--development-checkpoint requires --development-runtime-x86"}), file=sys.stderr)
+            return 2
+        from daystrom_dml.contracts.model_input import ModelInputError
+        from daystrom_dml.services.llama3_sft_v3_action_input import _validate_development_checkpoint
+
+        try:
+            checkpoint_identity = json.loads(Path(args.development_checkpoint).read_text(encoding="utf-8"))
+            _validate_development_checkpoint(checkpoint_identity)
+        except (OSError, json.JSONDecodeError, ModelInputError) as exc:
+            print(json.dumps({"error": f"invalid development checkpoint declaration: {exc}"}), file=sys.stderr)
+            return 2
+
+        def consumer_factory(snapshot, _identity=checkpoint_identity):
+            return dev_x86_consumer_factory(snapshot, development_checkpoint=_identity)
     adapter_factory = adapter_factory or _fixture_adapter
     workdir_root = Path(args.workdir_root)
     workdir_root.mkdir(parents=True, exist_ok=True)
