@@ -516,7 +516,7 @@ def test_conflicting_sources_final_cites_each_value(tmp_path):
     (episode,) = episodes
     assert episode["verdict"] == "valid_cited_final"
     claims = {(c["key"], c["value"]): c["evidence_ids"] for c in episode["answer"]["claims"]}
-    assert claims == {("status_bulletin", "green"): [20], ("status_independent", "red"): [21]}
+    assert claims == {("bulletin_status", "green"): [20], ("independent_witness_status", "red"): [21]}
 
 
 def test_unparseable_action_failure_retained(tmp_path):

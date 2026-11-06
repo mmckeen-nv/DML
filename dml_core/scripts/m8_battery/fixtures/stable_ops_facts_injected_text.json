@@ -81,7 +81,7 @@
    "metadata": {"source_trust": "trusted", "distractor": true}
   }
  ],
- "query": "What are the maintenance window and the on-call owner?",
+ "query": "What are the maintenance window in UTC and the on-call owner?",
  "query_clock": 2000,
  "truth": [
   {"key": "maintenance_window", "value": "03:00 UTC", "verifier": "status_value"},
