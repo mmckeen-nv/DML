@@ -52,6 +52,30 @@ Mechanics by iteration: baseline loops identical retrieves 6× on empty stores (
 
 Reading for the milestone: prompt-level rules are a strong lever against *shape* failures (loops 13→0, declared abstention 0→8/12) and a weak lever against *parametric* failures (phantom-cited fabrication persists at ~2-4/36 across all variants; the valid-cited rate on answer-present cells stays at 3/36, dominated by verifier-shape and conflict-handling issues). The system — verifier, schema, fail-closed contracts — never once credited a fabrication in 180 episodes; the model is the weak component. The prompt program has converged: the residual gap is trained-in behavior, and the honest next step is a bounded training decision (out of M8's no-training scope — owner decision as a new milestone), with this program's evidence as its specification.
 
+## Fixture repair + amendment convergence (November 6, 2026)
+
+A 13-agent repair program (per-bug observer/tester/two-coder teams; coders kimi-k3 and deepseek-v4-pro independently) then ran. Verdicts and repairs, all landed main-line:
+
+- **Fixture authoring repair (WS-A).** Observer classification of all 21 non-passing none/inline episodes: 10 pure fixture debt, 5 genuine model errors (both injection-following cases included), 2 conflict-picks, 2 loops, 2 benign. Repair merged from the two coder branches (deepseek base + kimi key names, reconciled): natural truth keys, unit-bearing queries, dual-source conflict queries; events and truth values verified byte-identical to the pre-repair state. Fixture-authoring hygiene tests now enforce the rules in CI (natural keys, unit grounding, dual-source queries).
+- **inline_evidence (WS-B): NO repair indicated.** Observer + both coders independently reached the same verdict: inline text is untrusted-by-design, the model retrieves and cites retrieved ids correctly; its failures are the same WS-A classes. Design is correct as built.
+- **Verifier tightening:** `record_text_contains` is now word-bounded (`green` no longer matches `evergreen.`); all fixture truth values verified still grounded.
+- **Perf:** one admitted consumer per run (was per-episode 16 GB re-verify + model reload); run wall time 505s → 204s measured.
+- **Adapter correctness (x86):** verified live — hash matches the consumer pin, on/off adapter generations differ, norms healthy.
+- **Calibration:** smoke + reduced margins grid (R=50, cells 6/12/24) on 133: coverage within MC noise of nominal 0.95 at every measured point; exact-vs-MC consistency held.
+
+**Amendment convergence after fixture repair (36 episodes each):**
+
+| Run | completed | step_limit | valid | empty_claims | key finding |
+|---|---|---|---|---|---|
+| v4 + repaired fixtures | 34/36 | 2 | 2 | 5 | keys now correct — failure composition shifted to value-form/coverage |
+| v5 (complete-units) + fixtures | 34/36 | 2 | 3 | 0 | units fixed ("19 percent"✓), multi-claim answers appear, **but abstention regressed 8→0** — added rules displaced the abstention behavior |
+
+Evidence: fixed-run jsonl `c3888764…0ac2` (`/home/test/dml-debug/m8-control-fixed-20261106/`), v5 jsonl `cfd08f5a…9d53` (`/home/test/dml-debug/m8-control-am5-20261106/`).
+
+**Convergence verdict.** The v5 regression is the ceiling signal: prompt rules now displace each other (units fixed at the cost of abstention). Decomposition of the 19 unsupported none/inline episodes at v5: only 3 cover all truth keys (wrong values within), **16 are partial coverage** — the policy under-answers multi-part questions. The residual failure set is: coverage completeness, conflict-source splitting, injection-following, and rare phantom citations — all trained-in parametric behavior. **The prompt program is closed at five iterations; v4 + repaired fixtures is the development baseline.** The unblock is a bounded training milestone specified by this program's 216 retained episodes; that is an owner decision outside M8's no-training scope.
+
+**Closure state of the machinery:** fixtures repaired and hygiene-gated, verifier tightened, runner 2.5× faster, adapter verified, calibration nominal at smoke scale, CI green at tip. The model is the only remaining failure source, and it fails loudly (the verifier credited no fabrication in 216 episodes).
+
 ## Reproduce
 
 On x86-dev: repo at `ffda259`, `bash /tmp/m8-control-run-133.sh` (script + pins recorded in the evidence dir log; requires `DML_DEV_RUNTIME=development-x86-20261102`). Caveats: test_injected episode envelope (not live_local), fixture workloads, single seed, development runtime identity (not the M7-qualified aarch64 identity), GPU shared with an unrelated small-model server during the run (no evidence of interference; per-episode wall times consistent).
