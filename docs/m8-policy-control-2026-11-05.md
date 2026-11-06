@@ -34,6 +34,24 @@ Contrast with the competence battery (commit `dba301c`): under the neutral proto
 
 Only **2/36 episodes produced a valid cited final** under the trained surface, with 13 step_limit terminations. The pattern in needless cells is a retrieval loop: on an empty store the policy retrieves repeatedly rather than finalizing (9/12 step_limits); with inline evidence it retrieves first and sometimes loops (4/12). In `none` controls 12/12 completed (2 valid, the rest unsupported/empty-claims finals — consistent with the battery's context-arm findings being verifier-shape issues, not plumbing). The trained policy's competence is thus *retrieve-always, finalize-weakly* — relevant to how any future retrieval gate should be written (a retrieval gate alone would credit surface-conditioned loops).
 
+## Amendment probe program (same evening, same runtime)
+
+After the baseline run exposed the loop attractor, four named, recorded prompt amendments were run through the same diagnostic (36 episodes each; all retained on 133 under `/home/test/dml-debug/m8-control-{,am1-,am2-,am3-,am4-}20261105/`):
+
+| Run | Amendment | completed | step_limit | empty_claims (of 12 empty-store) | phantom-cited fabrications (empty-store) | unsupported | valid |
+|---|---|---|---|---|---|---|---|
+| baseline | none | 23 | 13 | 0 | 2 | 21 | 2 |
+| am1 | terminate-on-empty-v1 | 32 | 4 | 0 | 10 | 29 | 3 |
+| am2 | abstain-on-empty-v2 | 33 | 3 | 2 | 3 | 29 | 2 |
+| am3 | exact-shape-abstain-v3 | 33 | 3 | 6 | 4 | 24 | 3 |
+| am4 | no-phantom-citation-v4 | 34 | 2 | 8 | 2 | 23 | 3 |
+
+Evidence hashes: am1 jsonl `c98f47ca…1cbc`, am2 `79a89236…3b5b`, am3 `72132a1a…38`, am4 jsonl `49e4c569…a87e` / summary `118a50c2…173c` (all under `/home/test/dml-debug/m8-control-am{1,2,3,4}-20261105/`).
+
+Mechanics by iteration: baseline loops identical retrieves 6× on empty stores (temperature-0 attractor). v1's termination rules broke the loops but converted them to **fabrication** (unsupported 21→29 — finals asserting facts no record supports). v2's abstention rule produced value-level abstention (`"value": "unknown"/null` claims with empty evidence_ids) but not the declared insufficiency shape. v3's exact-shape few-shot example produced the declared `claims: []` abstention in 6/12 empty-store episodes — but 5/12 still fabricated, **citing phantom record ids that no retrieve call ever returned** (the dangerous failure class: confident, falsely-cited wrong answers; the strict verifier correctly rejects every one). am4's explicit citation-validity rule closed the arc: **zero step-limits and 8/12 declared-shape abstentions on empty stores**, with the residual being 2/12 phantom-cited fabrications plus 2/12 null-valued pseudo-abstentions (semantically abstaining, shape-wrong).
+
+Reading for the milestone: prompt-level rules are a strong lever against *shape* failures (loops 13→0, declared abstention 0→8/12) and a weak lever against *parametric* failures (phantom-cited fabrication persists at ~2-4/36 across all variants; the valid-cited rate on answer-present cells stays at 3/36, dominated by verifier-shape and conflict-handling issues). The system — verifier, schema, fail-closed contracts — never once credited a fabrication in 180 episodes; the model is the weak component. The prompt program has converged: the residual gap is trained-in behavior, and the honest next step is a bounded training decision (out of M8's no-training scope — owner decision as a new milestone), with this program's evidence as its specification.
+
 ## Reproduce
 
 On x86-dev: repo at `ffda259`, `bash /tmp/m8-control-run-133.sh` (script + pins recorded in the evidence dir log; requires `DML_DEV_RUNTIME=development-x86-20261102`). Caveats: test_injected episode envelope (not live_local), fixture workloads, single seed, development runtime identity (not the M7-qualified aarch64 identity), GPU shared with an unrelated small-model server during the run (no evidence of interference; per-episode wall times consistent).
