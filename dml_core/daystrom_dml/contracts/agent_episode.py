@@ -41,6 +41,7 @@ QWEN3_GGUF_ALL_CONSUMER_PROFILES = (*QWEN3_GGUF_CONSUMER_PROFILES, *QWEN3_GGUF_C
 LLAMA3_SFT_CONSUMER_PROFILE = "llama3-8b-instruct-sft-v2-bf16-action-json-v1"
 LLAMA3_SFT_V3_CONSUMER_PROFILE = "llama3-8b-instruct-sft-v3-bf16-action-json-v1"
 LLAMA3_SFT_CONSUMER_PROFILES = (LLAMA3_SFT_CONSUMER_PROFILE, LLAMA3_SFT_V3_CONSUMER_PROFILE)
+QWEN3_SFT_V1_CONSUMER_PROFILE = "qwen3_5-9b-sft-v1-bf16-action-json-v1"
 REMOTE_VLLM_CONSUMER_PROFILE = "nemotron-remote-vllm-action-v1"
 REMOTE_VLLM_JSON_CONSUMER_PROFILE = "nemotron-remote-vllm-action-json-v2"
 NATIVE_REMOTE_VLLM_CONSUMER_PROFILE = "nemotron-remote-vllm-native-tools-v1"
@@ -54,7 +55,7 @@ NATIVE_REASONING_CONSUMER_PROFILES = (NATIVE_REMOTE_VLLM_V4_CONSUMER_PROFILE, *N
 NATIVE_REMOTE_VLLM_CONSUMER_PROFILES = (NATIVE_REMOTE_VLLM_CONSUMER_PROFILE, NATIVE_REMOTE_VLLM_V2_CONSUMER_PROFILE, NATIVE_REMOTE_VLLM_V3_CONSUMER_PROFILE, NATIVE_REMOTE_VLLM_V4_CONSUMER_PROFILE, *NATIVE_RECOVERY_CONSUMER_PROFILES)
 REMOTE_VLLM_CONSUMER_PROFILES = (REMOTE_VLLM_CONSUMER_PROFILE, REMOTE_VLLM_JSON_CONSUMER_PROFILE, *NATIVE_REMOTE_VLLM_CONSUMER_PROFILES)
 EPISODE_VALIDATION_PROFILES = (*VALIDATION_PROFILES, *QWEN3_CONSUMER_PROFILES,
-                               QWEN2_BF16_SAMPLED_CONSUMER_PROFILE, *QWEN3_GGUF_ALL_CONSUMER_PROFILES, *LLAMA3_SFT_CONSUMER_PROFILES, *REMOTE_VLLM_CONSUMER_PROFILES)
+                               QWEN2_BF16_SAMPLED_CONSUMER_PROFILE, *QWEN3_GGUF_ALL_CONSUMER_PROFILES, *LLAMA3_SFT_CONSUMER_PROFILES, QWEN3_SFT_V1_CONSUMER_PROFILE, *REMOTE_VLLM_CONSUMER_PROFILES)
 RECOVERY_GUIDANCE = (
     "If a tool response reports a validation error and states that no operation was executed, "
     "the proposed action was rejected without performing it. This response does not complete "
@@ -767,10 +768,10 @@ def initial_messages(prompt, prior_context=None, *, consumer_profile="gpt2-v1"):
     execution_protocol_for_profile(consumer_profile)
     policy = AGENT_POLICY + "\n\n" + RECOVERY_GUIDANCE if consumer_profile in (
         RECOVERY_CONSUMER_PROFILE, *QWEN3_CONSUMER_PROFILES, QWEN2_BF16_SAMPLED_CONSUMER_PROFILE,
-        *QWEN3_GGUF_ALL_CONSUMER_PROFILES, *LLAMA3_SFT_CONSUMER_PROFILES, *REMOTE_VLLM_CONSUMER_PROFILES) else AGENT_POLICY
-    if consumer_profile in (*QWEN3_GGUF_CUDA_CONSUMER_PROFILES, *LLAMA3_SFT_CONSUMER_PROFILES):
+        *QWEN3_GGUF_ALL_CONSUMER_PROFILES, *LLAMA3_SFT_CONSUMER_PROFILES, QWEN3_SFT_V1_CONSUMER_PROFILE, *REMOTE_VLLM_CONSUMER_PROFILES) else AGENT_POLICY
+    if consumer_profile in (*QWEN3_GGUF_CUDA_CONSUMER_PROFILES, *LLAMA3_SFT_CONSUMER_PROFILES, QWEN3_SFT_V1_CONSUMER_PROFILE):
         policy += "\n\n" + QWEN3_GGUF_COMPLETION_GUIDANCE
-    if consumer_profile in (QWEN3_GGUF_CUDA_RETRIEVAL_CONSUMER_PROFILE, *LLAMA3_SFT_CONSUMER_PROFILES):
+    if consumer_profile in (QWEN3_GGUF_CUDA_RETRIEVAL_CONSUMER_PROFILE, *LLAMA3_SFT_CONSUMER_PROFILES, QWEN3_SFT_V1_CONSUMER_PROFILE):
         policy += "\n\n" + QWEN3_GGUF_RETRIEVAL_GUIDANCE
     if consumer_profile in NATIVE_REMOTE_VLLM_CONSUMER_PROFILES:
         policy = native_system_policy(consumer_profile=consumer_profile)
@@ -1261,6 +1262,7 @@ def validate_episode_events(events, *, require_terminal=True):
                 expected_version = "v3" if selected_profile == RECOVERY_CONSUMER_PROFILE else "v2"
                 prefix = ("dml-llama3-sft-action-runtime-v1" if selected_profile == LLAMA3_SFT_CONSUMER_PROFILE
                           else "dml-llama3-sft-action-runtime-v2" if selected_profile == LLAMA3_SFT_V3_CONSUMER_PROFILE
+                          else "dml-qwen3-sft-action-runtime-v1" if selected_profile == QWEN3_SFT_V1_CONSUMER_PROFILE
                           else "dml-remote-vllm-native-tools-runtime-v6" if selected_profile == NATIVE_REMOTE_VLLM_V6_CONSUMER_PROFILE
                           else "dml-remote-vllm-native-tools-runtime-v5" if selected_profile == NATIVE_REMOTE_VLLM_V5_CONSUMER_PROFILE
                           else "dml-remote-vllm-native-tools-runtime-v4" if selected_profile == NATIVE_REMOTE_VLLM_V4_CONSUMER_PROFILE
@@ -1280,7 +1282,7 @@ def validate_episode_events(events, *, require_terminal=True):
                 selected_identity = re.fullmatch(prefix + r":[0-9a-f]{64}", runtime) is not None
                 if ((version == EVENT_VERSION_V2 and not selected_identity)
                         or version == EVENT_VERSION and runtime.startswith(
-                            ("dml-llama3-sft-action-runtime-v1:", "dml-llama3-sft-action-runtime-v2:", "dml-qwen-action-runtime-v2:", "dml-qwen-action-runtime-v3:",
+                            ("dml-llama3-sft-action-runtime-v1:", "dml-llama3-sft-action-runtime-v2:", "dml-qwen3-sft-action-runtime-v1:", "dml-qwen-action-runtime-v2:", "dml-qwen-action-runtime-v3:",
                              "dml-qwen3-action-runtime-v1:", "dml-qwen3-action-runtime-v2:",
                              "dml-qwen2-bf16-action-runtime-v1:", "dml-qwen3-gguf-action-runtime-v1:", "dml-qwen3-gguf-arm64-action-runtime-v1:", "dml-qwen3-gguf-cuda-action-runtime-v1:", "dml-qwen3-gguf-cuda-action-runtime-v2:",
                              "dml-remote-vllm-action-runtime-v1:", "dml-remote-vllm-action-runtime-v2:",

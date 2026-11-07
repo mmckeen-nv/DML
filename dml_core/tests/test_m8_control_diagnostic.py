@@ -12,6 +12,13 @@ from types import SimpleNamespace
 
 import pytest
 
+from daystrom_dml.contracts.agent_episode import (
+    EXECUTION_PROTOCOL_V2,
+    LLAMA3_SFT_V3_CONSUMER_PROFILE,
+    QWEN3_SFT_V1_CONSUMER_PROFILE,
+    execution_protocol_for_profile,
+    initial_messages,
+)
 from daystrom_dml.services.agent_episode import (
     EpisodeLimits,
     _fixture_adapter,
@@ -823,3 +830,204 @@ def test_development_checkpoint_flag_validation(tmp_path, monkeypatch, capsys):
     assert code == 0 and seen["identity"]["label"] == "development-v4-gate"
     records = [json.loads(line) for line in (tmp_path / "out.jsonl").read_text().splitlines()]
     assert records and all(r["failure"] == "RuntimeError: stop before model load" for r in records)
+
+
+# --- --consumer-profile (M9 Track-B qwen3 integration) ----------------------
+
+
+class Qwen3ControlConsumer(ScriptedConsumer):
+    """Scripted double under the qwen3-sft-v1 runtime identity; no model."""
+
+    def compile(self, messages, tools, *, output_reserved_tokens):
+        artifact = super().compile(messages, tools, output_reserved_tokens=output_reserved_tokens)
+        return replace(
+            artifact,
+            identity=replace(artifact.identity, runtime_identity="dml-qwen3-sft-action-runtime-v1:" + "e" * 64),
+        )
+
+    def execute(self, artifact):
+        self.dispatched.append(artifact)
+        action = next(self.actions)
+        if callable(action):
+            action = action(self.requests[-1])
+        return SimpleNamespace(
+            artifact_digest=artifact.artifact_digest,
+            input_token_count=artifact.input_tokens,
+            output_token_count=2,
+            output_ids=(5, 6),
+            text=action if type(action) is str else canonical(action),
+        )
+
+
+def qwen3_episode(scenario, ctl, actions, tmp_path, **kwargs):
+    return control.run_control_episode(
+        scenario,
+        ctl,
+        workdir=tmp_path,
+        snapshot=None,
+        consumer_factory=lambda snapshot: Qwen3ControlConsumer(actions),
+        limits=LIMITS,
+        consumer_profile=QWEN3_SFT_V1_CONSUMER_PROFILE,
+        **kwargs,
+    )
+
+
+def test_qwen3_profile_is_registered_with_v2_protocol():
+    assert QWEN3_SFT_V1_CONSUMER_PROFILE == "qwen3_5-9b-sft-v1-bf16-action-json-v1"
+    assert execution_protocol_for_profile(QWEN3_SFT_V1_CONSUMER_PROFILE) == EXECUTION_PROTOCOL_V2
+
+
+def test_qwen3_profile_policy_is_byte_identical_to_llama3_surface():
+    # The qwen3 SFTv1 transport pins SYSTEM to the llama3 SFT composition
+    # (qwen3_sft_runtime module docstring); registration must reproduce it.
+    prompt = "What is the service port?"
+    assert initial_messages(prompt, consumer_profile=QWEN3_SFT_V1_CONSUMER_PROFILE) == initial_messages(
+        prompt, consumer_profile=LLAMA3_SFT_V3_CONSUMER_PROFILE
+    )
+
+
+def test_qwen3_profile_episode_carries_qwen_profile_id(tmp_path):
+    record = qwen3_episode(
+        chain_scenario(), "none", [tool(query="service port", top_k=10), cite_containing("port", "9000")], tmp_path
+    )
+    assert set(record) == set(control.RECORD_KEYS)
+    assert record["consumer_profile"] == "qwen3_5-9b-sft-v1-bf16-action-json-v1"
+    assert record["terminal_status"] == "completed" and record["failure"] is None
+    assert record["verdict"] == "valid_cited_final" and record["truth_covered"] is True
+    assert record["retrieval_attempted"] is True and record["retrieve_first"] is True
+
+
+def test_qwen3_profile_rejects_llama3_runtime_identity(tmp_path):
+    # The contract binds the qwen3 profile to its own compiled-runtime prefix:
+    # a llama3-identity consumer under the qwen3 profile fails closed at event
+    # validation (runner_error terminal), never repaired or admitted.
+    record = control.run_control_episode(
+        chain_scenario(),
+        "none",
+        workdir=tmp_path,
+        snapshot=None,
+        consumer_factory=lambda snapshot: Llama3ControlConsumer([final({"claims": []})]),
+        limits=LIMITS,
+        consumer_profile=QWEN3_SFT_V1_CONSUMER_PROFILE,
+    )
+    assert record["consumer_profile"] == QWEN3_SFT_V1_CONSUMER_PROFILE
+    assert record["terminal_status"] == "runner_error" and record["verdict"] is None
+    assert record["retrieval_attempted"] is False and record["truth_covered"] is False
+
+
+def test_consumer_profile_flag_wires_qwen3_run(tmp_path):
+    output = tmp_path / "episodes.jsonl"
+
+    def factory(snapshot):
+        return Qwen3ControlConsumer(
+            [
+                tool(query="ingest pipeline retry backoff cap", top_k=10),
+                cite_containing("ingest_retry_backoff_cap", "300 seconds"),
+            ]
+        )
+
+    code = control.main(
+        [
+            "--scenarios-dir",
+            str(FIXTURES),
+            "--workdir-root",
+            str(tmp_path / "work"),
+            "--output",
+            str(output),
+            "--snapshot",
+            str(tmp_path),
+            "--fixtures-subset",
+            "expcorr_ingest_backoff_chain",
+            "--controls",
+            "none",
+            "--consumer-profile",
+            "qwen3",
+        ],
+        consumer_factory=factory,
+    )
+    assert code == 0
+    records = [json.loads(line) for line in output.read_text(encoding="utf-8").splitlines()]
+    assert len(records) == 1
+    assert records[0]["consumer_profile"] == "qwen3_5-9b-sft-v1-bf16-action-json-v1"
+    assert records[0]["verdict"] == "valid_cited_final"
+    summary = json.loads(output.with_suffix(".summary.json").read_text(encoding="utf-8"))
+    assert summary["consumer_profile"] == "qwen3_5-9b-sft-v1-bf16-action-json-v1"
+
+
+def test_consumer_profile_default_remains_llama3(tmp_path):
+    output = tmp_path / "episodes.jsonl"
+
+    def factory(snapshot):
+        return Llama3ControlConsumer([final({"claims": []})])
+
+    code = control.main(
+        [
+            "--scenarios-dir",
+            str(FIXTURES),
+            "--workdir-root",
+            str(tmp_path / "work"),
+            "--output",
+            str(output),
+            "--snapshot",
+            str(tmp_path),
+            "--fixtures-subset",
+            "changing_facts_project_status",
+            "--controls",
+            "none",
+        ],
+        consumer_factory=factory,
+    )
+    assert code == 0
+    record = json.loads(output.read_text(encoding="utf-8").splitlines()[0])
+    assert record["consumer_profile"] == control.CONSUMER_PROFILE == LLAMA3_SFT_V3_CONSUMER_PROFILE
+    summary = json.loads(output.with_suffix(".summary.json").read_text(encoding="utf-8"))
+    assert summary["consumer_profile"] == LLAMA3_SFT_V3_CONSUMER_PROFILE
+
+
+def test_consumer_profile_qwen3_requires_development_runtime_x86(tmp_path, capsys):
+    # Without an injected factory the qwen3 profile can only run on the
+    # declared x86 development runtime: its qualified pins are fail-closed
+    # placeholders, so the plain station path is rejected up front.
+    code = control.main(
+        [
+            "--scenarios-dir",
+            str(FIXTURES),
+            "--workdir-root",
+            str(tmp_path / "work"),
+            "--output",
+            str(tmp_path / "out.jsonl"),
+            "--snapshot",
+            str(tmp_path),
+            "--consumer-profile",
+            "qwen3",
+        ]
+    )
+    assert code == 2
+    assert "requires --development-runtime-x86" in capsys.readouterr().err
+    assert not (tmp_path / "out.jsonl").exists()
+
+
+def test_consumer_profile_invalid_choice_rejected(tmp_path):
+    with pytest.raises(SystemExit):
+        control.main(
+            [
+                "--scenarios-dir",
+                str(FIXTURES),
+                "--workdir-root",
+                str(tmp_path / "work"),
+                "--output",
+                str(tmp_path / "out.jsonl"),
+                "--consumer-profile",
+                "bogus",
+            ]
+        )
+
+
+def test_dev_x86_factory_qwen3_profile_env_gate(tmp_path, monkeypatch):
+    monkeypatch.delenv("DML_DEV_RUNTIME", raising=False)
+    with pytest.raises(RuntimeError, match="DML_DEV_RUNTIME=development-x86-20261102"):
+        control.dev_x86_consumer_factory(tmp_path, profile=QWEN3_SFT_V1_CONSUMER_PROFILE)
+    monkeypatch.setenv("DML_DEV_RUNTIME", "development-x86-20261102")
+    with pytest.raises(Exception) as excinfo:  # gate passed; fails on the absent snapshot instead
+        control.dev_x86_consumer_factory(tmp_path, profile=QWEN3_SFT_V1_CONSUMER_PROFILE)
+    assert "DML_DEV_RUNTIME" not in str(excinfo.value)
