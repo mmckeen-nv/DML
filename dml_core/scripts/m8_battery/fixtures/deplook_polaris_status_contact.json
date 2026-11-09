@@ -36,7 +36,7 @@
         "instance_id": null
       },
       "source_id": "project-registry",
-      "fact_key": "polaris_owner",
+      "fact_key": "owning_team",
       "version": 1,
       "timestamp": 1001,
       "corrects": null,
@@ -54,7 +54,7 @@
         "instance_id": null
       },
       "source_id": "team-directory",
-      "fact_key": "data_team_escalation_lead",
+      "fact_key": "escalation_lead",
       "version": 1,
       "timestamp": 1002,
       "corrects": null,
@@ -92,7 +92,7 @@
         "instance_id": null
       },
       "source_id": "project-registry",
-      "fact_key": "polaris_owner",
+      "fact_key": "owning_team",
       "version": 2,
       "timestamp": 1004,
       "corrects": 41,
@@ -110,7 +110,7 @@
         "instance_id": null
       },
       "source_id": "team-directory",
-      "fact_key": "platform_team_escalation_lead",
+      "fact_key": "status_page_contact",
       "version": 1,
       "timestamp": 1005,
       "corrects": null,
@@ -132,7 +132,7 @@
           "verifier": "status_value"
         },
         {
-          "key": "platform_team",
+          "key": "owning_team",
           "value": "platform team",
           "verifier": "record_text_contains"
         }

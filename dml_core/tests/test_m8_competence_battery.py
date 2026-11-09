@@ -5,6 +5,7 @@ Doubles only: no model, no tokenizer download, no DML adapter, no network.
 
 import json
 from pathlib import Path
+import re as _re
 import types
 
 import pytest
@@ -949,8 +950,6 @@ def test_main_fails_loud_when_an_arm_has_no_valid_final(tmp_path):
 # (fact_key/metadata are scaffolding, not language a model could read).
 # ---------------------------------------------------------------------------
 
-import re as _re
-
 _HYGIENE_FIXTURES = sorted(FIXTURES.glob("*.json"))
 _HYGIENE_IDS = [p.stem for p in _HYGIENE_FIXTURES]
 
@@ -1058,4 +1057,33 @@ def test_fixture_hygiene_conflicting_query_names_both_sources(path):
     assert not missing, (
         f"{path.name}: conflicting-family query does not explicitly ask about "
         f"source(s) {missing}; query: {raw['query']!r}"
+    )
+
+
+@pytest.mark.parametrize("path", _HYGIENE_FIXTURES, ids=_HYGIENE_IDS)
+def test_fixture_hygiene_truth_keys_echoed_by_event_fact_keys(path):
+    """Rule 4: every truth key (incl. multi_claim entries and subclaims) is
+    echoed by at least one event fact_key in the same fixture, so the
+    canonical claim key is always echoable from a presented record
+    (control.py maps fact_key to the model-visible claim_key). For
+    conflicting-family fixtures every echoing event's source must be the
+    source the key names (each side carries its source-qualified key)."""
+    raw = json.loads(path.read_text())
+    by_key = {}
+    for event in raw["events"]:
+        by_key.setdefault(event["fact_key"], []).append(event)
+    truth_keys = {leaf["key"] for leaf in _hygiene_truth_leaves(raw)}
+    unechoed = sorted(truth_keys - set(by_key))
+    assert not unechoed, f"{path.name}: truth keys no event fact_key echoes: {unechoed}"
+    if raw["family"] != "conflicting_independent_sources":
+        return
+    mismatched = {}
+    for key in sorted(truth_keys):
+        key_tokens = set(key.split("_"))
+        for event in by_key[key]:
+            if not _hygiene_tokens(event["source_id"]) <= key_tokens:
+                mismatched.setdefault(key, set()).add(event["source_id"])
+    assert not mismatched, (
+        f"{path.name}: conflicting truth keys echoed by events from sources the key does not name: "
+        + "; ".join(f"{key} <- {sorted(sources)}" for key, sources in sorted(mismatched.items()))
     )

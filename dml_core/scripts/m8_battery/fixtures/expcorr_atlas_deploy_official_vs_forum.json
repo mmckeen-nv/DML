@@ -19,7 +19,7 @@
    "text": "Community forum post by a self-described insider: the Atlas billing service deploy status is live.",
    "scope": {"tenant_id": "m8-battery", "client_id": "acme-platform", "session_id": "atlas-billing", "instance_id": null},
    "source_id": "community-forum",
-   "fact_key": "atlas_deploy_status",
+   "fact_key": "forum_deploy_status",
    "version": 1,
    "timestamp": 1001,
    "corrects": null,
