@@ -44,7 +44,7 @@ CHECKPOINT = {
     "adapter_config.json": "0" * 64,
     "adapter_model.safetensors": "0" * 64,
 }
-ADAPTER_TENSORS = 0  # no qualified adapter layout yet; zero admits nothing
+ADAPTER_TENSORS = 256  # first candidate layout (2026-11-07): 8 attn layers QKVO + 32 MLP gate/up/down, all F32 lora_A/B
 TRAINING_PROVENANCE = {
     "recipe": "dml-qwen3_5-9b-lora-sft-v1",
     "status": "placeholder-unqualified",

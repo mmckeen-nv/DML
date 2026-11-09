@@ -313,7 +313,8 @@ def test_placeholder_pins_are_fail_closed(tmp_path):
     with pytest.raises(ModelInputError, match="official revision"):
         consumer_module.verify_manifest(tmp_path)
     assert consumer_module.CHECKPOINT == {name: "0" * 64 for name in consumer_module.CHECKPOINT}
-    assert consumer_module.ADAPTER_TENSORS == 0
+    # First candidate layout pinned 2026-11-07 (hybrid arch: 8x4 attn + 32x3 MLP, F32)
+    assert consumer_module.ADAPTER_TENSORS == 256
     # First qualification (2026-11-07) filled the inventory + image pins from the
     # measured snapshot; CHECKPOINT stays zero until a candidate adapter is locked.
     assert (
