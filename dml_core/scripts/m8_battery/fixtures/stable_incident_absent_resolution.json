@@ -18,7 +18,7 @@
         "instance_id": null
       },
       "source_id": "incident-log",
-      "fact_key": "ir104_root_cause",
+      "fact_key": "ir_104_root_cause",
       "version": 1,
       "timestamp": 1000,
       "corrects": null,
@@ -36,7 +36,7 @@
         "instance_id": null
       },
       "source_id": "incident-log",
-      "fact_key": "ir104_impact",
+      "fact_key": "ir_104_impact",
       "version": 1,
       "timestamp": 1001,
       "corrects": null,
@@ -54,7 +54,7 @@
         "instance_id": null
       },
       "source_id": "status-page-paste",
-      "fact_key": "ir104_resolution_note",
+      "fact_key": "ir_104_resolution_note",
       "version": 1,
       "timestamp": 1002,
       "corrects": null,

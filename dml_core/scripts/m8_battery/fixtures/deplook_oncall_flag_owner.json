@@ -54,7 +54,7 @@
         "instance_id": null
       },
       "source_id": "roster",
-      "fact_key": "oncall",
+      "fact_key": "flag_owner",
       "version": 1,
       "timestamp": 1002,
       "corrects": null,
@@ -91,7 +91,7 @@
         "instance_id": null
       },
       "source_id": "roster",
-      "fact_key": "oncall",
+      "fact_key": "flag_owner",
       "version": 2,
       "timestamp": 1004,
       "corrects": 22,

@@ -18,7 +18,7 @@
         "instance_id": null
       },
       "source_id": "release-coordination",
-      "fact_key": "helios_deploy_window_ref",
+      "fact_key": "same_as_project",
       "version": 1,
       "timestamp": 1000,
       "corrects": null,
@@ -87,7 +87,7 @@
   "query_clock": 2000,
   "truth": [
     {
-      "key": "helios_deploy_window",
+      "key": "kestrel_deploy_window",
       "value": "Tuesdays 02:00-04:00 UTC",
       "verifier": "status_value"
     },

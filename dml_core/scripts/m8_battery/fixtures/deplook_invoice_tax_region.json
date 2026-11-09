@@ -110,7 +110,7 @@
         "instance_id": null
       },
       "source_id": "tax-table",
-      "fact_key": "tax_rate_eu_central",
+      "fact_key": "tax_rate",
       "version": 1,
       "timestamp": 1005,
       "corrects": null,
