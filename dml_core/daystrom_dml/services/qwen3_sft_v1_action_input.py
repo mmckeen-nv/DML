@@ -72,8 +72,8 @@ VERSIONS = {
     "safetensors": "0.7.0",
     "peft": "0.21.1",
 }
-IMAGE = "sha256:" + "0" * 64  # placeholder until the Qwen3.5 container is qualified
-OFFICIAL_INVENTORY_DIGEST = "0" * 64  # placeholder until the base inventory is authenticated
+IMAGE = "sha256:04563c302537a91aa49ebdfbceda96111c5712275999b7e8804fa598f0b5641d"  # pinned vllm amd64 (2026-11-07)
+OFFICIAL_INVENTORY_DIGEST = "df77b4be88cb5401d49137ad1833107a10fb72436fbdaacf46d764fcf244289f"  # first qualification: Qwen3.5-9B @ REVISION, 16 files (2026-11-07)
 REQUIRED_ENVIRONMENT = {
     "USER": "nvidia",
     "LOGNAME": "nvidia",

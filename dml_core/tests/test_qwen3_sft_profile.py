@@ -314,8 +314,10 @@ def test_placeholder_pins_are_fail_closed(tmp_path):
         consumer_module.verify_manifest(tmp_path)
     assert consumer_module.CHECKPOINT == {name: "0" * 64 for name in consumer_module.CHECKPOINT}
     assert consumer_module.ADAPTER_TENSORS == 0
-    assert consumer_module.OFFICIAL_INVENTORY_DIGEST == "0" * 64
-    assert consumer_module.IMAGE == "sha256:" + "0" * 64
+    # First qualification (2026-11-07) filled the inventory + image pins from the
+    # measured snapshot; CHECKPOINT stays zero until a candidate adapter is locked.
+    assert consumer_module.OFFICIAL_INVENTORY_DIGEST == "df77b4be88cb5401d49137ad1833107a10fb72436fbdaacf46d764fcf244289f"
+    assert consumer_module.IMAGE == "sha256:04563c302537a91aa49ebdfbceda96111c5712275999b7e8804fa598f0b5641d"
 
 
 def test_revision_and_identity_constants():
