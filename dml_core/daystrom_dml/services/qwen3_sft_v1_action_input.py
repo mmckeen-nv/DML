@@ -322,7 +322,10 @@ def verify_manifest(directory, *, development_checkpoint=None):
         if model / name not in paths.values():
             raise ModelInputError("Model inventory incomplete")
     if development_checkpoint is not None:
-        checkpoint = {**CHECKPOINT, "adapter_model.safetensors": development_checkpoint["adapter_sha256"]}
+        # Candidate admission covers the WEIGHTS only: adapter_config.json is
+        # already verified file-by-file against the candidate manifest in the
+        # paths loop above; the zero CHECKPOINT placeholder must not leak in.
+        checkpoint = {"adapter_model.safetensors": development_checkpoint["adapter_sha256"]}
         checkpoint_error = "Development checkpoint adapter hash differs"
     else:
         checkpoint = CHECKPOINT

@@ -523,3 +523,64 @@ def test_snapshot_paths_cannot_escape(tmp_path):
         consumer_module._relative(tmp_path, "../outside")
     with pytest.raises(ModelInputError):
         consumer_module._relative(tmp_path, "/absolute")
+
+
+def test_candidate_admission_does_not_require_zero_config_hash(tmp_path):
+    """Regression: the candidate path spread the zero CHECKPOINT placeholder over
+    adapter_config.json, so every candidate failed with 'adapter hash differs'
+    even when weights matched. The config is verified via the manifest files
+    loop; the candidate check must cover weights only."""
+    import hashlib
+
+    model_dir = tmp_path / "model"
+    adapter_dir = tmp_path / "adapter"
+    model_dir.mkdir()
+    adapter_dir.mkdir()
+    weights = b"candidate-weights"
+    config_bytes = b'{"peft_type": "LORA"}'
+    (adapter_dir / "adapter_model.safetensors").write_bytes(weights)
+    (adapter_dir / "adapter_config.json").write_bytes(config_bytes)
+    (model_dir / "config.json").write_text("{}")
+
+    def sha(payload):
+        return hashlib.sha256(payload).hexdigest()
+    manifest = {
+        "schema_version": consumer_module.MANIFEST_VERSION,
+        "model_id": consumer_module.MODEL,
+        "revision": consumer_module.REVISION,
+        "adapter_enabled": True,
+        "consumer_profile": consumer_module.QWEN3_SFT_V1_CONSUMER_PROFILE,
+        "training_provenance": consumer_module.TRAINING_PROVENANCE,
+        "model_directory": "model",
+        "adapter_directory": "adapter",
+        "files": {
+            "model/config.json": sha(b"{}"),
+            "adapter/adapter_model.safetensors": sha(weights),
+            "adapter/adapter_config.json": sha(config_bytes),
+        },
+        "chat_template_digest": consumer_module.VENDOR_TEMPLATE_DIGEST,
+        "runtime": {
+            "versions": consumer_module.VERSIONS,
+            "image": consumer_module.IMAGE,
+            "required_environment": consumer_module.REQUIRED_ENVIRONMENT,
+        },
+    }
+    (tmp_path / consumer_module.MANIFEST_NAME).write_text(json.dumps(manifest))
+    declaration = {
+        "label": "development-test-candidate",
+        "manifest_sha256": "f" * 64,  # wrong on purpose: manifest digest check fires first
+        "adapter_sha256": sha(weights),
+    }
+    with pytest.raises(ModelInputError, match="manifest digest differs"):
+        consumer_module.verify_manifest(tmp_path, development_checkpoint=declaration)
+    declaration["manifest_sha256"] = sha(json.dumps(manifest).encode())
+    (tmp_path / consumer_module.MANIFEST_NAME).write_text(json.dumps(manifest))
+    declaration["manifest_sha256"] = hashlib.sha256(
+        (tmp_path / consumer_module.MANIFEST_NAME).read_bytes()
+    ).hexdigest()
+    try:
+        consumer_module.verify_manifest(tmp_path, development_checkpoint=declaration)
+    except ModelInputError as exc:
+        assert "adapter hash differs" not in str(exc), (
+            "candidate path must not check adapter_config.json against the zero CHECKPOINT placeholder"
+        )
