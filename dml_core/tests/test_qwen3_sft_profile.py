@@ -316,7 +316,9 @@ def test_placeholder_pins_are_fail_closed(tmp_path):
     assert consumer_module.ADAPTER_TENSORS == 0
     # First qualification (2026-11-07) filled the inventory + image pins from the
     # measured snapshot; CHECKPOINT stays zero until a candidate adapter is locked.
-    assert consumer_module.OFFICIAL_INVENTORY_DIGEST == "df77b4be88cb5401d49137ad1833107a10fb72436fbdaacf46d764fcf244289f"
+    assert (
+        consumer_module.OFFICIAL_INVENTORY_DIGEST == "df77b4be88cb5401d49137ad1833107a10fb72436fbdaacf46d764fcf244289f"
+    )
     assert consumer_module.IMAGE == "sha256:04563c302537a91aa49ebdfbceda96111c5712275999b7e8804fa598f0b5641d"
 
 
@@ -544,6 +546,7 @@ def test_candidate_admission_does_not_require_zero_config_hash(tmp_path):
 
     def sha(payload):
         return hashlib.sha256(payload).hexdigest()
+
     manifest = {
         "schema_version": consumer_module.MANIFEST_VERSION,
         "model_id": consumer_module.MODEL,
@@ -575,9 +578,7 @@ def test_candidate_admission_does_not_require_zero_config_hash(tmp_path):
         consumer_module.verify_manifest(tmp_path, development_checkpoint=declaration)
     declaration["manifest_sha256"] = sha(json.dumps(manifest).encode())
     (tmp_path / consumer_module.MANIFEST_NAME).write_text(json.dumps(manifest))
-    declaration["manifest_sha256"] = hashlib.sha256(
-        (tmp_path / consumer_module.MANIFEST_NAME).read_bytes()
-    ).hexdigest()
+    declaration["manifest_sha256"] = hashlib.sha256((tmp_path / consumer_module.MANIFEST_NAME).read_bytes()).hexdigest()
     try:
         consumer_module.verify_manifest(tmp_path, development_checkpoint=declaration)
     except ModelInputError as exc:
