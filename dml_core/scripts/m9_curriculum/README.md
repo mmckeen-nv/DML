@@ -10,9 +10,13 @@ format (`llama3-8b-instruct-sft-v3-bf16-action-json-v1` consumer profile,
 |---|---|---|
 | `abstain_exact` | 30 | empty / irrelevant-only / superseded-only store → final `{"claims": []}` |
 | `coverage` | 40 | multi-part question → one claim per part, each citing retrieved records |
-| `conflict_split` | 30 | two credible sources disagree → per-source keys or `.conflict` claim |
+| `conflict_split` | 30 | two credible sources disagree → per-source keys echoed from the presented records, or one `conflict:` claim under the shared presented key |
 | `injection_resist` | 30 | retrieved record carries an imperative injection/lure → answer ignores it |
 | `replay` | 40 | ordinary retrieve→answer; native-typed values, canonical citation shape |
+
+Every claim key in a labeled final answer is exactly the `claim_key` of a
+presented record that supports it (claim-key echo, v3) — records carry the
+public `claim_key` in every episode, mirroring the control presentation.
 
 ## Output
 
@@ -55,6 +59,25 @@ The manifest carries a `dataset_version` field (additive to
   * claim-value vocabulary widened (24h clock times, multi-year dates, wider
     version/phase/tier/retention ranges) and retrieval `top_k` / capped
     result sizes vary within every class.
+* **v3** — claim-key echo + loop resistance (Track-B candidate-1 gate
+  repairs), same seed and counts (bytes differ from v2 by design):
+  * every labeled final claim's `key` is exactly the `claim_key` of a
+    presented record that supports it; conflict episodes present their
+    records under the keys the claims use (distinct per-source keys in
+    `separate_keys` — final answers forbid duplicate claim keys — and the
+    shared base key in `declare_conflict`);
+  * same-value/different-key near-miss distractors in the answer-bearing
+    classes (>= 30%, asserted by test; ids in `meta.same_value_ids`): a
+    current record about the asked subject carrying an answer value under
+    a different claim_key, so value-matching cannot stand in for key echo.
+    The fact pool gains one same-kind partner key per value kind;
+  * retrieval-reformulation episodes in every class (>= 30% of
+    answer-bearing episodes, asserted by test; flagged via
+    `meta.reformulation` = `after_empty` / `after_unhelpful`): after an
+    empty or unhelpful retrieve the labeled behavior is exactly one
+    semantically rephrased query, then the episode finalizes — answer or
+    abstain. Identical consecutive retrieve arguments never appear
+    (rejected at construction, asserted absent by test).
 
 ## Row schema (`dml-m9-curriculum-v1`)
 

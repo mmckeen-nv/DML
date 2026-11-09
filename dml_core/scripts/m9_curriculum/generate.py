@@ -42,6 +42,29 @@ same seed/counts — see README.md "Dataset versions"):
   prose register does not identify citable evidence;
 * wider claim-value vocabulary and varied retrieval result counts / top_k.
 
+Dataset version 3 (claim-key echo discipline + loop resistance, targeting
+the Track-B candidate-1 gate failures; bytes differ from v2 under the same
+seed/counts — see README.md "Dataset versions"):
+
+* claim-key echo: every labeled final claim's ``key`` is exactly the
+  ``claim_key`` of a presented record that supports it — no invented key
+  phrasings. Conflict episodes now present their records under the keys the
+  claims will use: distinct per-source keys in the ``separate_keys``
+  variant (final answers forbid duplicate claim keys) and the shared base
+  key on both records in ``declare_conflict``, whose single conflict claim
+  echoes it;
+* same-value/different-key near-miss distractors in the answer-bearing
+  classes: a current record about the ASKED subject carrying an ANSWER
+  value under a DIFFERENT claim_key, so value-matching (or echoing
+  whichever key sits next to the right value) cannot yield the right claim
+  key. The fact pool grows by one same-kind partner key per value kind so
+  these near-misses exist for every kind;
+* loop resistance: retrieval-reformulation episodes in every class. After
+  an empty or unhelpful retrieve the labeled behavior is exactly ONE
+  reformulated query (semantically rephrased, never identical), then the
+  episode finalizes — answer or abstain. Identical consecutive retrieve
+  arguments are rejected at construction and asserted absent by test.
+
 Output (train JSONL + manifest.json) is written under
 ``dml_core/scripts/m9_curriculum/out/`` by default — a gitignored path; see
 README.md. Regenerate::
@@ -73,7 +96,9 @@ SCHEMA = "dml-m9-curriculum-v1"
 MANIFEST_SCHEMA = "dml-m9-curriculum-manifest-v1"
 # v1: initial curriculum (audit verdict FIX-LIST). v2: anti-shortcut repairs
 # listed in the module docstring; same seed/counts, different bytes.
-DATASET_VERSION = 2
+# v3: claim-key echo + same-value/different-key near-misses +
+# retrieval-reformulation loop resistance; same seed/counts, different bytes.
+DATASET_VERSION = 3
 SEED = [20261106]
 CLASSES = ("abstain_exact", "coverage", "conflict_split", "injection_resist", "replay")
 DEFAULT_COUNTS = {"abstain_exact": 30, "coverage": 40, "conflict_split": 30, "injection_resist": 30, "replay": 40}
@@ -91,6 +116,10 @@ LURE_ON_TRUSTED_SOURCE_RATE = 0.45  # audit floor: >= 30% of injection episodes
 CLEAN_ON_LURE_SOURCE_RATE = 0.15  # clean records sitting on lure-prone sources
 SUPERSEDED_DISTRACTOR_RATE = 0.50  # replay / coverage
 SUPERSEDED_DISTRACTOR_RATE_MINOR = 0.45  # conflict / injection
+# v3 knobs. Measured rates in the default 170-episode dataset are asserted
+# in tests/test_m9_curriculum.py against the v3 floors, not these knobs.
+SAME_VALUE_DISTRACTOR_RATE = 0.50  # answer-bearing classes; floor: >= 30%
+REFORMULATION_RATE = 0.40  # every class; floor: >= 30% of answer-bearing episodes
 
 # ---------------------------------------------------------------------------
 # Closed synthetic entity pool. Provably disjoint from m8_battery fixtures;
@@ -232,6 +261,18 @@ FACTS = (
     {"key": "schedule.backup_window", "label": "backup window", "kind": "time"},
     {"key": "status.current_phase", "label": "rollout phase", "kind": "phase"},
     {"key": "vendor.support_tier", "label": "vendor support tier", "kind": "tier"},
+    # v3: one same-kind partner key per single-key value kind, so the
+    # same-value/different-key near-miss exists for every kind.
+    {"key": "policy.review_date", "label": "policy review date", "kind": "date"},
+    {"key": "status.worker_version", "label": "worker version", "kind": "version"},
+    {"key": "net.secondary_endpoint", "label": "secondary API endpoint", "kind": "endpoint"},
+    {"key": "metrics.weekly_ticket_count", "label": "ticket count this week", "kind": "int"},
+    {"key": "metrics.cache_hit_rate", "label": "cache hit rate", "kind": "float"},
+    {"key": "flags.beta_enrollment_enabled", "label": "beta enrollment flag", "kind": "bool"},
+    {"key": "net.backup_relay", "label": "backup relay host", "kind": "host"},
+    {"key": "policy.audit_retention_days", "label": "audit retention period", "kind": "days"},
+    {"key": "status.migration_phase", "label": "migration phase", "kind": "phase"},
+    {"key": "vendor.escalation_tier", "label": "vendor escalation tier", "kind": "tier"},
 )
 
 # One shared phrasing pool for citable evidence AND distractors (audit fix:
@@ -329,6 +370,7 @@ class Episode:
         self.step = 0
         self._next_id = 101 + seed % 700
         self._refs = 0
+        self._last_retrieve_arguments = None
 
     def start(self, prompt):
         """Bind the task prompt through the canonical V3 system/user bootstrap."""
@@ -358,6 +400,11 @@ class Episode:
         if not 1 <= top_k <= 10 or len(records) > top_k:
             raise ValueError("retrieve bounds violated")
         arguments = {"query": query, "top_k": top_k}
+        if arguments == self._last_retrieve_arguments:
+            # v3 loop-resistance hard pattern: an identical consecutive
+            # retrieve can never be the labeled behavior.
+            raise ValueError("identical consecutive retrieve arguments")
+        self._last_retrieve_arguments = arguments
         action = {"schema_version": ACTION_VERSION, "kind": "tool", "name": "retrieve", "arguments": arguments}
         model_result = tool_canonical(
             {
@@ -559,6 +606,87 @@ def _superseded_distractors(rng, ep, *, subject, slug, triples, exclude_values=(
     return records
 
 
+def _partner_fact(rng, fact, exclude_keys):
+    """A same-kind fact under a DIFFERENT, unasked key (v3 same-value near-miss)."""
+    partners = [
+        item
+        for item in FACTS
+        if item["kind"] == fact["kind"] and item["key"] != fact["key"] and item["key"] not in exclude_keys
+    ]
+    return rng.choice(partners) if partners else None
+
+
+def _same_value_distractors(rng, ep, triples, *, subject, exclude_keys):
+    """SAME-VALUE-DIFFERENT-KEY near-miss (v3): a current record about the
+    ASKED subject carrying an ANSWER value under a DIFFERENT claim_key, so
+    matching the value (or echoing whichever key sits next to the right
+    value) cannot yield the right claim key — the claim key must be read
+    off the record that actually supports the asked (subject, key)."""
+    fact, value, _ = triples[rng.randrange(len(triples))]
+    partner = _partner_fact(rng, fact, exclude_keys)
+    if partner is None:
+        return []
+    text = rng.choice(_RECORD_TEMPLATES).format(
+        subject=subject, label=partner["label"], value=_value_text(value, partner["kind"])
+    )
+    return [ep.record(text=text, source=_clean_source(rng), claim_key=partner["key"], claim_value=value)]
+
+
+def _plant_same_value(rng, ep, triples, *, subject, exclude_keys):
+    """Roll SAME_VALUE_DISTRACTOR_RATE; on a hit plant one same-value/
+    different-key near-miss and record its id in meta.same_value_ids
+    (provenance for tests, mirroring meta.injection_ids)."""
+    if rng.random() >= SAME_VALUE_DISTRACTOR_RATE:
+        return []
+    records = _same_value_distractors(rng, ep, triples, subject=subject, exclude_keys=exclude_keys)
+    if records:
+        ep.meta_extra["same_value_ids"] = [record["id"] for record in records]
+    return records
+
+
+_ALT_QUERY_TEMPLATES = (
+    "{labels} for {subject}",
+    "latest {labels} {subject}",
+    "{subject} current {labels}",
+)
+
+
+def _alt_query(rng, subject, labels):
+    """A semantically equivalent but differently phrased retrieve query.
+
+    Never identical to the episode's primary phrasing (subject + labels):
+    every template either reorders or inserts a word."""
+    joined = " ".join(labels)
+    return rng.choice(_ALT_QUERY_TEMPLATES).format(labels=joined, subject=subject)
+
+
+def _reformulation_prefix(rng, ep, *, subject, labels, exclude_keys, distractors, variant=None):
+    """Loop-resistance prefix (v3): with probability REFORMULATION_RATE the
+    episode opens with an empty or unhelpful retrieve under a DIFFERENTLY
+    PHRASED query; the labeled behavior is then exactly ONE reformulated
+    query (the episode's real retrieve) followed by the final action —
+    never an identical repeat, never a retry chain. Flags the episode via
+    meta["reformulation"] and returns the distractors left for the
+    successful retrieve."""
+    if rng.random() >= REFORMULATION_RATE:
+        return distractors
+    mode = rng.choice(("after_empty", "after_unhelpful"))
+    if mode == "after_unhelpful" and not distractors:
+        distractors = list(distractors) + _distractor_records(
+            rng, ep, 1, exclude_subject=subject, exclude_keys=exclude_keys
+        )
+    ep.meta_extra["reformulation"] = mode
+    if variant is not None:
+        ep.variant = variant
+    alt = _alt_query(rng, subject, labels)
+    if mode == "after_empty":
+        ep.retrieve(alt, rng.randint(1, 5), [])
+        return distractors
+    first = distractors[: rng.randint(1, len(distractors))]
+    ep.retrieve(alt, min(10, len(first) + rng.choice((0, 1))), first)
+    return distractors[len(first) :]
+
+
 def _claims(triples):
     return [{"key": fact["key"], "value": value, "evidence_ids": [record["id"]]} for fact, value, record in triples]
 
@@ -600,17 +728,27 @@ def _replay(rng, ep):
             "stored values and cite the stored evidence for each."
         )
     triples = _fact_records(rng, ep, subject, slug, facts)
-    distractors = _distractor_records(
-        rng, ep, rng.randint(0, 2), exclude_subject=subject, exclude_keys={f["key"] for f in facts}
-    )
+    exclude_keys = {f["key"] for f in facts}
+    labels = [f["label"] for f in facts]
+    distractors = _distractor_records(rng, ep, rng.randint(0, 2), exclude_subject=subject, exclude_keys=exclude_keys)
     if rng.random() < SAME_KEY_DISTRACTOR_RATE:
         distractors += _same_key_distractors(
             rng, ep, rng.randint(1, 2), facts, exclude_subject=subject, exclude_values={v for _, v, _ in triples}
         )
     if rng.random() < SUPERSEDED_DISTRACTOR_RATE:
         distractors += _superseded_distractors(rng, ep, subject=subject, slug=slug, triples=triples)
-    query = subject + " " + " ".join(f["label"] for f in facts)
-    returned = [record for _, _, record in triples] + distractors
+    distractors = _reformulation_prefix(
+        rng,
+        ep,
+        subject=subject,
+        labels=labels,
+        exclude_keys=exclude_keys,
+        distractors=distractors,
+        variant="reformulation",
+    )
+    same_value = _plant_same_value(rng, ep, triples, subject=subject, exclude_keys=exclude_keys)
+    query = subject + " " + " ".join(labels)
+    returned = [record for _, _, record in triples] + distractors + same_value
     rng.shuffle(returned)
     ep.retrieve(query, min(10, len(returned) + rng.choice((0, 0, 1, 2))), returned)
     ep.final(_claims(triples))
@@ -627,38 +765,58 @@ def _coverage(rng, ep):
         "stored values and cite the stored evidence for each claim."
     )
     triples = _fact_records(rng, ep, subject, slug, facts)
-    distractors = _distractor_records(
-        rng, ep, rng.randint(0, 2), exclude_subject=subject, exclude_keys={f["key"] for f in facts}
-    )
+    exclude_keys = {f["key"] for f in facts}
+    labels = [f["label"] for f in facts]
+    distractors = _distractor_records(rng, ep, rng.randint(0, 2), exclude_subject=subject, exclude_keys=exclude_keys)
     if rng.random() < SAME_KEY_DISTRACTOR_RATE:
         distractors += _same_key_distractors(
             rng, ep, rng.randint(1, 2), facts, exclude_subject=subject, exclude_values={v for _, v, _ in triples}
         )
     if rng.random() < SUPERSEDED_DISTRACTOR_RATE:
         distractors += _superseded_distractors(rng, ep, subject=subject, slug=slug, triples=triples)
-    if rng.random() < 0.5:
+    distractors = _reformulation_prefix(
+        rng,
+        ep,
+        subject=subject,
+        labels=labels,
+        exclude_keys=exclude_keys,
+        distractors=distractors,
+        variant="reformulation",
+    )
+    same_value = _plant_same_value(rng, ep, triples, subject=subject, exclude_keys=exclude_keys)
+    if ep.meta_extra.get("reformulation"):
+        # One reformulated query retrieves everything; then finalize.
+        returned = [record for _, _, record in triples] + distractors + same_value
+        rng.shuffle(returned)
+        ep.retrieve(
+            subject + " " + " ".join(labels),
+            min(10, len(returned) + rng.choice((0, 0, 1, 2))),
+            returned,
+        )
+    elif rng.random() < 0.5:
         # Split retrieval: first lookup covers a subset, second covers the rest.
         ep.variant = "split_retrieval"
         split = rng.randint(1, parts - 1)
         first = [record for _, _, record in triples[:split]] + distractors
         rng.shuffle(first)
         ep.retrieve(
-            subject + " " + " ".join(f["label"] for f in facts[:split]),
+            subject + " " + " ".join(labels[:split]),
             min(10, len(first) + rng.choice((0, 0, 1))),
             first,
         )
-        rest = [record for _, _, record in triples[split:]]
+        rest = [record for _, _, record in triples[split:]] + same_value
+        rng.shuffle(rest)
         ep.retrieve(
-            subject + " " + " ".join(f["label"] for f in facts[split:]),
+            subject + " " + " ".join(labels[split:]),
             min(10, len(rest) + rng.choice((0, 0, 1))),
             rest,
         )
     else:
         ep.variant = "single_retrieval"
-        returned = [record for _, _, record in triples] + distractors
+        returned = [record for _, _, record in triples] + distractors + same_value
         rng.shuffle(returned)
         ep.retrieve(
-            subject + " " + " ".join(f["label"] for f in facts),
+            subject + " " + " ".join(labels),
             min(10, len(returned) + rng.choice((0, 0, 1, 2))),
             returned,
         )
@@ -683,12 +841,25 @@ def _conflict_split(rng, ep):
         value_b = _fact_value(rng, ep, fact, slug)
         if value_b != value_a:
             break
+    # v3 claim-key echo: the presented records carry the keys the labeled
+    # claims will use. separate_keys presents distinct per-source keys
+    # (distinct keys are required — final answers forbid duplicate claim
+    # keys) and each claim echoes its record's key; declare_conflict
+    # presents the shared base key on both records and the single conflict
+    # claim echoes exactly that key.
+    if rng.random() < 0.5:
+        ep.variant = "separate_keys"
+        key_a = f"{fact['key']}.per_{source_a}"
+        key_b = f"{fact['key']}.per_{source_b}"
+    else:
+        ep.variant = "declare_conflict"
+        key_a = key_b = fact["key"]
     record_a = ep.record(
         text=rng.choice(_RECORD_TEMPLATES).format(
             subject=subject, label=fact["label"], value=_value_text(value_a, fact["kind"])
         ),
         source=source_a,
-        claim_key=fact["key"],
+        claim_key=key_a,
         claim_value=value_a,
     )
     record_b = ep.record(
@@ -696,7 +867,7 @@ def _conflict_split(rng, ep):
             subject=subject, label=fact["label"], value=_value_text(value_b, fact["kind"])
         ),
         source=source_b,
-        claim_key=fact["key"],
+        claim_key=key_b,
         claim_value=value_b,
     )
     triples = [(fact, value_a, record_a), (fact, value_b, record_b)]
@@ -709,23 +880,30 @@ def _conflict_split(rng, ep):
         distractors += _superseded_distractors(
             rng, ep, subject=subject, slug=slug, triples=triples, exclude_values={value_a, value_b}
         )
-    returned = [record_a, record_b] + distractors
+    distractors = _reformulation_prefix(
+        rng,
+        ep,
+        subject=subject,
+        labels=[fact["label"]],
+        exclude_keys={fact["key"]},
+        distractors=distractors,
+    )
+    same_value = _plant_same_value(rng, ep, triples, subject=subject, exclude_keys={fact["key"]})
+    returned = [record_a, record_b] + distractors + same_value
     rng.shuffle(returned)
     ep.retrieve(subject + " " + fact["label"], min(10, len(returned) + rng.choice((0, 0, 1, 2))), returned)
-    if rng.random() < 0.5:
-        ep.variant = "separate_keys"
+    if ep.variant == "separate_keys":
         ep.final(
             [
-                {"key": f"{fact['key']}.per_{source_a}", "value": value_a, "evidence_ids": [record_a["id"]]},
-                {"key": f"{fact['key']}.per_{source_b}", "value": value_b, "evidence_ids": [record_b["id"]]},
+                {"key": key_a, "value": value_a, "evidence_ids": [record_a["id"]]},
+                {"key": key_b, "value": value_b, "evidence_ids": [record_b["id"]]},
             ]
         )
     else:
-        ep.variant = "declare_conflict"
         ep.final(
             [
                 {
-                    "key": f"{fact['key']}.conflict",
+                    "key": fact["key"],
                     "value": (
                         f"conflict: {source_a} reports {_value_text(value_a, fact['kind'])}; "
                         f"{source_b} reports {_value_text(value_b, fact['kind'])}"
@@ -777,10 +955,22 @@ def _injection_resist(rng, ep):
             triples=[legit],
             exclude_values={value} | {record["claim_value"] for record in lures},
         )
+    # Loop-resistance prefix touches only plain distractors: the unhelpful
+    # first window never carries the legit record or a lure.
+    distractors = _reformulation_prefix(
+        rng,
+        ep,
+        subject=subject,
+        labels=[fact["label"]],
+        exclude_keys={fact["key"]},
+        distractors=distractors,
+    )
+    same_value = _plant_same_value(rng, ep, [legit], subject=subject, exclude_keys={fact["key"]})
     # The legit record, at least one injection record and (when generated)
-    # the same-key near-miss are always presented — a capped window may only
-    # drop extra records, never the records the episode teaches against.
-    must = [legit_record, lures[0]] + near_miss
+    # the same-key / same-value near-misses are always presented — a capped
+    # window may only drop extra records, never the records the episode
+    # teaches against.
+    must = [legit_record, lures[0]] + near_miss + same_value
     rest = lures[1:] + distractors
     rng.shuffle(rest)
     if rest and rng.random() < 0.5:
@@ -801,6 +991,8 @@ def _injection_resist(rng, ep):
     # second lure can fall outside a capped window).
     presented_ids = {record["id"] for record in returned}
     ep.meta_extra["injection_ids"] = [record["id"] for record in lures if record["id"] in presented_ids]
+    if same_value:
+        ep.meta_extra["same_value_ids"] = [r["id"] for r in same_value if r["id"] in presented_ids]
     ep.final(_claims([legit]))
 
 
@@ -812,6 +1004,12 @@ def _abstain_exact(rng, ep):
     # Plain question, no "return an empty claims list" suffix (audit fix 3):
     # the empty answer must come from inspecting the retrieval.
     ep.start(_prompt_single(fact, subject))
+    if rng.random() < REFORMULATION_RATE:
+        # Loop resistance for the abstain contract (v3): one reformulated
+        # query (different phrasing, never identical) after the empty
+        # lookup, then abstain — no retry chain.
+        ep.meta_extra["reformulation"] = "after_empty"
+        ep.retrieve(_alt_query(rng, subject, [fact["label"]]), rng.randint(1, 5), [])
     if variant == "empty_store":
         ep.retrieve(subject + " " + fact["label"], rng.randint(1, 5), [])
     elif variant == "irrelevant_only":
