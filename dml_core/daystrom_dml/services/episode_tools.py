@@ -51,11 +51,15 @@ class EpisodeToolConflictRejected(EpisodeToolError):
 class EpisodeToolValidationRejected(EpisodeToolError):
     """One bridge-owned, proven no-dispatch rejection; never an adapter error."""
 
-    def __init__(self, owner, arguments, call_id):
+    def __init__(self, owner, arguments, call_id, model_result=None):
         super().__init__(VALIDATION_ERROR_CODE)
         self._owner = owner
         self._arguments = canonical_json(arguments)
         self._call_id = call_id
+        if model_result is None:
+            from ..contracts.agent_episode import VALIDATION_MODEL_RESULT
+            model_result = VALIDATION_MODEL_RESULT
+        self.model_result = model_result
 
 
 def canonical(value: Any) -> str:
@@ -121,7 +125,7 @@ class SelectedProfileEpisodeTools:
                  seed_receipts: Sequence[dict] = (), source_trust: str = "untrusted",
                  observation_records: Sequence[dict] = (), allowed_tools=None,
                  effective_time=2000000000, execution_protocol=EXECUTION_PROTOCOL_V1,
-                 recover_precommit_conflicts=False):
+                 recover_precommit_conflicts=False, retrieve_top_k_cap=None):
         if adapter.production_profile_id != PROFILE_ID:
             raise EpisodeToolError("Episode tools require the selected receipt profile")
         if type(episode_id) is not str or not episode_id or len(episode_id.encode("utf-8")) > 128:
@@ -145,6 +149,11 @@ class SelectedProfileEpisodeTools:
         if type(recover_precommit_conflicts) is not bool or (recover_precommit_conflicts and execution_protocol != EXECUTION_PROTOCOL_V2):
             raise EpisodeToolError("Precommit recovery requires explicit validated-protocol opt-in")
         self.recover_precommit_conflicts = recover_precommit_conflicts
+        if retrieve_top_k_cap is not None and (
+                type(retrieve_top_k_cap) is not int or isinstance(retrieve_top_k_cap, bool)
+                or not 1 <= retrieve_top_k_cap <= _ARGUMENTS["retrieve"]["top_k"]["maximum"]):
+            raise EpisodeToolError("Invalid declared retrieve top_k cap")
+        self.retrieve_top_k_cap = retrieve_top_k_cap
         self._conflict_rejections: dict[int, tuple[EpisodeToolConflictRejected, PreparedEpisodeTool, bytes, str, str]] = {}
         self._presentation_ledger: dict[str, tuple[int, bytes]] = {}
         self._rejection_owner = object()
@@ -200,6 +209,13 @@ class SelectedProfileEpisodeTools:
             self._record(reference)
         if type(call_id) is not str or not call_id or len(call_id.encode("utf-8")) > 64:
             raise EpisodeToolError("Invalid runner-owned call identity")
+        if (name == "retrieve" and self.retrieve_top_k_cap is not None
+                and arguments["top_k"] > self.retrieve_top_k_cap):
+            # Declared per-episode presentation cap: a proven no-dispatch
+            # rejection with model feedback, never a silent clamp.
+            from ..contracts.agent_episode import RETRIEVE_TOP_K_CAP_MODEL_RESULT
+            raise EpisodeToolValidationRejected(
+                self._rejection_owner, arguments, call_id, model_result=RETRIEVE_TOP_K_CAP_MODEL_RESULT)
         if self.execution_protocol == EXECUTION_PROTOCOL_V2 and name == "supersede":
             left, right = (self._record(arguments[field]) for field in ("record_ref", "replacement_ref"))
             for field, record in (("record_ref", left), ("replacement_ref", right)):
