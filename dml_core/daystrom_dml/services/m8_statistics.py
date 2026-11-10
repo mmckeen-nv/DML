@@ -39,15 +39,43 @@ Numerical method (deterministic, numpy/stdlib only):
 All bisections use fixed iteration counts and no randomness, so results are
 bit-for-bit reproducible for identical inputs.
 
+BOUNDARY RULES (declared, pinned option; default behavior unchanged):
+
+``paired_trinomial_inference(..., boundary_rule=...)`` selects the profile
+threshold rule:
+
+- ``'wilks'`` (default): the one-sided Wilks threshold
+  ``NormalDist().inv_cdf(1 - alpha) ** 2`` at the declared alpha. Historical
+  behavior; every existing caller is unaffected.
+- ``'wilks_plus_inflation'``: a conservative split-level correction that
+  evaluates the same one-sided Wilks threshold at ``alpha_eff = alpha / 2``,
+  i.e. ``inv_cdf(1 - alpha / 2) ** 2`` (equivalently the chi2(1) quantile at
+  ``1 - alpha``), widening both one-sided bounds. Pinned as a PROPOSAL
+  pending independent review and station-scale re-measurement.
+
+Rationale and evidence: the R=400 station margins grid (2026-11-10, seed
+20260929, cells {6,12,24,48,96,216} x q {0.15,0.3,0.6} x delta {-0.02,+0.05},
+36 grid points; docs/m8-calibration-plan-2026-11-02.md section 1) measured
+null coverage of the 'wilks' lower bound at min 0.9175 / mean 0.9399 /
+max 0.9625, with 19/36 grid points below the nominal 0.95 outright and every
+95% CI lower bound under 0.95 — mildly anti-conservative, worst at small
+cells (cells6-q0.15-d-0.02: 0.9175, CI [0.8905, 0.9445]). The inflated rule
+raises the threshold (at alpha=0.05: 2.7055 -> 3.8415), which can only widen
+the bounds, never narrow them; it is EXPECTED to restore >= nominal coverage
+at the cost of width and power, to be re-measured at station scale before any
+acceptance use. No coverage claim is made here; the acceptance statistics
+remain unqualified.
+
 KNOWN LIMITATIONS (this is an implementation pending independent coverage
 calibration; no coverage guarantee is claimed here):
 
 - The one-sided Wilks threshold is asymptotic. For boundary-saturated cells
   (all-tie, all-win, all-loss) the parameter sits on the |delta| <= q
   constraint boundary, where regularity conditions fail and the chi-square
-  approximation can misbehave in either direction. Null coverage at the
-  declared margins remains to be checked by simulation before any acceptance
-  use.
+  approximation can misbehave in either direction. Measured R=400 null
+  coverage at the declared margins (above) is mildly anti-conservative under
+  'wilks'; the 'wilks_plus_inflation' rule is the pinned conservative
+  candidate and remains to be re-measured before any acceptance use.
 - No finite-sample correction (Bartlett, bootstrap, or exact enumeration) is
   applied. Small-cell bounds are likelihood-based approximations, not exact
   sign-test bounds, though they are checkable against enumeration.
@@ -70,6 +98,10 @@ import numpy.typing as npt
 
 FloatArray: TypeAlias = npt.NDArray[np.float64]
 
+BOUNDARY_RULE_WILKS = "wilks"
+BOUNDARY_RULE_WILKS_PLUS_INFLATION = "wilks_plus_inflation"
+BOUNDARY_RULES: tuple[str, ...] = (BOUNDARY_RULE_WILKS, BOUNDARY_RULE_WILKS_PLUS_INFLATION)
+
 _LOG_FLOOR = 1e-280
 _DELTA_BOUND = 1.0 - 1e-9
 _INNER_ITERS = 48
@@ -84,7 +116,9 @@ class StratifiedTrinomialResult:
 
     upper_bound is the mirrored one-sided bound at the same alpha, included so
     win/loss swap symmetry (lower_bound_swapped == -upper_bound_original) is
-    directly checkable.
+    directly checkable. alpha is the declared nominal level; threshold is the
+    Wilks threshold actually applied, which reflects the boundary_rule
+    ('wilks_plus_inflation' evaluates it at alpha / 2).
     """
 
     delta_hat: float
@@ -92,6 +126,7 @@ class StratifiedTrinomialResult:
     upper_bound: float
     alpha: float
     threshold: float
+    boundary_rule: str
     loglik_mle: float
     loglik_at_lower_bound: float
     cell_count: int
@@ -259,6 +294,7 @@ def paired_trinomial_inference(
     losses: Sequence[int],
     ties: Sequence[int],
     alpha: float = 0.05,
+    boundary_rule: str = BOUNDARY_RULE_WILKS,
 ) -> StratifiedTrinomialResult:
     """Delta point estimate and one-sided level-alpha profile-likelihood lower bound.
 
@@ -267,13 +303,21 @@ def paired_trinomial_inference(
     one-sided Wilks threshold. Boundary behavior: all-loss data yields the
     feasible-floor bound -1; all-tie/all-win cells contribute finite penalties
     and never collapse the bound to the point estimate.
+
+    boundary_rule selects the threshold rule (see module docstring):
+    'wilks' (default; threshold at the declared alpha) or
+    'wilks_plus_inflation' (conservative split-level correction: threshold
+    evaluated at alpha / 2, widening both bounds, never narrowing them).
     """
     if not isinstance(alpha, float) or not 0.0 < alpha < 0.5:
         raise ValueError("alpha must be a float in (0, 0.5)")
+    if type(boundary_rule) is not str or boundary_rule not in BOUNDARY_RULES:
+        raise ValueError(f"boundary_rule must be one of {BOUNDARY_RULES}")
     wgt, w, lo, ti = _validated(weights, wins, losses, ties)
     delta_mle, ll_mle = _mle_arrays(w, lo, ti)
     delta_hat = float(np.dot(wgt, delta_mle))
-    threshold = NormalDist().inv_cdf(1.0 - alpha) ** 2
+    alpha_eff = alpha if boundary_rule == BOUNDARY_RULE_WILKS else alpha / 2.0
+    threshold = NormalDist().inv_cdf(1.0 - alpha_eff) ** 2
 
     def lr(delta0: float) -> float:
         return max(2.0 * (ll_mle - _profile_loglikelihood_arrays(delta0, wgt, w, lo, ti)), 0.0)
@@ -308,6 +352,7 @@ def paired_trinomial_inference(
         upper_bound=upper_bound,
         alpha=alpha,
         threshold=threshold,
+        boundary_rule=boundary_rule,
         loglik_mle=ll_mle,
         loglik_at_lower_bound=_profile_loglikelihood_arrays(lower_bound, wgt, w, lo, ti),
         cell_count=int(w.shape[0]),

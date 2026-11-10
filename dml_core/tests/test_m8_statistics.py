@@ -12,6 +12,7 @@ from __future__ import annotations
 import math
 import time
 from math import comb
+from statistics import NormalDist
 
 import pytest
 
@@ -22,6 +23,7 @@ from daystrom_dml.services.m8_statistics import (
 )
 
 THR_05 = 1.6448536269514722 ** 2  # NormalDist().inv_cdf(0.95) ** 2
+THR_05_INFLATED = NormalDist().inv_cdf(0.975) ** 2  # split-level: alpha_eff = 0.05 / 2
 
 
 def test_rejects_mismatched_lengths():
@@ -229,3 +231,96 @@ def test_216_cell_synthetic_case_time():
     assert -1.0 <= result.lower_bound <= result.delta_hat <= result.upper_bound <= 1.0
     assert result.cell_count == 216
     assert result.total_observations == sum(wins) + sum(losses) + sum(ties)
+
+
+# --- Conservative boundary rule ('wilks_plus_inflation'; statistics contract
+# change pinned per docs/m8-calibration-plan-2026-11-02.md section 1) ---
+
+
+def test_rejects_unknown_boundary_rule():
+    with pytest.raises(ValueError):
+        paired_trinomial_inference([1.0], [1], [0], [2], boundary_rule="clopper_pearson")
+    with pytest.raises(ValueError):
+        paired_trinomial_inference([1.0], [1], [0], [2], boundary_rule="Wilks")  # case-sensitive
+    with pytest.raises(ValueError):
+        paired_trinomial_inference([1.0], [1], [0], [2], boundary_rule=1)  # type: ignore[arg-type]
+
+
+def test_default_rule_matches_explicit_wilks_and_split_level_threshold():
+    args = ([0.5, 0.3, 0.2], [7, 3, 0], [2, 5, 12], [1, 2, 8])
+    default = paired_trinomial_inference(*args)
+    explicit = paired_trinomial_inference(*args, boundary_rule="wilks")
+    assert default == explicit
+    assert default.boundary_rule == "wilks"
+    assert default.threshold == pytest.approx(THR_05)
+    inflated = paired_trinomial_inference(*args, boundary_rule="wilks_plus_inflation")
+    assert inflated.boundary_rule == "wilks_plus_inflation"
+    assert inflated.alpha == 0.05  # declared nominal level preserved
+    assert inflated.threshold == pytest.approx(THR_05_INFLATED)
+    assert inflated.threshold > default.threshold
+
+
+def test_inflated_rule_never_narrows_bounds():
+    # Interior multi-cell, single-cell with ties, and the all-loss boundary
+    # (lower bound pinned at the feasible floor under both rules).
+    cases = [
+        ([0.5, 0.3, 0.2], [7, 3, 0], [2, 5, 12], [1, 2, 8]),
+        ([1.0], [5], [3], [4]),
+        ([1.0], [0], [20], [0]),
+    ]
+    strict_widening_seen = False
+    for weights, wins, losses, ties in cases:
+        wilks = paired_trinomial_inference(weights, wins, losses, ties)
+        inflated = paired_trinomial_inference(
+            weights, wins, losses, ties, boundary_rule="wilks_plus_inflation"
+        )
+        again = paired_trinomial_inference(
+            weights, wins, losses, ties, boundary_rule="wilks_plus_inflation"
+        )
+        assert inflated == again  # bit-for-bit deterministic
+        assert inflated.delta_hat == wilks.delta_hat
+        assert inflated.loglik_mle == wilks.loglik_mle
+        assert inflated.lower_bound <= wilks.lower_bound + 1e-12
+        assert inflated.upper_bound >= wilks.upper_bound - 1e-12
+        if (
+            inflated.lower_bound < wilks.lower_bound - 1e-9
+            or inflated.upper_bound > wilks.upper_bound + 1e-9
+        ):
+            strict_widening_seen = True
+    assert strict_widening_seen  # inflation actually widens on interior cases
+
+
+def test_inflated_rule_boundary_saturated_cells():
+    # All-tie: closed form with the inflated threshold; finite, nondegenerate.
+    n = 20
+    tie = paired_trinomial_inference([1.0], [0], [0], [n], boundary_rule="wilks_plus_inflation")
+    expected = -(1.0 - math.exp(-tie.threshold / (2.0 * n)))
+    assert tie.threshold == pytest.approx(THR_05_INFLATED)
+    assert tie.lower_bound == pytest.approx(expected, abs=1e-12)
+    assert -1.0 < tie.lower_bound < 0.0 < tie.upper_bound < 1.0
+    # All-win: q_hat = 1 binds; bound widens off the wilks value, stays finite.
+    win = paired_trinomial_inference([1.0], [n], [0], [0], boundary_rule="wilks_plus_inflation")
+    expected_win = 2.0 * math.exp(-win.threshold / (2.0 * n)) - 1.0
+    assert win.lower_bound == pytest.approx(expected_win, abs=1e-12)
+    wilks_win = paired_trinomial_inference([1.0], [n], [0], [0])
+    assert -1.0 < win.lower_bound < wilks_win.lower_bound
+    assert win.upper_bound == 1.0
+    # All-loss: lower bound stays on the feasible floor, upper widens.
+    loss = paired_trinomial_inference([1.0], [0], [n], [0], boundary_rule="wilks_plus_inflation")
+    wilks_loss = paired_trinomial_inference([1.0], [0], [n], [0])
+    assert loss.lower_bound == -1.0 == wilks_loss.lower_bound
+    assert loss.upper_bound > wilks_loss.upper_bound
+    assert loss.upper_bound < 0.0  # nondegenerate
+
+
+def test_swap_symmetry_holds_under_both_rules():
+    weights = [0.5, 0.3, 0.2]
+    wins, losses, ties = [7, 3, 0], [2, 5, 12], [1, 2, 8]
+    for rule in ("wilks", "wilks_plus_inflation"):
+        fwd = paired_trinomial_inference(weights, wins, losses, ties, boundary_rule=rule)
+        rev = paired_trinomial_inference(weights, losses, wins, ties, boundary_rule=rule)
+        assert fwd.delta_hat == -rev.delta_hat
+        assert fwd.lower_bound == pytest.approx(-rev.upper_bound, abs=1e-9)
+        assert fwd.upper_bound == pytest.approx(-rev.lower_bound, abs=1e-9)
+        assert fwd.loglik_mle == rev.loglik_mle
+        assert fwd.threshold == rev.threshold
