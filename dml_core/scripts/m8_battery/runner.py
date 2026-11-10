@@ -35,6 +35,7 @@ from pathlib import Path
 import sys
 import time
 
+from daystrom_dml.contracts.agent_episode import LLAMA3_SFT_V3_CONSUMER_PROFILE, QWEN3_SFT_V1_CONSUMER_PROFILE
 from daystrom_dml.services import m8_accounting
 from daystrom_dml.services import m8_protocol as protocol
 from scripts.m8_battery import schema as fixture_schema
@@ -47,6 +48,13 @@ EMBEDDING_DIMENSIONS = 384
 TOKEN_BUDGET = 2048
 MAX_MODEL_CALLS = 6
 
+# CLI selector -> registered neutral consumer profile (contracts/agent_episode).
+CONSUMER_PROFILES = {
+    "llama3": LLAMA3_SFT_V3_CONSUMER_PROFILE,
+    "qwen3": QWEN3_SFT_V1_CONSUMER_PROFILE,
+}
+DEFAULT_CONSUMER_PROFILE = "llama3"
+
 
 def default_embedder_factory():
     """Pinned station MiniLM (CPU fp32 mean-pool L2, 384 dims)."""
@@ -55,10 +63,10 @@ def default_embedder_factory():
     return MiniLMEmbedder()
 
 
-def default_consumer_factory(snapshot, arm, *, seed=0):
+def default_consumer_factory(snapshot, arm, *, seed=0, consumer_profile=CONSUMER_PROFILES[DEFAULT_CONSUMER_PROFILE]):
     from daystrom_dml.services.m8_neutral_runtime import M8NeutralConsumer
 
-    return M8NeutralConsumer(snapshot, arm=arm, offline=False, seed=seed)
+    return M8NeutralConsumer(snapshot, arm=arm, offline=False, seed=seed, consumer_profile=consumer_profile)
 
 
 def _build_dml_bridge(embedder, workdir, scope):
@@ -169,6 +177,7 @@ def run_arm_episode(
     snapshot,
     max_model_calls=MAX_MODEL_CALLS,
     seed=0,
+    consumer_profile=CONSUMER_PROFILES[DEFAULT_CONSUMER_PROFILE],
     clock=time.monotonic,
 ):
     """One neutral consumer lifecycle for one scenario arm; retain everything.
@@ -191,6 +200,7 @@ def run_arm_episode(
         "family": scenario.family,
         "arm": arm,
         "sampling_seed": seed,
+        "consumer_profile": consumer_profile,
         "expects_retrieval": scenario.expects_retrieval,
         "retrieval_attempted": False,
         "calls": [],
@@ -309,6 +319,7 @@ def run_scenario(
     consumer_factory,
     max_model_calls=MAX_MODEL_CALLS,
     seed=0,
+    consumer_profile=CONSUMER_PROFILES[DEFAULT_CONSUMER_PROFILE],
     clock=time.monotonic,
 ):
     """Run every requested arm for one scenario in its own fresh workdir."""
@@ -324,6 +335,7 @@ def run_scenario(
                 snapshot=snapshot,
                 max_model_calls=max_model_calls,
                 seed=seed,
+                consumer_profile=consumer_profile,
                 clock=clock,
             )
             for arm in arms
@@ -496,6 +508,13 @@ def main(argv=None, *, embedder_factory=None, consumer_factory=None, store_facto
         help="comma-separated sampler seeds; seed 0 is the pinned qualified default, "
         "declared alternatives label development diagnostics only",
     )
+    parser.add_argument(
+        "--consumer-profile",
+        choices=sorted(CONSUMER_PROFILES),
+        default=DEFAULT_CONSUMER_PROFILE,
+        help="neutral consumer profile; llama3 is the qualified default, "
+        "qwen3 selects the qualified Qwen3.5 SFTv1 runtime/snapshot pair",
+    )
     parser.add_argument("--dry-run", action="store_true", help="validate fixtures only; no stores or models")
     args = parser.parse_args(argv)
 
@@ -546,7 +565,9 @@ def main(argv=None, *, embedder_factory=None, consumer_factory=None, store_facto
                 if not consumer_injected:
 
                     def seed_consumer_factory(snapshot, arm, _seed=seed):
-                        return default_consumer_factory(snapshot, arm, seed=_seed)
+                        return default_consumer_factory(
+                            snapshot, arm, seed=_seed, consumer_profile=CONSUMER_PROFILES[args.consumer_profile]
+                        )
 
                 for scenario in scenarios:
                     workdir = _fresh_workdir(workdir_root, f"{scenario.scenario_id}__seed{seed}")
@@ -560,6 +581,7 @@ def main(argv=None, *, embedder_factory=None, consumer_factory=None, store_facto
                         consumer_factory=seed_consumer_factory,
                         max_model_calls=args.max_model_calls,
                         seed=seed,
+                        consumer_profile=CONSUMER_PROFILES[args.consumer_profile],
                     ):
                         episodes.append(episode)
                         stream.write(json.dumps(episode, sort_keys=True) + "\n")
@@ -575,6 +597,7 @@ def main(argv=None, *, embedder_factory=None, consumer_factory=None, store_facto
         "wall_seconds": round(time.time() - started, 1),
         "arms": list(args.arms),
         "seeds": sorted(args.seeds),
+        "consumer_profile": CONSUMER_PROFILES[args.consumer_profile],
         "scenarios": len(scenarios),
         "episodes": len(episodes),
         "families": summarize(episodes),
