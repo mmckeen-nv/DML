@@ -134,7 +134,7 @@ def test_rag_baseline_receives_the_same_events(tmp_path):
 
 def test_no_memory_receives_stream_and_presents_nothing(tmp_path):
     scenario = chain_scenario()
-    consumer_actions = [tool(query="service port", top_k=10), final({"claims": []})]
+    consumer_actions = [tool(query="service port", top_k=8), final({"claims": []})]
     holder = {}
 
     def factory(snapshot):
@@ -171,7 +171,11 @@ def test_record_schema_stable_across_arms(tmp_path):
         record = run_episode(scenario, arm, [final({"claims": []})], tmp_path / arm)
         assert set(record) == set(battery.RECORD_KEYS)
         assert record["schema"] == "dml.m8.transport-native-battery.v1"
-        assert record["arm"] == arm and record["cell"] == "correction_chain"
+        assert record["arm"] == arm
+        # The inline arm carries the context-floor cell tag (C2); the other
+        # arms keep the content-derived cell.
+        assert record["cell"] == ("context_inline" if arm == "context_inline" else "correction_chain")
+        assert record["retrieve_top_k_cap"] == battery.TOP_K_CAP
         assert record["consumer_profile"] == LLAMA3_SFT_V3_CONSUMER_PROFILE
         json.dumps(record)  # JSONL-serializable
 
@@ -180,7 +184,7 @@ def test_dml_memory_arm_valid_cited_final(tmp_path):
     record = run_episode(
         chain_scenario(),
         "dml_memory",
-        [tool(query="service port", top_k=10), cite_containing("port", "9000")],
+        [tool(query="service port", top_k=8), cite_containing("port", "9000")],
         tmp_path,
     )
     assert record["backend"] == {"kind": "dml_receipt_store", "profile_id": battery.PROFILE_ID}
@@ -196,7 +200,7 @@ def test_rag_memory_arm_valid_cited_final_from_current_view(tmp_path):
     record = run_episode(
         scenario,
         "rag_memory",
-        [tool(query="service port", top_k=10), cite_containing("port", "9000")],
+        [tool(query="service port", top_k=8), cite_containing("port", "9000")],
         tmp_path,
     )
     assert record["failure"] is None
@@ -214,16 +218,50 @@ def test_rag_memory_arm_valid_cited_final_from_current_view(tmp_path):
     assert cited == [1] and set(cited) <= set(record["presented_record_ids"])
 
 
-def test_rag_top_k_clamped_to_frozen_limit_without_tool_error(tmp_path):
-    record = run_episode(
+def test_retrieve_top_k_cap_presented_and_enforced_without_tool_error(tmp_path):
+    # C4: both persistent arms are PRESENTED the same top_k cap (TOP_K_CAP, the
+    # manifest fixed-candidate limit) at the tool-schema layer, and the bridge
+    # enforces it as a proven no-dispatch validation rejection with model
+    # feedback — never a silent clamp, never a tool_error terminal.
+    holder = {}
+
+    def factory(snapshot):
+        consumer = Llama3BatteryConsumer(
+            [
+                tool(query="service port", top_k=10),  # exceeds the declared cap
+                tool(query="service port", top_k=battery.TOP_K_CAP),
+                cite_containing("port", "9000"),
+            ]
+        )
+        holder["consumer"] = consumer
+        return consumer
+
+    record = battery.run_battery_episode(
         chain_scenario(),
         "rag_memory",
-        [tool(query="service port", top_k=10), cite_containing("port", "9000")],
-        tmp_path,
+        workdir=tmp_path,
+        snapshot=None,
+        consumer_factory=factory,
+        limits=LIMITS,
+        embedder=LexicalEmbedder(),
+        rag_store_factory=rag_store_factory,
     )
-    # top_k=10 exceeds the baseline's frozen limit 8: the facade clamps and
-    # declares the cap; the episode completes, no tool_error terminal.
-    assert record["terminal_status"] == "completed" and record["failure"] is None
+    assert record["failure"] is None and record["terminal_status"] == "completed"
+    assert record["verdict"] == "valid_cited_final"
+    assert record["retrieve_top_k_cap"] == battery.TOP_K_CAP
+    # The model-facing retrieve schema presents the declared cap.
+    (retrieve_def,) = (
+        tool_def for tool_def in holder["consumer"].requests[0]["tools"] if tool_def["function"]["name"] == "retrieve"
+    )
+    assert retrieve_def["function"]["parameters"]["properties"]["top_k"]["maximum"] == battery.TOP_K_CAP
+    # The over-cap call got the declared rejection feedback, not records.
+    rejected = json.loads(holder["consumer"].requests[1]["messages"][-1]["content"])
+    assert rejected["error"]["code"] == "top_k_cap_exceeded" and rejected["effects"] == "none"
+    # The compliant retry executed and presented the current view.
+    assert record["presented_record_ids"] == [1, 2]
+    # The episode_started envelope declares the cap (fixed-protocol validated).
+    # (The request tools above are checked against that declaration by the
+    # episode event validator on every step.)
 
 
 def test_no_memory_unsupported_final_is_measured_not_hidden(tmp_path):
@@ -293,7 +331,7 @@ def test_shared_consumer_reused_across_arms_and_not_closed(tmp_path):
         def close(self):
             closes.append(True)
 
-    shared = SharedConsumer([final({"claims": []})] * 3)
+    shared = SharedConsumer([final({"claims": []})] * len(battery.ARMS))
     scenario = chain_scenario()
     for arm in battery.ARMS:
         record = battery.run_battery_episode(
@@ -335,29 +373,40 @@ def test_summarize_per_arm_rates_and_costs():
     episodes = [
         _episode("dml_memory"),
         _episode("dml_memory", verdict="unsupported_final"),
-        _episode("rag_memory", verdict="empty_claims_final"),
+        _episode("rag_memory", verdict="empty_claims_final", abstention_cause="records_returned_no_support"),
         _episode("rag_memory", terminal_status="step_limit", verdict=None, retrieval_attempted=True),
+        _episode("context_inline", verdict="empty_claims_final", abstention_cause="no_records_returned"),
         _episode("no_memory", verdict="unsupported_final", retrieval_attempted=True),
         _episode("no_memory", terminal_status="model_error", verdict=None, input_tokens=None),
     ]
     summary = battery.summarize(episodes)
     assert set(summary) == set(battery.ARMS)
     dml = summary["dml_memory"]
+    assert dml["role"] == "persistent"
     assert dml["episodes"] == 2
     assert dml["retrieval_attempted_rate"] == 1.0
     assert dml["valid_cited_final_rate"] == 0.5
     assert dml["unsupported_final_rate"] == 0.5
     assert dml["abstention_rate"] == 0.0
+    assert dml["abstention_causes"] == {cause: 0 for cause in battery.ABSTENTION_CAUSES}
     assert dml["step_limit_rate"] == 0.0
     assert dml["input_tokens"] == 20 and dml["output_tokens"] == 8
     # cost_per_valid_final: all attempted costs in the numerator (2 x 14).
     assert dml["cost_per_valid_final"] == 28.0
     rag = summary["rag_memory"]
     assert rag["abstention_rate"] == 0.5
+    assert rag["abstention_causes"]["records_returned_no_support"] == 1
     assert rag["step_limit_rate"] == 0.5
     # The step-limit episode is retained as a failure, never collapsed.
     assert rag["failures"] == [{"scenario_id": "s", "failure": "terminal_status:step_limit"}]
+    inline = summary["context_inline"]
+    # The context floor is labeled by role and excluded from the persistent
+    # grouping; its abstention cause breakdown is pre-registered (C6).
+    assert inline["role"] == "context_floor"
+    assert inline["abstention_rate"] == 1.0
+    assert inline["abstention_causes"]["no_records_returned"] == 1
     empty = summary["no_memory"]
+    assert empty["role"] == "policy_floor"
     # Zero valid finals: no cost rate is issued (never a free pass), and the
     # unknown token count makes the input aggregate unknown.
     assert empty["valid_cited_final_rate"] == 0.0
@@ -393,7 +442,7 @@ def test_main_end_to_end_all_arms_with_doubles(tmp_path):
     def factory(snapshot):
         return Llama3BatteryConsumer(
             [
-                tool(query="ingest pipeline retry backoff cap", top_k=10),
+                tool(query="ingest pipeline retry backoff cap", top_k=8),
                 cite_containing("ingest_retry_backoff_cap", "300 seconds"),
             ]
         )
@@ -421,19 +470,36 @@ def test_main_end_to_end_all_arms_with_doubles(tmp_path):
     for record in records:
         assert set(record) == set(battery.RECORD_KEYS)
         assert record["failure"] is None
-    # Event-clock parity: one stream digest across the three arms.
+    # Event-clock parity: one stream digest across the four arms.
     assert len({record["event_stream_digest"] for record in records}) == 1
     by_arm = {record["arm"]: record for record in records}
     assert by_arm["dml_memory"]["verdict"] == "valid_cited_final"
     assert by_arm["rag_memory"]["verdict"] == "valid_cited_final"
     assert by_arm["no_memory"]["presented_record_ids"] == []
+    # C2: the inline arm carries its cell tag and an empty store.
+    assert by_arm["context_inline"]["cell"] == "context_inline"
+    assert by_arm["context_inline"]["ingestion"] == {"events": 0, "supersessions": 0}
+    assert by_arm["context_inline"]["presented_record_ids"] == []
+    # C4: structural return parity between the persistent arms.
+    assert by_arm["dml_memory"]["return_parity_digest"] == by_arm["rag_memory"]["return_parity_digest"]
+    # C5: the first retrieve query is recorded and identical across the
+    # memory-bearing arms of this scenario.
+    queries = {arm: by_arm[arm]["first_retrieve_query"] for arm in battery.MEMORY_BEARING_ARMS}
+    assert len(set(queries.values())) == 1 and None not in queries.values()
     summary = json.loads(output.with_suffix(".summary.json").read_text(encoding="utf-8"))
     assert summary["schema"] == battery.SUMMARY_SCHEMA
-    assert summary["episodes"] == 3 and summary["consumer_profile"] == LLAMA3_SFT_V3_CONSUMER_PROFILE
+    assert summary["episodes"] == 4 and summary["consumer_profile"] == LLAMA3_SFT_V3_CONSUMER_PROFILE
+    assert summary["retrieve_top_k_cap"] == battery.TOP_K_CAP
+    assert summary["persistent_arms"] == ["dml_memory", "rag_memory"]
+    assert summary["arm_roles"]["no_memory"] == "policy_floor"
+    assert summary["arm_roles"]["context_inline"] == "context_floor"
     assert set(summary["per_arm"]) == set(battery.ARMS)
     assert summary["per_arm"]["dml_memory"]["valid_cited_final_rate"] == 1.0
     assert summary["per_arm"]["rag_memory"]["valid_cited_final_rate"] == 1.0
     assert summary["per_arm"]["no_memory"]["retrieval_attempted_rate"] == 1.0
+    (check,) = summary["first_retrieve_query_checks"]
+    assert check["scenario_id"] == "expcorr_ingest_backoff_chain" and check["identical"] is True
+    assert check["note"] is None
 
 
 def test_main_shares_one_consumer_across_arms(monkeypatch, tmp_path):
@@ -463,7 +529,7 @@ def test_main_shares_one_consumer_across_arms(monkeypatch, tmp_path):
     assert code == 0
     assert len(constructions) == 1  # one admission for the whole run, all arms
     records = [json.loads(line) for line in (tmp_path / "out.jsonl").read_text().splitlines()]
-    assert len(records) == 3 and all(r["failure"] is None for r in records)
+    assert len(records) == len(battery.ARMS) and all(r["failure"] is None for r in records)
 
 
 def test_consumer_profile_qwen3_requires_development_runtime_x86(tmp_path, capsys):
@@ -542,7 +608,7 @@ def test_qwen3_profile_episode_carries_qwen_profile_id(tmp_path):
         workdir=tmp_path,
         snapshot=None,
         consumer_factory=lambda snapshot: Qwen3BatteryConsumer(
-            [tool(query="service port", top_k=10), cite_containing("port", "9000")]
+            [tool(query="service port", top_k=8), cite_containing("port", "9000")]
         ),
         limits=LIMITS,
         consumer_profile=QWEN3_SFT_V1_CONSUMER_PROFILE,
@@ -605,3 +671,154 @@ def test_development_checkpoint_flag_validation(tmp_path, monkeypatch, capsys):
     assert code == 0 and seen["identity"]["label"] == "development-v4-gate"
     records = [json.loads(line) for line in (tmp_path / "out.jsonl").read_text().splitlines()]
     assert records and all(r["failure"] == "RuntimeError: stop before model load" for r in records)
+
+
+# --- review conditions C2-C7 (2026-11-09 review) ----------------------------
+
+
+def test_context_inline_arm_embeds_stream_with_functional_empty_retrieve(tmp_path):
+    # C2/C3: the inline_evidence construction is a full arm — events embedded
+    # in the prompt as untrusted inline source data, retrieve present and
+    # functional on an empty store, cell tagged context_inline.
+    scenario = chain_scenario()
+    holder = {}
+
+    def factory(snapshot):
+        consumer = Llama3BatteryConsumer([tool(query="service port", top_k=8), final({"claims": []})])
+        holder["consumer"] = consumer
+        return consumer
+
+    record = battery.run_battery_episode(
+        scenario,
+        "context_inline",
+        workdir=tmp_path,
+        snapshot=None,
+        consumer_factory=factory,
+        limits=LIMITS,
+    )
+    assert record["failure"] is None and record["terminal_status"] == "completed"
+    assert record["cell"] == "context_inline"
+    assert record["backend"] == {"kind": "empty_store", "evidence": "inline_prompt"}
+    assert record["ingestion"] == {"events": 0, "supersessions": 0}
+    # The prompt embeds every fixture event behind the untrusted-data header.
+    prompt = holder["consumer"].requests[0]["messages"][-1]["content"]
+    assert battery.control.INLINE_HEADER in prompt
+    for event in scenario.events:
+        assert f"record {event.record_id}: {event.text}" in prompt
+    # Retrieve is present and functional; the store is empty.
+    assert record["retrieval_attempted"] is True and record["retrieve_first"] is True
+    feedback = json.loads(holder["consumer"].requests[1]["messages"][-1]["content"])
+    assert feedback["records"] == [] and feedback["returned_count"] == 0
+    # Event-clock parity: the inline arm shares the scenario stream digest.
+    dml = run_episode(scenario, "dml_memory", [final({"claims": []})], tmp_path / "dml")
+    assert record["event_stream_digest"] == dml["event_stream_digest"]
+    # The inline arm is not part of the memory-bearing pairing check.
+    assert battery.first_retrieve_query_checks([record]) == []
+
+
+def test_fourth_arm_stream_parity(tmp_path):
+    # C2: the fourth arm sees the identical validated event stream digest.
+    scenario = chain_scenario()
+    digests = {
+        arm: run_episode(scenario, arm, [final({"claims": []})], tmp_path / arm)["event_stream_digest"]
+        for arm in battery.ARMS
+    }
+    assert len(set(digests.values())) == 1
+
+
+def test_return_parity_digest_structural_parity(tmp_path):
+    # C4: with the same first query, the persistent arms' presented-record
+    # list shapes (presentation order + field sets + requested top_k) are
+    # structurally identical; an empty-return arm digests differently.
+    scenario = chain_scenario()
+    records = {}
+    presented = {}
+    for arm in battery.PERSISTENT_ARMS:
+        holder = {}
+
+        def factory(snapshot, holder=holder):
+            consumer = Llama3BatteryConsumer([tool(query="service port", top_k=8), cite_containing("port", "9000")])
+            holder["consumer"] = consumer
+            return consumer
+
+        records[arm] = battery.run_battery_episode(
+            scenario,
+            arm,
+            workdir=tmp_path / arm,
+            snapshot=None,
+            consumer_factory=factory,
+            limits=LIMITS,
+            embedder=LexicalEmbedder(),
+            rag_store_factory=rag_store_factory,
+        )
+        assert records[arm]["failure"] is None
+        feedback = json.loads(holder["consumer"].requests[1]["messages"][-1]["content"])
+        assert feedback["requested_top_k"] == battery.TOP_K_CAP
+        presented[arm] = feedback["records"]
+    dml_digest = records["dml_memory"]["return_parity_digest"]
+    assert dml_digest is not None and dml_digest == records["rag_memory"]["return_parity_digest"]
+    # Identical presentation field sets, position by position (retrieval rank).
+    assert [sorted(record) for record in presented["dml_memory"]] == [
+        sorted(record) for record in presented["rag_memory"]
+    ]
+    assert presented["dml_memory"]  # parity is over nonempty presentations here
+    empty = run_episode(
+        scenario, "no_memory", [tool(query="service port", top_k=8), final({"claims": []})], tmp_path / "empty"
+    )
+    assert empty["return_parity_digest"] != dml_digest
+
+
+def test_first_retrieve_query_recorded_and_mismatch_flagged(tmp_path):
+    # C5: the first retrieve query is recorded per episode; the per-scenario
+    # identity check flags divergence with a retained note, never silent.
+    scenario = chain_scenario()
+    dml = run_episode(
+        scenario, "dml_memory", [tool(query="service port", top_k=8), final({"claims": []})], tmp_path / "dml"
+    )
+    rag = run_episode(
+        scenario, "rag_memory", [tool(query="service port", top_k=8), final({"claims": []})], tmp_path / "rag"
+    )
+    assert dml["first_retrieve_query"] == "service port" == rag["first_retrieve_query"]
+    (check,) = battery.first_retrieve_query_checks([dml, rag])
+    assert check["identical"] is True and check["note"] is None
+    assert check["queries"] == {"dml_memory": "service port", "rag_memory": "service port"}
+    # A divergence is retained with an explicit difference note.
+    diverged = dict(rag, first_retrieve_query="a different query")
+    (check,) = battery.first_retrieve_query_checks([dml, diverged])
+    assert check["identical"] is False and "DIFFERENCE RETAINED" in check["note"]
+    assert check["queries"]["rag_memory"] == "a different query"
+    # An arm that never retrieves is reported, not silently dropped.
+    no_call = run_episode(scenario, "dml_memory", [final({"claims": []})], tmp_path / "no_call")
+    assert no_call["first_retrieve_query"] is None
+    (check,) = battery.first_retrieve_query_checks([no_call, rag])
+    assert check["identical"] is False and check["note"] is not None
+
+
+def test_abstention_cause_all_three_values(tmp_path):
+    # C6: every empty_claims_final carries a pre-registered abstention cause.
+    scenario = chain_scenario()
+    direct = run_episode(scenario, "dml_memory", [final({"claims": []})], tmp_path / "direct")
+    assert direct["verdict"] == "empty_claims_final" and direct["abstention_cause"] == "no_retrieve_call"
+    empty = run_episode(
+        scenario, "no_memory", [tool(query="service port", top_k=8), final({"claims": []})], tmp_path / "empty"
+    )
+    assert empty["verdict"] == "empty_claims_final" and empty["abstention_cause"] == "no_records_returned"
+    supported = run_episode(
+        scenario, "dml_memory", [tool(query="service port", top_k=8), final({"claims": []})], tmp_path / "supported"
+    )
+    assert supported["presented_record_ids"] and supported["verdict"] == "empty_claims_final"
+    assert supported["abstention_cause"] == "records_returned_no_support"
+    answered = run_episode(
+        scenario,
+        "dml_memory",
+        [tool(query="service port", top_k=8), cite_containing("port", "9000")],
+        tmp_path / "answered",
+    )
+    assert answered["verdict"] == "valid_cited_final" and answered["abstention_cause"] is None
+    summary = battery.summarize([direct, empty, supported, answered])
+    assert summary["dml_memory"]["abstention_causes"] == {
+        "no_records_returned": 0,
+        "records_returned_no_support": 1,
+        "no_retrieve_call": 1,
+    }
+    assert summary["no_memory"]["abstention_causes"]["no_records_returned"] == 1

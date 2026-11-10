@@ -70,6 +70,11 @@ PRECOMMIT_CONFLICT_MODEL_RESULT = ('{"effects":"none","error":{"code":"stale_rec
     '"message":"The operation was rejected because a referenced record changed. No operation was executed. Previously returned records may be stale."}}')
 VALIDATION_MODEL_RESULT = ('{"effects":"none","error":{"code":"distinct_records_required",'
     '"message":"Supersede requires different source and replacement records. No operation was executed."}}')
+RETRIEVE_TOP_K_CAP_MODEL_RESULT = ('{"effects":"none","error":{"code":"top_k_cap_exceeded",'
+    '"message":"Retrieve top_k exceeds this episode\'s declared cap. No retrieval was executed; '
+    'retry with top_k at or below the declared maximum."}}')
+# Proven pre-dispatch validation rejections the v2 protocol may emit as model feedback.
+VALIDATION_REJECTION_RESULTS = {"supersede": VALIDATION_MODEL_RESULT, "retrieve": RETRIEVE_TOP_K_CAP_MODEL_RESULT}
 MAX_ACTION_BYTES = 64 * 1024
 MAX_EVENT_BYTES = 16 * 1024 * 1024
 MAX_EPISODE_BYTES = 64 * 1024 * 1024
@@ -595,11 +600,22 @@ def presented_record_identities(payload, scope):
     return result
 
 
-def episode_tool_definitions():
-    """The fixed schemas shown to the model, shared with the trusted gateway."""
-    return [{"type": "function", "function": {"name": name, "description": _TOOL_DESCRIPTIONS[name], "parameters": {
+def episode_tool_definitions(tool_top_k_max=None):
+    """The fixed schemas shown to the model, shared with the trusted gateway.
+
+    ``tool_top_k_max`` declares a per-episode retrieve top_k presentation cap
+    (<= the schema maximum); when set it is part of the episode_started
+    envelope and the fixed-protocol tools check expects the capped schema.
+    """
+    tools = [{"type": "function", "function": {"name": name, "description": _TOOL_DESCRIPTIONS[name], "parameters": {
         "type": "object", "properties": deepcopy(arguments), "required": list(arguments),
         "additionalProperties": False}}} for name, arguments in _ARGUMENTS.items()]
+    if tool_top_k_max is not None:
+        _integer(tool_top_k_max, minimum=1, maximum=10)
+        for tool in tools:
+            if tool["function"]["name"] == "retrieve":
+                tool["function"]["parameters"]["properties"]["top_k"]["maximum"] = tool_top_k_max
+    return tools
 
 
 def validate_limits(limits):
@@ -967,7 +983,9 @@ def validate_event(event):
         extra = ("execution_protocol", "consumer_profile") if version == EVENT_VERSION_V2 else ()
         _keys(payload, ("execution_path", "limits", "prompt", "scope",
                         "seed_receipts_digest", "ranking_scope", "allowed_tools", "effective_time",
-                        "prior_context", *extra))
+                        "prior_context", *extra), ("tool_top_k_max",))
+        if payload.get("tool_top_k_max") is not None:
+            _integer(payload["tool_top_k_max"], minimum=1, maximum=10)
         if extra and (payload["execution_protocol"] != EXECUTION_PROTOCOL_V2
                       or payload["consumer_profile"] not in EPISODE_VALIDATION_PROFILES):
             raise AgentEpisodeError("Episode execution protocol differs")
@@ -1085,8 +1103,8 @@ def validate_event(event):
             raise AgentEpisodeError("Validation recovery requires the v2 protocol")
         _keys(payload, ("name", "arguments", "error_code", "effects", "model_result", "latency_ms"))
         _tool(payload["name"], payload["arguments"])
-        if (payload["name"] != "supersede" or payload["error_code"] != VALIDATION_ERROR_CODE
-                or payload["effects"] != "none" or payload["model_result"] != VALIDATION_MODEL_RESULT):
+        if (payload["error_code"] != VALIDATION_ERROR_CODE or payload["effects"] != "none"
+                or VALIDATION_REJECTION_RESULTS.get(payload["name"]) != payload["model_result"]):
             raise AgentEpisodeError("Unlisted pre-dispatch rejection")
         _number(payload["latency_ms"])
     elif kind == "tool_completed":
@@ -1298,7 +1316,7 @@ def validate_episode_events(events, *, require_terminal=True):
                     used_input=used_input, used_output=used_output)
             if canonical_json(request_payload["messages"]) != canonical_json(next_messages):
                 raise AgentEpisodeError("Exact model messages differ from the full causal transcript")
-            expected_tools = [tool for tool in episode_tool_definitions()
+            expected_tools = [tool for tool in episode_tool_definitions(events[0]["payload"].get("tool_top_k_max"))
                               if tool["function"]["name"] in events[0]["payload"]["allowed_tools"]]
             if canonical_json(request_payload.get("tools", [])) != canonical_json(expected_tools):
                 raise AgentEpisodeError("Model tools differ from the fixed protocol")
@@ -1453,10 +1471,16 @@ def validate_episode_events(events, *, require_terminal=True):
                     or canonical_json(payload["arguments"]) != canonical_json(action["arguments"])
                     or payload["name"] not in events[0]["payload"]["allowed_tools"]):
                 raise AgentEpisodeError("Rejected proposal differs from model output or authority")
-            left = ledger.get(payload["arguments"]["record_ref"])
-            right = ledger.get(payload["arguments"]["replacement_ref"])
-            if left is None or right is None or left[0] != right[0]:
-                raise AgentEpisodeError("No presented same-record identity derives this rejection")
+            if payload["name"] == "supersede":
+                left = ledger.get(payload["arguments"]["record_ref"])
+                right = ledger.get(payload["arguments"]["replacement_ref"])
+                if left is None or right is None or left[0] != right[0]:
+                    raise AgentEpisodeError("No presented same-record identity derives this rejection")
+            elif payload["name"] == "retrieve":
+                declared_cap = events[0]["payload"].get("tool_top_k_max")
+                if (declared_cap is None or payload["model_result"] != RETRIEVE_TOP_K_CAP_MODEL_RESULT
+                        or not payload["arguments"]["top_k"] > declared_cap):
+                    raise AgentEpisodeError("No declared top_k cap violation derives this rejection")
             calls.add(call_id)
             feedback_id = (completed_model["payload"]["native_tool_call_id"] if selected_profile in NATIVE_REMOTE_VLLM_CONSUMER_PROFILES else call_id)
             presented.append((feedback_id, payload["model_result"]))

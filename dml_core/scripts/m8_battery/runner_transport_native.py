@@ -14,10 +14,19 @@ differ in exactly one component: what the ``retrieve`` tool is backed by.
   (``daystrom_dml.services.m8_memory_baseline.PersistentRAGBaseline``) fed the
   SAME event stream, receipt-free; retrieval ranking/selection is the
   baseline's own cosine+recency current view.
+- ``context_inline``: the evidence-fed context floor (review condition
+  C2/C3): the same fixture events are embedded in the task prompt as
+  untrusted inline source data (control.py's ``inline_evidence``
+  construction, the cell the manifest's -2pt non-inferiority gate was
+  derived against) AND the retrieve tool remains present and functional on
+  an EMPTY store. Inline-arm episodes are tagged cell ``context_inline``
+  and are excluded from the persistent-arm statistics grouping.
 - ``no_memory``: the retrieve tool is present but its backend discards the
   stream and always returns zero records (the policy with a dead retrieve).
+  Role: POLICY FLOOR, not the context floor (review condition C2); it may
+  not carry the manifest's context-only gates.
 
-Fairness contract: all three backends receive the identical fixture event
+Fairness contract: all four backends receive the identical fixture event
 stream; ``event_stream_digest`` (a canonical digest of the validated event
 envelopes) is recorded per episode and MUST match across arms of one
 scenario/seed — that equality is the event-clock parity evidence. The episode
@@ -28,6 +37,34 @@ the model-facing result shape; the backend only answers
 ``retrieve_context``. ``presented_record_ids`` are backend-assigned integer
 ids (DML-assigned for dml_memory; ingestion-order ids for rag_memory), never
 fixture record_ids.
+
+Review-condition evidence (2026-11-09 review, docs/m8-transport-native-fairness-REVIEW-2026-11-09.md):
+
+- C4 retrieve-return parity: both persistent arms present the retrieve tool
+  with ``top_k`` maximum ``TOP_K_CAP`` (8, the manifest fixed-candidate cap)
+  — the cap is changed at the tool presentation layer (declared in the
+  episode_started envelope as ``tool_top_k_max``, fixed-protocol validated)
+  and enforced at the bridge as a proven no-dispatch validation rejection,
+  never a silent clamp; the declared per-episode cap is recorded as
+  ``retrieve_top_k_cap``. The RAG baseline's frozen limit equals the same
+  cap, so its (declared) clamp is defense-in-depth; the DML store needs no
+  clamp because the presented cap binds first. Presentation order is each
+  backend's own retrieval rank, unmodified. Every episode records
+  ``return_parity_digest``: a sha256 over the canonical presented-record
+  list shape per retrieve call (presentation-order field sets + requested
+  top_k + returned count; backend-assigned id VALUES are deliberately
+  excluded so the digest is comparable across arms).
+- C5 first-action pairing: ``first_retrieve_query`` is recorded per
+  episode; the summary carries ``first_retrieve_query_checks``, a
+  per-scenario/seed identity check across the memory-bearing arms
+  (``dml_memory``, ``rag_memory``). A divergence is retained with an
+  explicit difference note — never silently dropped — and is a harness
+  defect candidate.
+- C6 pre-registered abstention cause: every ``empty_claims_final`` episode
+  records ``abstention_cause`` in {``no_records_returned``,
+  ``records_returned_no_support``, ``no_retrieve_call``}, computed from the
+  episode's retrieve calls and presented ids; per-arm counts are in the
+  summary.
 
 Verifier, fixtures, evidence discipline (retain everything, repair nothing),
 token accounting (any unknown per-call count makes the total unknown) and the
@@ -44,7 +81,9 @@ KNOWN GAPS (inherited from control.py unless noted; nothing here is faked):
    baseline ranks by its own envelope timestamps (event-clock parity contract
    `dml-append-request-v2` remains pending independent API review).
 4. The rag_memory backend's top_k is clamped to the baseline's frozen limit
-   (8); the cap is declared in the backend identity of every rag episode.
+   (8), which equals TOP_K_CAP; the cap is declared in the backend identity
+   of every rag episode and, since the C4 presentation cap binds first, the
+   clamp is defense-in-depth rather than the parity mechanism.
 5. rag_memory presentation records are synthesized in the DML record shape
    from the baseline's envelopes so the unchanged truth-based verifier can
    ground citations in presented records; they carry no DML receipts and are
@@ -71,6 +110,7 @@ from daystrom_dml.contracts.agent_episode import (
     EXECUTION_PROTOCOL_V2,
     LLAMA3_SFT_V3_CONSUMER_PROFILE,
     QWEN3_SFT_V1_CONSUMER_PROFILE,
+    parse_agent_action,
 )
 from daystrom_dml.contracts.profile import PROFILE_ID
 from daystrom_dml.services import m8_accounting
@@ -85,7 +125,20 @@ from daystrom_dml.services.m8_memory_baseline import PersistentRAGBaseline, vali
 from scripts.m8_battery import control
 from scripts.m8_battery import schema as fixture_schema
 
-ARMS = ("dml_memory", "rag_memory", "no_memory")
+ARMS = ("dml_memory", "rag_memory", "context_inline", "no_memory")
+# Review-condition roles (C2/C3): the persistent-arm comparison is dml vs
+# rag; context_inline is the evidence-fed context floor the manifest's -2pt
+# non-inferiority gate was derived against; no_memory is retained ONLY as
+# the policy floor (policy + dead retrieve) and carries no context-only gate.
+ARM_ROLES = {
+    "dml_memory": "persistent",
+    "rag_memory": "persistent",
+    "context_inline": "context_floor",
+    "no_memory": "policy_floor",
+}
+PERSISTENT_ARMS = tuple(arm for arm in ARMS if ARM_ROLES[arm] == "persistent")
+MEMORY_BEARING_ARMS = PERSISTENT_ARMS  # arms whose retrieve can return records
+CONTEXT_INLINE_CELL = "context_inline"
 EVIDENCE_SCHEMA = "dml.m8.transport-native-battery.v1"
 SUMMARY_SCHEMA = "dml.m8.transport-native-battery-summary.v1"
 TASK_ID = "m8-transport-native-battery"
@@ -94,7 +147,9 @@ ALLOWED_TOOLS = control.ALLOWED_TOOLS
 PROFILES = control.PROFILES
 EMBEDDING_DIMENSIONS = 384
 TOKEN_BUDGET = 2048
-RAG_TOP_K_CAP = 8  # PersistentRAGBaseline's frozen retrieval limit
+TOP_K_CAP = 8  # manifest fixed-candidate retrieve cap; presented to BOTH persistent arms
+RAG_TOP_K_CAP = TOP_K_CAP  # PersistentRAGBaseline's frozen retrieval limit
+ABSTENTION_CAUSES = ("no_records_returned", "records_returned_no_support", "no_retrieve_call")
 
 RECORD_KEYS = (
     "schema",
@@ -115,6 +170,10 @@ RECORD_KEYS = (
     "presented_record_ids",
     "ingestion",
     "event_stream_digest",
+    "retrieve_top_k_cap",
+    "first_retrieve_query",
+    "return_parity_digest",
+    "abstention_cause",
     "terminal_status",
     "verdict",
     "truth_covered",
@@ -187,10 +246,17 @@ def _budget_render_records(records):
 
 
 class EmptyRetrieveBackend:
-    """no_memory arm: the retrieve tool is present and always returns zero records."""
+    """Retrieve tool present and functional on an empty store (zero records).
+
+    Backs both empty-store arms: ``no_memory`` (policy floor — the stream is
+    validated for the parity digest and discarded) and ``context_inline``
+    (context floor — the stream is presented inline in the prompt instead).
+    """
 
     production_profile_id = PROFILE_ID
-    identity = {"kind": "empty"}
+
+    def __init__(self, identity=None):
+        self.identity = identity if identity is not None else {"kind": "empty"}
 
     def retrieve_context(self, query, *, top_k, as_of, tenant_id, client_id, session_id, instance_id):
         return {
@@ -290,6 +356,62 @@ def ingest_rag(store, scenario, *, embedder):
     return records
 
 
+def _annotate_retrieval_evidence(record, report):
+    """C4/C5 per-episode retrieval evidence from the episode event stream.
+
+    Records the first emitted retrieve query (C5 pairing anchor) and the
+    return-parity digest: a sha256 over the canonical presented-record list
+    shape per retrieve call — presentation-order field sets, requested top_k
+    and returned count. Backend-assigned id values are deliberately excluded
+    so structural parity is checkable across arms; presentation ORDER (the
+    backend's retrieval rank) is preserved by the list positions.
+    """
+    first_query = None
+    call_shapes = []
+    for event in report["events"]:
+        kind, payload = event["kind"], event["payload"]
+        if kind == "model_completed" and first_query is None:
+            try:
+                action = parse_agent_action(payload["text"])
+            except Exception:  # noqa: BLE001 — unparseable actions carry no query
+                continue
+            if action["kind"] == "tool" and action["name"] == "retrieve":
+                first_query = action["arguments"]["query"]
+        elif kind == "tool_completed" and payload.get("name") == "retrieve":
+            try:
+                shown = json.loads(payload["model_result"])
+            except (ValueError, TypeError):
+                continue
+            records = [item for item in shown.get("records", []) if type(item) is dict]
+            call_shapes.append(
+                {
+                    "requested_top_k": shown.get("requested_top_k"),
+                    "returned_count": shown.get("returned_count", len(records)),
+                    "presented_fields": [sorted(item) for item in records],
+                }
+            )
+    record["first_retrieve_query"] = first_query
+    record["return_parity_digest"] = hashlib.sha256(canonical(call_shapes).encode("utf-8")).hexdigest()
+
+
+def _classify_abstention(record):
+    """C6 pre-registered abstention cause for empty_claims_final episodes."""
+    if record["verdict"] != "empty_claims_final":
+        return None
+    if not record["retrieval_attempted"]:
+        return "no_retrieve_call"
+    if not record["presented_record_ids"]:
+        return "no_records_returned"
+    return "records_returned_no_support"
+
+
+def _task_prompt(scenario, arm):
+    """Task prompt; the context_inline arm embeds the stream as untrusted inline data."""
+    if arm == "context_inline":
+        return control.build_prompt(scenario, "inline_evidence")
+    return scenario.query
+
+
 def run_battery_episode(
     scenario,
     arm,
@@ -335,6 +457,10 @@ def run_battery_episode(
         "presented_record_ids": [],
         "ingestion": {"events": 0, "supersessions": 0},
         "event_stream_digest": None,
+        "retrieve_top_k_cap": TOP_K_CAP,
+        "first_retrieve_query": None,
+        "return_parity_digest": None,
+        "abstention_cause": None,
         "terminal_status": None,
         "verdict": None,
         "truth_covered": False,
@@ -345,6 +471,8 @@ def run_battery_episode(
         "output_tokens": 0,
         "wall_seconds": 0.0,
     }
+    if arm == "context_inline":
+        record["cell"] = CONTEXT_INLINE_CELL
     episode_id = f"m8tn-{scenario.scenario_id}-{arm}-s{seed}"[:128]
     adapter = None
     store = None
@@ -384,6 +512,20 @@ def run_battery_episode(
 
             def current_records():
                 return list(rag_records.values())
+        elif arm == "context_inline":
+            # Context floor (C2/C3): the same stream is validated for the
+            # parity digest and embedded in the task prompt as untrusted
+            # inline source data; the retrieve tool is present and functional
+            # on an empty store. Nothing is ingested.
+            record["ingestion"] = {"events": 0, "supersessions": 0}
+            backend = EmptyRetrieveBackend(identity={"kind": "empty_store", "evidence": "inline_prompt"})
+            record["backend"] = dict(backend.identity)
+            seed_receipts = ()
+            observations = []
+            seed_records = {}
+
+            def current_records():
+                return []
         else:
             # no_memory: the same stream is validated for the parity digest and
             # discarded; nothing is retained or presented.
@@ -406,6 +548,7 @@ def run_battery_episode(
             allowed_tools=ALLOWED_TOOLS,
             effective_time=EPISODE_EFFECTIVE_TIME,
             execution_protocol=EXECUTION_PROTOCOL_V2,
+            retrieve_top_k_cap=TOP_K_CAP,
         )
         consumer = shared_consumer if shared_consumer is not None else consumer_factory(snapshot)
         identity = getattr(consumer, "identity", None)
@@ -415,7 +558,7 @@ def run_battery_episode(
         report = run_episode_with_test_dependencies(
             consumer=consumer,
             toolbox=toolbox,
-            task={"id": TASK_ID, "prompt": scenario.query},
+            task={"id": TASK_ID, "prompt": _task_prompt(scenario, arm)},
             scenario={"id": scenario.scenario_id, "scope": deepcopy(scenario.scope)},
             seed_records=seed_records,
             current_records=current_records,
@@ -424,8 +567,11 @@ def run_battery_episode(
             effective_time=EPISODE_EFFECTIVE_TIME,
             episode_id=episode_id,
             consumer_profile=consumer_profile,
+            tool_top_k_max=TOP_K_CAP,
         )
         control._fill_from_report(record, report)
+        _annotate_retrieval_evidence(record, report)
+        record["abstention_cause"] = _classify_abstention(record)
     except Exception as exc:  # noqa: BLE001 — every failure is retained evidence
         record["failure"] = f"{type(exc).__name__}: {exc}"
     finally:
@@ -465,6 +611,12 @@ def summarize(episodes):
     m8_accounting.cost_per_correct_success semantics where the runtime
     provides complete token counts and the arm has at least one valid final;
     otherwise it is None — never a silent zero and never a free pass.
+
+    Each arm entry carries its review-condition role (``ARM_ROLES``):
+    persistent arms (dml/rag) are the primary comparison; ``context_inline``
+    is the context floor and is excluded from the persistent-arm statistics
+    grouping; ``no_memory`` is the policy floor only. ``abstention_causes``
+    is the pre-registered C6 breakdown of empty_claims_final episodes.
     """
     per_arm = {}
     for arm in ARMS:
@@ -481,7 +633,11 @@ def summarize(episodes):
         except ValueError:
             cost_per_valid = None
         failures = []
+        abstention_causes = {cause: 0 for cause in ABSTENTION_CAUSES}
         for episode in arm_episodes:
+            cause = episode.get("abstention_cause")
+            if cause in abstention_causes:
+                abstention_causes[cause] += 1
             failure = episode.get("failure")
             status = episode.get("terminal_status")
             if failure or status not in (None, "completed"):
@@ -492,6 +648,7 @@ def summarize(episodes):
                     }
                 )
         per_arm[arm] = {
+            "role": ARM_ROLES[arm],
             "episodes": total,
             "retrieval_attempted_rate": round(sum(bool(e.get("retrieval_attempted")) for e in arm_episodes) / total, 4),
             "retrieve_first_rate": round(sum(bool(e.get("retrieve_first")) for e in arm_episodes) / total, 4),
@@ -502,6 +659,7 @@ def summarize(episodes):
                 sum(e.get("verdict") == "unsupported_final" for e in arm_episodes) / total, 4
             ),
             "abstention_rate": round(sum(e.get("verdict") == "empty_claims_final" for e in arm_episodes) / total, 4),
+            "abstention_causes": abstention_causes,
             "step_limit_rate": round(sum(e.get("terminal_status") == "step_limit" for e in arm_episodes) / total, 4),
             "model_calls": sum(e["model_calls"] for e in arm_episodes),
             "input_tokens": _optional_total(e["input_tokens"] for e in arm_episodes),
@@ -510,6 +668,47 @@ def summarize(episodes):
             "failures": failures,
         }
     return per_arm
+
+
+def first_retrieve_query_checks(episodes):
+    """C5 pairing anchor: per scenario/seed, first retrieve query across memory-bearing arms.
+
+    The first emitted retrieve query must be byte-identical across the
+    memory-bearing arms of one scenario/seed (same prompt, same seed-reset
+    sampler). A match is recorded as ``identical``; a divergence or a missing
+    query is retained with an explicit difference note — never silently
+    dropped — and is a harness-defect candidate. Arms without memory
+    (context_inline, no_memory) are not part of the check.
+    """
+    groups = {}
+    for episode in episodes:
+        if episode["arm"] not in MEMORY_BEARING_ARMS:
+            continue
+        key = (episode["scenario_id"], episode.get("sampling_seed", 0))
+        groups.setdefault(key, {})[episode["arm"]] = episode.get("first_retrieve_query")
+    checks = []
+    for (scenario_id, seed), queries in sorted(groups.items()):
+        missing = [arm for arm in MEMORY_BEARING_ARMS if arm not in queries]
+        values = [queries[arm] for arm in MEMORY_BEARING_ARMS if arm in queries]
+        identical = not missing and None not in values and len(set(values)) == 1
+        note = None
+        if missing:
+            note = "missing episodes for arms: " + ",".join(missing)
+        elif None in values:
+            note = "no retrieve call in at least one memory-bearing arm; no first query to compare"
+        elif not identical:
+            note = "DIFFERENCE RETAINED: first retrieve query diverged across memory-bearing arms (harness-defect candidate)"
+        checks.append(
+            {
+                "scenario_id": scenario_id,
+                "sampling_seed": seed,
+                "arms": list(MEMORY_BEARING_ARMS),
+                "queries": queries,
+                "identical": identical,
+                "note": note,
+            }
+        )
+    return checks
 
 
 def _parse_arms(value):
@@ -704,16 +903,27 @@ def main(argv=None, *, consumer_factory=None, adapter_factory=None, embedder_fac
         "date": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "wall_seconds": round(time.time() - started, 1),
         "arms": list(args.arms),
+        "arm_roles": {arm: ARM_ROLES[arm] for arm in args.arms},
+        "persistent_arms": [arm for arm in args.arms if arm in PERSISTENT_ARMS],
+        "context_floor_arm": "context_inline",
+        "policy_floor_arm": "no_memory",
+        "retrieve_top_k_cap": TOP_K_CAP,
         "consumer_profile": profile,
         "seeds": sorted(args.seeds),
         "scenarios": len(scenarios),
         "episodes": len(episodes),
         "per_arm": summarize(episodes),
+        "first_retrieve_query_checks": first_retrieve_query_checks(episodes),
         "limitations": (
             "Development transport-native battery only: test_injected episode "
             "envelope (not live_local), fixture workloads, pinned sampler seed, "
             "no benchmark, no held-out data, no competence claim; arms differ "
-            "only in the retrieve backend and every failure is retained."
+            "only in the retrieve backend and every failure is retained. "
+            "context_inline is the evidence-fed context floor (the manifest "
+            "-2pt non-inferiority gate's reference arm) and is excluded from "
+            "the persistent-arm statistics grouping; no_memory is retained "
+            "only as the policy floor (policy + dead retrieve) and carries no "
+            "context-only gate."
         ),
     }
     summary_path = output.with_suffix(".summary.json")

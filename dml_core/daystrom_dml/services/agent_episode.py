@@ -31,7 +31,7 @@ from ..contracts.agent_episode import (
     validate_prior_context, validate_verifier,
     EXECUTION_PROTOCOL_V1, EXECUTION_PROTOCOL_V2, VALIDATION_CONSUMER_PROFILE, RECOVERY_CONSUMER_PROFILE, QWEN3_CONSUMER_PROFILES,
     QWEN2_BF16_SAMPLED_CONSUMER_PROFILE, QWEN3_GGUF_ALL_CONSUMER_PROFILES, REMOTE_VLLM_CONSUMER_PROFILES, LLAMA3_SFT_CONSUMER_PROFILE, LLAMA3_SFT_V3_CONSUMER_PROFILE, LLAMA3_SFT_CONSUMER_PROFILES, QWEN3_SFT_V1_CONSUMER_PROFILE,
-    VALIDATION_ERROR_CODE, VALIDATION_MODEL_RESULT, execution_protocol_for_profile,
+    VALIDATION_ERROR_CODE, execution_protocol_for_profile,
     NATIVE_REMOTE_VLLM_CONSUMER_PROFILES, NATIVE_REASONING_CONSUMER_PROFILES, NATIVE_RECOVERY_CONSUMER_PROFILES, NATIVE_REMOTE_VLLM_V6_CONSUMER_PROFILE,
     native_budget_messages,
     PRECOMMIT_CONFLICT_MODEL_RESULT, native_feedback_messages,
@@ -129,17 +129,18 @@ def _elapsed(start: float) -> float:
 
 
 def _started(episode_id, task, scope, limits, execution_path, seed_receipts_digest=None, allowed_tools=None,
-             effective_time=2000000000, prior_context=None, consumer_profile="gpt2-v1"):
+             effective_time=2000000000, prior_context=None, consumer_profile="gpt2-v1", tool_top_k_max=None):
     protocol = execution_protocol_for_profile(consumer_profile)
     extra = ({"execution_protocol": protocol, "consumer_profile": consumer_profile}
              if protocol == EXECUTION_PROTOCOL_V2 else {})
+    declared_cap = {"tool_top_k_max": tool_top_k_max} if tool_top_k_max is not None else {}
     return make_event(episode_id=episode_id, task_id=task["id"], sequence=0,
         execution_protocol=protocol,
         kind="episode_started", payload={"execution_path": execution_path,
         "limits": asdict(limits), "prompt": task["prompt"], "scope": scope,
         "seed_receipts_digest": seed_receipts_digest, "ranking_scope": "synthetic_fixture",
         "allowed_tools": list(task_allowed_tools(task) if allowed_tools is None else allowed_tools),
-        "effective_time": effective_time, "prior_context": prior_context, **extra})
+        "effective_time": effective_time, "prior_context": prior_context, **extra, **declared_cap})
 
 
 def _tool_effects(exc, name):
@@ -158,7 +159,7 @@ def task_allowed_tools(task):
 
 
 def build_episode_request(task, *, messages=None, limits=EpisodeLimits(), allowed_tools=None, prior_context=None,
-                          consumer_profile="gpt2-v1"):
+                          consumer_profile="gpt2-v1", tool_top_k_max=None):
     """Build the complete next request without truncation; useful for preflight."""
     validate_consumer_profile(consumer_profile)
     allowed = task_allowed_tools(task) if allowed_tools is None else tuple(allowed_tools)
@@ -168,13 +169,13 @@ def build_episode_request(task, *, messages=None, limits=EpisodeLimits(), allowe
         rendered_messages = native_budget_messages(rendered_messages, limits=asdict(limits),
             step=0, used_input=0, used_output=0)
     return {"messages": rendered_messages,
-        "tools": [tool for tool in episode_tool_definitions() if tool["function"]["name"] in allowed],
+        "tools": [tool for tool in episode_tool_definitions(tool_top_k_max) if tool["function"]["name"] in allowed],
         "output_reserved_tokens": limits.output_tokens,
         **({"message_policy": "native-reasoning-metadata-v1"} if consumer_profile in NATIVE_REASONING_CONSUMER_PROFILES else {})}
 
 
 def _run_loop(consumer, toolbox, *, task, limits, emit, prior_context=None,
-              execution_protocol=EXECUTION_PROTOCOL_V1, consumer_profile="gpt2-v1"):
+              execution_protocol=EXECUTION_PROTOCOL_V1, consumer_profile="gpt2-v1", tool_top_k_max=None):
     """Emit actual request/results; only admitted parsed model text selects work."""
     if (getattr(toolbox, "execution_protocol", EXECUTION_PROTOCOL_V1) != execution_protocol
             or execution_protocol == EXECUTION_PROTOCOL_V2 and type(toolbox) is not SelectedProfileEpisodeTools):
@@ -182,7 +183,7 @@ def _run_loop(consumer, toolbox, *, task, limits, emit, prior_context=None,
     if execution_protocol_for_profile(consumer_profile) != execution_protocol:
         raise AgentEpisodeError("Selected consumer profile and execution protocol differ")
     request = build_episode_request(task, limits=limits, allowed_tools=toolbox.allowed_tools, prior_context=prior_context,
-                                    consumer_profile=consumer_profile)
+                                    consumer_profile=consumer_profile, tool_top_k_max=tool_top_k_max)
     messages, tools = request["messages"], request["tools"]
     input_tokens = output_tokens = 0
     retrieval_ms = 0.0
@@ -281,16 +282,16 @@ def _run_loop(consumer, toolbox, *, task, limits, emit, prior_context=None,
                 emit("action_rejected", call_id, {"step": step, "error_code": type(exc).__name__})
                 return {"status": "invalid_action", "answer": None, "retrieval_ms": retrieval_ms}
             emit("tool_validation_rejected", tool_id, {"name": action["name"], "arguments": action["arguments"],
-                "error_code": VALIDATION_ERROR_CODE, "effects": "none", "model_result": VALIDATION_MODEL_RESULT,
+                "error_code": VALIDATION_ERROR_CODE, "effects": "none", "model_result": exc.model_result,
                 "latency_ms": _elapsed(before)})
             if consumer_profile in NATIVE_REMOTE_VLLM_CONSUMER_PROFILES:
-                messages.extend(native_feedback_messages(native_message, action["name"], action["arguments"], VALIDATION_MODEL_RESULT, consumer_profile=consumer_profile))
+                messages.extend(native_feedback_messages(native_message, action["name"], action["arguments"], exc.model_result, consumer_profile=consumer_profile))
                 continue
             messages.extend([
                 {"role": "assistant", "content": result.text, "tool_calls": [{"id": tool_id,
                  "type": "function", "function": {"name": action["name"],
                     "arguments": canonical_json(action["arguments"]).decode("utf-8")}}]},
-                {"role": "tool", "tool_call_id": tool_id, "name": action["name"], "content": VALIDATION_MODEL_RESULT},
+                {"role": "tool", "tool_call_id": tool_id, "name": action["name"], "content": exc.model_result},
             ])
             continue
         except Exception as exc:
@@ -408,14 +409,15 @@ def _prior_feedback(task, prior_context, previous_answers):
 def run_episode_with_test_dependencies(*, consumer, toolbox, task: dict, scenario: dict,
         seed_records: dict, current_records, limits=EpisodeLimits(), verifier=None,
         effective_time=2000000000, previous_answers=None, prior_context=None, episode_id=None,
-        consumer_profile="gpt2-v1") -> dict:
+        consumer_profile="gpt2-v1", tool_top_k_max=None) -> dict:
     """Explicit in-process test plumbing.  It does not promise a hard deadline."""
     ident = episode_id or "test-" + uuid.uuid4().hex
     start = time.monotonic()
     prior_context, previous_answers = _prior_feedback(task, prior_context, previous_answers)
     protocol = execution_protocol_for_profile(consumer_profile)
     events = [_started(ident, task, toolbox.scope, limits, "test_injected", allowed_tools=toolbox.allowed_tools,
-                       effective_time=effective_time, prior_context=prior_context, consumer_profile=consumer_profile)]
+                       effective_time=effective_time, prior_context=prior_context, consumer_profile=consumer_profile,
+                       tool_top_k_max=tool_top_k_max)]
     if toolbox.effective_time != effective_time:
         raise ValueError("Tool and verifier effective times differ")
     def emit(kind, call_id, payload):
@@ -427,7 +429,7 @@ def run_episode_with_test_dependencies(*, consumer, toolbox, task: dict, scenari
     usage_unknown = False
     try:
         outcome = _run_loop(consumer, toolbox, task=task, limits=limits, emit=emit, prior_context=prior_context,
-                            execution_protocol=protocol, consumer_profile=consumer_profile)
+                            execution_protocol=protocol, consumer_profile=consumer_profile, tool_top_k_max=tool_top_k_max)
     except Exception:
         outcome = {"status": "runner_error", "answer": None, "retrieval_ms": None}
         usage_unknown = True
