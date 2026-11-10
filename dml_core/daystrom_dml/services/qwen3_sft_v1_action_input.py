@@ -41,13 +41,14 @@ REVISION = "c202236235762e1c871ad0ccb60c8ee5ba337b9a"
 
 # Placeholder pins: admit nothing until the trained adapter is qualified.
 CHECKPOINT = {
-    "adapter_config.json": "0" * 64,
-    "adapter_model.safetensors": "0" * 64,
+    "adapter_config.json": "15772680a0a74f87b7449a2985c54b03184bd700d2fda807bb4c2d9cb19e2c6b",
+    "adapter_model.safetensors": "db45ff7a92c66e5a3574b9daf82daa9cb279f0a09039ac6d44c79ea9563bc4ab",
 }
 ADAPTER_TENSORS = 256  # first candidate layout (2026-11-07): 8 attn layers QKVO + 32 MLP gate/up/down, all F32 lora_A/B
 TRAINING_PROVENANCE = {
     "recipe": "dml-qwen3_5-9b-lora-sft-v1",
-    "status": "placeholder-unqualified",
+    "status": "qualified-2026-11-09",
+    "gate": "m9-charter-2026-11-06 §4: 6/6 on frozen control diagnostic (36 episodes, v4 surface)",
 }
 
 # sha256 of each upstream file at REVISION, computed at profile authoring time.
@@ -357,10 +358,10 @@ def identity_for_manifest(manifest):
     policy = {
         "consumer_profile": QWEN3_SFT_V1_CONSUMER_PROFILE,
         "hardware": {
-            "device": "NVIDIA GB300",
-            "capability": [10, 3],
-            "driver": "590.48.01",
-            "platform": "Linux aarch64",
+            "device": "NVIDIA RTX PRO 5000 72GB Blackwell",
+            "capability": [12, 0],
+            "driver": "595.99.02",
+            "platform": "Linux x86_64",
             "uid": 1000,
             "gid": 1000,
         },
@@ -491,7 +492,7 @@ class LocalQwen3SFTV1ActionInputConsumer:
                 )
                 label = "Development"
             else:
-                expected = ("590.48.01", "NVIDIA GB300", (10, 3))
+                expected = ("595.99.02", "NVIDIA RTX PRO 5000 72GB Blackwell", (12, 0))
                 label = "Qualified"
             if (
                 observed_driver,
@@ -538,7 +539,7 @@ class LocalQwen3SFTV1ActionInputConsumer:
         if not self._offline:
             actual = {name: importlib.metadata.version(name) for name in VERSIONS}
             machine = (
-                self._development_runtime["platform_machine"] if self._development_runtime is not None else "aarch64"
+                self._development_runtime["platform_machine"] if self._development_runtime is not None else "x86_64"
             )
             if (
                 actual != VERSIONS

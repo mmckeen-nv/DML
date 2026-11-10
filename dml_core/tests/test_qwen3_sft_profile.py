@@ -309,10 +309,14 @@ def test_placeholder_pins_are_fail_closed(tmp_path):
     (tmp_path / "model").mkdir()
     (tmp_path / "adapter").mkdir()
     (tmp_path / consumer_module.MANIFEST_NAME).write_text(json.dumps(manifest))
-    # Empty inventory can never match the placeholder official-inventory digest.
+    # Empty inventory can never match the qualified official-inventory digest.
     with pytest.raises(ModelInputError, match="official revision"):
         consumer_module.verify_manifest(tmp_path)
-    assert consumer_module.CHECKPOINT == {name: "0" * 64 for name in consumer_module.CHECKPOINT}
+    # Locked 2026-11-09 after the gate passed 6/6 (m9-charter §6 lock procedure).
+    assert consumer_module.CHECKPOINT == {
+        "adapter_config.json": "15772680a0a74f87b7449a2985c54b03184bd700d2fda807bb4c2d9cb19e2c6b",
+        "adapter_model.safetensors": "db45ff7a92c66e5a3574b9daf82daa9cb279f0a09039ac6d44c79ea9563bc4ab",
+    }
     # First candidate layout pinned 2026-11-07 (hybrid arch: 8x4 attn + 32x3 MLP, F32)
     assert consumer_module.ADAPTER_TENSORS == 256
     # First qualification (2026-11-07) filled the inventory + image pins from the
