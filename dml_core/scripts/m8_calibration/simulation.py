@@ -31,9 +31,11 @@ bound evaluations in this module route through ``cached_bound_evaluations``,
 which (a) memoizes by exact inputs — identical count vectors across
 replicates, structures, tests, and grid points are evaluated once — and
 (b) evaluates uncached keys in a stdlib ``multiprocessing`` process pool
-(default context ``fork`` on POSIX, ``spawn`` elsewhere). The service is
-deterministic, so caching and parallelism never change any returned value;
-they only skip or relocate repeated identical computation. Pool size defaults to
+(default context ``fork`` on POSIX, ``spawn`` elsewhere). The cache key
+includes the boundary rule (``wilks`` | ``wilks_plus_inflation``), so the
+conservative-rule re-measurement never collides with wilks entries. The
+service is deterministic, so caching and parallelism never change any
+returned value; they only skip or relocate repeated identical computation. Pool size defaults to
 ``min(16, os.cpu_count())`` and is overridable with
 ``DML_M8_CALIBRATION_WORKERS``; the context with ``DML_M8_CALIBRATION_MP``
 (``spawn`` | ``fork`` | ``off``). Any pool failure falls back to sequential
@@ -67,12 +69,17 @@ from daystrom_dml.services.m8_bootstrap import (
     CellSpec,
     paired_bootstrap,
 )
-from daystrom_dml.services.m8_statistics import paired_trinomial_inference
+from daystrom_dml.services.m8_statistics import (
+    BOUNDARY_RULE_WILKS,
+    BOUNDARY_RULES,
+    paired_trinomial_inference,
+)
 
 IntCounts: TypeAlias = npt.NDArray[np.int64]
 
 SEED_ENTROPY: tuple[int, ...] = (20260929,)
 DEFAULT_ALPHA = 0.05
+DEFAULT_BOUNDARY_RULE = BOUNDARY_RULE_WILKS
 _BOUNDARY_TOL = 1e-9
 _PROB_SUM_TOL = 1e-9
 _CACHE_LIMIT = 200_000
@@ -81,8 +88,8 @@ _MAX_WORKERS = 16
 _WORKERS_ENV = "DML_M8_CALIBRATION_WORKERS"
 _MP_ENV = "DML_M8_CALIBRATION_MP"
 
-# (alpha, weights, wins, losses, ties) -> (delta_hat, lower_bound, upper_bound)
-BoundKey: TypeAlias = tuple[float, tuple[float, ...], tuple[int, ...], tuple[int, ...], tuple[int, ...]]
+# (alpha, boundary_rule, weights, wins, losses, ties) -> (delta_hat, lower_bound, upper_bound)
+BoundKey: TypeAlias = tuple[float, str, tuple[float, ...], tuple[int, ...], tuple[int, ...], tuple[int, ...]]
 BoundValues: TypeAlias = tuple[float, float, float]
 BoundRequest: TypeAlias = tuple[Sequence[float], Sequence[int], Sequence[int], Sequence[int]]
 
@@ -93,6 +100,7 @@ __all__ = [
     "CellConfig",
     "CoverageReport",
     "DEFAULT_ALPHA",
+    "DEFAULT_BOUNDARY_RULE",
     "GatePassSummary",
     "ReplicateOutcome",
     "SEED_ENTROPY",
@@ -130,6 +138,12 @@ def _validate_alpha(alpha: float) -> float:
     if not isinstance(alpha, float) or not 0.0 < alpha < 0.5:
         raise ValueError("alpha must be a float in (0, 0.5)")
     return alpha
+
+
+def _validate_boundary_rule(boundary_rule: str) -> str:
+    if type(boundary_rule) is not str or boundary_rule not in BOUNDARY_RULES:
+        raise ValueError(f"boundary_rule must be one of {BOUNDARY_RULES}")
+    return boundary_rule
 
 
 @dataclass(frozen=True)
@@ -293,7 +307,7 @@ def simulate_trinomial_counts(
     if type(replicates) is not int or replicates < 1:
         raise ValueError("replicates: positive integer required")
     generators = cell_generators(len(configs), seed=seed)
-    counts = np.empty((replicates, len(configs), 3), dtype=np.int64)
+    counts: IntCounts = np.empty((replicates, len(configs), 3), dtype=np.int64)
     for ci, (gen, cfg) in enumerate(zip(generators, configs)):
         probs = np.array([cfg.p_win, cfg.p_loss, cfg.p_tie], dtype=np.float64)
         probs = probs / float(np.sum(probs))  # guard 1-ulp rounding in (q +/- delta) / 2
@@ -303,8 +317,10 @@ def simulate_trinomial_counts(
 
 def _bound_worker(job: BoundKey) -> tuple[BoundKey, BoundValues]:
     """One deterministic service call; top-level for process-pool pickling."""
-    alpha, weights, wins, losses, ties = job
-    result = paired_trinomial_inference(list(weights), list(wins), list(losses), list(ties), alpha=alpha)
+    alpha, boundary_rule, weights, wins, losses, ties = job
+    result = paired_trinomial_inference(
+        list(weights), list(wins), list(losses), list(ties), alpha=alpha, boundary_rule=boundary_rule
+    )
     return job, (result.delta_hat, result.lower_bound, result.upper_bound)
 
 
@@ -353,7 +369,7 @@ def _evaluate_uncached(jobs: list[BoundKey]) -> list[tuple[BoundKey, BoundValues
 _BOUND_CACHE: dict[BoundKey, BoundValues] = {}
 
 
-def _request_key(request: BoundRequest, alpha: float) -> BoundKey:
+def _request_key(request: BoundRequest, alpha: float, boundary_rule: str) -> BoundKey:
     if not isinstance(request, (tuple, list)) or len(request) != 4:
         raise ValueError("each request must be a (weights, wins, losses, ties) 4-tuple")
     weights, wins, losses, ties = request
@@ -376,27 +392,30 @@ def _request_key(request: BoundRequest, alpha: float) -> BoundKey:
     w_t, l_t, t_t = count_tuples
     if any(w + lo + t < 1 for w, lo, t in zip(w_t, l_t, t_t)):
         raise ValueError("empty cell (zero total count) is not allowed")
-    return (alpha, weight_tuple, w_t, l_t, t_t)
+    return (alpha, boundary_rule, weight_tuple, w_t, l_t, t_t)
 
 
 def cached_bound_evaluations(
     requests: Sequence[BoundRequest],
     *,
     alpha: float = DEFAULT_ALPHA,
+    boundary_rule: str = DEFAULT_BOUNDARY_RULE,
 ) -> tuple[BoundValues, ...]:
     """Batched profile-likelihood bound evaluations with memoization.
 
     Each request is ``(weights, wins, losses, ties)``; returns
     ``(delta_hat, lower_bound, upper_bound)`` per request in request order.
     Identical requests (within or across calls) are evaluated once per
-    process; uncached keys are evaluated in a process pool. Deterministic:
-    values are exactly what ``paired_trinomial_inference`` returns for the
-    same inputs.
+    process; uncached keys are evaluated in a process pool. The cache key
+    includes ``boundary_rule``, so the same counts under different rules are
+    distinct entries. Deterministic: values are exactly what
+    ``paired_trinomial_inference`` returns for the same inputs.
     """
     _validate_alpha(alpha)
+    _validate_boundary_rule(boundary_rule)
     if not isinstance(requests, (tuple, list)):
         raise ValueError("requests: sequence of (weights, wins, losses, ties) required")
-    keys = [_request_key(req, alpha) for req in requests]
+    keys = [_request_key(req, alpha, boundary_rule) for req in requests]
     missing = [k for k in dict.fromkeys(keys) if k not in _BOUND_CACHE]
     if missing:
         if len(_BOUND_CACHE) + len(missing) > _CACHE_LIMIT:
@@ -423,12 +442,14 @@ class CoverageReport:
     coverage is the fraction of replicates whose lower bound is at or below
     the true Delta; it carries Monte Carlo error sqrt(p(1-p)/replicates) and
     is not itself a guarantee. Boundary fractions are over (replicate, cell)
-    draws that saturate a constraint boundary.
+    draws that saturate a constraint boundary. boundary_rule records the
+    profile threshold rule the bounds were evaluated under.
     """
 
     structure: str
     replicates: int
     alpha: float
+    boundary_rule: str
     true_delta: float
     coverage: float
     cell_count: int
@@ -451,6 +472,7 @@ class CoverageReport:
             "structure": self.structure,
             "replicates": self.replicates,
             "alpha": self.alpha,
+            "boundary_rule": self.boundary_rule,
             "true_delta": self.true_delta,
             "coverage": self.coverage,
             "cell_count": self.cell_count,
@@ -491,6 +513,7 @@ def _aggregate_report(
     configs: Sequence[CellConfig],
     counts: IntCounts,
     alpha: float,
+    boundary_rule: str,
     entropy: tuple[int, ...],
     bounds: Sequence[BoundValues],
     keep_outcomes: bool,
@@ -522,6 +545,7 @@ def _aggregate_report(
         structure=structure,
         replicates=int(counts.shape[0]),
         alpha=alpha,
+        boundary_rule=boundary_rule,
         true_delta=delta_true,
         coverage=coverage,
         cell_count=int(counts.shape[1]),
@@ -567,6 +591,7 @@ def run_coverage_grid(
     *,
     replicates: int,
     alpha: float = DEFAULT_ALPHA,
+    boundary_rule: str = DEFAULT_BOUNDARY_RULE,
     seed: Sequence[int] = SEED_ENTROPY,
     keep_outcomes: bool = False,
 ) -> tuple[CoverageReport, ...]:
@@ -582,6 +607,7 @@ def run_coverage_grid(
     reduction); document this when comparing grid rows.
     """
     _validate_alpha(alpha)
+    _validate_boundary_rule(boundary_rule)
     entropy = _validate_seed(seed)
     if type(replicates) is not int or replicates < 1:
         raise ValueError("replicates: positive integer required")
@@ -600,13 +626,14 @@ def run_coverage_grid(
         slices.append(slice(offset, offset + len(rows)))
         offset += len(rows)
 
-    bounds = cached_bound_evaluations(requests, alpha=alpha)
+    bounds = cached_bound_evaluations(requests, alpha=alpha, boundary_rule=boundary_rule)
     return tuple(
         _aggregate_report(
             structure=name,
             configs=configs,
             counts=counts,
             alpha=alpha,
+            boundary_rule=boundary_rule,
             entropy=entropy,
             bounds=bounds[sl],
             keep_outcomes=keep_outcomes,
@@ -621,6 +648,7 @@ def trinomial_coverage(
     structure: str = "structure",
     replicates: int,
     alpha: float = DEFAULT_ALPHA,
+    boundary_rule: str = DEFAULT_BOUNDARY_RULE,
     seed: Sequence[int] = SEED_ENTROPY,
     keep_outcomes: bool = False,
 ) -> CoverageReport:
@@ -631,6 +659,7 @@ def trinomial_coverage(
         ((structure, tuple(configs)),),
         replicates=replicates,
         alpha=alpha,
+        boundary_rule=boundary_rule,
         seed=seed,
         keep_outcomes=keep_outcomes,
     )
@@ -643,6 +672,7 @@ def exact_single_cell_coverage(
     delta: float,
     *,
     alpha: float = DEFAULT_ALPHA,
+    boundary_rule: str = DEFAULT_BOUNDARY_RULE,
 ) -> float:
     """Exact lower-bound coverage for one cell by full trinomial enumeration.
 
@@ -653,6 +683,7 @@ def exact_single_cell_coverage(
     (scenarios, alpha) is evaluated once per process regardless of (q, delta).
     """
     _validate_alpha(alpha)
+    _validate_boundary_rule(boundary_rule)
     cfg = CellConfig(name="exact", weight=1.0, scenarios=scenarios, q=q, delta=delta)
     n = cfg.scenarios
     pw, pl, pt = cfg.p_win, cfg.p_loss, cfg.p_tie
@@ -675,7 +706,7 @@ def exact_single_cell_coverage(
             logps.append(logp)
             requests.append(((1.0,), (w,), (lo,), (t,)))
 
-    bounds = cached_bound_evaluations(requests, alpha=alpha)
+    bounds = cached_bound_evaluations(requests, alpha=alpha, boundary_rule=boundary_rule)
     total = 0.0
     for logp, (_, lower, _) in zip(logps, bounds):
         if lower <= cfg.delta:
@@ -721,6 +752,7 @@ def run_boundary_sweep(
     scenarios: int = 8,
     replicates: int = 64,
     alpha: float = DEFAULT_ALPHA,
+    boundary_rule: str = DEFAULT_BOUNDARY_RULE,
     seed: Sequence[int] = SEED_ENTROPY,
 ) -> tuple[CoverageReport, ...]:
     """Run trinomial_coverage over every boundary structure in one batched
@@ -731,6 +763,7 @@ def run_boundary_sweep(
         boundary_structures(cell_count=cell_count, scenarios=scenarios),
         replicates=replicates,
         alpha=alpha,
+        boundary_rule=boundary_rule,
         seed=seed,
     )
 
@@ -991,7 +1024,7 @@ def bootstrap_gate_simulation(
     )
 
 
-def _smoke_grid(alpha: float) -> dict[str, object]:
+def _smoke_grid(alpha: float, boundary_rule: str) -> dict[str, object]:
     """Local smoke grid: exact single-cell enumeration at the declared
     margins. One enumeration of n=8 (45 outcomes) serves every (q, delta)
     row via memoization; completes in well under 60 seconds."""
@@ -1007,13 +1040,13 @@ def _smoke_grid(alpha: float) -> dict[str, object]:
                     "q": q,
                     "delta": delta,
                     "alpha": alpha,
-                    "coverage": exact_single_cell_coverage(8, q, delta, alpha=alpha),
+                    "coverage": exact_single_cell_coverage(8, q, delta, alpha=alpha, boundary_rule=boundary_rule),
                 }
             )
-    return {"preset": "smoke", "alpha": alpha, "rows": rows}
+    return {"preset": "smoke", "alpha": alpha, "boundary_rule": boundary_rule, "rows": rows}
 
 
-def _margin_grid(cell_counts: Sequence[int], replicates: int, alpha: float) -> dict[str, object]:
+def _margin_grid(cell_counts: Sequence[int], replicates: int, alpha: float, boundary_rule: str) -> dict[str, object]:
     """Station grid: null coverage at the declared delta margins (+0.05,
     -0.02) across cell counts 6..216 and discordance levels."""
     structures: list[tuple[str, tuple[CellConfig, ...]]] = []
@@ -1026,16 +1059,17 @@ def _margin_grid(cell_counts: Sequence[int], replicates: int, alpha: float) -> d
                         uniform_structure(cells, q=q, delta=delta, scenarios=8),
                     )
                 )
-    reports = run_coverage_grid(structures, replicates=replicates, alpha=alpha)
+    reports = run_coverage_grid(structures, replicates=replicates, alpha=alpha, boundary_rule=boundary_rule)
     return {
         "preset": "station-margins",
         "alpha": alpha,
+        "boundary_rule": boundary_rule,
         "replicates": replicates,
         "reports": [r.to_dict() for r in reports],
     }
 
 
-def _power_grid(cell_counts: Sequence[int], replicates: int, alpha: float) -> dict[str, object]:
+def _power_grid(cell_counts: Sequence[int], replicates: int, alpha: float, boundary_rule: str) -> dict[str, object]:
     """Station grid: power of the lower bound clearing the +0.05 margin at
     true deltas above the margin (acceptance-gate power design input)."""
     structures: list[tuple[str, tuple[CellConfig, ...]]] = []
@@ -1047,7 +1081,9 @@ def _power_grid(cell_counts: Sequence[int], replicates: int, alpha: float) -> di
                     uniform_structure(cells, q=0.3, delta=delta, scenarios=8),
                 )
             )
-    reports = run_coverage_grid(structures, replicates=replicates, alpha=alpha, keep_outcomes=True)
+    reports = run_coverage_grid(
+        structures, replicates=replicates, alpha=alpha, boundary_rule=boundary_rule, keep_outcomes=True
+    )
     rows = []
     for report in reports:
         outcomes = report.outcomes or ()
@@ -1061,7 +1097,7 @@ def _power_grid(cell_counts: Sequence[int], replicates: int, alpha: float) -> di
                 "coverage": report.coverage,
             }
         )
-    return {"preset": "station-power", "alpha": alpha, "replicates": replicates, "rows": rows}
+    return {"preset": "station-power", "alpha": alpha, "boundary_rule": boundary_rule, "replicates": replicates, "rows": rows}
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -1084,21 +1120,28 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="comma-separated cell counts for station grids",
     )
     parser.add_argument("--alpha", type=float, default=DEFAULT_ALPHA)
+    parser.add_argument(
+        "--boundary-rule",
+        choices=BOUNDARY_RULES,
+        default=DEFAULT_BOUNDARY_RULE,
+        help="profile threshold rule: wilks (default) or wilks_plus_inflation (conservative split-level)",
+    )
     parser.add_argument("--out", type=str, default="", help="write JSON here instead of stdout")
     args = parser.parse_args(list(argv) if argv is not None else None)
     if type(args.replicates) is not int or args.replicates < 1:
         raise ValueError("--replicates: positive integer required")
     alpha = _validate_alpha(float(args.alpha))
+    boundary_rule = _validate_boundary_rule(str(args.boundary_rule))
     cells = [int(part) for part in str(args.cells).split(",") if part.strip()]
     if not cells or any(c < 1 for c in cells):
         raise ValueError("--cells: comma-separated positive integers required")
 
     if args.preset == "smoke":
-        payload = _smoke_grid(alpha)
+        payload = _smoke_grid(alpha, boundary_rule)
     elif args.preset == "station-margins":
-        payload = _margin_grid(cells, args.replicates, alpha)
+        payload = _margin_grid(cells, args.replicates, alpha, boundary_rule)
     else:
-        payload = _power_grid(cells, args.replicates, alpha)
+        payload = _power_grid(cells, args.replicates, alpha, boundary_rule)
     text = json.dumps(payload, indent=2, sort_keys=True)
     if args.out:
         with open(args.out, "w", encoding="utf-8") as handle:

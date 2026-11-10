@@ -24,10 +24,12 @@ from scripts.m8_calibration.simulation import (
     all_tie_cell,
     bootstrap_gate_simulation,
     boundary_structures,
+    cached_bound_evaluations,
     cell_generators,
     exact_single_cell_coverage,
     rare_discordance_cell,
     run_boundary_sweep,
+    run_coverage_grid,
     simulate_trinomial_counts,
     trinomial_coverage,
     true_delta,
@@ -199,6 +201,7 @@ def test_coverage_report_schema_stability():
         "structure",
         "replicates",
         "alpha",
+        "boundary_rule",
         "true_delta",
         "coverage",
         "cell_count",
@@ -209,6 +212,7 @@ def test_coverage_report_schema_stability():
         "ceil_fraction",
         "boundary",
     }
+    assert report.to_dict()["boundary_rule"] == "wilks"
     assert set(report.to_dict()["width"]) == {"mean", "median", "min", "max"}
     assert set(report.to_dict()["boundary"]) == {"all_tie", "all_win", "all_loss"}
     assert report.to_dict()["seed"] == [20260929]
@@ -317,3 +321,74 @@ def test_all_tie_all_win_all_loss_factories():
     report = trinomial_coverage(configs, structure="wins", replicates=8)
     assert report.all_win_fraction == pytest.approx(1.0)
     assert report.coverage == pytest.approx(1.0)  # true delta 1 is always covered
+
+
+# --- Conservative boundary rule wiring ('wilks_plus_inflation') ---
+
+
+def test_cached_bound_evaluations_cache_key_includes_boundary_rule():
+    request = ([1.0, 1.0], (3, 1), (1, 2), (4, 5))
+    wilks_first = cached_bound_evaluations([request])
+    inflated = cached_bound_evaluations([request], boundary_rule="wilks_plus_inflation")
+    wilks_second = cached_bound_evaluations([request])
+    # Same counts under the same rule hit the cache: identical values.
+    assert wilks_first == wilks_second
+    # The rule is part of the key: the inflated entry is a distinct,
+    # wider-or-equal bound, not the memoized wilks value.
+    (w_hat, w_lower, w_upper) = wilks_first[0]
+    (i_hat, i_lower, i_upper) = inflated[0]
+    assert i_hat == w_hat
+    assert i_lower <= w_lower + 1e-12
+    assert i_upper >= w_upper - 1e-12
+    with pytest.raises(ValueError):
+        cached_bound_evaluations([request], boundary_rule="clopper_pearson")
+
+
+def test_coverage_grid_rejects_unknown_boundary_rule():
+    configs = uniform_structure(2, q=0.3, delta=0.05, scenarios=8)
+    with pytest.raises(ValueError):
+        trinomial_coverage(configs, structure="bad-rule", replicates=2, boundary_rule="clopper_pearson")
+    with pytest.raises(ValueError):
+        exact_single_cell_coverage(4, 0.3, 0.05, boundary_rule="clopper_pearson")
+    with pytest.raises(ValueError):
+        run_boundary_sweep(cell_count=4, replicates=2, boundary_rule="clopper_pearson")
+
+
+def test_inflated_rule_coverage_not_below_wilks_small_grid():
+    """Tiny seeded margins grid: the inflated rule must never undercut wilks.
+
+    Both runs share the seed and structures, so every replicate draws the
+    SAME counts under both rules; per-replicate dominance (inflated lower
+    bound <= wilks lower bound) then implies coverage ordering exactly, with
+    no Monte Carlo ambiguity. This is machinery capability evidence, not a
+    station re-measurement.
+    """
+    structures = [
+        ("cells6-q0.15-d0.05", uniform_structure(6, q=0.15, delta=0.05, scenarios=8)),
+        ("cells6-q0.3-d-0.02", uniform_structure(6, q=0.3, delta=-0.02, scenarios=8)),
+    ]
+    wilks_reports = run_coverage_grid(structures, replicates=12, keep_outcomes=True)
+    inflated_reports = run_coverage_grid(
+        structures, replicates=12, boundary_rule="wilks_plus_inflation", keep_outcomes=True
+    )
+    strict_widening_seen = False
+    for wilks, inflated in zip(wilks_reports, inflated_reports):
+        assert wilks.structure == inflated.structure
+        assert wilks.boundary_rule == "wilks"
+        assert inflated.boundary_rule == "wilks_plus_inflation"
+        assert wilks.seed == inflated.seed == SEED_ENTROPY
+        wilks_outcomes = wilks.outcomes or ()
+        inflated_outcomes = inflated.outcomes or ()
+        assert len(wilks_outcomes) == len(inflated_outcomes) == 12
+        for w_out, i_out in zip(wilks_outcomes, inflated_outcomes):
+            # Identical draws: the point estimate is rule-independent.
+            assert i_out.delta_hat == w_out.delta_hat
+            assert i_out.lower_bound <= w_out.lower_bound + 1e-12
+            assert i_out.upper_bound >= w_out.upper_bound - 1e-12
+            if i_out.lower_bound < w_out.lower_bound - 1e-9:
+                strict_widening_seen = True
+            if w_out.covers:
+                assert i_out.covers  # per-replicate coverage dominance
+        assert inflated.coverage >= wilks.coverage
+        assert inflated.width_mean >= wilks.width_mean - 1e-12
+    assert strict_widening_seen  # the inflation moved at least one bound
