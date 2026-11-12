@@ -218,18 +218,19 @@ def test_rag_memory_arm_valid_cited_final_from_current_view(tmp_path):
     assert cited == [1] and set(cited) <= set(record["presented_record_ids"])
 
 
-def test_retrieve_top_k_cap_presented_and_enforced_without_tool_error(tmp_path):
-    # C4: both persistent arms are PRESENTED the same top_k cap (TOP_K_CAP, the
-    # manifest fixed-candidate limit) at the tool-schema layer, and the bridge
-    # enforces it as a proven no-dispatch validation rejection with model
-    # feedback — never a silent clamp, never a tool_error terminal.
+def test_retrieve_schema_parity_is_the_frozen_dml_definition(tmp_path):
+    # C4 (revised 2026-11-10): parity is the IDENTICAL frozen DML tool schema
+    # presented to every arm — mutating the schema trips the SFT consumers'
+    # pinned tool-definition check ("Tool schema differs from original DML
+    # definition", found live). The rag backend's own frozen cap (8) is
+    # declared in its identity and visible in the parity digest inputs
+    # (requested top_k vs returned count); it is never a schema mutation.
     holder = {}
 
     def factory(snapshot):
         consumer = Llama3BatteryConsumer(
             [
-                tool(query="service port", top_k=10),  # exceeds the declared cap
-                tool(query="service port", top_k=battery.TOP_K_CAP),
+                tool(query="service port", top_k=10),  # within the frozen schema
                 cite_containing("port", "9000"),
             ]
         )
@@ -249,19 +250,20 @@ def test_retrieve_top_k_cap_presented_and_enforced_without_tool_error(tmp_path):
     assert record["failure"] is None and record["terminal_status"] == "completed"
     assert record["verdict"] == "valid_cited_final"
     assert record["retrieve_top_k_cap"] == battery.TOP_K_CAP
-    # The model-facing retrieve schema presents the declared cap.
-    (retrieve_def,) = (
-        tool_def for tool_def in holder["consumer"].requests[0]["tools"] if tool_def["function"]["name"] == "retrieve"
+    # The model-facing retrieve schema IS the frozen DML definition, unmodified.
+    from daystrom_dml.services.episode_tools import episode_tool_definitions
+
+    frozen = {d["function"]["name"]: d for d in episode_tool_definitions()}
+    presented = {d["function"]["name"]: d for d in holder["consumer"].requests[0]["tools"]}
+    assert presented["retrieve"] == frozen["retrieve"]
+    assert (
+        presented["retrieve"]["function"]["parameters"]["properties"]["top_k"]["maximum"]
+        == battery.TOP_K_CAP
     )
-    assert retrieve_def["function"]["parameters"]["properties"]["top_k"]["maximum"] == battery.TOP_K_CAP
-    # The over-cap call got the declared rejection feedback, not records.
-    rejected = json.loads(holder["consumer"].requests[1]["messages"][-1]["content"])
-    assert rejected["error"]["code"] == "top_k_cap_exceeded" and rejected["effects"] == "none"
-    # The compliant retry executed and presented the current view.
+    # The rag backend's frozen cap is declared in its identity; a within-schema
+    # top_k=10 request executes clamped to the declared backend cap.
+    assert record["backend"]["top_k_cap"] == battery.RAG_TOP_K_CAP == 8
     assert record["presented_record_ids"] == [1, 2]
-    # The episode_started envelope declares the cap (fixed-protocol validated).
-    # (The request tools above are checked against that declaration by the
-    # episode event validator on every step.)
 
 
 def test_no_memory_unsupported_final_is_measured_not_hidden(tmp_path):
@@ -753,7 +755,7 @@ def test_return_parity_digest_structural_parity(tmp_path):
         )
         assert records[arm]["failure"] is None
         feedback = json.loads(holder["consumer"].requests[1]["messages"][-1]["content"])
-        assert feedback["requested_top_k"] == battery.TOP_K_CAP
+        assert feedback["requested_top_k"] == 8  # the scripted request, honored within both backends' caps
         presented[arm] = feedback["records"]
     dml_digest = records["dml_memory"]["return_parity_digest"]
     assert dml_digest is not None and dml_digest == records["rag_memory"]["return_parity_digest"]
@@ -822,3 +824,4 @@ def test_abstention_cause_all_three_values(tmp_path):
         "no_retrieve_call": 1,
     }
     assert summary["no_memory"]["abstention_causes"]["no_records_returned"] == 1
+

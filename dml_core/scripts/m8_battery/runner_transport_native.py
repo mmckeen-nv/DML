@@ -120,7 +120,7 @@ from daystrom_dml.services.agent_episode import (
     _read_records,
     run_episode_with_test_dependencies,
 )
-from daystrom_dml.services.episode_tools import SelectedProfileEpisodeTools, canonical
+from daystrom_dml.services.episode_tools import SelectedProfileEpisodeTools, canonical, episode_tool_definitions
 from daystrom_dml.services.m8_memory_baseline import PersistentRAGBaseline, validate_event
 from scripts.m8_battery import control
 from scripts.m8_battery import schema as fixture_schema
@@ -147,8 +147,16 @@ ALLOWED_TOOLS = control.ALLOWED_TOOLS
 PROFILES = control.PROFILES
 EMBEDDING_DIMENSIONS = 384
 TOKEN_BUDGET = 2048
-TOP_K_CAP = 8  # manifest fixed-candidate retrieve cap; presented to BOTH persistent arms
-RAG_TOP_K_CAP = TOP_K_CAP  # PersistentRAGBaseline's frozen retrieval limit
+# Frozen retrieve schema maximum (from episode_tool_definitions, pinned by both SFT
+# consumers' source_order_request). The DML surface presents the IDENTICAL schema
+# to every arm — parity by construction; mutating the schema trips the pinned
+# tool-definition check ("Tool schema differs from original DML definition").
+TOP_K_CAP = next(
+    t["function"]["parameters"]["properties"]["top_k"]["maximum"]
+    for t in episode_tool_definitions()
+    if t["function"]["name"] == "retrieve"
+)
+RAG_TOP_K_CAP = 8  # PersistentRAGBaseline's own frozen retrieval limit (retrieve rejects top_k > 8); declared in the backend identity, not imposed on the schema
 ABSTENTION_CAUSES = ("no_records_returned", "records_returned_no_support", "no_retrieve_call")
 
 RECORD_KEYS = (
@@ -369,28 +377,34 @@ def _annotate_retrieval_evidence(record, report):
     """
     first_query = None
     call_shapes = []
+    pending_top_k = None  # model-requested top_k of the last retrieve action
     for event in report["events"]:
         kind, payload = event["kind"], event["payload"]
-        if kind == "model_completed" and first_query is None:
+        if kind == "model_completed":
             try:
                 action = parse_agent_action(payload["text"])
             except Exception:  # noqa: BLE001 — unparseable actions carry no query
                 continue
             if action["kind"] == "tool" and action["name"] == "retrieve":
-                first_query = action["arguments"]["query"]
+                if first_query is None:
+                    first_query = action["arguments"]["query"]
+                pending_top_k = action["arguments"]["top_k"]
         elif kind == "tool_completed" and payload.get("name") == "retrieve":
             try:
                 shown = json.loads(payload["model_result"])
             except (ValueError, TypeError):
+                pending_top_k = None
                 continue
             records = [item for item in shown.get("records", []) if type(item) is dict]
             call_shapes.append(
                 {
-                    "requested_top_k": shown.get("requested_top_k"),
+                    "requested_top_k": pending_top_k,
+                    "executed_top_k": shown.get("requested_top_k"),
                     "returned_count": shown.get("returned_count", len(records)),
                     "presented_fields": [sorted(item) for item in records],
                 }
             )
+            pending_top_k = None
     record["first_retrieve_query"] = first_query
     record["return_parity_digest"] = hashlib.sha256(canonical(call_shapes).encode("utf-8")).hexdigest()
 
@@ -556,7 +570,6 @@ def run_battery_episode(
             allowed_tools=ALLOWED_TOOLS,
             effective_time=EPISODE_EFFECTIVE_TIME,
             execution_protocol=EXECUTION_PROTOCOL_V2,
-            retrieve_top_k_cap=TOP_K_CAP,
         )
         consumer = shared_consumer if shared_consumer is not None else consumer_factory(snapshot)
         identity = getattr(consumer, "identity", None)
@@ -575,7 +588,6 @@ def run_battery_episode(
             effective_time=EPISODE_EFFECTIVE_TIME,
             episode_id=episode_id,
             consumer_profile=consumer_profile,
-            tool_top_k_max=TOP_K_CAP,
         )
         control._fill_from_report(record, report)
         _annotate_retrieval_evidence(record, report)
