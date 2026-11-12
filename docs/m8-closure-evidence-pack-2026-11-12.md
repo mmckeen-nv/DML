@@ -43,7 +43,16 @@ Does durable DML memory help the qualified qwen3.5-9b-sft-v1 policy under a fair
 
 Paired trinomial (dml vs rag, scenario-paired): wins 6 / losses 9 / ties 201 → δ̂ = −0.0139, inflated-rule bounds [−0.0515, +0.0221] — **the two memory backends are statistically indistinguishable on the dev pilot**. Context-floor gate (the manifest's −2pt non-inferiority gate, re-derived against `context_inline` per the amendment): persistent arms beat the floor by +19.4pt (dml) / +20.8pt (rag) — far above the margin; **memory demonstrably helps**.
 
-**Held-out campaign** (144 scenarios × 4 arms = 576 episodes, `/home/test/dml-debug/m8-campaign-heldout-20261112/`): `_results slot — fill at completion_`
+**Held-out campaign** (144 scenarios × 4 arms = 576 episodes, `/home/test/dml-debug/m8-campaign-heldout-20261112/`, zero harness failures, sealed workload digest `4478cd7f…`):
+
+| arm | valid cited | abstain | unsupported | output tokens |
+|---|---|---|---|---|
+| dml_memory | **31/144 (21.5%)** | 0 | 113 | 16,325 |
+| rag_memory | 26/144 (18.1%) | 0 | 118 | 15,669 |
+| context_inline (floor) | 0/144 | 101 | 43 | 10,666 |
+| no_memory (policy floor) | 0/144 | 144 | 0 | 9,937 |
+
+Confirmatory paired trinomial (dml vs rag): wins 6 / losses 1 / ties 137 → δ̂ = **+0.0347**; qualified `wilks_plus_inflation` bounds **[+0.0006, +0.0773]**. **DML is non-inferior to the RAG baseline on the held-out campaign with the point estimate ahead; the superiority claim is marginal under the conservative rule (lower bound +0.0006 grazes zero — stated plainly, not rounded up).** First-retrieve-query identity 144/144; return-parity digests diverge where backend retrieval genuinely differs (the dependent variable). Memory-vs-floor: persistent arms beat the context floor by +21.5pt (dml) / +18.1pt (rag) — far above the −2pt non-inferiority margin.
 
 ## What remains open by charter
 
