@@ -5,7 +5,7 @@
 | # | Gate | Status |
 |---|------|--------|
 | 1 | Leakage audit | IN PROGRESS (parallel auditor) |
-| 2 | Sealed workloads | PENDING (generation in progress concurrently) |
+| 2 | Sealed workloads | SEALED (digests below; seal verification green) |
 | 3 | Resource forecast | PASS (measured basis; numbers below) |
 | 4 | Exact-source CI | FAIL as-run locally — all 63 non-passing outcomes are dependency-gap or platform-gated, not source regressions; re-run required in a full-dependency environment |
 | 5 | Execution approval | PENDING (owner sign-off; last gate) |
@@ -26,10 +26,10 @@ An independent parallel auditor is checking that the pilot/held-out workloads ca
 
 **Evidence:**
 
-- Audit report: `docs/m8-leakage-audit-2026-11-10.md` — **PENDING** (file not yet committed at authoring time; the auditor runs in parallel).
+- Audit report: `docs/m8-leakage-audit-2026-11-10.md` — committed (sha256 e9a68bcccdddc389…).
 - Dev-surface reference: battery summary `battery-tn.summary.json` sha256 `acf5e69a2e36c35fc717f1fc503dc8e6872036a090480343166bb887fc0a82c7` (12 dev scenarios, `schema dml.m8.transport-native-battery-summary.v1`).
 
-**Audit verdict slot:** `_pending — fill with PASS/FAIL + report sha256 when docs/m8-leakage-audit-2026-11-10.md lands_`
+**Audit verdict:** **PASS-WITH-CONDITIONS** — zero content-level contamination (0 overlapping 8-grams fixtures↔curriculum, adversarial n=6/n=5 both directions; entity pool and reserved values absent; namespaces/seeds clean; verifier generic). C1: hash-level sweep of on-disk training trajectories on 133 — evidence `/home/test/dml-debug/m8-leakage-C1-20261110.json` (in flight at seal time). C2: sealed-workload corpora vs curriculum pool — **resolved**: 0 overlapping 8-grams for both workloads (pilot216 2,974 grams; heldout 2,414 grams; curriculum 37,355 grams). Report sha256 `e9a68bcccdddc3898fc92dbbe953a57e4697944133e276b71ad4aa9bf0e684dc`.
 
 ---
 
@@ -47,10 +47,10 @@ Both workloads are being generated concurrently with this document. Acceptance r
 
 | Workload | Seed | Scenarios | Set digest (sha256) | Manifest path |
 |----------|------|-----------|---------------------|---------------|
-| pilot216 | 20261110 | 216 | `_pending generation_` | `_pending_` |
-| heldout | 20261112 | 144 | `_pending generation_` | `_pending_` |
+| pilot216 | 20261110 | 216 | `db8b2ab10387fe9e089525456818e819d1c437c990acbcf0d7b8cf30bf8915fb` | `~/.hermes/cache/scratch/m8-workloads/pilot216/manifest.json` (regenerable: `python -m scripts.m8_battery.sealed_workloads --generate pilot`) |
+| heldout | 20261112 | 144 | `4478cd7fccf8533b13a1e1b72fe36054581f27daeada6cb3f5c552dfc00d7523` | `~/.hermes/cache/scratch/m8-workloads/heldout/manifest.json` (regenerable: `python -m scripts.m8_battery.sealed_workloads --generate heldout`) |
 
-Seal verification verdict slot: `_pending — cite verifier output + run id_`
+Seal verification verdict: **GREEN** — `verify_seal` re-derivation matched both manifests at generation time (18492af); tamper/missing/extra detection covered by `test_m8_sealed_workloads.py` (18 tests).
 
 ---
 
