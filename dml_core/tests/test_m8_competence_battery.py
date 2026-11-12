@@ -12,6 +12,7 @@ import pytest
 
 from daystrom_dml.services import m8_accounting
 from daystrom_dml.services import m8_protocol as protocol
+from daystrom_dml.contracts.agent_episode import QWEN3_SFT_V1_CONSUMER_PROFILE
 from daystrom_dml.services.m8_memory_baseline import PresentedEvidence
 from scripts.m8_battery import runner, schema, verifiers
 
@@ -701,6 +702,168 @@ def test_seeds_validation_rejects_duplicates_and_negatives(tmp_path):
                     "--dry-run",
                 ]
             )
+
+
+# --- consumer-profile selection ---------------------------------------------
+
+
+def test_consumer_profile_defaults_to_llama3_and_labels_records(tmp_path):
+    store_factory, consumer_factory = double_factories(success_scripts)
+    output = tmp_path / "evidence.jsonl"
+    code = runner.main(
+        [
+            "--scenarios-dir",
+            str(FIXTURES),
+            "--workdir-root",
+            str(tmp_path / "work"),
+            "--output",
+            str(output),
+            "--arms",
+            "context_only",
+            "--snapshot",
+            "double-snapshot",
+        ],
+        embedder_factory=EmbedderDouble,
+        consumer_factory=consumer_factory,
+        store_factory=store_factory,
+    )
+    assert code == 0
+    episodes = [json.loads(line) for line in output.read_text().splitlines()]
+    assert episodes
+    assert all(e["consumer_profile"] == runner.CONSUMER_PROFILES["llama3"] for e in episodes)
+    summary = json.loads(output.with_suffix(".summary.json").read_text())
+    assert summary["consumer_profile"] == runner.CONSUMER_PROFILES["llama3"]
+
+
+def test_consumer_profile_qwen3_labels_records(tmp_path):
+    store_factory, consumer_factory = double_factories(success_scripts)
+    output = tmp_path / "evidence.jsonl"
+    code = runner.main(
+        [
+            "--scenarios-dir",
+            str(FIXTURES),
+            "--workdir-root",
+            str(tmp_path / "work"),
+            "--output",
+            str(output),
+            "--arms",
+            "context_only",
+            "--snapshot",
+            "double-snapshot",
+            "--consumer-profile",
+            "qwen3",
+        ],
+        embedder_factory=EmbedderDouble,
+        consumer_factory=consumer_factory,
+        store_factory=store_factory,
+    )
+    assert code == 0
+    episodes = [json.loads(line) for line in output.read_text().splitlines()]
+    assert episodes
+    assert all(e["consumer_profile"] == runner.CONSUMER_PROFILES["qwen3"] for e in episodes)
+    summary = json.loads(output.with_suffix(".summary.json").read_text())
+    assert summary["consumer_profile"] == runner.CONSUMER_PROFILES["qwen3"]
+
+
+def test_consumer_profile_flag_wires_default_consumer_factory(tmp_path, monkeypatch):
+    state = {}
+
+    def store_factory(scenario, workdir, *, embedder, snapshot):
+        state["scenario"] = scenario
+        envelopes = scenario.envelopes
+        return (
+            {
+                "rag": StoreDouble(envelopes),
+                "bridge": BridgeDouble(envelopes),
+                "context_records": list(envelopes),
+            },
+            lambda: None,
+        )
+
+    seen = []
+
+    def factory(snapshot, arm, *, seed=0, consumer_profile=None):
+        seen.append((arm, seed, consumer_profile))
+        return ConsumerDouble(arm, success_scripts(state["scenario"], arm))
+
+    monkeypatch.setattr(runner, "default_consumer_factory", factory)
+    output = tmp_path / "evidence.jsonl"
+    code = runner.main(
+        [
+            "--scenarios-dir",
+            str(FIXTURES),
+            "--workdir-root",
+            str(tmp_path / "work"),
+            "--output",
+            str(output),
+            "--arms",
+            "context_only",
+            "--snapshot",
+            "double-snapshot",
+            "--consumer-profile",
+            "qwen3",
+            "--seeds",
+            "0,3",
+        ],
+        embedder_factory=EmbedderDouble,
+        store_factory=store_factory,
+    )
+    assert code == 0
+    assert seen
+    assert {entry[2] for entry in seen} == {runner.CONSUMER_PROFILES["qwen3"]}
+    assert {entry[1] for entry in seen} == {0, 3}  # seeds still pass through
+
+
+def test_consumer_profile_rejects_unknown_choice(tmp_path):
+    with pytest.raises(SystemExit):
+        runner.main(
+            [
+                "--scenarios-dir",
+                str(FIXTURES),
+                "--workdir-root",
+                str(tmp_path / "work"),
+                "--output",
+                str(tmp_path / "out.jsonl"),
+                "--consumer-profile",
+                "bogus",
+                "--dry-run",
+            ]
+        )
+
+
+def test_default_consumer_factory_passes_selected_profile(monkeypatch):
+    from daystrom_dml.services import m8_neutral_runtime as neutral
+
+    captured = []
+
+    class FakeConsumer:
+        def __init__(self, snapshot, *, arm, offline, seed, consumer_profile):
+            captured.append(
+                {
+                    "snapshot": snapshot,
+                    "arm": arm,
+                    "offline": offline,
+                    "seed": seed,
+                    "consumer_profile": consumer_profile,
+                }
+            )
+
+    monkeypatch.setattr(neutral, "M8NeutralConsumer", FakeConsumer)
+    runner.default_consumer_factory("snap", "dml")
+    assert captured[-1]["consumer_profile"] == runner.CONSUMER_PROFILES["llama3"]
+    runner.default_consumer_factory("snap", "dml", seed=7, consumer_profile=runner.CONSUMER_PROFILES["qwen3"])
+    assert captured[-1] == {
+        "snapshot": "snap",
+        "arm": "dml",
+        "offline": False,
+        "seed": 7,
+        "consumer_profile": runner.CONSUMER_PROFILES["qwen3"],
+    }
+    # The CLI selector names the registered contract profiles.
+    assert runner.CONSUMER_PROFILES == {
+        "llama3": neutral.DEFAULT_CONSUMER_PROFILE,
+        "qwen3": QWEN3_SFT_V1_CONSUMER_PROFILE,
+    }
 
 
 # --- cost accounting with doubles ------------------------------------------

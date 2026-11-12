@@ -262,23 +262,38 @@ class CompiledM8Request:
         return len(self.input_ids)
 
 
-def compile_request(tokenizer, arm, messages, *, output_reserved_tokens=256,
-                    remaining_input_tokens=32768, remaining_output_tokens=1536, window_tokens=8192, scope=None):
+def compile_request(
+    tokenizer,
+    arm,
+    messages,
+    *,
+    output_reserved_tokens=256,
+    remaining_input_tokens=32768,
+    remaining_output_tokens=1536,
+    window_tokens=8192,
+    scope=None,
+    template_sha256=None,
+    template_kwargs=None,
+):
     _integer(output_reserved_tokens, 1, 256)
-    _integer(window_tokens, 1, 8192)
-    _integer(remaining_input_tokens, 0, 32768)
+    _integer(window_tokens, 1, 262144)
+    _integer(remaining_input_tokens, 0, 262144)
     _integer(remaining_output_tokens, 0, 1536)
     if output_reserved_tokens > remaining_output_tokens:
         raise M8ProtocolError("Output budget exhausted")
+    # Late binding: the llama3 pin stays the module global; other profiles pass theirs.
+    template_sha256 = PINNED_TEMPLATE_SHA256 if template_sha256 is None else template_sha256
     template = tokenizer.chat_template
-    if type(template) is not str or hashlib.sha256(template.encode()).hexdigest() != PINNED_TEMPLATE_SHA256:
+    if type(template) is not str or hashlib.sha256(template.encode()).hexdigest() != template_sha256:
         raise M8ProtocolError("Pinned vendor template differs")
     tools = tools_for_arm(arm)
     view = render_messages(deepcopy(messages), tools, scope=scope)
     for message in messages:
         if message["role"] == "tool" and count_tokens(tokenizer, message["content"]) > 2048:
             raise M8ProtocolError("Tool response exceeds exact presentation budget")
-    rendered = tokenizer.apply_chat_template(view, tokenize=False, add_generation_prompt=True)
+    rendered = tokenizer.apply_chat_template(
+        view, tokenize=False, add_generation_prompt=True, **dict(template_kwargs or ())
+    )
     ids = tuple(tokenizer.encode(rendered, add_special_tokens=False, truncation=False, padding=False))
     if not ids or any(type(token) is not int or token < 0 for token in ids):
         raise M8ProtocolError("Invalid input token row")
@@ -316,15 +331,16 @@ def validate_final(action, presented_records, *, scope, supports: Callable[[dict
     return deepcopy(parsed["answer"])
 
 
-def policy_identity(arm):
+def policy_identity(arm, *, template_sha256=None):
     """Bind this neutral policy/schema/transport; never reuse an M7 runtime identity."""
     _arm(arm)
+    template_sha256 = PINNED_TEMPLATE_SHA256 if template_sha256 is None else template_sha256
     return {"profile": PROFILE, "arm": arm,
             "system_sha256": hashlib.sha256(SYSTEM.encode()).hexdigest(),
             "transport_sha256": hashlib.sha256(TRANSPORT.encode()).hexdigest(),
             "tools_sha256": hashlib.sha256(data_json(tools_for_arm(arm)).encode()).hexdigest(),
             "action_schema_sha256": hashlib.sha256(data_json(action_schema(arm)).encode()).hexdigest(),
-            "vendor_template_sha256": PINNED_TEMPLATE_SHA256,
+            "vendor_template_sha256": template_sha256,
             "posthoc_repair": False, "automatic_tool_choice": True,
             "citation_identity": "record_id", "tool_response_tokens": 2048,
             "source_view": "declared-envelope-order-recursive-sorted-scope-and-metadata-v1"}
