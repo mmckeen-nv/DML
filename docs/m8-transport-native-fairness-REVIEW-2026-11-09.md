@@ -58,3 +58,11 @@ APPROVE-WITH-CONDITIONS, not REJECT, because: the diagnosis is correct and force
 1. **Stale premise**: the amendment's falsification argument was measured on llama3-sft-v3; the campaign policy is now the qwen3.5-9b adapter qualified four days later, whose needless-retrieval/neutral behavior is unmeasured (C1).
 2. **`no_memory` is not a context floor**: a dead retrieve under an unconditionally-retrieving trained policy measures "policy + dead tool" (9/12 empty-store loops at baseline), and it silently vacates the manifest's −2pt context non-inferiority gate (C2, C3).
 3. **Presentation/pairing gaps in the primary comparison**: return-format parity between DML and RAG retrieve backends is unspecified, and the "backend-only variation" claim holds only at step 1 — pairing needs the mechanical first-action identity check (C4, C5).
+
+## C1 resolution (2026-11-10, qualified qwen3.5-9b-sft-v1)
+
+Premise re-verified under the qualified profile (evidence `/home/test/dml-debug/m8-recheck-qwen3-control-20261110/` + `/home/test/dml-debug/m8-recheck-qwen3-neutral-20261110/`):
+- DML surface: 33/36 retrieve-first (21/24 needless) — retrieve-always dominance persists, bit-identical to the gate run.
+- Neutral protocol: **persistent arms retrieve 24/24** (llama3 was 0/72) — the policy is NOT surface-locked anymore; but valid finals are 1/12 per persistent arm (retrieval happens, finalization/verifier classes dominate).
+
+Verdict: the falsification premise ("neutral retrieval is impossible for this policy") is RETRACTED for qwen3 — but the transport-native design stands on its own merits: identical surface across arms is the strongest fairness construction regardless of surface conditioning, and the neutral arm's 1/12 valid rate shows the neutral protocol adds its own competence debt rather than removing a confound. C1 satisfied; the amendment proceeds with the retraction noted here.
