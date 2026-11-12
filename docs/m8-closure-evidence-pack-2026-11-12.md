@@ -1,6 +1,6 @@
 # M8 closure evidence pack — November 12, 2026
 
-**Status: all gates 1–4 PASS; campaign execution complete pending final statistics; gate 5 (owner execution approval) is the last gate.** Supersedes the 2026-11-06 pack (written when the trained policy was below threshold; M9 has since qualified the qwen3.5-9b adapter, 6/6 gate).
+**Status: M8 CLOSED 2026-11-12 — owner execution approval granted (gate 5). All five gates PASS. Campaign statistics final.** Supersedes the 2026-11-06 pack (written when the trained policy was below threshold; M9 has since qualified the qwen3.5-9b adapter, 6/6 gate).
 
 ## The question and the design that measures it
 
@@ -28,7 +28,7 @@ Does durable DML memory help the qualified qwen3.5-9b-sft-v1 policy under a fair
 | 2 Sealed workloads | **PASS** | pilot216 `db8b2ab1…` (216 scenarios, seed 20261110); heldout `4478cd7f…` (144 scenarios, seed 20261112); both regenerated on 133 with digest match; seal verification green; tamper-detection tested |
 | 3 Resource forecast | **PASS** | [gates doc](m8-precampaign-gates-2026-11-10.md): pilot 78min/864eps forecast (actual ~80min); GPU 43GB/72GB peak |
 | 4 Exact-source CI | **PASS** | full-dependency proxy: 5,756 collected / 4,872 passed / 0 errors / 882 declared skips; only 2 Linux-only renameat2 platform gates on macOS; zero source regressions; all pins inventoried |
-| 5 Execution approval | **PENDING** | owner sign-off — this document is the approval record |
+| 5 Execution approval | **PASS** | Owner approved closure 2026-11-12 ("Close m8, commit the update to github"), with the policy valid-rate (~20%) explicitly carried forward as the M10 quality-tranche target, not accepted as an endpoint |
 
 ## Campaign measurements (qualified qwen3.5-9b adapter, v4 amendment surface, seed 0)
 
