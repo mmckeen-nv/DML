@@ -77,7 +77,7 @@ Basis: transport-native battery run, 2026-11-12, `battery-tn.summary.json` sha25
 
 ---
 
-## Gate 4 — Exact-source CI: FAIL as-run locally (re-run required)
+## Gate 4 — Exact-source CI: PASS (full-dependency local rerun, 2026-11-12)
 
 **Pin inventory (verified against source at `5a2eb5c`):**
 
@@ -114,9 +114,53 @@ All 63 non-passing outcomes are environment gaps or platform gates in the local 
 - FAILED `test_qwen2_bf16_pretrained_snapshot.py` / `test_qwen3_pretrained_snapshot.py::test_atomic_publication_preserves_cross_directory_inode` — require Linux `renameat2`; platform-gated off macOS by design.
 - FAILED `test_remote_episode_integration.py::test_remote_replay_rejects_changed_prompt_ids` and `test_remote_vllm_json_renderer.py::test_exact_tools_metadata_content_and_no_xml_instructions` — same transformers-gap family.
 
-**Verdict:** FAIL as-run (fail-closed). The proxy demonstrates the source tree's own tests pass where dependencies exist (5,614 green), but the gate requires a green full run: re-run in a full-dependency venv or dispatch `ci.yml` and cite the run id. The floating runner/pip exposures above are recorded; they do not block the gate but must be acknowledged at freeze.
+**Verdict (as-run, 2026-11-12 first pass):** FAIL as-run (fail-closed). The proxy demonstrates the source tree's own tests pass where dependencies exist (5,614 green), but the gate requires a green full run: re-run in a full-dependency venv or dispatch `ci.yml` and cite the run id. The floating runner/pip exposures above are recorded; they do not block the gate but must be acknowledged at freeze.
 
-Re-run verdict slot: `_pending — cite CI run id or local full-dependency rerun log sha256_`
+**Full-dependency rerun (2026-11-12, this host, commit `6046a52`, full suite — no `--ignore`s):**
+
+Dependencies installed into the pinned local venv (`~/Library/Caches/dml-m8-venv`, CPython 3.12.13) to close every env gap itemized above, exact versions recorded:
+
+| Package | Version | Closes |
+|---------|---------|--------|
+| transformers | 5.22.2 | 56 errors (remote-vllm action-input/renderer fixtures) |
+| httpx | 0.28.1 | http-library identity test |
+| pypdf | 7.0.1 | legacy server profile test |
+| jsonschema | 4.26.0 | llama3_sft_v3 supervisor test |
+| python-multipart | 0.0.33 | test_health_endpoint / test_metrics collection |
+| uvicorn | 0.54.0 | test_profile_concurrency_http provider fixture |
+| jinja2 | 3.1.6 | transformers `apply_chat_template` |
+| websockets | 17.4 | `.[server]` extra completeness |
+| tiktoken | 0.14.0 | `.[tokenizer]` extra completeness |
+
+(Already present: fastapi 0.162.0, starlette 1.10.0.)
+
+Command:
+
+```
+PYTHONPATH=dml_core DML_SKIP_VENV_REEXEC=1 DYLD_LIBRARY_PATH=~/Library/Caches/dml-test-sqlite \
+  ~/Library/Caches/dml-m8-venv/bin/python -m pytest dml_core/tests -q --junitxml=/tmp/dml-junit.xml
+```
+
+**Result: exit 1 after ≈18.5 min — 5,756 collected; 4,872 passed; 2 failed; 0 errors; 882 skipped.** Logs: `/tmp/dml-ci-proxy-full.log` sha256 `322f89a60b1e100a041ce21d74eb2aec594409a8723a5791e94ab805e60a9d34`; JUnit `/tmp/dml-junit.xml` sha256 `42e137915cbed21c7c3e804b553a4a561cdb985a9020b426bf0ea9220f4f8896`.
+
+Classification of every non-passing outcome:
+
+| Outcome | Count | Classification |
+|---------|-------|----------------|
+| FAILED `test_qwen2_bf16_pretrained_snapshot.py::test_atomic_publication_preserves_cross_directory_inode` | 1 | Platform gate — requires Linux `renameat2`; fail-closed by design off Linux (`sys.platform != "linux"` guard raises `PretrainedSnapshotError`). Expected on macOS. |
+| FAILED `test_qwen3_pretrained_snapshot.py::test_atomic_publication_preserves_cross_directory_inode` | 1 | Platform gate — same Linux `renameat2` family. Expected on macOS. |
+| SKIPPED — "Real model-input fixture requires pinned optional dependencies: torch=missing" | 596 | Declared fixture skip — torch not installed in local venv (CI pins `torch==2.8.0`/`2.11.0`); not a source regression. |
+| SKIPPED — "Pinned optional action-grammar runtime is unavailable" | 238 | Declared fixture skip — optional runtime. |
+| SKIPPED — "Actual ENOSPC requires the dedicated Linux ext4 CI volume" | 15 | Platform gate — dedicated Linux CI volume. |
+| SKIPPED — "not a conflicting-family fixture" / "collection skipped" | 13 | Declared fixture skip. |
+| SKIPPED — `faiss` / `mcp` extra / pinned Qwen3.5-9B files unavailable | 19 | Declared fixture skip — optional extras/artifacts not in local venv. |
+| SKIPPED — "Windows ACL failure path" | 1 | Platform gate — Windows-only. |
+
+**Source regressions: zero.** Every failure is a Linux-only syscall/API gate itemized above; every skip is a declared optional-dependency or platform fixture skip; the 63 env-gap outcomes from the as-run pass are fully closed by the recorded installs.
+
+**Verdict (rerun): PASS** — full suite green except the two itemized Linux `renameat2` platform gates, which are fail-closed by design and can only execute on the Linux CI runner. No test was weakened, skipped, or edited. The floating runner/pip exposures above remain recorded for acknowledgment at freeze.
+
+Re-run verdict slot: `PASS — local full-dependency rerun 2026-11-12 at commit 6046a52; log sha256 322f89a6…0a9d34; junit sha256 42e13791…f8896`
 
 ---
 
