@@ -65,6 +65,31 @@ seed/counts — see README.md "Dataset versions"):
   episode finalizes — answer or abstain. Identical consecutive retrieve
   arguments are rejected at construction and asserted absent by test.
 
+Dataset version 4 (M10 generalization repairs; bytes differ from v3 under the
+same seed/counts — v4 also re-seeds to [20261112] — see README.md "Dataset
+versions"). The 2026-11-12 held-out campaign showed the v3 behaviors do not
+generalize to novel phrasings (docs/m10-charter-2026-11-12.md); v4 adds three
+classes targeting the failure classes, not the v3 templates:
+
+* idiom_echo (campaign failure class 1, claim-idiom key mismatch): the asked
+  claim key is a terse truth-key idiom (``blower_speed_setting``) while the
+  question and the records vary surface syntax widely across phrasing
+  families (word order, clause structure, entity density). Narrative-key
+  near-misses present the asked subject and the answer value under a long
+  narrative key (``"<subject> <source> report <label>"``) — the narrative
+  key is the wrong answer; only the terse presented key may be echoed;
+* conflict_declare (campaign failure class 4, conflict declaration gap): two
+  sources disagree under novel two-source templates; the labeled final
+  DECLARES the conflict — one ``conflict:`` claim under the shared presented
+  key citing both records, neither value asserted as fact;
+* multipart_decomp (campaign failure class 2, partial multi-part coverage):
+  2- and 3-part questions over novel phrasing families; the labeled final
+  covers EVERY part, each claim keyed by its terse presented key.
+
+v4 entity/fact/source/value pools are all-new and disjoint BY CONSTRUCTION
+from the v1-v3 pools and from the pilot216/heldout sealed workloads (the M8
+8-gram leakage method is re-run against both by test).
+
 Output (train JSONL + manifest.json) is written under
 ``dml_core/scripts/m9_curriculum/out/`` by default — a gitignored path; see
 README.md. Regenerate::
@@ -98,10 +123,23 @@ MANIFEST_SCHEMA = "dml-m9-curriculum-manifest-v1"
 # listed in the module docstring; same seed/counts, different bytes.
 # v3: claim-key echo + same-value/different-key near-misses +
 # retrieval-reformulation loop resistance; same seed/counts, different bytes.
-DATASET_VERSION = 3
-SEED = [20261106]
-CLASSES = ("abstain_exact", "coverage", "conflict_split", "injection_resist", "replay")
-DEFAULT_COUNTS = {"abstain_exact": 30, "coverage": 40, "conflict_split": 30, "injection_resist": 30, "replay": 40}
+# v4: M10 generalization classes (idiom_echo / conflict_declare /
+# multipart_decomp) on all-new disjoint pools; re-seeded to [20261112].
+DATASET_VERSION = 4
+SEED = [20261112]
+V3_CLASSES = ("abstain_exact", "coverage", "conflict_split", "injection_resist", "replay")
+V4_CLASSES = ("idiom_echo", "conflict_declare", "multipart_decomp")
+CLASSES = V3_CLASSES + V4_CLASSES
+DEFAULT_COUNTS = {
+    "abstain_exact": 30,
+    "coverage": 40,
+    "conflict_split": 30,
+    "injection_resist": 30,
+    "replay": 40,
+    "idiom_echo": 40,
+    "conflict_declare": 30,
+    "multipart_decomp": 40,
+}
 DEFAULT_OUTPUT = Path(__file__).resolve().parent / "out"
 TOOLS = [tool for tool in episode_tool_definitions() if tool["function"]["name"] == "retrieve"]
 
@@ -297,6 +335,220 @@ _STALE_TEMPLATES = (
 _ABSTAIN_STALE_TEMPLATES = _STALE_TEMPLATES + (
     "{subject} {label} was {value}; this entry was replaced and the replacement was later retired.",
 )
+
+# ---------------------------------------------------------------------------
+# v4 pools (M10): all-new entity/fact/source/value vocabulary, disjoint BY
+# CONSTRUCTION from the v1-v3 pools above AND from the pilot216/heldout
+# sealed workloads. Every content token below was verified absent from the
+# sealed scenario corpora, the v3 curriculum output and the m8 battery
+# fixtures; tests/test_m9_curriculum.py re-proves token-level disjointness
+# and the zero word-8-gram overlap mechanically.
+# ---------------------------------------------------------------------------
+_V4_COMPANY_PREFIX = (
+    "Veskarin",
+    "Ombrelle",
+    "Tessivar",
+    "Quilven",
+    "Brenthos",
+    "Marovane",
+    "Ildaris",
+    "Pevance",
+    "Solterre",
+    "Ulvienne",
+    "Cindralle",
+    "Dovaren",
+    "Hessaline",
+    "Jorveth",
+    "Lunareth",
+)
+_V4_COMPANY_SUFFIX = (
+    "Works",
+    "Consortium",
+    "Collective",
+    "Bureau",
+    "Guild",
+    "Exchange",
+    "Institute",
+    "Syndicate",
+    "Cartel",
+    "Cooperative",
+)
+_V4_FIRST = (
+    "Aveline",
+    "Bram",
+    "Cynara",
+    "Dmitar",
+    "Elowen",
+    "Faruk",
+    "Giselle",
+    "Hamish",
+    "Isolde",
+    "Jorunn",
+    "Kael",
+    "Livya",
+    "Maksim",
+    "Noor",
+    "Ottilie",
+)
+_V4_LAST = (
+    "Arkwright",
+    "Bellamore",
+    "Crandall",
+    "Dunwick",
+    "Ellerby",
+    "Fenwick",
+    "Garbrand",
+    "Hollowmere",
+    "Iverton",
+    "Jessaume",
+    "Kelbrook",
+    "Larkspur",
+    "Marchetti",
+    "Norcross",
+    "Onderdonk",
+)
+_V4_SYSTEM = (
+    "Anchorveil",
+    "Brineshell",
+    "Coppergate Loom",
+    "Duskwell",
+    "Ferroline",
+    "Glassmere",
+    "Hollowpoint",
+    "Ironroot",
+    "Jadehook",
+    "Kilnward",
+    "Lockspur",
+    "Mistraline",
+    "Nethergale",
+    "Orebound",
+    "Paleharbor",
+)
+
+V4_COMPANIES = tuple(a + " " + b for a in _V4_COMPANY_PREFIX for b in _V4_COMPANY_SUFFIX)
+V4_PERSONS = tuple(a + " " + b for a in _V4_FIRST for b in _V4_LAST)
+V4_SYSTEMS = _V4_SYSTEM
+V4_ENTITY_POOL_STRINGS = V4_COMPANIES + V4_PERSONS + V4_SYSTEMS
+
+# v4 clean-source ids (lure-prone ids stay the shared _INJECTION_SOURCES so
+# the source field still carries no trust signal in v4 episodes).
+_V4_SOURCES = (
+    "meter-wire",
+    "pump-room-sheet",
+    "berth-summary",
+    "gantry-gazette",
+    "mezzanine-memo",
+    "sump-sheet",
+    "berth-wire",
+    "pump-sheet",
+)
+
+# v4 fact pool: terse truth-key idioms (snake_case, no dots) — the key shape
+# the sealed workloads' truth carries and the campaign showed the policy
+# paraphrasing into narrative keys. One same-kind partner key per value kind
+# so the same-value/different-key near-miss exists for every kind.
+V4_FACTS = (
+    {"key": "blower_speed_setting", "label": "blower speed", "kind": "rpm"},
+    {"key": "exhaust_fan_setting", "label": "exhaust fan speed", "kind": "rpm"},
+    {"key": "lighting_level_setting", "label": "lighting level", "kind": "lux"},
+    {"key": "mezzanine_lamp_setting", "label": "mezzanine lamp level", "kind": "lux"},
+    {"key": "chiller_pressure_reading", "label": "chiller pressure", "kind": "hpa"},
+    {"key": "boiler_pressure_reading", "label": "boiler pressure", "kind": "hpa"},
+    {"key": "pallet_scan_tally", "label": "pallet scan tally", "kind": "tally"},
+    {"key": "crane_lift_tally", "label": "crane lift tally", "kind": "tally"},
+    {"key": "berth_warden", "label": "berth warden", "kind": "person"},
+    {"key": "pump_room_warden", "label": "pump room warden", "kind": "person"},
+    {"key": "vent_louver_mode", "label": "vent louver mode", "kind": "mode"},
+    {"key": "intake_grille_mode", "label": "intake grille mode", "kind": "mode"},
+)
+
+_V4_MODES = ("latching", "rolling", "cycling", "venting", "purging")
+
+# v4 record phrasing families: wide surface-syntax variation (word order,
+# clause structure, entity density) around the same (subject, label, value).
+# Shared by citable records and distractors alike, so register is not a
+# citability signal in v4 either.
+_V4_RECORD_TEMPLATES = (
+    "{subject} {label} stands at {value}.",
+    "Recorded {label} for {subject}: {value}.",
+    "As of the latest reconciliation, the {label} for {subject} reads {value}.",
+    "The {label} at {subject} is presently {value}.",
+    "{subject} shows a {label} of {value} in the current register.",
+    "Latest {label} reading, {subject}: {value}.",
+    "Per the standing register, {subject} carries {label} {value}.",
+    "{label} at {subject} now reads {value}.",
+)
+
+# v4 superseded phrasings (the plain form included: staleness comes from
+# memory_state, never from prose alone).
+_V4_STALE_TEMPLATES = (
+    "{subject} {label} stood at {value}.",
+    "{subject} {label} stands at {value}.",
+    "{subject} {label} read {value} before the last revision.",
+)
+
+# v4 idiom_echo question families (a)-(f): widely varied surface syntax
+# around the same ask. Every family names the terse claim key to echo; none
+# announces anything about the retrieval situation.
+_V4_IDIOM_PROMPTS = (
+    (
+        "direct",
+        "What is the current {label} for {subject}? Claim key: {key}. "
+        "Use the exact stored value and cite the stored record.",
+    ),
+    (
+        "fronted",
+        "For {subject}, what {label} is in effect right now? "
+        "Answer under claim key {key} using the stored value verbatim, with an evidence citation.",
+    ),
+    (
+        "lookup",
+        "For {subject}, look up the present {label} and report it as claim key {key}, "
+        "value exactly as stored, evidence cited.",
+    ),
+    (
+        "how_set",
+        "How is the {label} currently configured for {subject}? "
+        "Reply with claim key {key}, the stored value exactly, and a citation to the stored record.",
+    ),
+    (
+        "check",
+        "{label} status check for {subject}? "
+        "Return claim key {key} carrying the stored value word for word, citing stored evidence.",
+    ),
+    (
+        "on_file",
+        "State the {label} that is on file for {subject}, keyed as {key} with the stored value and its evidence.",
+    ),
+)
+
+# v4 multipart_decomp question families: 2- and 3-part asks with varied
+# syntax; every part's terse claim key is named.
+_V4_MULTIPART_PROMPTS = (
+    (
+        "report",
+        "For {subject}, report the {listing}. Give each part under its claim key ({keys}) "
+        "with the exact stored values, citing stored evidence per part.",
+    ),
+    (
+        "what_are",
+        "What are the {listing} for {subject}? Key each answer as its claim key ({keys}) "
+        "with values exactly as stored and one citation each.",
+    ),
+    (
+        "enumerate",
+        "For {subject}, enumerate the {listing}: one claim per part, keyed {keys}, "
+        "stored values verbatim, evidence cited.",
+    ),
+)
+
+# v4 knobs. Measured rates are asserted in tests/test_m9_curriculum.py
+# against floors, not against these knobs.
+V4_NARRATIVE_KEY_RATE = 0.80  # idiom_echo: narrative-key near-miss present
+V4_SAME_KEY_DISTRACTOR_RATE = 0.70
+V4_SUPERSEDED_DISTRACTOR_RATE = 0.50
+V4_SAME_VALUE_DISTRACTOR_RATE = 0.50
+V4_REFORMULATION_RATE = 0.40
 
 
 class EntityError(ValueError):
@@ -1045,12 +1297,417 @@ def _abstain_exact(rng, ep):
     ep.final([])
 
 
-_BUILDERS = {
+_BUILDERS_V3 = {
     "abstain_exact": _abstain_exact,
     "coverage": _coverage,
     "conflict_split": _conflict_split,
     "injection_resist": _injection_resist,
     "replay": _replay,
+}
+
+
+# ---------------------------------------------------------------------------
+# v4 behavior classes (M10 generalization repairs). All draws run on the v4
+# pools above; nothing below touches the v1-v3 pools, so the classes stay
+# disjoint by construction.
+# ---------------------------------------------------------------------------
+
+
+def _v4_value(rng, fact):
+    """One JSON-scalar v4 claim value; units ride inside the string kinds."""
+    kind = fact["kind"]
+    if kind == "rpm":
+        return f"{rng.randint(60, 960)} rpm"
+    if kind == "lux":
+        return f"{rng.randint(50, 2000)} lux"
+    if kind == "hpa":
+        return f"{rng.randint(880, 1080)} hPa"
+    if kind == "tally":
+        return rng.randint(1, 9999)
+    if kind == "mode":
+        return rng.choice(_V4_MODES)
+    raise EntityError("Unknown v4 value kind: " + kind)
+
+
+def _v4_subject(rng, ep):
+    company = rng.choice(V4_COMPANIES)
+    system = rng.choice(V4_SYSTEMS)
+    ep.entities.extend((company, system))
+    return company + " " + system
+
+
+def _v4_person(rng, ep):
+    person = rng.choice(V4_PERSONS)
+    ep.entities.append(person)
+    return person
+
+
+def _v4_fact_value(rng, ep, fact):
+    value = _v4_person(rng, ep) if fact["kind"] == "person" else _v4_value(rng, fact)
+    if type(value) is str:
+        ep.entities.append(value)
+    return value
+
+
+def _v4_clean_source(rng):
+    """v4 clean record source: sometimes a lure-prone one (audit fix 2 held)."""
+    return rng.choice(_INJECTION_SOURCES if rng.random() < CLEAN_ON_LURE_SOURCE_RATE else _V4_SOURCES)
+
+
+def _v4_other_subject(rng, ep, exclude_subject):
+    while True:
+        company = rng.choice(V4_COMPANIES)
+        system = rng.choice(V4_SYSTEMS)
+        subject = company + " " + system
+        if subject != exclude_subject:
+            ep.entities.extend((company, system))
+            return subject
+
+
+def _v4_record_text(rng, subject, fact, value):
+    return rng.choice(_V4_RECORD_TEMPLATES).format(subject=subject, label=fact["label"], value=value)
+
+
+def _v4_fact_records(rng, ep, subject, facts):
+    """One current record per v4 fact; returns [(fact, value, record)]."""
+    triples = []
+    for fact in facts:
+        value = _v4_fact_value(rng, ep, fact)
+        triples.append(
+            (
+                fact,
+                value,
+                ep.record(
+                    text=_v4_record_text(rng, subject, fact, value),
+                    source=_v4_clean_source(rng),
+                    claim_key=fact["key"],
+                    claim_value=value,
+                ),
+            )
+        )
+    return triples
+
+
+def _v4_distinct_value(rng, ep, fact, avoid, attempts=64):
+    for _ in range(attempts):
+        value = _v4_fact_value(rng, ep, fact)
+        if value not in avoid:
+            return value
+    return None
+
+
+def _v4_distractor_records(rng, ep, count, *, exclude_subject, exclude_keys):
+    records = []
+    for _ in range(count):
+        subject = _v4_other_subject(rng, ep, exclude_subject)
+        fact = rng.choice([item for item in V4_FACTS if item["key"] not in exclude_keys])
+        value = _v4_fact_value(rng, ep, fact)
+        records.append(
+            ep.record(
+                text=_v4_record_text(rng, subject, fact, value),
+                source=_v4_clean_source(rng),
+                claim_key=fact["key"],
+                claim_value=value,
+            )
+        )
+    return records
+
+
+def _v4_same_key_distractors(rng, ep, count, facts, *, exclude_subject, exclude_values, memory_state="current"):
+    """v4 same-key/different-subject near-misses (audit fix 1 held): the asked
+    terse key about a DIFFERENT subject with a value that is not the answer."""
+    records = []
+    for _ in range(count):
+        subject = _v4_other_subject(rng, ep, exclude_subject)
+        fact = rng.choice(facts)
+        value = _v4_distinct_value(rng, ep, fact, exclude_values)
+        if value is None:
+            continue
+        records.append(
+            ep.record(
+                text=_v4_record_text(rng, subject, fact, value),
+                source=_v4_clean_source(rng),
+                claim_key=fact["key"],
+                claim_value=value,
+                memory_state=memory_state,
+                superseded_by=(ep._next_id + 1000) if memory_state == "superseded" else None,
+            )
+        )
+    return records
+
+
+def _v4_superseded_distractors(rng, ep, *, subject, triples, exclude_values=()):
+    """Stale v4 records passed over via memory_state; chained to a presented
+    current replacement where one exists (audit fix held)."""
+    records = []
+    fact, value, current = triples[rng.randrange(len(triples))]
+    avoid = set(exclude_values) | {value}
+    stale = _v4_distinct_value(rng, ep, fact, avoid)
+    if stale is None:
+        return records
+    records.append(
+        ep.record(
+            text=rng.choice(_V4_STALE_TEMPLATES).format(subject=subject, label=fact["label"], value=stale),
+            source=_v4_clean_source(rng),
+            claim_key=fact["key"],
+            claim_value=stale,
+            memory_state="superseded",
+            superseded_by=current["id"],
+        )
+    )
+    if rng.random() < 0.5:
+        records.extend(
+            _v4_same_key_distractors(
+                rng,
+                ep,
+                1,
+                [rng.choice(V4_FACTS)],
+                exclude_subject=subject,
+                exclude_values=avoid,
+                memory_state="superseded",
+            )
+        )
+    return records
+
+
+def _v4_partner_fact(rng, fact, exclude_keys):
+    partners = [
+        item
+        for item in V4_FACTS
+        if item["kind"] == fact["kind"] and item["key"] != fact["key"] and item["key"] not in exclude_keys
+    ]
+    return rng.choice(partners) if partners else None
+
+
+def _v4_plant_same_value(rng, ep, triples, *, subject, exclude_keys):
+    """v4 same-value/different-key near-miss (v3 repair held): the asked
+    subject carrying an ANSWER value under a DIFFERENT terse key."""
+    if rng.random() >= V4_SAME_VALUE_DISTRACTOR_RATE:
+        return []
+    fact, value, _ = triples[rng.randrange(len(triples))]
+    partner = _v4_partner_fact(rng, fact, exclude_keys)
+    if partner is None:
+        return []
+    record = ep.record(
+        text=_v4_record_text(rng, subject, partner, value),
+        source=_v4_clean_source(rng),
+        claim_key=partner["key"],
+        claim_value=value,
+    )
+    ep.meta_extra["same_value_ids"] = [record["id"]]
+    return [record]
+
+
+def _v4_reformulation_prefix(rng, ep, *, subject, labels, exclude_keys, distractors):
+    """v4 loop-resistance prefix: one differently phrased query after an empty
+    or unhelpful first retrieve, then the episode finalizes (v3 repair held)."""
+    if rng.random() >= V4_REFORMULATION_RATE:
+        return distractors
+    mode = rng.choice(("after_empty", "after_unhelpful"))
+    if mode == "after_unhelpful" and not distractors:
+        distractors = list(distractors) + _v4_distractor_records(
+            rng, ep, 1, exclude_subject=subject, exclude_keys=exclude_keys
+        )
+    ep.meta_extra["reformulation"] = mode
+    alt = _alt_query(rng, subject, labels)
+    if mode == "after_empty":
+        ep.retrieve(alt, rng.randint(1, 5), [])
+        return distractors
+    first = distractors[: rng.randint(1, len(distractors))]
+    ep.retrieve(alt, min(10, len(first) + rng.choice((0, 1))), first)
+    return distractors[len(first) :]
+
+
+def _idiom_echo(rng, ep):
+    """v4 (a): claim-key idiom echo across many phrasing families. The asked
+    key is a terse truth-key idiom; question and record surface syntax vary
+    widely. A narrative-key near-miss (asked subject, answer value, long
+    narrative key) makes the narrative key the WRONG answer."""
+    subject = _v4_subject(rng, ep)
+    fact = rng.choice(V4_FACTS)
+    family, template = _V4_IDIOM_PROMPTS[rng.randrange(len(_V4_IDIOM_PROMPTS))]
+    ep.variant = family
+    ep.meta_extra["prompt_family"] = family
+    ep.start(template.format(label=fact["label"], subject=subject, key=fact["key"]))
+    (legit,) = _v4_fact_records(rng, ep, subject, [fact])
+    _, value, legit_record = legit
+    exclude_keys = {fact["key"]}
+    distractors = _v4_distractor_records(rng, ep, rng.randint(0, 2), exclude_subject=subject, exclude_keys=exclude_keys)
+    if rng.random() < V4_SAME_KEY_DISTRACTOR_RATE:
+        distractors += _v4_same_key_distractors(
+            rng, ep, rng.randint(1, 2), [fact], exclude_subject=subject, exclude_values={value}
+        )
+    if rng.random() < V4_SUPERSEDED_DISTRACTOR_RATE:
+        distractors += _v4_superseded_distractors(rng, ep, subject=subject, triples=[legit])
+    distractors = _v4_reformulation_prefix(
+        rng, ep, subject=subject, labels=[fact["label"]], exclude_keys=exclude_keys, distractors=distractors
+    )
+    narrative = []
+    if rng.random() < V4_NARRATIVE_KEY_RATE:
+        source = _v4_clean_source(rng)
+        # The campaign failure verbatim: the answer value presented under a
+        # long narrative key ("<subject> <source> report <label>"). Echoing
+        # the narrative key is the wrong answer even though the value matches.
+        narrative_key = f"{subject.lower()} {source} report {fact['label']}"
+        narrative.append(
+            ep.record(
+                text=_v4_record_text(rng, subject, fact, value),
+                source=source,
+                claim_key=narrative_key,
+                claim_value=value,
+            )
+        )
+        ep.meta_extra["narrative_key_ids"] = [narrative[0]["id"]]
+        ep.meta_extra["narrative_key"] = narrative_key
+    same_value = _v4_plant_same_value(rng, ep, [legit], subject=subject, exclude_keys=exclude_keys)
+    returned = [legit_record] + distractors + narrative + same_value
+    rng.shuffle(returned)
+    ep.retrieve(
+        subject + " " + fact["label"],
+        min(10, len(returned) + rng.choice((0, 0, 1, 2))),
+        returned,
+    )
+    ep.final(_claims([legit]))
+
+
+def _conflict_declare(rng, ep):
+    """v4 (b): conflict declaration on novel two-source templates. Two v4
+    sources disagree on the asked (subject, key); the labeled final DECLARES
+    the conflict — one claim under the shared presented terse key, both
+    sources cited, neither value asserted as fact."""
+    subject = _v4_subject(rng, ep)
+    fact = rng.choice(V4_FACTS)
+    # Plain ask over the novel v4 question families: the disagreement must be
+    # detected from the records, never announced (audit fix 3 held).
+    family, template = _V4_IDIOM_PROMPTS[rng.randrange(len(_V4_IDIOM_PROMPTS))]
+    ep.variant = family
+    ep.meta_extra["prompt_family"] = family
+    ep.start(template.format(label=fact["label"], subject=subject, key=fact["key"]))
+    source_a = _v4_clean_source(rng)
+    while True:
+        source_b = _v4_clean_source(rng)
+        if source_b != source_a:
+            break
+    value_a = _v4_fact_value(rng, ep, fact)
+    while True:
+        value_b = _v4_fact_value(rng, ep, fact)
+        if value_b != value_a:
+            break
+    record_a = ep.record(
+        text=_v4_record_text(rng, subject, fact, value_a),
+        source=source_a,
+        claim_key=fact["key"],
+        claim_value=value_a,
+    )
+    record_b = ep.record(
+        text=_v4_record_text(rng, subject, fact, value_b),
+        source=source_b,
+        claim_key=fact["key"],
+        claim_value=value_b,
+    )
+    triples = [(fact, value_a, record_a), (fact, value_b, record_b)]
+    exclude_keys = {fact["key"]}
+    distractors = _v4_distractor_records(rng, ep, rng.randint(0, 1), exclude_subject=subject, exclude_keys=exclude_keys)
+    if rng.random() < V4_SAME_KEY_DISTRACTOR_RATE:
+        distractors += _v4_same_key_distractors(
+            rng, ep, rng.randint(1, 2), [fact], exclude_subject=subject, exclude_values={value_a, value_b}
+        )
+    if rng.random() < V4_SUPERSEDED_DISTRACTOR_RATE:
+        distractors += _v4_superseded_distractors(
+            rng, ep, subject=subject, triples=triples, exclude_values={value_a, value_b}
+        )
+    distractors = _v4_reformulation_prefix(
+        rng, ep, subject=subject, labels=[fact["label"]], exclude_keys=exclude_keys, distractors=distractors
+    )
+    same_value = _v4_plant_same_value(rng, ep, triples, subject=subject, exclude_keys=exclude_keys)
+    returned = [record_a, record_b] + distractors + same_value
+    rng.shuffle(returned)
+    ep.retrieve(
+        subject + " " + fact["label"],
+        min(10, len(returned) + rng.choice((0, 0, 1, 2))),
+        returned,
+    )
+    ep.final(
+        [
+            {
+                "key": fact["key"],
+                "value": f"conflict: {source_a} reports {value_a}; {source_b} reports {value_b}",
+                "evidence_ids": [record_a["id"], record_b["id"]],
+            }
+        ]
+    )
+
+
+def _multipart_decomp(rng, ep):
+    """v4 (c): multi-part decomposition. 2- and 3-part questions over novel
+    phrasing families; the labeled final covers EVERY part, each claim keyed
+    by its terse presented key and citing its own record."""
+    subject = _v4_subject(rng, ep)
+    parts = rng.choice((2, 2, 3))
+    facts = rng.sample(V4_FACTS, parts)
+    listing = _listing(facts)
+    keys = ", ".join(f["key"] for f in facts)
+    family, template = _V4_MULTIPART_PROMPTS[rng.randrange(len(_V4_MULTIPART_PROMPTS))]
+    ep.meta_extra["prompt_family"] = family
+    ep.meta_extra["parts"] = parts
+    ep.start(template.format(subject=subject, listing=listing, keys=keys))
+    triples = _v4_fact_records(rng, ep, subject, facts)
+    exclude_keys = {f["key"] for f in facts}
+    labels = [f["label"] for f in facts]
+    distractors = _v4_distractor_records(rng, ep, rng.randint(0, 2), exclude_subject=subject, exclude_keys=exclude_keys)
+    if rng.random() < V4_SAME_KEY_DISTRACTOR_RATE:
+        distractors += _v4_same_key_distractors(
+            rng, ep, rng.randint(1, 2), facts, exclude_subject=subject, exclude_values={v for _, v, _ in triples}
+        )
+    if rng.random() < V4_SUPERSEDED_DISTRACTOR_RATE:
+        distractors += _v4_superseded_distractors(rng, ep, subject=subject, triples=triples)
+    distractors = _v4_reformulation_prefix(
+        rng, ep, subject=subject, labels=labels, exclude_keys=exclude_keys, distractors=distractors
+    )
+    same_value = _v4_plant_same_value(rng, ep, triples, subject=subject, exclude_keys=exclude_keys)
+    if ep.meta_extra.get("reformulation"):
+        ep.variant = "reformulation_" + family
+        returned = [record for _, _, record in triples] + distractors + same_value
+        rng.shuffle(returned)
+        ep.retrieve(
+            subject + " " + " ".join(labels),
+            min(10, len(returned) + rng.choice((0, 0, 1, 2))),
+            returned,
+        )
+    elif rng.random() < 0.5:
+        ep.variant = "split_retrieval_" + family
+        split = rng.randint(1, parts - 1)
+        first = [record for _, _, record in triples[:split]] + distractors
+        rng.shuffle(first)
+        ep.retrieve(
+            subject + " " + " ".join(labels[:split]),
+            min(10, len(first) + rng.choice((0, 0, 1))),
+            first,
+        )
+        rest = [record for _, _, record in triples[split:]] + same_value
+        rng.shuffle(rest)
+        ep.retrieve(
+            subject + " " + " ".join(labels[split:]),
+            min(10, len(rest) + rng.choice((0, 0, 1))),
+            rest,
+        )
+    else:
+        ep.variant = "single_retrieval_" + family
+        returned = [record for _, _, record in triples] + distractors + same_value
+        rng.shuffle(returned)
+        ep.retrieve(
+            subject + " " + " ".join(labels),
+            min(10, len(returned) + rng.choice((0, 0, 1, 2))),
+            returned,
+        )
+    ep.final(_claims(triples))
+
+
+_BUILDERS = {
+    **_BUILDERS_V3,
+    "idiom_echo": _idiom_echo,
+    "conflict_declare": _conflict_declare,
+    "multipart_decomp": _multipart_decomp,
 }
 
 
@@ -1070,9 +1727,10 @@ def build_episodes(counts):
     episodes = {}
     for cls in CLASSES:
         rows = []
+        prefix = "m10" if cls in V4_CLASSES else "m9"
         for index, seed in enumerate(seeds[cls]):
             episode = Episode(
-                episode_id=f"m9-{cls.replace('_', '-')}-{index:04d}",
+                episode_id=f"{prefix}-{cls.replace('_', '-')}-{index:04d}",
                 cls=cls,
                 seed=seed,
                 variant="default",
@@ -1171,7 +1829,8 @@ def main(argv=None):
         "--counts",
         type=_parse_counts,
         default=None,
-        help="per-class counts, e.g. abstain_exact=30,coverage=40,conflict_split=30,injection_resist=30,replay=40",
+        help="per-class counts, e.g. abstain_exact=30,coverage=40,conflict_split=30,injection_resist=30,replay=40,"
+        "idiom_echo=40,conflict_declare=30,multipart_decomp=40",
     )
     parser.add_argument("--force", action="store_true", help="replace existing generated files")
     args = parser.parse_args(argv)
