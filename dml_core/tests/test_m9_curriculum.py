@@ -41,9 +41,10 @@ because the v3 repair changed what they pin (no test was deleted):
 
 * test_manifest — now pins manifest["dataset_version"] == 3.
 * test_conflict_split_shape — conflict records are now presented under the
-  keys the labeled claims use (per-source keys in separate_keys, the
-  shared base key in declare_conflict), and the assertions pin the echo:
-  every claim key is exactly a cited record's claim_key.
+  keys the labeled claims use (per-source keys in separate_keys, per-source
+  attributed truth keys in declare_conflict after the 2026-11-12
+  reconciliation), and the assertions pin the echo: every claim key is
+  exactly a cited record's claim_key.
 
 New v3 tests assert the repair properties directly:
   test_claim_key_echo                        (claim key = presented claim_key of a supporting record)
@@ -76,6 +77,12 @@ preserved; three changed with the reconciliation:
   rewritten as conflict_dual_assert: the gold final asserts both values,
   each under its own <fact>_<source>_condition key citing its own record;
   the 'conflict:' narrative survives only as a near-miss distractor record.
+* conflict_split's declare_conflict variant carried the same refuted
+  narrative as its v3 gold — contradictory gold standards for the same
+  behavior. Its gold is aligned to the identical dual-assert truth-key
+  idiom (shared _conflict_truth_key / _dual_assert_final helpers); the
+  'conflict:' narrative is demoted to a never-cited near-miss (ids in
+  meta.conflict_narrative_ids).
 * value_shape is new: the verifier's leaf gate requires string values equal
   to the record's exact '... is <value>.' tail; gold records end in that
   form with unit-bearing strings and a type-stripped bare-int near-miss
@@ -86,6 +93,8 @@ preserved; three changed with the reconciliation:
 
 New/updated tests pin the reconciled shapes directly:
   test_conflict_dual_assert_shape  (dual-assert gold; 'conflict:' narrative is the near-miss)
+  test_conflict_split_shape        (declare_conflict gold aligned to the same dual-assert idiom)
+  test_no_narrative_conflict_gold_anywhere (no gold final in ANY class uses the refuted form)
   test_value_shape_shape           (verbatim unit-bearing string echo; type-stripped int never cited)
   test_injection_resist_shape      (extended: both injection surfaces exercised)
 """
@@ -438,14 +447,48 @@ def test_conflict_split_shape(dataset):
             assert left["claim_key"] != right["claim_key"]
         else:
             assert variant == "declare_conflict"
-            assert len(claims) == 1
-            assert type(claims[0]["value"]) is str and claims[0]["value"].startswith("conflict: ")
-            assert len(claims[0]["evidence_ids"]) == 2
-            left = presented[claims[0]["evidence_ids"][0]]
-            right = presented[claims[0]["evidence_ids"][1]]
-            # v3 echo: both records share one presented claim_key and the
-            # single conflict claim echoes exactly that key.
-            assert left["claim_key"] == right["claim_key"] == claims[0]["key"]
+            # Reconciled 2026-11-12 against the observer-verified failure
+            # decomposition (the verifier never moves): the gold is the
+            # DUAL-ASSERT shape — exactly the conflict_dual_assert idiom —
+            # never the refuted 'conflict: ...' narrative.
+            assert len(claims) == 2
+            assert claims[0]["key"] != claims[1]["key"]
+            (left_id,) = claims[0]["evidence_ids"]
+            (right_id,) = claims[1]["evidence_ids"]
+            left = presented[left_id]
+            right = presented[right_id]
+            for claim, record in ((claims[0], left), (claims[1], right)):
+                assert claim["key"].endswith("_condition"), "source-attributed truth key idiom"
+                assert not (type(claim["value"]) is str and claim["value"].startswith("conflict: "))
+                # v3 echo: each claim key is exactly the claim_key its own
+                # cited record was presented under.
+                assert record["claim_key"] == claim["key"]
+                assert record["claim_value"] == claim["value"]
+                assert type(record["claim_value"]) is type(claim["value"])
+            # Both attributed keys extend the same base fact key, each
+            # embedding its cited record's source attribution.
+            base_a = claims[0]["key"][: -len("_condition")]
+            base_b = claims[1]["key"][: -len("_condition")]
+            assert base_a != base_b
+            assert any(base_a.startswith(fact["key"] + "_") for fact in generate.FACTS)
+            assert any(base_b.startswith(fact["key"] + "_") for fact in generate.FACTS)
+            assert left["source"].replace("-", "_") in claims[0]["key"]
+            assert right["source"].replace("-", "_") in claims[1]["key"]
+            # The refuted narrative survives only as a never-cited near-miss
+            # under the shared base key (meta provenance, mirroring v4).
+            cited = {rid for claim in claims for rid in claim["evidence_ids"]}
+            for rid in row["meta"].get("conflict_narrative_ids", ()):
+                near_miss = presented[rid]
+                value = near_miss["claim_value"]
+                assert type(value) is str and value.startswith("conflict: ")
+                assert left["source"] in value and right["source"] in value
+                # The narrative sits under the shared base key and carries
+                # both sources' rendered values.
+                kind = {fact["key"]: fact["kind"] for fact in generate.FACTS}[near_miss["claim_key"]]
+                assert generate._value_text(left["claim_value"], kind) in value
+                assert generate._value_text(right["claim_value"], kind) in value
+                assert near_miss["claim_key"] not in {claims[0]["key"], claims[1]["key"]}
+                assert rid not in cited, "the conflict-narrative record must never be cited"
         assert left["claim_value"] != right["claim_value"]
         assert left["source"] != right["source"]
         # Both conflicting records are about the asked subject and current.
@@ -454,6 +497,28 @@ def test_conflict_split_shape(dataset):
             assert record["memory_state"] == "current"
             assert subject in record["text"]
     assert variants == {"separate_keys", "declare_conflict"}
+    # The narrative near-miss carries real weight across declare_conflict
+    # episodes (knob 0.80; deterministic rate 14/16 under seed [20261112]).
+    dc = [row for row in rows["conflict_split"] if row["meta"]["variant"] == "declare_conflict"]
+    narrated = sum(1 for row in dc if row["meta"].get("conflict_narrative_ids"))
+    assert narrated / len(dc) >= 0.60, f"conflict-narrative near-misses in only {narrated}/{len(dc)}"
+
+
+def test_no_narrative_conflict_gold_anywhere(dataset):
+    """The verifier REJECTS the 'conflict: ...' narrative claim form
+    (observer-verified 2026-11-12): no gold final in ANY class may use it —
+    it exists only as a never-cited near-miss distractor."""
+    _, rows = dataset
+    for cls in generate.CLASSES:
+        for row in rows[cls]:
+            _, action = assert_canonical_row(row)
+            for claim in action["answer"]["claims"]:
+                value = claim["value"]
+                assert not (type(value) is str and value.startswith("conflict: ")), (
+                    "narrative-conflict claim credited as gold",
+                    row["episode_id"],
+                    claim,
+                )
 
 
 def test_injection_resist_shape(dataset):

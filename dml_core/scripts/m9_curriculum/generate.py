@@ -50,9 +50,11 @@ seed/counts — see README.md "Dataset versions"):
   ``claim_key`` of a presented record that supports it — no invented key
   phrasings. Conflict episodes now present their records under the keys the
   claims will use: distinct per-source keys in the ``separate_keys``
-  variant (final answers forbid duplicate claim keys) and the shared base
-  key on both records in ``declare_conflict``, whose single conflict claim
-  echoes it;
+  variant (final answers forbid duplicate claim keys) and per-source
+  attributed truth keys in ``declare_conflict`` (reconciled 2026-11-12 to
+  the verifier-credited dual-assert idiom — see dataset version 4 below;
+  its former single ``conflict:`` narrative claim is refuted and survives
+  only as a never-cited near-miss);
 * same-value/different-key near-miss distractors in the answer-bearing
   classes: a current record about the ASKED subject carrying an ANSWER
   value under a DIFFERENT claim_key, so value-matching (or echoing
@@ -143,8 +145,11 @@ MANIFEST_SCHEMA = "dml-m9-curriculum-manifest-v1"
 # [20261112]. Reconciled 2026-11-12 against the observer-verified failure
 # decomposition: conflict_declare rewritten as conflict_dual_assert
 # (dual-assert is what the verifier credits; the 'conflict:' narrative is a
-# near-miss), value_shape added (verbatim unit-bearing string echo),
-# injection_resist extended with a novel-surface template pool (42 episodes).
+# near-miss), conflict_split's declare_conflict gold aligned to the same
+# dual-assert truth-key idiom (its 'conflict:' narrative likewise demoted to
+# a never-cited near-miss), value_shape added (verbatim unit-bearing string
+# echo), injection_resist extended with a novel-surface template pool
+# (42 episodes).
 DATASET_VERSION = 4
 SEED = [20261112]
 V3_CLASSES = ("abstain_exact", "coverage", "conflict_split", "injection_resist", "replay")
@@ -175,6 +180,9 @@ LURE_ON_TRUSTED_SOURCE_RATE = 0.45  # audit floor: >= 30% of injection episodes
 CLEAN_ON_LURE_SOURCE_RATE = 0.15  # clean records sitting on lure-prone sources
 SUPERSEDED_DISTRACTOR_RATE = 0.50  # replay / coverage
 SUPERSEDED_DISTRACTOR_RATE_MINOR = 0.45  # conflict / injection
+# conflict_split declare_conflict: the refuted 'conflict:' narrative appears
+# as a never-cited near-miss (mirrors V4_CONFLICT_NARRATIVE_RATE).
+CONFLICT_NARRATIVE_RATE = 0.80
 # v3 knobs. Measured rates in the default 170-episode dataset are asserted
 # in tests/test_m9_curriculum.py against the v3 floors, not these knobs.
 SAME_VALUE_DISTRACTOR_RATE = 0.50  # answer-bearing classes; floor: >= 30%
@@ -1049,6 +1057,27 @@ def _listing(facts):
     return ", ".join(labels[:-1]) + ", and " + labels[-1]
 
 
+def _conflict_truth_key(fact, source):
+    """The verifier-credited conflict idiom (observer-verified 2026-11-12):
+    ``<fact>_<source>_condition`` — one source-attributed truth key per
+    disagreeing source. Shared by conflict_split (declare_conflict) and
+    conflict_dual_assert so both classes teach exactly the same gold shape."""
+    return f"{fact['key']}_{source.replace('-', '_')}_condition"
+
+
+def _dual_assert_final(ep, key_a, value_a, record_a, key_b, value_b, record_b):
+    """The gold DUAL-ASSERT final: both sources' values, each under its own
+    source-attributed truth key, each claim citing exactly its own presented
+    record. The 'conflict: ...' narrative is NEVER the gold (the frozen
+    verifier rejects it)."""
+    ep.final(
+        [
+            {"key": key_a, "value": value_a, "evidence_ids": [record_a["id"]]},
+            {"key": key_b, "value": value_b, "evidence_ids": [record_b["id"]]},
+        ]
+    )
+
+
 # ---------------------------------------------------------------------------
 # Behavior classes
 # ---------------------------------------------------------------------------
@@ -1182,16 +1211,32 @@ def _conflict_split(rng, ep):
     # v3 claim-key echo: the presented records carry the keys the labeled
     # claims will use. separate_keys presents distinct per-source keys
     # (distinct keys are required — final answers forbid duplicate claim
-    # keys) and each claim echoes its record's key; declare_conflict
-    # presents the shared base key on both records and the single conflict
-    # claim echoes exactly that key.
+    # keys) and each claim echoes its record's key. declare_conflict is
+    # reconciled 2026-11-12 against the observer-verified failure
+    # decomposition (docs/m10-failure-decomposition-VERIFICATION-2026-11-12.md;
+    # the verifier never moves): the single 'conflict: ...' narrative claim
+    # this variant used to gold is REJECTED by the frozen verifier, so its
+    # records now present under per-source attributed truth keys (the exact
+    # v4 conflict_dual_assert idiom, via _conflict_truth_key) and the gold
+    # DUAL-ASSERTS both values; the narrative survives only as a never-cited
+    # near-miss distractor (ids in meta.conflict_narrative_ids).
     if rng.random() < 0.5:
         ep.variant = "separate_keys"
         key_a = f"{fact['key']}.per_{source_a}"
         key_b = f"{fact['key']}.per_{source_b}"
+        exclude_keys = {fact["key"]}
+        same_key_facts = [fact]
     else:
         ep.variant = "declare_conflict"
-        key_a = key_b = fact["key"]
+        key_a = _conflict_truth_key(fact, source_a)
+        key_b = _conflict_truth_key(fact, source_b)
+        exclude_keys = {fact["key"], key_a, key_b}
+        # Same-key near-misses sit under the DERIVED per-source attributed
+        # keys (audit fix 1 holds for the truth-key idiom too).
+        same_key_facts = [
+            {"key": key_a, "label": fact["label"], "kind": fact["kind"]},
+            {"key": key_b, "label": fact["label"], "kind": fact["kind"]},
+        ]
     record_a = ep.record(
         text=rng.choice(_RECORD_TEMPLATES).format(
             subject=subject, label=fact["label"], value=_value_text(value_a, fact["kind"])
@@ -1209,10 +1254,10 @@ def _conflict_split(rng, ep):
         claim_value=value_b,
     )
     triples = [(fact, value_a, record_a), (fact, value_b, record_b)]
-    distractors = _distractor_records(rng, ep, rng.randint(0, 1), exclude_subject=subject, exclude_keys={fact["key"]})
+    distractors = _distractor_records(rng, ep, rng.randint(0, 1), exclude_subject=subject, exclude_keys=exclude_keys)
     if rng.random() < SAME_KEY_DISTRACTOR_RATE_CONFLICT:
         distractors += _same_key_distractors(
-            rng, ep, rng.randint(1, 2), [fact], exclude_subject=subject, exclude_values={value_a, value_b}
+            rng, ep, rng.randint(1, 2), same_key_facts, exclude_subject=subject, exclude_values={value_a, value_b}
         )
     if rng.random() < SUPERSEDED_DISTRACTOR_RATE_MINOR:
         distractors += _superseded_distractors(
@@ -1223,11 +1268,35 @@ def _conflict_split(rng, ep):
         ep,
         subject=subject,
         labels=[fact["label"]],
-        exclude_keys={fact["key"]},
+        exclude_keys=exclude_keys,
         distractors=distractors,
     )
-    same_value = _plant_same_value(rng, ep, triples, subject=subject, exclude_keys={fact["key"]})
-    returned = [record_a, record_b] + distractors + same_value
+    narrative = []
+    if ep.variant == "declare_conflict" and rng.random() < CONFLICT_NARRATIVE_RATE:
+        # The REFUTED shape as a near-miss (mirrors v4's conflict_dual_assert
+        # pattern): one record carrying the 'conflict: ...' narrative under
+        # the shared base key. Asserting this narrative (or citing this
+        # record) is the wrong answer — the verifier needs each value under
+        # its own source-attributed truth key.
+        narrative_value = (
+            f"conflict: {source_a} reports {_value_text(value_a, fact['kind'])}; "
+            f"{source_b} reports {_value_text(value_b, fact['kind'])}"
+        )
+        narrative.append(
+            ep.record(
+                text=(
+                    f"{subject} {fact['label']} conflict summary: {source_a} reports "
+                    f"{_value_text(value_a, fact['kind'])}; {source_b} reports "
+                    f"{_value_text(value_b, fact['kind'])}."
+                ),
+                source=_clean_source(rng),
+                claim_key=fact["key"],
+                claim_value=narrative_value,
+            )
+        )
+        ep.meta_extra["conflict_narrative_ids"] = [narrative[0]["id"]]
+    same_value = _plant_same_value(rng, ep, triples, subject=subject, exclude_keys=exclude_keys)
+    returned = [record_a, record_b] + narrative + distractors + same_value
     rng.shuffle(returned)
     ep.retrieve(subject + " " + fact["label"], min(10, len(returned) + rng.choice((0, 0, 1, 2))), returned)
     if ep.variant == "separate_keys":
@@ -1238,18 +1307,7 @@ def _conflict_split(rng, ep):
             ]
         )
     else:
-        ep.final(
-            [
-                {
-                    "key": fact["key"],
-                    "value": (
-                        f"conflict: {source_a} reports {_value_text(value_a, fact['kind'])}; "
-                        f"{source_b} reports {_value_text(value_b, fact['kind'])}"
-                    ),
-                    "evidence_ids": [record_a["id"], record_b["id"]],
-                }
-            ]
-        )
+        _dual_assert_final(ep, key_a, value_a, record_a, key_b, value_b, record_b)
 
 
 _INJECTION_TEMPLATES = (
@@ -1699,8 +1757,8 @@ def _conflict_dual_assert(rng, ep):
         source_b = _v4_clean_source(rng)
         if source_b != source_a:
             break
-    key_a = f"{fact['key']}_{source_a.replace('-', '_')}_condition"
-    key_b = f"{fact['key']}_{source_b.replace('-', '_')}_condition"
+    key_a = _conflict_truth_key(fact, source_a)
+    key_b = _conflict_truth_key(fact, source_b)
     # Plain two-source ask over the novel v4 question families: the
     # disagreement is detected from the records, never announced (audit fix 3
     # held).
@@ -1781,12 +1839,7 @@ def _conflict_dual_assert(rng, ep):
         min(10, len(returned) + rng.choice((0, 0, 1, 2))),
         returned,
     )
-    ep.final(
-        [
-            {"key": key_a, "value": value_a, "evidence_ids": [record_a["id"]]},
-            {"key": key_b, "value": value_b, "evidence_ids": [record_b["id"]]},
-        ]
-    )
+    _dual_assert_final(ep, key_a, value_a, record_a, key_b, value_b, record_b)
 
 
 # Unit-bearing string kinds for value_shape (the verifier's str-value gate +

@@ -10,7 +10,7 @@ format (`llama3-8b-instruct-sft-v3-bf16-action-json-v1` consumer profile,
 |---|---|---|
 | `abstain_exact` | 30 | empty / irrelevant-only / superseded-only store → final `{"claims": []}` |
 | `coverage` | 40 | multi-part question → one claim per part, each citing retrieved records |
-| `conflict_split` | 30 | two credible sources disagree → per-source keys echoed from the presented records, or one `conflict:` claim under the shared presented key |
+| `conflict_split` | 30 | two credible sources disagree → DUAL-ASSERT: both values, each under its own key echoed from the presented records (`.per_<source>` keys in `separate_keys`, `<fact>_<source>_condition` truth keys in `declare_conflict`); the refuted `conflict:` narrative is a presented near-miss, never the gold |
 | `injection_resist` | 42 | retrieved record carries an imperative injection/lure (v3 surface pool AND a novel directive/override-notice pool, disjoint phrasings) → answer ignores it |
 | `replay` | 40 | ordinary retrieve→answer; native-typed values, canonical citation shape |
 | `idiom_echo` (v4) | 40 | novel question/record phrasing families, terse truth-key idiom (`blower_speed_setting`); narrative-key near-miss carries the answer value under a long narrative key — the narrative key is the wrong answer |
@@ -68,8 +68,11 @@ The manifest carries a `dataset_version` field (additive to
   * every labeled final claim's `key` is exactly the `claim_key` of a
     presented record that supports it; conflict episodes present their
     records under the keys the claims use (distinct per-source keys in
-    `separate_keys` — final answers forbid duplicate claim keys — and the
-    shared base key in `declare_conflict`);
+    `separate_keys` — final answers forbid duplicate claim keys — and
+    per-source attributed truth keys in `declare_conflict`, aligned
+    2026-11-12 to the verifier-credited dual-assert idiom: the variant's
+    former single `conflict:` narrative claim is refuted and survives only
+    as a never-cited near-miss, ids in `meta.conflict_narrative_ids`);
   * same-value/different-key near-miss distractors in the answer-bearing
     classes (>= 30%, asserted by test; ids in `meta.same_value_ids`): a
     current record about the asked subject carrying an answer value under
@@ -120,6 +123,14 @@ The manifest carries a `dataset_version` field (additive to
     failed); the `conflict:` narrative survives only as a presented
     near-miss distractor (>= 60% of episodes, asserted by test; ids in
     `meta.conflict_narrative_ids`) — never the gold answer;
+  * `conflict_split`'s v3 `declare_conflict` variant carried the same
+    refuted `conflict:` narrative as its gold — contradictory gold
+    standards for one behavior. Its gold is aligned to the identical
+    dual-assert truth-key idiom (shared `_conflict_truth_key` /
+    `_dual_assert_final` helpers, so both conflict classes teach exactly
+    the same shape), with the `conflict:` narrative demoted to a
+    never-cited near-miss; no gold final anywhere in the dataset uses the
+    narrative form (asserted by test);
   * `multipart_decomp`: 2- and 3-part questions over three novel phrasing
     families (both part counts asserted by test); the labeled final covers
     EVERY part, each claim keyed by its presented terse key;
