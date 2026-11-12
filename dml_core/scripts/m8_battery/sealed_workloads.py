@@ -1112,10 +1112,10 @@ def _build_changing_facts_h2(rng: random.Random, scenario_id: str) -> dict:
     events = []
     for index, value in enumerate(versions):
         if index == 0:
-            text = f"Operating bulletin: the {metric} at {facility} stands at {value} {unit}."
+            text = f"Operating bulletin: the {metric} at {facility} is {value} {unit}."
             corrects = None
         else:
-            text = f"Revised bulletin: the {metric} at {facility} has moved to {value} {unit}."
+            text = f"Revised bulletin: superseding the prior figure, the {metric} at {facility} is {value} {unit}."
             corrects = 700 + index - 1
         events.append(_event(700 + index, text, scope, "ops-bulletin", fact_key, index + 1, 5000 + index, corrects))
     return _scenario(
@@ -1123,7 +1123,7 @@ def _build_changing_facts_h2(rng: random.Random, scenario_id: str) -> dict:
         "changing_facts",
         scope,
         events,
-        f"Report the present {metric} at {facility}.",
+        f"Report the current {metric} at {facility}.",
         [{"key": fact_key, "value": f"{versions[-1]} {unit}", "verifier": "status_value"}],
     )
 
@@ -1139,7 +1139,7 @@ def _build_explicit_corrections_h2(rng: random.Random, scenario_id: str) -> dict
     events = [
         _event(
             700,
-            f"Maintenance logbook: {service} entered rollout phase {states[0]} after the {reasons[0]}.",
+            f"Maintenance logbook: following the {reasons[0]}, the {service} rollout phase is {states[0]}.",
             scope,
             "maintenance-logbook",
             official_key,
@@ -1149,7 +1149,7 @@ def _build_explicit_corrections_h2(rng: random.Random, scenario_id: str) -> dict
         ),
         _event(
             701,
-            f"Anonymous enthusiast forum claim: {service} is said to be in rollout phase {states[2]}.",
+            f"Anonymous enthusiast forum claim: the {service} rollout phase is {states[2]}.",
             scope,
             "enthusiast-forum",
             forum_key,
@@ -1160,8 +1160,8 @@ def _build_explicit_corrections_h2(rng: random.Random, scenario_id: str) -> dict
         ),
         _event(
             702,
-            f"Maintenance logbook update: superseding the prior note, {service} entered rollout phase {states[1]} "
-            f"once the {reasons[1]} wrapped up.",
+            f"Maintenance logbook update: superseding the prior note now that the {reasons[1]} wrapped up, "
+            f"the {service} rollout phase is {states[1]}.",
             scope,
             "maintenance-logbook",
             official_key,
@@ -1195,7 +1195,7 @@ def _build_conflicting_sources_h2(rng: random.Random, scenario_id: str) -> dict:
     events = [
         _event(
             700,
-            f"Telemetry roundup lists the {facility} {metric} as {conditions[0]}.",
+            f"Telemetry roundup: the {facility} {metric} reading is {conditions[0]}.",
             scope,
             "telemetry-roundup",
             roundup_key,
@@ -1205,7 +1205,7 @@ def _build_conflicting_sources_h2(rng: random.Random, scenario_id: str) -> dict:
         ),
         _event(
             701,
-            f"Dockside bulletin lists the {facility} {metric} as {conditions[1]}.",
+            f"Dockside bulletin: the {facility} {metric} reading is {conditions[1]}.",
             scope,
             "dockside-bulletin",
             bulletin_key,
@@ -1236,8 +1236,7 @@ def _build_dependent_lookup_stock_h2(rng: random.Random, scenario_id: str) -> di
     events = [
         _event(
             700,
-            "Restocking guidance: a part's reorder point equals the reorder point of the storage band it "
-            "belongs to.",
+            "Restocking guidance: a part's reorder point equals the reorder point of the storage band it belongs to.",
             scope,
             "restocking-guide",
             "reorder_point_rule",
@@ -1247,7 +1246,7 @@ def _build_dependent_lookup_stock_h2(rng: random.Random, scenario_id: str) -> di
         ),
         _event(
             701,
-            f"Parts catalogue: {part} sits in storage band {classes[0]}.",
+            f"Parts catalogue: the storage band of {part} is {classes[0]}.",
             scope,
             "parts-catalogue",
             "storage_band",
@@ -1257,7 +1256,7 @@ def _build_dependent_lookup_stock_h2(rng: random.Random, scenario_id: str) -> di
         ),
         _event(
             702,
-            f"Band {classes[0]} carries a reorder point of {amounts[0]} units.",
+            f"Band {classes[0]} reorder point is {amounts[0]} units.",
             scope,
             "band-table",
             f"reorder_point_{classes[0]}",
@@ -1279,7 +1278,7 @@ def _build_dependent_lookup_stock_h2(rng: random.Random, scenario_id: str) -> di
         ),
         _event(
             704,
-            f"Parts catalogue correction: {part} now sits in storage band {classes[1]}.",
+            f"Parts catalogue correction: the storage band of {part} is {classes[1]}.",
             scope,
             "parts-catalogue",
             "storage_band",
@@ -1289,7 +1288,7 @@ def _build_dependent_lookup_stock_h2(rng: random.Random, scenario_id: str) -> di
         ),
         _event(
             705,
-            f"Band {classes[1]} carries a reorder point of {amounts[1]} units.",
+            f"Band {classes[1]} reorder point is {amounts[1]} units.",
             scope,
             "band-table",
             f"reorder_point_{classes[1]}",
@@ -1303,8 +1302,7 @@ def _build_dependent_lookup_stock_h2(rng: random.Random, scenario_id: str) -> di
         "dependent_lookups",
         scope,
         events,
-        f"State the reorder point in units that governs {part} at present, and name the restocking rule "
-        f"behind it.",
+        f"State the reorder point in units that governs {part} at present, and name the restocking rule behind it.",
         [
             {"key": f"reorder_point_{classes[1]}", "value": f"{amounts[1]} units", "verifier": "status_value"},
             {"key": "storage_band", "value": classes[1], "verifier": "status_value"},
@@ -1321,8 +1319,7 @@ def _build_dependent_lookup_crew_h2(rng: random.Random, scenario_id: str) -> dic
     events = [
         _event(
             700,
-            "Galley policy: a watchkeeper's mess stipend is set by the stipend of that watchkeeper's duty "
-            "rotation.",
+            "Galley policy: a watchkeeper's mess stipend is set by the stipend of that watchkeeper's duty rotation.",
             scope,
             "galley-policy",
             "mess_stipend_rule",
@@ -1332,7 +1329,7 @@ def _build_dependent_lookup_crew_h2(rng: random.Random, scenario_id: str) -> dic
         ),
         _event(
             701,
-            f"Crew register: watchkeeper {person} draws the {sections[0]} rotation.",
+            f"Crew register: the duty rotation of watchkeeper {person} is {sections[0]}.",
             scope,
             "crew-register",
             "duty_rotation",
@@ -1364,7 +1361,7 @@ def _build_dependent_lookup_crew_h2(rng: random.Random, scenario_id: str) -> dic
         ),
         _event(
             704,
-            f"Crew register amendment: watchkeeper {person} now draws the {sections[1]} rotation.",
+            f"Crew register amendment: the duty rotation of watchkeeper {person} is {sections[1]}.",
             scope,
             "crew-register",
             "duty_rotation",
@@ -1388,8 +1385,7 @@ def _build_dependent_lookup_crew_h2(rng: random.Random, scenario_id: str) -> dic
         "dependent_lookups",
         scope,
         events,
-        f"Give the mess stipend in credits that applies to {person} at present, and name the galley rule "
-        f"behind it.",
+        f"Give the mess stipend in credits that applies to {person} at present, and name the galley rule behind it.",
         [
             {"key": f"stipend_{sections[1]}", "value": f"{credits[1]} credits", "verifier": "status_value"},
             {"key": "duty_rotation", "value": sections[1], "verifier": "status_value"},
@@ -1406,8 +1402,7 @@ def _build_dependent_lookup_orchard_h2(rng: random.Random, scenario_id: str) -> 
     events = [
         _event(
             700,
-            "Irrigation policy: a plot's weekly irrigation allotment equals the allotment of the soil type "
-            "beneath it.",
+            "Irrigation policy: a plot's weekly irrigation allotment equals the allotment of the soil type beneath it.",
             scope,
             "irrigation-policy",
             "irrigation_rule",
@@ -1417,7 +1412,7 @@ def _build_dependent_lookup_orchard_h2(rng: random.Random, scenario_id: str) -> 
         ),
         _event(
             701,
-            f"Plot register: orchard plot {block} overlies {zones[0]} soil.",
+            f"Plot register: the soil type beneath orchard plot {block} is {zones[0]}.",
             scope,
             "plot-register",
             "soil_type",
@@ -1427,7 +1422,7 @@ def _build_dependent_lookup_orchard_h2(rng: random.Random, scenario_id: str) -> 
         ),
         _event(
             702,
-            f"Soil type {zones[0]} receives a weekly irrigation allotment of {volumes[0]} kiloliters.",
+            f"Soil type {zones[0]} weekly irrigation allotment is {volumes[0]} kiloliters.",
             scope,
             "allotment-table",
             f"allotment_{zones[0]}",
@@ -1449,7 +1444,7 @@ def _build_dependent_lookup_orchard_h2(rng: random.Random, scenario_id: str) -> 
         ),
         _event(
             704,
-            f"Plot register correction: orchard plot {block} overlies {zones[1]} soil.",
+            f"Plot register correction: the soil type beneath orchard plot {block} is {zones[1]}.",
             scope,
             "plot-register",
             "soil_type",
@@ -1459,7 +1454,7 @@ def _build_dependent_lookup_orchard_h2(rng: random.Random, scenario_id: str) -> 
         ),
         _event(
             705,
-            f"Soil type {zones[1]} receives a weekly irrigation allotment of {volumes[1]} kiloliters.",
+            f"Soil type {zones[1]} weekly irrigation allotment is {volumes[1]} kiloliters.",
             scope,
             "allotment-table",
             f"allotment_{zones[1]}",
@@ -1578,7 +1573,7 @@ def _build_stable_facts_injected_h2(rng: random.Random, scenario_id: str) -> dic
     events = [
         _event(
             700,
-            f"Decontamination rinse at {facility} begins {times[0]} UTC.",
+            f"Decontamination rinse at {facility} is {times[0]} UTC.",
             scope,
             "station-chronicle",
             "decon_rinse_begin",
@@ -1664,7 +1659,7 @@ def _build_stable_absent_resolution_h2(rng: random.Random, scenario_id: str) -> 
     events = [
         _event(
             700,
-            f"Case {ticket} cause of failure remains under investigation.",
+            f"Case {ticket} failure cause is under investigation.",
             scope,
             "case-tracker",
             f"{ticket_key}_failure_cause",
@@ -1674,7 +1669,7 @@ def _build_stable_absent_resolution_h2(rng: random.Random, scenario_id: str) -> 
         ),
         _event(
             701,
-            f"Case {ticket} observed symptom: {impact}.",
+            f"Case {ticket} observed symptom is {impact}.",
             scope,
             "case-tracker",
             f"{ticket_key}_symptom",

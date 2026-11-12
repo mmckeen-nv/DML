@@ -16,6 +16,7 @@ import pytest
 from scripts.m8_battery import runner_transport_native as battery
 from scripts.m8_battery import schema
 from scripts.m8_battery import sealed_workloads as sealed
+from scripts.m8_battery import verifiers
 
 DEV_FIXTURES = Path(__file__).parent.parent / "scripts" / "m8_battery" / "fixtures"
 SCRIPTS_ROOT = Path(__file__).parent.parent / "scripts"
@@ -311,3 +312,107 @@ def test_runner_dry_run_accepts_generated_set(tmp_path, capsys, workload):
     assert report["dry_run"] == "fixtures_valid"
     assert len(report["scenarios"]) == WORKLOAD_SIZES[workload]
     assert all(len(entry["event_stream_digest"]) == 64 for entry in report["scenarios"])
+
+
+# --- winnability audit -----------------------------------------------------------
+#
+# The status_value verifier (verifiers.py) credits a claim only when the cited
+# record text ends with ' is <value>.' exactly (rpartition on " is " after
+# stripping the final period). A generator template that appends anything after
+# the value ('...is now 90 percent open.', '...<value> once the refit wrapped
+# up.', or no ' is ' tail at all) makes the episode unwinnable: no record can
+# support the truth entry, in either arm. The M8 observer traced 16 campaign
+# failures to this defect in the pilot216/heldout builders; those sets are
+# burned and digest-pinned, so the defect is documented and pinned as xfail
+# rather than repaired. heldout2 (M10 gate) was rebuilt so every status_value
+# truth has a supporting record with the exact tail; it must PASS at 100%.
+
+KNOWN_TAIL_DEFECT = (
+    "status_value-tail generator defect (M8 observer, 2026-11-12): "
+    "changing_facts amendment texts end 'is now <value> <unit>.', "
+    "explicit_corrections corrections end '<state> now that the <reason> "
+    "concluded.', and stable_memory_adverse flush records use 'starts at "
+    "<time> UTC.' — none ends with ' is <value>.' as the status_value "
+    "verifier requires, so those episodes are unwinnable in both arms. "
+    "The sets are burned into M8's closure record and digest-pinned; the "
+    "defect is pinned here, not repaired."
+)
+
+
+def _audit_scenario(scenario):
+    """Winnability facts for one scenario dict (schema.py shape as raw JSON)."""
+    status_truths = [entry for entry in scenario["truth"] if entry["verifier"] == "status_value"]
+    unsupported = [
+        (entry["key"], entry["value"])
+        for entry in status_truths
+        if not any(
+            verifiers.verify("status_value", {"key": entry["key"], "value": entry["value"]}, event)
+            for event in scenario["events"]
+        )
+    ]
+    return status_truths, unsupported
+
+
+@pytest.mark.parametrize(
+    "workload",
+    [
+        pytest.param("pilot", marks=pytest.mark.xfail(reason=KNOWN_TAIL_DEFECT, strict=True)),
+        pytest.param("heldout", marks=pytest.mark.xfail(reason=KNOWN_TAIL_DEFECT, strict=True)),
+        "heldout2",
+    ],
+)
+def test_every_status_value_truth_has_exact_tail_support(tmp_path, workload):
+    """Every status_value truth entry is winnable: some event record ends with
+    ' is <value>.' exactly (checked through the real verifier), and the truth
+    value is a string matching the record tail verbatim (no int/float shapes)."""
+    out = tmp_path / workload
+    sealed.generate_workload(workload, out)
+    unwinnable = []
+    for path in sorted((out / "scenarios").glob("*.json")):
+        scenario = json.loads(path.read_text(encoding="utf-8"))
+        status_truths, unsupported = _audit_scenario(scenario)
+        assert status_truths, f"{scenario['scenario_id']}: no status_value truth entries"
+        for entry in status_truths:
+            assert type(entry["value"]) is str, f"{scenario['scenario_id']}: non-string truth value"
+        for key, value in unsupported:
+            unwinnable.append(f"{scenario['scenario_id']}:{key}={value!r}")
+    assert not unwinnable, f"{len(unwinnable)} unwinnable status_value truths: {unwinnable[:5]}"
+
+
+@pytest.mark.parametrize("workload", sorted(WORKLOAD_SIZES))
+def test_conflict_scenarios_carry_both_source_values(tmp_path, workload):
+    """conflicting_independent_sources truth arrays carry BOTH sources' values
+    as separate status_value entries (the verifier-credited dual-assert shape;
+    final answers forbid duplicate claim keys, so one entry per source)."""
+    out = tmp_path / workload
+    sealed.generate_workload(workload, out)
+    checked = 0
+    for path in sorted((out / "scenarios").glob("*.json")):
+        scenario = json.loads(path.read_text(encoding="utf-8"))
+        if scenario["family"] != "conflicting_independent_sources":
+            continue
+        checked += 1
+        status_truths = [entry for entry in scenario["truth"] if entry["verifier"] == "status_value"]
+        assert len(status_truths) == 2, scenario["scenario_id"]
+        assert status_truths[0]["key"] != status_truths[1]["key"], scenario["scenario_id"]
+        assert status_truths[0]["value"] != status_truths[1]["value"], scenario["scenario_id"]
+    assert checked == EXPECTED_FAMILY_COUNTS[workload]["conflicting_independent_sources"]
+
+
+@pytest.mark.parametrize("workload", sorted(WORKLOAD_SIZES))
+def test_truth_keys_echoable_from_query_and_records(tmp_path, workload):
+    """Every truth key is reachable via the terse truth-key idiom: each
+    underscore token of the key appears (case-insensitive substring) in the
+    query or in some event text, so the subject is stated or implied by the
+    context the model sees."""
+    out = tmp_path / workload
+    sealed.generate_workload(workload, out)
+    failures = []
+    for path in sorted((out / "scenarios").glob("*.json")):
+        scenario = json.loads(path.read_text(encoding="utf-8"))
+        haystack = (scenario["query"] + " " + " ".join(event["text"] for event in scenario["events"])).lower()
+        for entry in scenario["truth"]:
+            for token in entry["key"].split("_"):
+                if token and token not in haystack:
+                    failures.append(f"{scenario['scenario_id']}:{entry['key']} token {token!r}")
+    assert not failures, f"{len(failures)} unechoable truth-key tokens: {failures[:5]}"

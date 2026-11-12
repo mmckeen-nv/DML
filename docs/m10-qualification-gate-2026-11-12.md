@@ -10,7 +10,9 @@ Sealed-set digests (regenerate anywhere from the module; corpora are never commi
 |---|---|---|---|
 | pilot216 (dev pilot) | 20261110 | 216 | `db8b2ab10387fe9e089525456818e819d1c437c990acbcf0d7b8cf30bf8915fb` (pinned) |
 | heldout (BURNED) | 20261112 | 144 | `4478cd7fccf8533b13a1e1b72fe36054581f27daeada6cb3f5c552dfc00d7523` (pinned) |
-| heldout2 (this gate) | 20261114 | 144 | `5b1028f88349d8b1164e99c87401e1da3c00cf1f5db81a19b2ef4027f0f8b63e` |
+| heldout2 (this gate) | 20261114 | 144 | `7016a781b17027b9ebab149cc965b302d6a7dbb526ac935429328e504de78a8c` |
+
+The pre-seal winnability audit of heldout2 found the M8 status_value-tail generator defect carried into the heldout2 builders (only 24/144 scenarios winnable: every changing_facts, explicit_corrections, conflicting_independent_sources, dependent_lookups and stable_memory_adverse episode lacked a record ending in ' is <value>.'). The heldout2 builders were repaired so every status_value truth has exact-tail support (144/144 winnable, enforced by `test_every_status_value_truth_has_exact_tail_support`); the earlier digest `5b1028f8…` is superseded before any execution and must never be used. pilot216/heldout keep their pinned bytes — their known-defective families are xfail-pinned in the test with the defect documented.
 
 ## (a) Gate 1 — frozen M9 diagnostic, 6/6 regression
 
@@ -57,7 +59,7 @@ Method per [m8-leakage-audit-2026-11-10](m8-leakage-audit-2026-11-10.md) (read-o
 - [ ] **Entity-pool audit:** heldout2 `*_H2` pools and curriculum v4 entity inventory checked against dev-fixture bytes and against each other — no shared full strings, no shared first-token stems (the 2026-11-10 audit's O4 class).
 - [ ] **Namespace/seed audit:** curriculum episode ids disjoint from `pilot216_`, `heldout_`, `heldout2_` and the 12 dev fixture ids; curriculum seed distinct from {0, 20260929, 20261106, 20261110, 20261112, 20261114}.
 - [ ] **Manifest hashes:** per-file sha256 of every training file (V3 data + curriculum v4) against the charter-§5 data manifest; the C1 condition from the 2026-11-10 audit — hash-level sweep of the actual V3 trajectories — must be closed, not re-attested.
-- [ ] **Seal regeneration on the execution machine:** regenerate heldout2 from `sealed_workloads.py` at the reviewed commit; `verify_seal` green; set digest equals `5b1028f8…` above; regenerate pilot216 + heldout and confirm the pinned digests `db8b2ab1…` / `4478cd7f…` are unchanged.
+- [ ] **Seal regeneration on the execution machine:** regenerate heldout2 from `sealed_workloads.py` at the reviewed commit; `verify_seal` green; set digest equals `7016a781…` above; regenerate pilot216 + heldout and confirm the pinned digests `db8b2ab1…` / `4478cd7f…` are unchanged.
 
 Verdict PASS / PASS-WITH-CONDITIONS / FAIL with per-item evidence; conditions close before the campaign run.
 
