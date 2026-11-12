@@ -41,21 +41,69 @@ because the v3 repair changed what they pin (no test was deleted):
 
 * test_manifest — now pins manifest["dataset_version"] == 3.
 * test_conflict_split_shape — conflict records are now presented under the
-  keys the labeled claims use (per-source keys in separate_keys, the
-  shared base key in declare_conflict), and the assertions pin the echo:
-  every claim key is exactly a cited record's claim_key.
+  keys the labeled claims use (per-source keys in separate_keys, per-source
+  attributed truth keys in declare_conflict after the 2026-11-12
+  reconciliation), and the assertions pin the echo: every claim key is
+  exactly a cited record's claim_key.
 
 New v3 tests assert the repair properties directly:
   test_claim_key_echo                        (claim key = presented claim_key of a supporting record)
   test_no_identical_consecutive_retrieves    (loop-attractor hard pattern)
   test_reformulation_after_empty_or_unhelpful (>= 30% of answer-bearing episodes; one rephrase, then finalize)
   test_same_value_different_key_distractors  (key-echo alone is insufficient)
+
+Dataset version 4 (M10 generalization repairs, seed re-based to [20261112]).
+All v1/v2/v3 intents are preserved; two pins moved with the version:
+
+* test_manifest — now pins manifest["dataset_version"] == 4 and
+  manifest["seed"] == [20261112].
+* test_value_vocabulary_is_wide — the kind map spans V4_FACTS too, with new
+  floors for the v4 value kinds.
+
+New v4 tests assert the generalization-class properties directly:
+  test_idiom_echo_shape            (terse truth-key echo across phrasing families; narrative key is the wrong answer)
+  test_multipart_decomp_shape      (every part of a 2-/3-part question answered with its presented key)
+  test_v4_pools_disjoint_by_construction  (all-new pools: token/key-level disjoint from v1-v3 pools, fixtures, sealed workloads)
+  test_v4_zero_word_8gram_overlap  (M8 leakage method: zero word 8-grams vs sealed corpora, fixtures, v3 output)
+
+Dataset version 4, reconciled 2026-11-12 against the observer-verified
+failure decomposition (docs/m10-failure-decomposition-VERIFICATION-
+2026-11-12.md; the verifier never moves). The v4 generalization intents are
+preserved; three changed with the reconciliation:
+
+* conflict_declare was REFUTED as the winning mechanism (the verifier
+  rejects 'conflict: ...' narrative claims — 6 such episodes failed — and
+  credits DUAL-ASSERTION under source-attributed truth keys). The class is
+  rewritten as conflict_dual_assert: the gold final asserts both values,
+  each under its own <fact>_<source>_condition key citing its own record;
+  the 'conflict:' narrative survives only as a near-miss distractor record.
+* conflict_split's declare_conflict variant carried the same refuted
+  narrative as its v3 gold — contradictory gold standards for the same
+  behavior. Its gold is aligned to the identical dual-assert truth-key
+  idiom (shared _conflict_truth_key / _dual_assert_final helpers); the
+  'conflict:' narrative is demoted to a never-cited near-miss (ids in
+  meta.conflict_narrative_ids).
+* value_shape is new: the verifier's leaf gate requires string values equal
+  to the record's exact '... is <value>.' tail; gold records end in that
+  form with unit-bearing strings and a type-stripped bare-int near-miss
+  (same subject, asked key) is always present and never cited.
+* injection_resist gains a novel-surface template pool (the campaign's 4
+  injection successes came on phrasings disjoint from the v3 templates);
+  meta.injection_surfaces records the pools used per episode.
+
+New/updated tests pin the reconciled shapes directly:
+  test_conflict_dual_assert_shape  (dual-assert gold; 'conflict:' narrative is the near-miss)
+  test_conflict_split_shape        (declare_conflict gold aligned to the same dual-assert idiom)
+  test_no_narrative_conflict_gold_anywhere (no gold final in ANY class uses the refuted form)
+  test_value_shape_shape           (verbatim unit-bearing string echo; type-stripped int never cited)
+  test_injection_resist_shape      (extended: both injection surfaces exercised)
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
+import os
 from pathlib import Path
 import re
 
@@ -72,6 +120,7 @@ from daystrom_dml.contracts.agent_episode import (
 )
 from daystrom_dml.services.episode_tools import canonical as tool_canonical
 from daystrom_dml.services import llama3_sft_runtime
+from scripts.m8_battery import sealed_workloads as sealed
 from scripts.m9_curriculum import generate
 
 FIXTURES = Path(__file__).resolve().parents[1] / "scripts" / "m8_battery" / "fixtures"
@@ -289,10 +338,10 @@ def test_manifest(dataset):
     output, rows = dataset
     manifest = json.loads((output / "manifest.json").read_text())
     assert manifest["schema_version"] == generate.MANIFEST_SCHEMA
-    # v3: regenerated under the claim-key-echo + loop-resistance repairs;
-    # bytes differ from v2 by design.
-    assert manifest["dataset_version"] == generate.DATASET_VERSION == 3
-    assert manifest["seed"] == generate.SEED == [20261106]
+    # v4: M10 generalization classes added on all-new disjoint pools;
+    # re-seeded to [20261112]; bytes differ from v3 by design.
+    assert manifest["dataset_version"] == generate.DATASET_VERSION == 4
+    assert manifest["seed"] == generate.SEED == [20261112]
     assert manifest["consumer_profile"] == CONSUMER_PROFILE
     assert manifest["action_version"] == ACTION_VERSION
     assert manifest["counts"] == generate.DEFAULT_COUNTS
@@ -398,14 +447,48 @@ def test_conflict_split_shape(dataset):
             assert left["claim_key"] != right["claim_key"]
         else:
             assert variant == "declare_conflict"
-            assert len(claims) == 1
-            assert type(claims[0]["value"]) is str and claims[0]["value"].startswith("conflict: ")
-            assert len(claims[0]["evidence_ids"]) == 2
-            left = presented[claims[0]["evidence_ids"][0]]
-            right = presented[claims[0]["evidence_ids"][1]]
-            # v3 echo: both records share one presented claim_key and the
-            # single conflict claim echoes exactly that key.
-            assert left["claim_key"] == right["claim_key"] == claims[0]["key"]
+            # Reconciled 2026-11-12 against the observer-verified failure
+            # decomposition (the verifier never moves): the gold is the
+            # DUAL-ASSERT shape — exactly the conflict_dual_assert idiom —
+            # never the refuted 'conflict: ...' narrative.
+            assert len(claims) == 2
+            assert claims[0]["key"] != claims[1]["key"]
+            (left_id,) = claims[0]["evidence_ids"]
+            (right_id,) = claims[1]["evidence_ids"]
+            left = presented[left_id]
+            right = presented[right_id]
+            for claim, record in ((claims[0], left), (claims[1], right)):
+                assert claim["key"].endswith("_condition"), "source-attributed truth key idiom"
+                assert not (type(claim["value"]) is str and claim["value"].startswith("conflict: "))
+                # v3 echo: each claim key is exactly the claim_key its own
+                # cited record was presented under.
+                assert record["claim_key"] == claim["key"]
+                assert record["claim_value"] == claim["value"]
+                assert type(record["claim_value"]) is type(claim["value"])
+            # Both attributed keys extend the same base fact key, each
+            # embedding its cited record's source attribution.
+            base_a = claims[0]["key"][: -len("_condition")]
+            base_b = claims[1]["key"][: -len("_condition")]
+            assert base_a != base_b
+            assert any(base_a.startswith(fact["key"] + "_") for fact in generate.FACTS)
+            assert any(base_b.startswith(fact["key"] + "_") for fact in generate.FACTS)
+            assert left["source"].replace("-", "_") in claims[0]["key"]
+            assert right["source"].replace("-", "_") in claims[1]["key"]
+            # The refuted narrative survives only as a never-cited near-miss
+            # under the shared base key (meta provenance, mirroring v4).
+            cited = {rid for claim in claims for rid in claim["evidence_ids"]}
+            for rid in row["meta"].get("conflict_narrative_ids", ()):
+                near_miss = presented[rid]
+                value = near_miss["claim_value"]
+                assert type(value) is str and value.startswith("conflict: ")
+                assert left["source"] in value and right["source"] in value
+                # The narrative sits under the shared base key and carries
+                # both sources' rendered values.
+                kind = {fact["key"]: fact["kind"] for fact in generate.FACTS}[near_miss["claim_key"]]
+                assert generate._value_text(left["claim_value"], kind) in value
+                assert generate._value_text(right["claim_value"], kind) in value
+                assert near_miss["claim_key"] not in {claims[0]["key"], claims[1]["key"]}
+                assert rid not in cited, "the conflict-narrative record must never be cited"
         assert left["claim_value"] != right["claim_value"]
         assert left["source"] != right["source"]
         # Both conflicting records are about the asked subject and current.
@@ -414,11 +497,34 @@ def test_conflict_split_shape(dataset):
             assert record["memory_state"] == "current"
             assert subject in record["text"]
     assert variants == {"separate_keys", "declare_conflict"}
+    # The narrative near-miss carries real weight across declare_conflict
+    # episodes (knob 0.80; deterministic rate 14/16 under seed [20261112]).
+    dc = [row for row in rows["conflict_split"] if row["meta"]["variant"] == "declare_conflict"]
+    narrated = sum(1 for row in dc if row["meta"].get("conflict_narrative_ids"))
+    assert narrated / len(dc) >= 0.60, f"conflict-narrative near-misses in only {narrated}/{len(dc)}"
+
+
+def test_no_narrative_conflict_gold_anywhere(dataset):
+    """The verifier REJECTS the 'conflict: ...' narrative claim form
+    (observer-verified 2026-11-12): no gold final in ANY class may use it —
+    it exists only as a never-cited near-miss distractor."""
+    _, rows = dataset
+    for cls in generate.CLASSES:
+        for row in rows[cls]:
+            _, action = assert_canonical_row(row)
+            for claim in action["answer"]["claims"]:
+                value = claim["value"]
+                assert not (type(value) is str and value.startswith("conflict: ")), (
+                    "narrative-conflict claim credited as gold",
+                    row["episode_id"],
+                    claim,
+                )
 
 
 def test_injection_resist_shape(dataset):
     _, rows = dataset
     variants = set()
+    all_surfaces = set()
     for row in rows["injection_resist"]:
         presented, action = assert_canonical_row(row)
         variants.add(row["meta"]["variant"])
@@ -440,7 +546,16 @@ def test_injection_resist_shape(dataset):
                 assert record["claim_value"] == claim["value"]
         lure_values = {r["claim_value"] for r in injected.values()}
         assert lure_values.isdisjoint(c["value"] for c in claims), "final adopted the lure value"
+        surfaces = row["meta"]["injection_surfaces"]
+        assert surfaces and set(surfaces) <= {"v3", "v4"}
+        all_surfaces.update(surfaces)
     assert variants == {"capped_result", "full_result"}
+    # v4 phrasing variance: the campaign's injection successes came on novel
+    # phrasings, so both injection-surface pools must be exercised and the
+    # v4 pool must carry real weight (not a token handful of episodes).
+    assert all_surfaces == {"v3", "v4"}
+    v4_episodes = sum(1 for row in rows["injection_resist"] if "v4" in row["meta"]["injection_surfaces"])
+    assert v4_episodes >= 10, f"novel-surface injection lures in only {v4_episodes} episodes"
 
 
 def test_replay_shape(dataset):
@@ -563,7 +678,16 @@ def test_source_carries_no_trust_signal(dataset):
                 if rid not in cited and rid not in lure_ids and record["source"] in generate._INJECTION_SOURCES
             )
     classes_with_cited = {cls for cls, n in cited_on_lure_source.items() if n}
-    assert classes_with_cited == {"coverage", "conflict_split", "injection_resist", "replay"}, (
+    assert classes_with_cited == {
+        "coverage",
+        "conflict_split",
+        "injection_resist",
+        "replay",
+        "idiom_echo",
+        "conflict_dual_assert",
+        "multipart_decomp",
+        "value_shape",
+    }, (
         "every answer-bearing class must cite clean records from lure-prone sources",
         cited_on_lure_source,
     )
@@ -694,17 +818,23 @@ def test_value_vocabulary_is_wide(dataset):
     """Audit finding 8: claim values span wide domains (no memorizable vocab)."""
     _, rows = dataset
     kind_by_key = {fact["key"]: fact["kind"] for fact in generate.FACTS}
+    kind_by_key.update({fact["key"]: fact["kind"] for fact in generate.V4_FACTS})
     values = {}
     for cls in generate.CLASSES:
         for row in rows[cls]:
             for record in _presented(row).values():
                 # v3: conflict separate_keys records carry per-source keys;
-                # the base key identifies the value kind.
-                values.setdefault(kind_by_key[_base_key(record["claim_key"])], set()).add(record["claim_value"])
+                # the base key identifies the value kind. v4 narrative keys
+                # are not in the kind map and are skipped.
+                kind = kind_by_key.get(_base_key(record["claim_key"]))
+                if kind is not None:
+                    values.setdefault(kind, set()).add(record["claim_value"])
     floors = {
-        # v3: the reformulation/same-value episode mix shifts fact draws;
-        # time measures 39 distinct values (deterministic), floor re-based
-        # with margin. All other floors are the v2 values and still pass.
+        # v4 re-based every floor under seed [20261112] with margin below the
+        # measured deterministic counts (time 47, date 58, version 56,
+        # host 54, endpoint 37, int 60, float 48, person 139, days 15,
+        # phase 9, tier 8; v4 kinds: rpm 77, lux 71, hpa 71, tally 87,
+        # mode 5 — the full mode enum).
         "time": 35,
         "date": 30,
         "version": 30,
@@ -716,6 +846,11 @@ def test_value_vocabulary_is_wide(dataset):
         "days": 10,
         "phase": 7,
         "tier": 6,
+        "rpm": 60,
+        "lux": 60,
+        "hpa": 60,
+        "tally": 60,
+        "mode": 4,
     }
     for kind, floor in floors.items():
         assert len(values[kind]) >= floor, f"{kind}: only {len(values[kind])} distinct values (< {floor})"
@@ -725,7 +860,16 @@ def test_value_vocabulary_is_wide(dataset):
 # Tests (v3: claim-key echo discipline + loop resistance — Track-B gate repairs)
 # ---------------------------------------------------------------------------
 
-ANSWER_BEARING = ("coverage", "conflict_split", "injection_resist", "replay")
+ANSWER_BEARING = (
+    "coverage",
+    "conflict_split",
+    "injection_resist",
+    "replay",
+    "idiom_echo",
+    "conflict_dual_assert",
+    "multipart_decomp",
+    "value_shape",
+)
 
 
 def _retrieve_actions(row):
@@ -866,3 +1010,372 @@ def test_same_value_different_key_distractors(dataset):
             hits += bool(ids)
     rate = hits / total
     assert rate >= 0.30, f"same-value/different-key near-misses in only {rate:.0%} of answer-bearing episodes"
+
+
+# ---------------------------------------------------------------------------
+# Tests (v4: M10 generalization classes on all-new disjoint pools)
+# ---------------------------------------------------------------------------
+
+# The terse truth-key idiom: snake_case, no dots, no spaces (the sealed
+# workloads' truth-key shape).
+TERSE_KEY = re.compile(r"^[a-z0-9]+(_[a-z0-9]+)*$")
+
+
+def _v4_asked_keys(row, action):
+    keys = {claim["key"] for claim in action["answer"]["claims"]}
+    assert keys, "v4 classes are answer-bearing"
+    for key in keys:
+        assert TERSE_KEY.match(key), ("v4 claim key is not the terse truth-key idiom", row["episode_id"], key)
+    return keys
+
+
+def test_idiom_echo_shape(dataset):
+    """v4 (a): claim-key idiom echo across MANY phrasing families. Every final
+    claim key is the terse presented truth-key idiom echoed from its cited
+    record; the narrative-key near-miss (asked subject, ANSWER value, long
+    narrative key) is presented in most episodes and is never cited — the
+    narrative key is the wrong answer."""
+    _, rows = dataset
+    families = set()
+    narrative_hits = 0
+    for row in rows["idiom_echo"]:
+        presented, action = assert_canonical_row(row)
+        claims = action["answer"]["claims"]
+        assert len(claims) == 1, "idiom_echo asks one question"
+        claim = claims[0]
+        (key,) = _v4_asked_keys(row, action)
+        assert key in row["task"]["prompt"], "the asked key is named in the prompt"
+        (record_id,) = claim["evidence_ids"]
+        record = presented[record_id]
+        assert record["claim_key"] == claim["key"]
+        assert record["claim_value"] == claim["value"]
+        assert record["memory_state"] == "current"
+        subject = _asked_subject(row)
+        assert subject in record["text"]
+        families.add(row["meta"]["prompt_family"])
+        ids = [rid for rid in row["meta"].get("narrative_key_ids", ()) if rid in presented]
+        if not ids:
+            continue
+        narrative_hits += 1
+        for rid in ids:
+            near_miss = presented[rid]
+            assert not TERSE_KEY.match(near_miss["claim_key"]), (
+                "narrative near-miss key must be the narrative form, not the idiom",
+                near_miss["claim_key"],
+            )
+            assert " report " in near_miss["claim_key"]
+            assert near_miss["claim_value"] == claim["value"], (
+                "the narrative near-miss differs from the answer ONLY in its key"
+            )
+            assert near_miss["memory_state"] == "current"
+            assert subject in near_miss["text"]
+            assert rid != record_id, "narrative-key record must never be cited"
+    assert families == {name for name, _ in generate._V4_IDIOM_PROMPTS}, (
+        "every phrasing family must be exercised",
+        families,
+    )
+    rate = narrative_hits / len(rows["idiom_echo"])
+    assert rate >= 0.60, f"narrative-key near-misses in only {rate:.0%} of idiom_echo episodes"
+
+
+def test_conflict_dual_assert_shape(dataset):
+    """v4 (b, observer-reconciled): conflict DUAL-ASSERT is the gold. Two
+    claims, one per source, each under its source-attributed truth key
+    (``<fact>_<source>_condition``) echoed from its own cited record, each
+    carrying that record's exact value — never the refuted 'conflict: ...'
+    narrative. The narrative form is presented as a near-miss distractor in
+    most episodes and is never cited."""
+    _, rows = dataset
+    families = set()
+    narrative_hits = 0
+    for row in rows["conflict_dual_assert"]:
+        presented, action = assert_canonical_row(row)
+        claims = action["answer"]["claims"]
+        assert len(claims) == 2, "dual-assert: one claim per source"
+        keys = _v4_asked_keys(row, action)
+        assert len(keys) == 2, "the two sources assert under DISTINCT attributed keys"
+        left, right = claims
+        assert left["key"].endswith("_condition") and right["key"].endswith("_condition")
+        # Both attributed keys extend the same base fact key.
+        base_a = left["key"][: -len("_condition")]
+        base_b = right["key"][: -len("_condition")]
+        assert base_a != base_b
+        assert any(base_a.startswith(fact["key"] + "_") for fact in generate.V4_FACTS)
+        assert any(base_b.startswith(fact["key"] + "_") for fact in generate.V4_FACTS)
+        for claim in claims:
+            value = claim["value"]
+            # The gold NEVER takes the refuted narrative form.
+            assert not (type(value) is str and value.startswith("conflict: ")), (
+                "narrative-conflict claim credited as gold",
+                row["episode_id"],
+            )
+            (record_id,) = claim["evidence_ids"]
+            record = presented[record_id]
+            assert record["claim_key"] == claim["key"], "each claim echoes its own source record's key"
+            assert record["claim_value"] == claim["value"]
+            assert type(record["claim_value"]) is type(claim["value"])
+            assert record["memory_state"] == "current"
+        record_a = presented[left["evidence_ids"][0]]
+        record_b = presented[right["evidence_ids"][0]]
+        assert record_a["source"] != record_b["source"]
+        assert record_a["claim_value"] != record_b["claim_value"], "the two sources genuinely disagree"
+        # Each claim's key embeds its cited record's source attribution.
+        assert record_a["source"].replace("-", "_") in left["key"]
+        assert record_b["source"].replace("-", "_") in right["key"]
+        subject = _asked_subject(row)
+        for record in (record_a, record_b):
+            assert subject in record["text"]
+        families.add(row["meta"]["prompt_family"])
+        ids = [rid for rid in row["meta"].get("conflict_narrative_ids", ()) if rid in presented]
+        if not ids:
+            continue
+        narrative_hits += 1
+        cited = {rid for claim in claims for rid in claim["evidence_ids"]}
+        for rid in ids:
+            near_miss = presented[rid]
+            value = near_miss["claim_value"]
+            assert type(value) is str and value.startswith("conflict: ")
+            assert record_a["source"] in value and record_b["source"] in value
+            assert str(record_a["claim_value"]) in value and str(record_b["claim_value"]) in value
+            assert near_miss["claim_key"] not in keys, "the narrative sits under the base key, not a truth key"
+            assert rid not in cited, "the conflict-narrative record must never be cited"
+    assert families == {name for name, _ in generate._V4_CONFLICT_PROMPTS}, (
+        "every phrasing family must be exercised",
+        families,
+    )
+    rate = narrative_hits / len(rows["conflict_dual_assert"])
+    assert rate >= 0.60, f"conflict-narrative near-misses in only {rate:.0%} of conflict_dual_assert episodes"
+
+
+def test_value_shape_shape(dataset):
+    """v4 (d, observer-driven): value-shape fidelity. The gold claim value is
+    the unit-bearing STRING echoed verbatim from a record whose text ends in
+    the verifier's status_value form ('... is <value>.'); a type-stripped
+    near-miss (same subject, asked key, the same number as a bare int) is
+    ALWAYS present and never cited — the int is the campaign failure."""
+    _, rows = dataset
+    families = set()
+    for row in rows["value_shape"]:
+        presented, action = assert_canonical_row(row)
+        claims = action["answer"]["claims"]
+        assert len(claims) == 1
+        claim = claims[0]
+        (key,) = _v4_asked_keys(row, action)
+        assert key in row["task"]["prompt"], "the asked key is named in the prompt"
+        assert type(claim["value"]) is str, "the gold value is a string, never a bare number"
+        (record_id,) = claim["evidence_ids"]
+        record = presented[record_id]
+        assert record["claim_key"] == claim["key"]
+        assert record["claim_value"] == claim["value"]
+        # The cited record states the value in the verifier's status_value
+        # form: the text ends '... is <value>.' and the tail equals the claim.
+        assert record["text"].endswith(f" is {claim['value']}."), (
+            "cited record is not in status_value form",
+            record["text"],
+        )
+        assert record["memory_state"] == "current"
+        subject = _asked_subject(row)
+        assert subject in record["text"]
+        families.add(row["meta"]["prompt_family"])
+        # The type-stripped near-miss: same subject, asked key, same number,
+        # bare int — always present, never cited, never the gold's type.
+        ids = row["meta"]["type_stripped_ids"]
+        assert len(ids) == 1 and ids[0] in presented
+        stripped = presented[ids[0]]
+        assert ids[0] != record_id
+        assert stripped["claim_key"] == claim["key"]
+        assert type(stripped["claim_value"]) is int, "the near-miss is the type-stripped int"
+        assert stripped["claim_value"] == int(claim["value"].split()[0])
+        assert subject in stripped["text"]
+        assert stripped["memory_state"] == "current"
+    assert families == {name for name, _ in generate._V4_VALUE_SHAPE_PROMPTS}
+
+
+def test_multipart_decomp_shape(dataset):
+    """v4 (c): multi-part decomposition. 2- and 3-part questions; the final
+    covers EVERY part, each claim keyed by its presented terse key and citing
+    its own record."""
+    _, rows = dataset
+    families = set()
+    part_counts = set()
+    for row in rows["multipart_decomp"]:
+        presented, action = assert_canonical_row(row)
+        claims = action["answer"]["claims"]
+        parts = row["meta"]["parts"]
+        assert parts in (2, 3)
+        part_counts.add(parts)
+        assert len(claims) == parts, "every part of the question is answered"
+        keys = _v4_asked_keys(row, action)
+        assert len(keys) == len(claims), "duplicate keys would strand a part"
+        subject = _asked_subject(row)
+        for claim in claims:
+            assert claim["key"] in row["task"]["prompt"], "each part's key is named in the prompt"
+            (record_id,) = claim["evidence_ids"]
+            record = presented[record_id]
+            assert record["claim_key"] == claim["key"]
+            assert record["claim_value"] == claim["value"]
+            assert type(record["claim_value"]) is type(claim["value"])
+            assert record["memory_state"] == "current"
+            assert subject in record["text"]
+        families.add(row["meta"]["prompt_family"])
+    assert families == {name for name, _ in generate._V4_MULTIPART_PROMPTS}
+    assert part_counts == {2, 3}, "both 2- and 3-part decompositions must appear"
+
+
+# ---------------------------------------------------------------------------
+# v4 leakage discipline (M8 method: word 8-gram sweeps + disjoint pools)
+# ---------------------------------------------------------------------------
+
+# The sealed workload corpora are byte-reproducible from the in-repo
+# generator (scripts/m8_battery/sealed_workloads.py); where a sealed copy
+# exists on disk (DML_M8_WORKLOADS_DIR, default the campaign scratch path)
+# the test first proves the on-disk bytes equal the regenerated bytes, then
+# sweeps against them. The v3 curriculum output leg sweeps a dataset_version
+# 3 out/ directory when one is available (DML_M9_CURRICULUM_V3_OUT or an
+# in-tree out/ whose manifest pins version 3).
+M8_WORKLOADS_DIR = Path(os.environ.get("DML_M8_WORKLOADS_DIR", str(Path.home() / ".hermes/cache/scratch/m8-workloads")))
+V3_OUT_DIR = Path(
+    os.environ.get(
+        "DML_M9_CURRICULUM_V3_OUT",
+        str(Path(__file__).resolve().parents[1] / "scripts" / "m9_curriculum" / "out"),
+    )
+)
+
+
+def _word_ngrams(text, n=8):
+    words = re.findall(r"[a-z0-9]+", text.lower())
+    return {tuple(words[index : index + n]) for index in range(len(words) - n + 1)}
+
+
+def _tokens(text):
+    return set(re.findall(r"[a-z0-9]+", text.lower()))
+
+
+def _row_texts(row):
+    """The curriculum text surface mirroring the M8 sweep: task prompt,
+    retrieve queries, presented record texts, string claim values."""
+    texts = [row["task"]["prompt"]]
+    for message in row["messages"]:
+        if message["role"] == "tool":
+            texts.extend(record["text"] for record in json.loads(message["content"])["records"])
+        elif message["role"] == "assistant" and "tool_calls" in message:
+            texts.append(json.loads(message["content"])["arguments"]["query"])
+        elif message["role"] == "assistant":
+            for claim in json.loads(message["content"])["answer"]["claims"]:
+                if type(claim["value"]) is str:
+                    texts.append(claim["value"])
+    return texts
+
+
+def _sealed_scenario_texts(payload):
+    texts = [event["text"] for event in payload["events"]] + [payload["query"]]
+    texts.extend(claim["value"] for claim in payload["truth"] if type(claim.get("value")) is str)
+    return texts
+
+
+@pytest.fixture(scope="module")
+def sealed_corpora(tmp_path_factory):
+    """Regenerated pilot216 + heldout sealed corpora (byte-identical to any
+    sealed on-disk copy, which is verified when present)."""
+    out = tmp_path_factory.mktemp("sealed")
+    scenarios = {}
+    for workload, directory in (("pilot", "pilot216"), ("heldout", "heldout")):
+        sealed.generate_workload(workload, out / directory)
+        scenarios[directory] = {p.name: p for p in sorted((out / directory / "scenarios").glob("*.json"))}
+    on_disk = {
+        "pilot216": M8_WORKLOADS_DIR / "pilot216" / "scenarios",
+        "heldout": M8_WORKLOADS_DIR / "heldout" / "scenarios",
+    }
+    for directory, scenarios_dir in on_disk.items():
+        if not scenarios_dir.is_dir():
+            continue
+        disk = {p.name: p.read_bytes() for p in sorted(scenarios_dir.glob("*.json"))}
+        assert len(disk) == len(scenarios[directory]), f"on-disk {directory} scenario count differs"
+        for name, path in scenarios[directory].items():
+            assert disk.get(name) == path.read_bytes(), f"on-disk {directory}/{name} differs from regenerated bytes"
+    texts = []
+    for directory in scenarios.values():
+        for path in directory.values():
+            texts.extend(_sealed_scenario_texts(json.loads(path.read_text(encoding="utf-8"))))
+    return texts
+
+
+def test_v4_pools_disjoint_by_construction(dataset, sealed_corpora):
+    """The v4 pools are all-new: token-level disjoint from the v1-v3 entity
+    pools, the m8 fixtures and the sealed workloads; the terse v4 keys are
+    disjoint from every prior and sealed key space."""
+    v3_pool_tokens = set()
+    for entity in generate.ENTITY_POOL_STRINGS:
+        v3_pool_tokens |= _tokens(entity)
+    v4_pool_tokens = set()
+    for entity in generate.V4_ENTITY_POOL_STRINGS:
+        v4_pool_tokens |= _tokens(entity)
+    assert not (v4_pool_tokens & v3_pool_tokens), (
+        "v4 entity pool shares tokens with the v1-v3 pools",
+        sorted(v4_pool_tokens & v3_pool_tokens),
+    )
+    v3_keys = {fact["key"] for fact in generate.FACTS}
+    v4_keys = {fact["key"] for fact in generate.V4_FACTS}
+    assert not (v3_keys & v4_keys)
+    sealed_text_blob = "\n".join(sealed_corpora)
+    sealed_tokens = _tokens(sealed_text_blob)
+    assert not (v4_pool_tokens & sealed_tokens), (
+        "v4 entity pool shares tokens with the sealed workloads",
+        sorted(v4_pool_tokens & sealed_tokens),
+    )
+    fixture_blob = "\n".join(path.read_text(encoding="utf-8") for path in sorted(FIXTURES.glob("*.json")))
+    assert not (v4_pool_tokens & _tokens(fixture_blob))
+    # v4 value-unit and mode tokens are likewise absent from every corpus.
+    value_tokens = set()
+    for fact in generate.V4_FACTS:
+        value_tokens |= _tokens(fact["label"]) | _tokens(fact["key"])
+    value_tokens |= _tokens(" ".join(generate._V4_MODES)) | {"rpm", "lux", "hpa"}
+    assert not (value_tokens & sealed_tokens)
+    assert not (value_tokens & _tokens(fixture_blob))
+    assert not (value_tokens & v3_pool_tokens)
+    # String-level: no v4 pool string appears in any corpus text, and no
+    # per-episode v4 entity usage leaks either.
+    _, rows = dataset
+    used = set()
+    for cls in generate.V4_CLASSES:
+        for row in rows[cls]:
+            used.update(row["meta"]["entities"])
+    assert used
+    for entity in set(generate.V4_ENTITY_POOL_STRINGS) | used:
+        assert entity not in sealed_text_blob
+        assert entity not in fixture_blob
+    for key in v4_keys:
+        assert key not in sealed_text_blob, "v4 terse key collides with sealed truth keys"
+
+
+def test_v4_zero_word_8gram_overlap(dataset, sealed_corpora):
+    """The M8 leakage method re-run for curriculum v4: zero shared word
+    8-grams between the v4-class rows (prompts, queries, record texts, string
+    claim values) and (1) the sealed pilot216/heldout corpora, (2) the m8 dev
+    fixtures, (3) the dataset_version 3 curriculum output, when available."""
+    v4_grams = set()
+    for cls in generate.V4_CLASSES:
+        for row in dataset[1][cls]:
+            for text in _row_texts(row):
+                v4_grams |= _word_ngrams(text)
+    assert v4_grams
+    sealed_grams = set()
+    for text in sealed_corpora:
+        sealed_grams |= _word_ngrams(text)
+    overlap = v4_grams & sealed_grams
+    assert not overlap, f"shared 8-grams with the sealed corpora: {sorted(overlap)[:5]}"
+    fixture_grams = set()
+    for path in sorted(FIXTURES.glob("*.json")):
+        for event in json.loads(path.read_text(encoding="utf-8"))["events"]:
+            fixture_grams |= _word_ngrams(event["text"])
+    overlap = v4_grams & fixture_grams
+    assert not overlap, f"shared 8-grams with the m8 fixtures: {sorted(overlap)[:5]}"
+    manifest_path = V3_OUT_DIR / "manifest.json"
+    if manifest_path.is_file() and json.loads(manifest_path.read_text()).get("dataset_version") == 3:
+        v3_grams = set()
+        for path in sorted(V3_OUT_DIR.glob("*.jsonl")):
+            for line in path.read_text(encoding="utf-8").splitlines():
+                for text in _row_texts(json.loads(line)):
+                    v3_grams |= _word_ngrams(text)
+        overlap = v4_grams & v3_grams
+        assert not overlap, f"shared 8-grams with the v3 curriculum output: {sorted(overlap)[:5]}"

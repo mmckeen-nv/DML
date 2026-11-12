@@ -10,9 +10,13 @@ format (`llama3-8b-instruct-sft-v3-bf16-action-json-v1` consumer profile,
 |---|---|---|
 | `abstain_exact` | 30 | empty / irrelevant-only / superseded-only store → final `{"claims": []}` |
 | `coverage` | 40 | multi-part question → one claim per part, each citing retrieved records |
-| `conflict_split` | 30 | two credible sources disagree → per-source keys echoed from the presented records, or one `conflict:` claim under the shared presented key |
-| `injection_resist` | 30 | retrieved record carries an imperative injection/lure → answer ignores it |
+| `conflict_split` | 30 | two credible sources disagree → DUAL-ASSERT: both values, each under its own key echoed from the presented records (`.per_<source>` keys in `separate_keys`, `<fact>_<source>_condition` truth keys in `declare_conflict`); the refuted `conflict:` narrative is a presented near-miss, never the gold |
+| `injection_resist` | 42 | retrieved record carries an imperative injection/lure (v3 surface pool AND a novel directive/override-notice pool, disjoint phrasings) → answer ignores it |
 | `replay` | 40 | ordinary retrieve→answer; native-typed values, canonical citation shape |
+| `idiom_echo` (v4) | 40 | novel question/record phrasing families, terse truth-key idiom (`blower_speed_setting`); narrative-key near-miss carries the answer value under a long narrative key — the narrative key is the wrong answer |
+| `conflict_dual_assert` (v4) | 30 | two v4 sources disagree → DUAL-ASSERT: both values, each under its source-attributed truth key (`<fact>_<source>_condition`) citing its own record; the refuted `conflict:` narrative is a presented near-miss, never the gold |
+| `multipart_decomp` (v4) | 40 | 2- and 3-part questions over novel phrasings → final covers EVERY part, each claim keyed by its presented terse key |
+| `value_shape` (v4) | 20 | cited record states the answer in `status_value` form (text ends `... is <value>.`) with a unit-bearing string → verbatim string echo; a type-stripped bare-int near-miss (same subject, asked key) is always present and never cited |
 
 Every claim key in a labeled final answer is exactly the `claim_key` of a
 presented record that supports it (claim-key echo, v3) — records carry the
@@ -27,11 +31,11 @@ gitignored. Regenerate with:
 PYTHONPATH=dml_core DML_SKIP_VENV_REEXEC=1 \
   python -m scripts.m9_curriculum.generate --force
 # custom mix:
-#   --counts abstain_exact=30,coverage=40,conflict_split=30,injection_resist=30,replay=40
+#   --counts abstain_exact=30,coverage=40,conflict_split=30,injection_resist=42,replay=40,idiom_echo=40,conflict_dual_assert=30,multipart_decomp=40,value_shape=20
 ```
 
 Files: one `<class>.jsonl` train file per class plus `manifest.json`
-(sha256 + byte count + episode count per file, seed `[20261106]`, generator
+(sha256 + byte count + episode count per file, seed `[20261112]`, generator
 script sha256 and git commit, per-class variants).
 
 ## Dataset versions
@@ -64,8 +68,11 @@ The manifest carries a `dataset_version` field (additive to
   * every labeled final claim's `key` is exactly the `claim_key` of a
     presented record that supports it; conflict episodes present their
     records under the keys the claims use (distinct per-source keys in
-    `separate_keys` — final answers forbid duplicate claim keys — and the
-    shared base key in `declare_conflict`);
+    `separate_keys` — final answers forbid duplicate claim keys — and
+    per-source attributed truth keys in `declare_conflict`, aligned
+    2026-11-12 to the verifier-credited dual-assert idiom: the variant's
+    former single `conflict:` narrative claim is refuted and survives only
+    as a never-cited near-miss, ids in `meta.conflict_narrative_ids`);
   * same-value/different-key near-miss distractors in the answer-bearing
     classes (>= 30%, asserted by test; ids in `meta.same_value_ids`): a
     current record about the asked subject carrying an answer value under
@@ -78,6 +85,79 @@ The manifest carries a `dataset_version` field (additive to
     semantically rephrased query, then the episode finalizes — answer or
     abstain. Identical consecutive retrieve arguments never appear
     (rejected at construction, asserted absent by test).
+* **v4** — M10 generalization classes on all-new pools, re-seeded to
+  `[20261112]` (bytes differ from v3 by design). Rationale: the 2026-11-12
+  held-out campaign (144 scenarios, sealed digest `4478cd7f…`, evidence
+  `/home/test/dml-debug/m8-campaign-heldout-20261112/`, local copy
+  `~/.hermes/cache/scratch/m8-control/campaign-144.jsonl`; see
+  `docs/m10-charter-2026-11-12.md`) measured the v3-qualified policy's
+  `valid_cited_final` at 21.5% (dml) / 18.1% (rag) and decomposed dml's 113
+  unsupported finals into: claim-idiom key mismatch (≈50/113 — every truth
+  value present but claims carry narrative keys like
+  `"tunnel house delta field dispatch report shading screen condition"`
+  instead of the truth-key idiom `"shading_screen_dispatch_condition"`),
+  partial multi-part coverage (≈53/113 — 1/2, 1/3, 2/3 patterns), total
+  misses (≈10/113), and the conflict-declaration gap in
+  `conflicting_independent_sources` (the entire 6:1 DML-over-RAG margin).
+  These are the classes v3 fixed *for its own phrasing templates*; the
+  defect is a generalization gap. v4 therefore teaches the classes, not the
+  templates:
+  * `idiom_echo`: the asked claim key is a terse truth-key idiom
+    (snake_case, no dots) while question and record phrasing vary across six
+    question families and eight record templates (word order, clause
+    structure, entity density). A narrative-key near-miss (>= 60% of
+    episodes, asserted by test; ids in `meta.narrative_key_ids`) presents
+    the asked subject and the answer value under a long narrative key
+    (`"<subject> <source> report <label>"`, mirroring the campaign failure
+    verbatim) — echoing the narrative key is the wrong answer even though
+    the value matches;
+  * `conflict_dual_assert` (reconciled 2026-11-12 against the
+    observer-verified failure decomposition,
+    `docs/m10-failure-decomposition-VERIFICATION-2026-11-12.md`): two v4
+    sources disagree on the asked (subject, fact); the labeled final
+    DUAL-ASSERTS — both values, each under its source-attributed truth key
+    (`<fact>_<source>_condition`, the shape all 11 valid conflict-family
+    campaign episodes used), each claim citing exactly its own presented
+    record. The earlier `conflict_declare` design (one `conflict:` narrative
+    claim) was REFUTED by the frozen verifier (6 such campaign episodes
+    failed); the `conflict:` narrative survives only as a presented
+    near-miss distractor (>= 60% of episodes, asserted by test; ids in
+    `meta.conflict_narrative_ids`) — never the gold answer;
+  * `conflict_split`'s v3 `declare_conflict` variant carried the same
+    refuted `conflict:` narrative as its gold — contradictory gold
+    standards for one behavior. Its gold is aligned to the identical
+    dual-assert truth-key idiom (shared `_conflict_truth_key` /
+    `_dual_assert_final` helpers, so both conflict classes teach exactly
+    the same shape), with the `conflict:` narrative demoted to a
+    never-cited near-miss; no gold final anywhere in the dataset uses the
+    narrative form (asserted by test);
+  * `multipart_decomp`: 2- and 3-part questions over three novel phrasing
+    families (both part counts asserted by test); the labeled final covers
+    EVERY part, each claim keyed by its presented terse key;
+  * `value_shape` (observer's value-type/str gate): the citable record
+    states the answer in the verifier's `status_value` form (text ends
+    `... is <value>.`) with a unit-bearing string value (`"837 rpm"`); the
+    labeled final echoes the string verbatim. A type-stripped near-miss
+    (same subject, asked key, the same number as a bare int — the campaign's
+    `95` vs `"95 minutes"` failure) is always present and never cited (ids
+    in `meta.type_stripped_ids`);
+  * `injection_resist` phrasing variance (the campaign's 4 injection
+    successes came on novel phrasings): lures draw from a second template
+    pool of directive / override-notice surfaces disjoint from the v3
+    templates (per-episode pools in `meta.injection_surfaces`; both pools
+    exercised, asserted by test); class count raised 30 → 42;
+  * all v2/v3 repairs hold in the v4 classes too (same-key and same-value
+    near-misses, superseded discrimination, source carries no trust signal,
+    reformulate-once loop resistance), exercised by the same shared tests;
+  * v4 entity/fact/source/value pools are all-new and disjoint BY
+    CONSTRUCTION from the v1-v3 pools and from the pilot216/heldout sealed
+    workloads (token-level disjointness asserted by test); the M8 leakage
+    method (word 8-gram sweeps) is re-run by
+    `test_v4_zero_word_8gram_overlap` against the sealed corpora
+    (byte-regenerated from `scripts/m8_battery/sealed_workloads.py`; an
+    on-disk sealed copy under `DML_M8_WORKLOADS_DIR` is verified
+    byte-identical first), the m8 fixtures, and a dataset_version 3 `out/`
+    when one is available (`DML_M9_CURRICULUM_V3_OUT`).
 
 ## Row schema (`dml-m9-curriculum-v1`)
 
@@ -89,10 +169,13 @@ runner `tool-<step>` ids); `tools` is the `retrieve` entry of
 `llama3_sft_runtime.render_messages`. `meta` carries the per-episode seed,
 variant and entity usage for audit.
 
-Entities are drawn from a closed synthetic pool; `dml_core/tests/
+Entities are drawn from closed synthetic pools (v1-v3 pools for the original
+five classes, all-new v4 pools for the v4 classes); `dml_core/tests/
 test_m9_curriculum.py` mechanically proves every pool string and every
 generated entity/value is absent from `dml_core/scripts/m8_battery/
-fixtures/*.json`, and that no fixture record text leaks into the curriculum.
+fixtures/*.json`, that no fixture record text leaks into the curriculum, and
+(v4) that the v4 pools and rows share zero word 8-grams with the sealed
+pilot216/heldout workloads and the v3 curriculum output.
 
 Note on world state: episodes are independently drawn, so the same (subject,
 claim_key) pair can carry different values in different episodes. That
