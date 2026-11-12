@@ -24,3 +24,7 @@
 - Wilks threshold is asymptotic; boundary cells violate regularity — measured, not assumed.
 - The per-call bound evaluation costs seconds; grids are sized by unique count-vectors, and station runs are expected for anything beyond smoke scale.
 - Nothing here authorizes a freeze; the acceptance gates remain pending independent calibration review.
+
+## Station-scale re-measurement (2026-11-10, x86-dev)
+
+R=400 margins grid, seeds 20260929, `/home/test/dml-debug/m8-calibration-20261109/`: under the default `wilks` rule the one-sided lower bound measured 0.9175–0.9625 point coverage (28/36 below nominal 0.95) — mildly anti-conservative, worst at small cells. Under the pinned `wilks_plus_inflation` rule (`margins-r400-inflated.json`): **all 36/36 grid points at or above nominal (0.9525–0.9825)** — the conservative rule restores coverage at the acceptance margins, at the cost of ~20% wider bounds (power grid unchanged; power at 216 cells is 0.99 at true δ=0.10). The inflated rule is the measured-qualifying boundary rule; it remains a proposal pending independent review like every contract here.
