@@ -52,11 +52,14 @@ New v3 tests assert the repair properties directly:
   test_reformulation_after_empty_or_unhelpful (>= 30% of answer-bearing episodes; one rephrase, then finalize)
   test_same_value_different_key_distractors  (key-echo alone is insufficient)
 
-Dataset version 4 (M10 generalization repairs, seed re-based to [20261112]).
+Dataset version 4 (M10 generalization repairs, seed re-based to [20261112],
+then re-based again to [20261116] on the 2026-11-12 leakage re-audit —
+[20261112] sits in the M10 qualification gate's forbidden seed set).
 All v1/v2/v3 intents are preserved; two pins moved with the version:
 
 * test_manifest — now pins manifest["dataset_version"] == 4 and
-  manifest["seed"] == [20261112].
+  manifest["seed"] == [20261116] (and the seed's absence from the gate's
+  forbidden set).
 * test_value_vocabulary_is_wide — the kind map spans V4_FACTS too, with new
   floors for the v4 value kinds.
 
@@ -97,6 +100,22 @@ New/updated tests pin the reconciled shapes directly:
   test_no_narrative_conflict_gold_anywhere (no gold final in ANY class uses the refuted form)
   test_value_shape_shape           (verbatim unit-bearing string echo; type-stripped int never cited)
   test_injection_resist_shape      (extended: both injection surfaces exercised)
+
+Stem purge (2026-11-12 leakage re-audit, gate checklist (b)): nine
+content-bearing curriculum pool stems collided with measurement-corpora fact
+keys at STEM level — berth/gantry/louver/forum/lighting (heldout2 fact-key
+families), lumen/juniper (pilot216/heldout truth keys), helios/kestrel
+(dev-fixture keys). The word 8-gram sweeps cannot catch a single shared
+stem, so the pools were renamed and a STEM-level test added:
+  test_pool_stems_disjoint_from_measurement_corpora
+      (first-token stems of every entity-pool string + every token of the
+      source ids and v4 terse fact keys/labels vs every fact/truth key token
+      of pilot216, heldout, heldout2 (when its sealed copy is on disk) and
+      the 12 dev fixtures; the nine purged stems are pinned absent as a
+      regression list)
+The rename touched the v1-v3 system/source pools, so the v1-v3 class shas
+changed too — ACCEPTED: the M9-qualified adapter was already trained on the
+old v3 data; this regeneration serves the v4 training run only.
 """
 
 from __future__ import annotations
@@ -339,9 +358,14 @@ def test_manifest(dataset):
     manifest = json.loads((output / "manifest.json").read_text())
     assert manifest["schema_version"] == generate.MANIFEST_SCHEMA
     # v4: M10 generalization classes added on all-new disjoint pools;
-    # re-seeded to [20261112]; bytes differ from v3 by design.
+    # re-seeded to [20261116] on the 2026-11-12 leakage re-audit; bytes
+    # differ from v3 by design.
     assert manifest["dataset_version"] == generate.DATASET_VERSION == 4
-    assert manifest["seed"] == generate.SEED == [20261112]
+    assert manifest["seed"] == generate.SEED == [20261116]
+    # M10 qualification gate checklist (b): the curriculum seed must be
+    # distinct from every seed the measurement harness uses or has burned.
+    forbidden = {0, 20260929, 20261106, 20261110, 20261112, 20261114}
+    assert forbidden.isdisjoint(generate.SEED), "curriculum seed is in the gate's forbidden seed set"
     assert manifest["consumer_profile"] == CONSUMER_PROFILE
     assert manifest["action_version"] == ACTION_VERSION
     assert manifest["counts"] == generate.DEFAULT_COUNTS
@@ -498,7 +522,7 @@ def test_conflict_split_shape(dataset):
             assert subject in record["text"]
     assert variants == {"separate_keys", "declare_conflict"}
     # The narrative near-miss carries real weight across declare_conflict
-    # episodes (knob 0.80; deterministic rate 14/16 under seed [20261112]).
+    # episodes (knob 0.80; deterministic rate 17/21 under seed [20261116]).
     dc = [row for row in rows["conflict_split"] if row["meta"]["variant"] == "declare_conflict"]
     narrated = sum(1 for row in dc if row["meta"].get("conflict_narrative_ids"))
     assert narrated / len(dc) >= 0.60, f"conflict-narrative near-misses in only {narrated}/{len(dc)}"
@@ -830,11 +854,11 @@ def test_value_vocabulary_is_wide(dataset):
                 if kind is not None:
                     values.setdefault(kind, set()).add(record["claim_value"])
     floors = {
-        # v4 re-based every floor under seed [20261112] with margin below the
-        # measured deterministic counts (time 47, date 58, version 56,
-        # host 54, endpoint 37, int 60, float 48, person 139, days 15,
-        # phase 9, tier 8; v4 kinds: rpm 77, lux 71, hpa 71, tally 87,
-        # mode 5 — the full mode enum).
+        # v4 re-based every floor under seed [20261116] with margin below the
+        # measured deterministic counts (time 43, date 40, version 56,
+        # host 40, endpoint 53, int 59, float 57, person 111, days 18,
+        # phase 9, tier 8; v4 kinds: rpm 85, lux 84, hpa 84, tally 78,
+        # mode 10 — the full mode enum plus conflict-narrative strings).
         "time": 35,
         "date": 30,
         "version": 30,
@@ -1379,3 +1403,98 @@ def test_v4_zero_word_8gram_overlap(dataset, sealed_corpora):
                     v3_grams |= _word_ngrams(text)
         overlap = v4_grams & v3_grams
         assert not overlap, f"shared 8-grams with the v3 curriculum output: {sorted(overlap)[:5]}"
+
+# ---------------------------------------------------------------------------
+# Stem-level disjointness (2026-11-12 leakage re-audit, gate checklist (b))
+# ---------------------------------------------------------------------------
+
+# The nine stems the re-audit found shared between the curriculum pools and
+# measurement-corpora fact keys (heldout2: berth/gantry/louver/forum/
+# lighting; pilot216/heldout: lumen/juniper; dev fixtures: helios/kestrel).
+# Pinned absent as a regression list so no future pool edit reintroduces
+# them; the disjointness assertion below is the real proof.
+PURGED_STEMS = frozenset(
+    {"berth", "gantry", "louver", "forum", "lighting", "lumen", "juniper", "helios", "kestrel"}
+)
+
+
+def _fact_key_tokens(payload):
+    """Every token of every fact/truth key a scenario or fixture carries."""
+    tokens = set()
+    for claim in payload.get("truth", ()):
+        tokens |= _tokens(str(claim.get("key", "")))
+    for event in payload.get("events", ()):
+        tokens |= _tokens(str(event.get("fact_key", "")))
+    return tokens
+
+
+@pytest.fixture(scope="module")
+def measurement_key_tokens(tmp_path_factory):
+    """Token union of every fact/truth key in the measurement corpora:
+    pilot216 + heldout (byte-regenerated from the in-repo sealed generator),
+    heldout2 (the M10 qualification-gate workload; swept when its sealed copy
+    exists under DML_M8_WORKLOADS_DIR — its generator spec lives on the main
+    branch, not this worktree), and the 12 dev fixtures (in-repo)."""
+    tokens = set()
+    out = tmp_path_factory.mktemp("sealed-keys")
+    coverage = []
+    for workload, directory in (("pilot", "pilot216"), ("heldout", "heldout")):
+        sealed.generate_workload(workload, out / directory)
+        scenarios = sorted((out / directory / "scenarios").glob("*.json"))
+        assert scenarios, f"regenerated {directory} scenarios missing"
+        for path in scenarios:
+            tokens |= _fact_key_tokens(json.loads(path.read_text(encoding="utf-8")))
+        coverage.append(f"{directory}:{len(scenarios)}")
+    heldout2_dir = M8_WORKLOADS_DIR / "heldout2" / "scenarios"
+    if heldout2_dir.is_dir():
+        scenarios = sorted(heldout2_dir.glob("*.json"))
+        assert scenarios, "on-disk heldout2 scenarios missing"
+        for path in scenarios:
+            tokens |= _fact_key_tokens(json.loads(path.read_text(encoding="utf-8")))
+        coverage.append(f"heldout2:{len(scenarios)}")
+    fixtures = sorted(FIXTURES.glob("*.json"))
+    assert fixtures, "m8 battery fixtures missing"
+    for path in fixtures:
+        tokens |= _fact_key_tokens(json.loads(path.read_text(encoding="utf-8")))
+    coverage.append(f"fixtures:{len(fixtures)}")
+    assert tokens, "no measurement-corpora fact keys collected"
+    return tokens, coverage
+
+
+def _curriculum_pool_stems():
+    """The content-bearing stems of the curriculum pools (the audit's stem
+    semantics): the FIRST token of every entity-pool string (entity families
+    are carried by their first token), and EVERY token of the source ids and
+    of the v4 terse fact keys/labels (a fact-key family stem may sit in any
+    position — 'louver' in vent_louver_mode was the audit's case).
+
+    The v1-v3 dotted fact keys (ops.maintenance_window, ...) are out of
+    scope BY DESIGN: they intentionally mirror the dev-fixture key idioms on
+    disjoint synthetic entities — that mirroring is the M9-qualified design,
+    not leakage."""
+    stems = set()
+    for entity in list(generate.ENTITY_POOL_STRINGS) + list(generate.V4_ENTITY_POOL_STRINGS):
+        stems.add(re.findall(r"[a-z0-9]+", entity.lower())[0])
+    for source in list(generate._SOURCES) + list(generate._INJECTION_SOURCES) + list(generate._V4_SOURCES):
+        stems |= _tokens(source)
+    for fact in generate.V4_FACTS:
+        stems |= _tokens(fact["key"]) | _tokens(fact["label"])
+    return stems
+
+
+def test_pool_stems_disjoint_from_measurement_corpora(measurement_key_tokens):
+    """Gate checklist (b), stem level: no content-bearing curriculum pool stem
+    may be a token of any measurement-corpora fact/truth key. The word
+    8-gram sweeps structurally cannot catch this — a single shared stem never
+    forms an 8-gram — so this test sweeps stems directly."""
+    tokens, coverage = measurement_key_tokens
+    stems = _curriculum_pool_stems()
+    assert stems
+    overlap = stems & tokens
+    assert not overlap, (
+        "curriculum pool stems shared with measurement-corpora fact keys",
+        sorted(overlap),
+        coverage,
+    )
+    reintroduced = PURGED_STEMS & stems
+    assert not reintroduced, f"purged stems reintroduced into the pools: {sorted(reintroduced)}"

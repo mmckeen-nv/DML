@@ -14,7 +14,7 @@ canonical V3 logical-message shape:
 * every assistant turn a strict ``dml-agent-action-v1`` action parseable by
   ``parse_agent_action`` (contracts/agent_episode.py:816).
 
-Determinism: numpy SeedSequence [20261106] spawns one child per class, then
+Determinism: numpy SeedSequence [20261116] spawns one child per class, then
 one per episode; each episode's stdlib ``random.Random`` is seeded from its
 child sequence. Same seed and counts produce byte-identical files.
 
@@ -68,9 +68,12 @@ seed/counts — see README.md "Dataset versions"):
   arguments are rejected at construction and asserted absent by test.
 
 Dataset version 4 (M10 generalization repairs; bytes differ from v3 under the
-same seed/counts — v4 also re-seeds to [20261112] — see README.md "Dataset
-versions"). The 2026-11-12 held-out campaign showed the v3 behaviors do not
-generalize to novel phrasings (docs/m10-charter-2026-11-12.md); v4 adds three
+same seed/counts — v4 re-seeded to [20261112], then re-seeded again to
+[20261116] on the 2026-11-12 leakage re-audit: [20261112] is in the M10
+qualification gate's forbidden seed set, and nine content-bearing pool stems
+collided with measurement-corpora fact keys — see "Stem purge" below; see
+README.md "Dataset versions"). The 2026-11-12 held-out campaign showed the v3
+behaviors do not generalize to novel phrasings (docs/m10-charter-2026-11-12.md); v4 adds three
 classes targeting the failure classes, not the v3 templates:
 
 * idiom_echo (campaign failure class 1, claim-idiom key mismatch): the asked
@@ -107,6 +110,21 @@ classes targeting the failure classes, not the v3 templates:
 v4 entity/fact/source/value pools are all-new and disjoint BY CONSTRUCTION
 from the v1-v3 pools and from the pilot216/heldout sealed workloads (the M8
 8-gram leakage method is re-run against both by test).
+
+Stem purge (2026-11-12 leakage re-audit, M10 qualification gate checklist
+(b)): nine content-bearing pool stems collided with measurement-corpora fact
+keys at STEM level — invisible to the word 8-gram sweeps, which need eight
+consecutive shared words. Purged/renamed here: ``berth``, ``gantry``,
+``louver``, ``forum``, ``lighting`` (heldout2 fact-key families), ``lumen``,
+``juniper`` (pilot216/heldout truth keys), ``helios``, ``kestrel``
+(dev-fixture keys), plus the further collisions the replacement
+stem-disjointness test catches (``cartographer``, ``status``, ``memo``,
+``room``, ``reading``). The rename touches the v1-v3 system/source pools, so
+the v1-v3 class bytes change too — ACCEPTED: the M9-qualified adapter was
+already trained on the old v3 data; this regeneration serves the v4 training
+run only. ``test_pool_stems_disjoint_from_measurement_corpora`` in
+test_m9_curriculum.py mechanically proves the purged stems stay out and every
+pool stem is disjoint from all measurement-corpora fact/truth key tokens.
 
 Output (train JSONL + manifest.json) is written under
 ``dml_core/scripts/m9_curriculum/out/`` by default — a gitignored path; see
@@ -149,9 +167,14 @@ MANIFEST_SCHEMA = "dml-m9-curriculum-manifest-v1"
 # dual-assert truth-key idiom (its 'conflict:' narrative likewise demoted to
 # a never-cited near-miss), value_shape added (verbatim unit-bearing string
 # echo), injection_resist extended with a novel-surface template pool
-# (42 episodes).
+# (42 episodes). Re-seeded again to [20261116] on the 2026-11-12 leakage
+# re-audit: [20261112] is in the M10 qualification gate's forbidden seed set
+# {0, 20260929, 20261106, 20261110, 20261112, 20261114}, and the colliding
+# content-bearing pool stems were purged (see "Stem purge" in the module
+# docstring). dataset_version stays 4: the version tracks structure, the
+# seed tracks the draw.
 DATASET_VERSION = 4
-SEED = [20261112]
+SEED = [20261116]
 V3_CLASSES = ("abstain_exact", "coverage", "conflict_split", "injection_resist", "replay")
 V4_CLASSES = ("idiom_echo", "conflict_dual_assert", "multipart_decomp", "value_shape")
 CLASSES = V3_CLASSES + V4_CLASSES
@@ -190,7 +213,12 @@ REFORMULATION_RATE = 0.40  # every class; floor: >= 30% of answer-bearing episod
 
 # ---------------------------------------------------------------------------
 # Closed synthetic entity pool. Provably disjoint from m8_battery fixtures;
-# the disjointness test iterates ENTITY_POOL_STRINGS mechanically.
+# the disjointness test iterates ENTITY_POOL_STRINGS mechanically. Stem-purged
+# 2026-11-12 (leakage re-audit): the system-name stems helios/kestrel (dev
+# fixtures), lumen/juniper (pilot216/heldout truth keys) and cartographer,
+# and the source-id stems forum and status, were renamed to stems provably
+# disjoint from every measurement-corpora fact/truth key token (enforced by
+# test_pool_stems_disjoint_from_measurement_corpora).
 # ---------------------------------------------------------------------------
 _COMPANY_PREFIX = (
     "Astraeus",
@@ -256,8 +284,8 @@ _LAST = (
     "Sorensen",
 )
 _SYSTEM = (
-    "Helios Relay",
-    "Cartographer",
+    "Solvane Relay",
+    "Plotwright",
     "Beaconline",
     "Driftgate",
     "Epochstore",
@@ -265,9 +293,9 @@ _SYSTEM = (
     "Gravitas Queue",
     "Halcyon Index",
     "Ironside Ledger",
-    "Juniper Bus",
-    "Kestrel Proxy",
-    "Lumen Archive",
+    "Thornewood Bus",
+    "Falconreach Proxy",
+    "Candela Archive",
     "Meridian Switch",
     "Northlight Registry",
     "Zephyr Gate",
@@ -281,16 +309,16 @@ ENTITY_POOL_STRINGS = COMPANIES + PERSONS + SYSTEMS
 _SOURCES = (
     "ops-handbook",
     "release-notes",
-    "status-archive",
+    "heartbeat-archive",
     "telemetry-feed",
     "audit-log",
     "field-notes",
-    "forum-mirror",
+    "commons-mirror",
     "support-transcript",
 )
 # Lure-prone source ids. In v1 lures came ONLY from these and clean records
 # NEVER did — a perfect source-blacklist shortcut. v2 mixes both directions.
-_INJECTION_SOURCES = ("unvetted-paste", "forum-repost", "ticket-screenshot")
+_INJECTION_SOURCES = ("unvetted-paste", "commons-repost", "ticket-screenshot")
 
 # Strings that appear verbatim in the m8 battery fixtures. Widened value
 # generation redraws on a hit so the mechanical disjointness proof keeps
@@ -371,7 +399,12 @@ _ABSTAIN_STALE_TEMPLATES = _STALE_TEMPLATES + (
 # sealed workloads. Every content token below was verified absent from the
 # sealed scenario corpora, the v3 curriculum output and the m8 battery
 # fixtures; tests/test_m9_curriculum.py re-proves token-level disjointness
-# and the zero word-8-gram overlap mechanically.
+# and the zero word-8-gram overlap mechanically. Stem-purged 2026-11-12
+# (leakage re-audit): the stems berth/gantry (source ids, fact key),
+# louver/lighting/reading/room (fact keys/labels) and memo collided with
+# heldout2 fact-key families and were renamed (quay/craneway/pump-vault/
+# mezzanine-digest sources; illumination/vent_shutter/quay_warden/
+# pump_vault_warden facts; *_pressure_gauge keys).
 # ---------------------------------------------------------------------------
 _V4_COMPANY_PREFIX = (
     "Veskarin",
@@ -463,12 +496,12 @@ V4_ENTITY_POOL_STRINGS = V4_COMPANIES + V4_PERSONS + V4_SYSTEMS
 # the source field still carries no trust signal in v4 episodes).
 _V4_SOURCES = (
     "meter-wire",
-    "pump-room-sheet",
-    "berth-summary",
-    "gantry-gazette",
-    "mezzanine-memo",
+    "pump-vault-sheet",
+    "quay-summary",
+    "craneway-gazette",
+    "mezzanine-digest",
     "sump-sheet",
-    "berth-wire",
+    "quay-wire",
     "pump-sheet",
 )
 
@@ -479,15 +512,15 @@ _V4_SOURCES = (
 V4_FACTS = (
     {"key": "blower_speed_setting", "label": "blower speed", "kind": "rpm"},
     {"key": "exhaust_fan_setting", "label": "exhaust fan speed", "kind": "rpm"},
-    {"key": "lighting_level_setting", "label": "lighting level", "kind": "lux"},
+    {"key": "illumination_level_setting", "label": "illumination level", "kind": "lux"},
     {"key": "mezzanine_lamp_setting", "label": "mezzanine lamp level", "kind": "lux"},
-    {"key": "chiller_pressure_reading", "label": "chiller pressure", "kind": "hpa"},
-    {"key": "boiler_pressure_reading", "label": "boiler pressure", "kind": "hpa"},
+    {"key": "chiller_pressure_gauge", "label": "chiller pressure", "kind": "hpa"},
+    {"key": "boiler_pressure_gauge", "label": "boiler pressure", "kind": "hpa"},
     {"key": "pallet_scan_tally", "label": "pallet scan tally", "kind": "tally"},
     {"key": "crane_lift_tally", "label": "crane lift tally", "kind": "tally"},
-    {"key": "berth_warden", "label": "berth warden", "kind": "person"},
-    {"key": "pump_room_warden", "label": "pump room warden", "kind": "person"},
-    {"key": "vent_louver_mode", "label": "vent louver mode", "kind": "mode"},
+    {"key": "quay_warden", "label": "quay warden", "kind": "person"},
+    {"key": "pump_vault_warden", "label": "pump vault warden", "kind": "person"},
+    {"key": "vent_shutter_mode", "label": "vent shutter mode", "kind": "mode"},
     {"key": "intake_grille_mode", "label": "intake grille mode", "kind": "mode"},
 )
 
@@ -1973,7 +2006,7 @@ _BUILDERS = {
 
 
 def _episode_seeds(counts):
-    """SeedSequence [20261106] -> one child per class -> one child per episode."""
+    """SeedSequence [20261116] -> one child per class -> one child per episode."""
     master = np.random.SeedSequence(SEED)
     class_sequences = master.spawn(len(CLASSES))
     result = {}
