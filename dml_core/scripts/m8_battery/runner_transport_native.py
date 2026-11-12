@@ -164,6 +164,7 @@ RECORD_KEYS = (
     "runtime_identity",
     "development_runtime",
     "development_checkpoint",
+    "prompt_amendment",
     "retrieval_attempted",
     "retrieve_first",
     "calls",
@@ -405,11 +406,16 @@ def _classify_abstention(record):
     return "records_returned_no_support"
 
 
-def _task_prompt(scenario, arm):
-    """Task prompt; the context_inline arm embeds the stream as untrusted inline data."""
-    if arm == "context_inline":
-        return control.build_prompt(scenario, "inline_evidence")
-    return scenario.query
+def _task_prompt(scenario, arm, amendment="none"):
+    """Task prompt; the context_inline arm embeds the stream as untrusted inline data.
+
+    The named prompt amendment (control.AMENDMENTS) applies to every arm
+    identically — the qualified surface the M9 gate ran on.
+    """
+    if amendment not in control.AMENDMENTS:
+        raise ValueError(f"unknown prompt amendment: {amendment}")
+    base = control.build_prompt(scenario, "inline_evidence") if arm == "context_inline" else scenario.query
+    return base + control.AMENDMENTS[amendment]
 
 
 def run_battery_episode(
@@ -427,6 +433,7 @@ def run_battery_episode(
     rag_store_factory=default_rag_store_factory,
     clock=time.monotonic,
     shared_consumer=None,
+    amendment="none",
 ):
     """One transport-native arm episode; every failure is retained in the record.
 
@@ -451,6 +458,7 @@ def run_battery_episode(
         "runtime_identity": None,
         "development_runtime": None,
         "development_checkpoint": None,
+        "prompt_amendment": amendment,
         "retrieval_attempted": False,
         "retrieve_first": None,
         "calls": [],
@@ -558,7 +566,7 @@ def run_battery_episode(
         report = run_episode_with_test_dependencies(
             consumer=consumer,
             toolbox=toolbox,
-            task={"id": TASK_ID, "prompt": _task_prompt(scenario, arm)},
+            task={"id": TASK_ID, "prompt": _task_prompt(scenario, arm, amendment)},
             scenario={"id": scenario.scenario_id, "scope": deepcopy(scenario.scope)},
             seed_records=seed_records,
             current_records=current_records,
@@ -758,6 +766,12 @@ def main(argv=None, *, consumer_factory=None, adapter_factory=None, embedder_fac
         help="JSON file declaring a candidate checkpoint identity "
         "(label, manifest_sha256, adapter_sha256); requires --development-runtime-x86",
     )
+    parser.add_argument(
+        "--prompt-amendment",
+        default="none",
+        choices=sorted(control.AMENDMENTS),
+        help="named development prompt amendment applied identically to every arm",
+    )
     args = parser.parse_args(argv)
 
     started = time.time()
@@ -885,6 +899,7 @@ def main(argv=None, *, consumer_factory=None, adapter_factory=None, embedder_fac
                             seed=seed,
                             consumer_profile=profile,
                             shared_consumer=shared_consumer,
+                            amendment=args.prompt_amendment,
                         )
                         episodes.append(episode)
                         stream.write(json.dumps(episode, sort_keys=True) + "\n")
@@ -900,6 +915,7 @@ def main(argv=None, *, consumer_factory=None, adapter_factory=None, embedder_fac
 
     summary = {
         "schema": SUMMARY_SCHEMA,
+        "prompt_amendment": args.prompt_amendment,
         "date": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "wall_seconds": round(time.time() - started, 1),
         "arms": list(args.arms),
