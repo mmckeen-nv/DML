@@ -18,6 +18,7 @@ from scripts.m8_battery import schema
 from scripts.m8_battery import sealed_workloads as sealed
 
 DEV_FIXTURES = Path(__file__).parent.parent / "scripts" / "m8_battery" / "fixtures"
+SCRIPTS_ROOT = Path(__file__).parent.parent / "scripts"
 EXPECTED_FAMILY_COUNTS = {
     # dev mix 1:2:1:2:4:2 over 12 fixtures, scaled x18 (pilot) and x12 (heldout)
     "pilot": {
@@ -36,8 +37,16 @@ EXPECTED_FAMILY_COUNTS = {
         "dependent_lookups": 48,
         "stable_memory_adverse": 24,
     },
+    "heldout2": {
+        "changing_facts": 12,
+        "explicit_corrections": 24,
+        "conflicting_independent_sources": 12,
+        "isolated_project_scopes": 24,
+        "dependent_lookups": 48,
+        "stable_memory_adverse": 24,
+    },
 }
-WORKLOAD_SIZES = {"pilot": 216, "heldout": 144}
+WORKLOAD_SIZES = {"pilot": 216, "heldout": 144, "heldout2": 144}
 
 
 def _scenario_files(directory):
@@ -59,6 +68,41 @@ def _corpus_ngrams(paths):
         for text in texts:
             grams |= _word_ngrams(text)
     return grams
+
+
+def _strings_deep(node):
+    if type(node) is str:
+        yield node
+    elif type(node) is dict:
+        for value in node.values():
+            yield from _strings_deep(value)
+    elif type(node) is list:
+        for item in node:
+            yield from _strings_deep(item)
+
+
+def _jsonl_ngrams(paths):
+    """Word 8-grams over every string in a set of JSONL curriculum files."""
+    grams = set()
+    for path in paths:
+        for line in path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            for text in _strings_deep(json.loads(line)):
+                grams |= _word_ngrams(text)
+    return grams
+
+
+def _curriculum_out_files():
+    """Curriculum generator outputs (m9/m10/...), when present on disk.
+
+    Curriculum corpora are generated artifacts, not committed; the M10 gate's
+    leakage re-audit sweeps them on the training machine. When no output
+    exists the heldout2-vs-curriculum leg is vacuous here and remains a
+    predeclared gate step (docs/m10-qualification-gate-2026-11-12.md).
+    """
+    return sorted(SCRIPTS_ROOT.glob("*curriculum*/out/*.jsonl"))
 
 
 # --- determinism -------------------------------------------------------------
@@ -141,21 +185,36 @@ def test_seal_detects_missing_and_extra_files(tmp_path):
         sealed.verify_seal(out)
 
 
+@pytest.mark.parametrize("workload", sorted(sealed.PINNED_SET_DIGESTS))
+def test_burned_workload_regeneration_digest_is_pinned(tmp_path, workload):
+    """Adding a workload kind must never perturb the burned sets' bytes.
+
+    pilot216 (M8 dev pilot) and heldout (M8 campaign, burned 2026-11-12) are
+    referenced by digest in the closure record; regenerating them must
+    reproduce exactly the pinned set digests recorded in
+    sealed_workloads.PINNED_SET_DIGESTS.
+    """
+    manifest = sealed.generate_workload(workload, tmp_path / workload)
+    assert manifest["set_digest"] == sealed.PINNED_SET_DIGESTS[workload]
+
+
 # --- namespace and content isolation --------------------------------------------
 
 
 def test_namespaces_disjoint_between_sets_and_dev_fixtures(tmp_path):
-    pilot = tmp_path / "pilot"
-    heldout = tmp_path / "heldout"
-    sealed.generate_workload("pilot", pilot)
-    sealed.generate_workload("heldout", heldout)
-    pilot_ids = {path.stem for path in (pilot / "scenarios").glob("*.json")}
-    heldout_ids = {path.stem for path in (heldout / "scenarios").glob("*.json")}
+    out_dirs = {}
+    id_sets = {}
+    for workload in sorted(WORKLOAD_SIZES):
+        out_dirs[workload] = tmp_path / workload
+        sealed.generate_workload(workload, out_dirs[workload])
+        id_sets[workload] = {path.stem for path in (out_dirs[workload] / "scenarios").glob("*.json")}
     dev_ids = {path.stem for path in DEV_FIXTURES.glob("*.json")}
     assert len(dev_ids) == 12
-    assert pilot_ids.isdisjoint(heldout_ids)
-    assert pilot_ids.isdisjoint(dev_ids)
-    assert heldout_ids.isdisjoint(dev_ids)
+    names = sorted(id_sets)
+    for index, first in enumerate(names):
+        for second in names[index + 1 :]:
+            assert id_sets[first].isdisjoint(id_sets[second]), f"{first} vs {second}"
+        assert id_sets[first].isdisjoint(dev_ids), f"{first} vs dev fixtures"
 
 
 @pytest.mark.parametrize("workload", sorted(WORKLOAD_SIZES))
@@ -166,6 +225,31 @@ def test_zero_word_8gram_overlap_with_dev_fixtures(tmp_path, workload):
     dev = _corpus_ngrams(sorted(DEV_FIXTURES.glob("*.json")))
     overlap = generated & dev
     assert not overlap, f"shared 8-grams with dev fixtures: {sorted(overlap)[:5]}"
+
+
+def test_heldout2_zero_8gram_overlap_with_all_prior_corpora(tmp_path):
+    """The M10 gate set is novel against every corpus that informed training.
+
+    heldout2 must share zero word 8-grams with pilot216, heldout (both burned
+    into M8's record), the 12 dev fixtures, and any curriculum out/ corpus on
+    disk. pilot and heldout share pools/templates with each other BY DESIGN
+    (both predate the burn rule), so no pilot<->heldout assertion is made;
+    heldout2 is the fresh gate set and is asserted against all of them.
+    """
+    heldout2 = tmp_path / "heldout2"
+    sealed.generate_workload("heldout2", heldout2)
+    h2_grams = _corpus_ngrams(sorted((heldout2 / "scenarios").glob("*.json")))
+    priors = {"dev_fixtures": _corpus_ngrams(sorted(DEV_FIXTURES.glob("*.json")))}
+    for workload in ("pilot", "heldout"):
+        out = tmp_path / workload
+        sealed.generate_workload(workload, out)
+        priors[workload] = _corpus_ngrams(sorted((out / "scenarios").glob("*.json")))
+    curriculum_files = _curriculum_out_files()
+    if curriculum_files:
+        priors["curriculum_out"] = _jsonl_ngrams(curriculum_files)
+    for name, grams in sorted(priors.items()):
+        overlap = h2_grams & grams
+        assert not overlap, f"heldout2 shares 8-grams with {name}: {sorted(overlap)[:5]}"
 
 
 def test_no_generated_event_text_repeats_a_dev_event_text(tmp_path):
