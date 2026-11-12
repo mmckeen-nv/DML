@@ -35,7 +35,7 @@ PYTHONPATH=dml_core DML_SKIP_VENV_REEXEC=1 \
 ```
 
 Files: one `<class>.jsonl` train file per class plus `manifest.json`
-(sha256 + byte count + episode count per file, seed `[20261112]`, generator
+(sha256 + byte count + episode count per file, seed `[20261116]`, generator
 script sha256 and git commit, per-class variants).
 
 ## Dataset versions
@@ -52,7 +52,8 @@ The manifest carries a `dataset_version` field (additive to
     evidence — subject disambiguation is required;
   * injection lures frequently arrive under trusted source ids and clean
     records (cited and uncited) sometimes sit on the lure-prone sources
-    `unvetted-paste` / `forum-repost` / `ticket-screenshot`, so the `source`
+    `unvetted-paste` / `commons-repost` / `ticket-screenshot` (renamed from
+    `forum-repost` in the 2026-11-12 stem purge), so the `source`
     field carries no trust signal (injection episodes record their presented
     lure ids in `meta.injection_ids` for audit);
   * task prompts ask the question plainly in all classes — no directive
@@ -86,7 +87,25 @@ The manifest carries a `dataset_version` field (additive to
     abstain. Identical consecutive retrieve arguments never appear
     (rejected at construction, asserted absent by test).
 * **v4** — M10 generalization classes on all-new pools, re-seeded to
-  `[20261112]` (bytes differ from v3 by design). Rationale: the 2026-11-12
+  `[20261112]`, then re-seeded again to `[20261116]` on the 2026-11-12
+  leakage re-audit (`[20261112]` is in the M10 qualification gate's
+  forbidden seed set; `dataset_version` stays 4 — the version tracks
+  structure, the seed tracks the draw). The re-audit also found nine
+  content-bearing pool stems colliding at STEM level with
+  measurement-corpora fact keys (invisible to the 8-gram sweeps):
+  `berth`/`gantry`/`louver`/`forum`/`lighting` (heldout2 fact-key families),
+  `lumen`/`juniper` (pilot216/heldout truth keys), `helios`/`kestrel`
+  (dev-fixture keys). They were purged/renamed (v3 systems
+  Helios/Juniper/Kestrel/Lumen/Cartographer → Solvane/Thornewood/Falconreach/
+  Candela/Plotwright; sources `status-archive`→`heartbeat-archive`,
+  `forum-mirror`/`forum-repost`→`commons-mirror`/`commons-repost`; v4
+  sources and fact keys onto quay/craneway/pump-vault/illumination/
+  vent_shutter/*_pressure_gauge stems), so the v1-v3 class bytes change too
+  — ACCEPTED: the M9-qualified adapter was already trained on the old v3
+  data; this regeneration serves the v4 training run only.
+  `test_pool_stems_disjoint_from_measurement_corpora` proves every pool stem
+  disjoint from all measurement-corpora fact/truth key tokens.
+  Rationale for the v4 classes: the 2026-11-12
   held-out campaign (144 scenarios, sealed digest `4478cd7f…`, evidence
   `/home/test/dml-debug/m8-campaign-heldout-20261112/`, local copy
   `~/.hermes/cache/scratch/m8-control/campaign-144.jsonl`; see
