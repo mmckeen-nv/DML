@@ -16,8 +16,10 @@ import pytest
 from scripts.m8_battery import runner_transport_native as battery
 from scripts.m8_battery import schema
 from scripts.m8_battery import sealed_workloads as sealed
+from scripts.m8_battery import verifiers
 
 DEV_FIXTURES = Path(__file__).parent.parent / "scripts" / "m8_battery" / "fixtures"
+SCRIPTS_ROOT = Path(__file__).parent.parent / "scripts"
 EXPECTED_FAMILY_COUNTS = {
     # dev mix 1:2:1:2:4:2 over 12 fixtures, scaled x18 (pilot) and x12 (heldout)
     "pilot": {
@@ -36,8 +38,16 @@ EXPECTED_FAMILY_COUNTS = {
         "dependent_lookups": 48,
         "stable_memory_adverse": 24,
     },
+    "heldout2": {
+        "changing_facts": 12,
+        "explicit_corrections": 24,
+        "conflicting_independent_sources": 12,
+        "isolated_project_scopes": 24,
+        "dependent_lookups": 48,
+        "stable_memory_adverse": 24,
+    },
 }
-WORKLOAD_SIZES = {"pilot": 216, "heldout": 144}
+WORKLOAD_SIZES = {"pilot": 216, "heldout": 144, "heldout2": 144}
 
 
 def _scenario_files(directory):
@@ -59,6 +69,41 @@ def _corpus_ngrams(paths):
         for text in texts:
             grams |= _word_ngrams(text)
     return grams
+
+
+def _strings_deep(node):
+    if type(node) is str:
+        yield node
+    elif type(node) is dict:
+        for value in node.values():
+            yield from _strings_deep(value)
+    elif type(node) is list:
+        for item in node:
+            yield from _strings_deep(item)
+
+
+def _jsonl_ngrams(paths):
+    """Word 8-grams over every string in a set of JSONL curriculum files."""
+    grams = set()
+    for path in paths:
+        for line in path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            for text in _strings_deep(json.loads(line)):
+                grams |= _word_ngrams(text)
+    return grams
+
+
+def _curriculum_out_files():
+    """Curriculum generator outputs (m9/m10/...), when present on disk.
+
+    Curriculum corpora are generated artifacts, not committed; the M10 gate's
+    leakage re-audit sweeps them on the training machine. When no output
+    exists the heldout2-vs-curriculum leg is vacuous here and remains a
+    predeclared gate step (docs/m10-qualification-gate-2026-11-12.md).
+    """
+    return sorted(SCRIPTS_ROOT.glob("*curriculum*/out/*.jsonl"))
 
 
 # --- determinism -------------------------------------------------------------
@@ -141,21 +186,36 @@ def test_seal_detects_missing_and_extra_files(tmp_path):
         sealed.verify_seal(out)
 
 
+@pytest.mark.parametrize("workload", sorted(sealed.PINNED_SET_DIGESTS))
+def test_burned_workload_regeneration_digest_is_pinned(tmp_path, workload):
+    """Adding a workload kind must never perturb the burned sets' bytes.
+
+    pilot216 (M8 dev pilot) and heldout (M8 campaign, burned 2026-11-12) are
+    referenced by digest in the closure record; regenerating them must
+    reproduce exactly the pinned set digests recorded in
+    sealed_workloads.PINNED_SET_DIGESTS.
+    """
+    manifest = sealed.generate_workload(workload, tmp_path / workload)
+    assert manifest["set_digest"] == sealed.PINNED_SET_DIGESTS[workload]
+
+
 # --- namespace and content isolation --------------------------------------------
 
 
 def test_namespaces_disjoint_between_sets_and_dev_fixtures(tmp_path):
-    pilot = tmp_path / "pilot"
-    heldout = tmp_path / "heldout"
-    sealed.generate_workload("pilot", pilot)
-    sealed.generate_workload("heldout", heldout)
-    pilot_ids = {path.stem for path in (pilot / "scenarios").glob("*.json")}
-    heldout_ids = {path.stem for path in (heldout / "scenarios").glob("*.json")}
+    out_dirs = {}
+    id_sets = {}
+    for workload in sorted(WORKLOAD_SIZES):
+        out_dirs[workload] = tmp_path / workload
+        sealed.generate_workload(workload, out_dirs[workload])
+        id_sets[workload] = {path.stem for path in (out_dirs[workload] / "scenarios").glob("*.json")}
     dev_ids = {path.stem for path in DEV_FIXTURES.glob("*.json")}
     assert len(dev_ids) == 12
-    assert pilot_ids.isdisjoint(heldout_ids)
-    assert pilot_ids.isdisjoint(dev_ids)
-    assert heldout_ids.isdisjoint(dev_ids)
+    names = sorted(id_sets)
+    for index, first in enumerate(names):
+        for second in names[index + 1 :]:
+            assert id_sets[first].isdisjoint(id_sets[second]), f"{first} vs {second}"
+        assert id_sets[first].isdisjoint(dev_ids), f"{first} vs dev fixtures"
 
 
 @pytest.mark.parametrize("workload", sorted(WORKLOAD_SIZES))
@@ -166,6 +226,31 @@ def test_zero_word_8gram_overlap_with_dev_fixtures(tmp_path, workload):
     dev = _corpus_ngrams(sorted(DEV_FIXTURES.glob("*.json")))
     overlap = generated & dev
     assert not overlap, f"shared 8-grams with dev fixtures: {sorted(overlap)[:5]}"
+
+
+def test_heldout2_zero_8gram_overlap_with_all_prior_corpora(tmp_path):
+    """The M10 gate set is novel against every corpus that informed training.
+
+    heldout2 must share zero word 8-grams with pilot216, heldout (both burned
+    into M8's record), the 12 dev fixtures, and any curriculum out/ corpus on
+    disk. pilot and heldout share pools/templates with each other BY DESIGN
+    (both predate the burn rule), so no pilot<->heldout assertion is made;
+    heldout2 is the fresh gate set and is asserted against all of them.
+    """
+    heldout2 = tmp_path / "heldout2"
+    sealed.generate_workload("heldout2", heldout2)
+    h2_grams = _corpus_ngrams(sorted((heldout2 / "scenarios").glob("*.json")))
+    priors = {"dev_fixtures": _corpus_ngrams(sorted(DEV_FIXTURES.glob("*.json")))}
+    for workload in ("pilot", "heldout"):
+        out = tmp_path / workload
+        sealed.generate_workload(workload, out)
+        priors[workload] = _corpus_ngrams(sorted((out / "scenarios").glob("*.json")))
+    curriculum_files = _curriculum_out_files()
+    if curriculum_files:
+        priors["curriculum_out"] = _jsonl_ngrams(curriculum_files)
+    for name, grams in sorted(priors.items()):
+        overlap = h2_grams & grams
+        assert not overlap, f"heldout2 shares 8-grams with {name}: {sorted(overlap)[:5]}"
 
 
 def test_no_generated_event_text_repeats_a_dev_event_text(tmp_path):
@@ -227,3 +312,107 @@ def test_runner_dry_run_accepts_generated_set(tmp_path, capsys, workload):
     assert report["dry_run"] == "fixtures_valid"
     assert len(report["scenarios"]) == WORKLOAD_SIZES[workload]
     assert all(len(entry["event_stream_digest"]) == 64 for entry in report["scenarios"])
+
+
+# --- winnability audit -----------------------------------------------------------
+#
+# The status_value verifier (verifiers.py) credits a claim only when the cited
+# record text ends with ' is <value>.' exactly (rpartition on " is " after
+# stripping the final period). A generator template that appends anything after
+# the value ('...is now 90 percent open.', '...<value> once the refit wrapped
+# up.', or no ' is ' tail at all) makes the episode unwinnable: no record can
+# support the truth entry, in either arm. The M8 observer traced 16 campaign
+# failures to this defect in the pilot216/heldout builders; those sets are
+# burned and digest-pinned, so the defect is documented and pinned as xfail
+# rather than repaired. heldout2 (M10 gate) was rebuilt so every status_value
+# truth has a supporting record with the exact tail; it must PASS at 100%.
+
+KNOWN_TAIL_DEFECT = (
+    "status_value-tail generator defect (M8 observer, 2026-11-12): "
+    "changing_facts amendment texts end 'is now <value> <unit>.', "
+    "explicit_corrections corrections end '<state> now that the <reason> "
+    "concluded.', and stable_memory_adverse flush records use 'starts at "
+    "<time> UTC.' — none ends with ' is <value>.' as the status_value "
+    "verifier requires, so those episodes are unwinnable in both arms. "
+    "The sets are burned into M8's closure record and digest-pinned; the "
+    "defect is pinned here, not repaired."
+)
+
+
+def _audit_scenario(scenario):
+    """Winnability facts for one scenario dict (schema.py shape as raw JSON)."""
+    status_truths = [entry for entry in scenario["truth"] if entry["verifier"] == "status_value"]
+    unsupported = [
+        (entry["key"], entry["value"])
+        for entry in status_truths
+        if not any(
+            verifiers.verify("status_value", {"key": entry["key"], "value": entry["value"]}, event)
+            for event in scenario["events"]
+        )
+    ]
+    return status_truths, unsupported
+
+
+@pytest.mark.parametrize(
+    "workload",
+    [
+        pytest.param("pilot", marks=pytest.mark.xfail(reason=KNOWN_TAIL_DEFECT, strict=True)),
+        pytest.param("heldout", marks=pytest.mark.xfail(reason=KNOWN_TAIL_DEFECT, strict=True)),
+        "heldout2",
+    ],
+)
+def test_every_status_value_truth_has_exact_tail_support(tmp_path, workload):
+    """Every status_value truth entry is winnable: some event record ends with
+    ' is <value>.' exactly (checked through the real verifier), and the truth
+    value is a string matching the record tail verbatim (no int/float shapes)."""
+    out = tmp_path / workload
+    sealed.generate_workload(workload, out)
+    unwinnable = []
+    for path in sorted((out / "scenarios").glob("*.json")):
+        scenario = json.loads(path.read_text(encoding="utf-8"))
+        status_truths, unsupported = _audit_scenario(scenario)
+        assert status_truths, f"{scenario['scenario_id']}: no status_value truth entries"
+        for entry in status_truths:
+            assert type(entry["value"]) is str, f"{scenario['scenario_id']}: non-string truth value"
+        for key, value in unsupported:
+            unwinnable.append(f"{scenario['scenario_id']}:{key}={value!r}")
+    assert not unwinnable, f"{len(unwinnable)} unwinnable status_value truths: {unwinnable[:5]}"
+
+
+@pytest.mark.parametrize("workload", sorted(WORKLOAD_SIZES))
+def test_conflict_scenarios_carry_both_source_values(tmp_path, workload):
+    """conflicting_independent_sources truth arrays carry BOTH sources' values
+    as separate status_value entries (the verifier-credited dual-assert shape;
+    final answers forbid duplicate claim keys, so one entry per source)."""
+    out = tmp_path / workload
+    sealed.generate_workload(workload, out)
+    checked = 0
+    for path in sorted((out / "scenarios").glob("*.json")):
+        scenario = json.loads(path.read_text(encoding="utf-8"))
+        if scenario["family"] != "conflicting_independent_sources":
+            continue
+        checked += 1
+        status_truths = [entry for entry in scenario["truth"] if entry["verifier"] == "status_value"]
+        assert len(status_truths) == 2, scenario["scenario_id"]
+        assert status_truths[0]["key"] != status_truths[1]["key"], scenario["scenario_id"]
+        assert status_truths[0]["value"] != status_truths[1]["value"], scenario["scenario_id"]
+    assert checked == EXPECTED_FAMILY_COUNTS[workload]["conflicting_independent_sources"]
+
+
+@pytest.mark.parametrize("workload", sorted(WORKLOAD_SIZES))
+def test_truth_keys_echoable_from_query_and_records(tmp_path, workload):
+    """Every truth key is reachable via the terse truth-key idiom: each
+    underscore token of the key appears (case-insensitive substring) in the
+    query or in some event text, so the subject is stated or implied by the
+    context the model sees."""
+    out = tmp_path / workload
+    sealed.generate_workload(workload, out)
+    failures = []
+    for path in sorted((out / "scenarios").glob("*.json")):
+        scenario = json.loads(path.read_text(encoding="utf-8"))
+        haystack = (scenario["query"] + " " + " ".join(event["text"] for event in scenario["events"])).lower()
+        for entry in scenario["truth"]:
+            for token in entry["key"].split("_"):
+                if token and token not in haystack:
+                    failures.append(f"{scenario['scenario_id']}:{entry['key']} token {token!r}")
+    assert not failures, f"{len(failures)} unechoable truth-key tokens: {failures[:5]}"
