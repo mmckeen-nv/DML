@@ -61,10 +61,33 @@ All v1/v2/v3 intents are preserved; two pins moved with the version:
 
 New v4 tests assert the generalization-class properties directly:
   test_idiom_echo_shape            (terse truth-key echo across phrasing families; narrative key is the wrong answer)
-  test_conflict_declare_shape      (novel two-source templates; final DECLARES the conflict)
   test_multipart_decomp_shape      (every part of a 2-/3-part question answered with its presented key)
   test_v4_pools_disjoint_by_construction  (all-new pools: token/key-level disjoint from v1-v3 pools, fixtures, sealed workloads)
   test_v4_zero_word_8gram_overlap  (M8 leakage method: zero word 8-grams vs sealed corpora, fixtures, v3 output)
+
+Dataset version 4, reconciled 2026-11-12 against the observer-verified
+failure decomposition (docs/m10-failure-decomposition-VERIFICATION-
+2026-11-12.md; the verifier never moves). The v4 generalization intents are
+preserved; three changed with the reconciliation:
+
+* conflict_declare was REFUTED as the winning mechanism (the verifier
+  rejects 'conflict: ...' narrative claims — 6 such episodes failed — and
+  credits DUAL-ASSERTION under source-attributed truth keys). The class is
+  rewritten as conflict_dual_assert: the gold final asserts both values,
+  each under its own <fact>_<source>_condition key citing its own record;
+  the 'conflict:' narrative survives only as a near-miss distractor record.
+* value_shape is new: the verifier's leaf gate requires string values equal
+  to the record's exact '... is <value>.' tail; gold records end in that
+  form with unit-bearing strings and a type-stripped bare-int near-miss
+  (same subject, asked key) is always present and never cited.
+* injection_resist gains a novel-surface template pool (the campaign's 4
+  injection successes came on phrasings disjoint from the v3 templates);
+  meta.injection_surfaces records the pools used per episode.
+
+New/updated tests pin the reconciled shapes directly:
+  test_conflict_dual_assert_shape  (dual-assert gold; 'conflict:' narrative is the near-miss)
+  test_value_shape_shape           (verbatim unit-bearing string echo; type-stripped int never cited)
+  test_injection_resist_shape      (extended: both injection surfaces exercised)
 """
 
 from __future__ import annotations
@@ -436,6 +459,7 @@ def test_conflict_split_shape(dataset):
 def test_injection_resist_shape(dataset):
     _, rows = dataset
     variants = set()
+    all_surfaces = set()
     for row in rows["injection_resist"]:
         presented, action = assert_canonical_row(row)
         variants.add(row["meta"]["variant"])
@@ -457,7 +481,16 @@ def test_injection_resist_shape(dataset):
                 assert record["claim_value"] == claim["value"]
         lure_values = {r["claim_value"] for r in injected.values()}
         assert lure_values.isdisjoint(c["value"] for c in claims), "final adopted the lure value"
+        surfaces = row["meta"]["injection_surfaces"]
+        assert surfaces and set(surfaces) <= {"v3", "v4"}
+        all_surfaces.update(surfaces)
     assert variants == {"capped_result", "full_result"}
+    # v4 phrasing variance: the campaign's injection successes came on novel
+    # phrasings, so both injection-surface pools must be exercised and the
+    # v4 pool must carry real weight (not a token handful of episodes).
+    assert all_surfaces == {"v3", "v4"}
+    v4_episodes = sum(1 for row in rows["injection_resist"] if "v4" in row["meta"]["injection_surfaces"])
+    assert v4_episodes >= 10, f"novel-surface injection lures in only {v4_episodes} episodes"
 
 
 def test_replay_shape(dataset):
@@ -586,8 +619,9 @@ def test_source_carries_no_trust_signal(dataset):
         "injection_resist",
         "replay",
         "idiom_echo",
-        "conflict_declare",
+        "conflict_dual_assert",
         "multipart_decomp",
+        "value_shape",
     }, (
         "every answer-bearing class must cite clean records from lure-prone sources",
         cited_on_lure_source,
@@ -767,8 +801,9 @@ ANSWER_BEARING = (
     "injection_resist",
     "replay",
     "idiom_echo",
-    "conflict_declare",
+    "conflict_dual_assert",
     "multipart_decomp",
+    "value_shape",
 )
 
 
@@ -978,40 +1013,117 @@ def test_idiom_echo_shape(dataset):
     assert rate >= 0.60, f"narrative-key near-misses in only {rate:.0%} of idiom_echo episodes"
 
 
-def test_conflict_declare_shape(dataset):
-    """v4 (b): conflict declaration on novel two-source templates. The final
-    DECLARES the conflict: one claim under the shared presented terse key,
-    both sources named and cited, neither value asserted as fact."""
+def test_conflict_dual_assert_shape(dataset):
+    """v4 (b, observer-reconciled): conflict DUAL-ASSERT is the gold. Two
+    claims, one per source, each under its source-attributed truth key
+    (``<fact>_<source>_condition``) echoed from its own cited record, each
+    carrying that record's exact value — never the refuted 'conflict: ...'
+    narrative. The narrative form is presented as a near-miss distractor in
+    most episodes and is never cited."""
     _, rows = dataset
     families = set()
-    for row in rows["conflict_declare"]:
+    narrative_hits = 0
+    for row in rows["conflict_dual_assert"]:
+        presented, action = assert_canonical_row(row)
+        claims = action["answer"]["claims"]
+        assert len(claims) == 2, "dual-assert: one claim per source"
+        keys = _v4_asked_keys(row, action)
+        assert len(keys) == 2, "the two sources assert under DISTINCT attributed keys"
+        left, right = claims
+        assert left["key"].endswith("_condition") and right["key"].endswith("_condition")
+        # Both attributed keys extend the same base fact key.
+        base_a = left["key"][: -len("_condition")]
+        base_b = right["key"][: -len("_condition")]
+        assert base_a != base_b
+        assert any(base_a.startswith(fact["key"] + "_") for fact in generate.V4_FACTS)
+        assert any(base_b.startswith(fact["key"] + "_") for fact in generate.V4_FACTS)
+        for claim in claims:
+            value = claim["value"]
+            # The gold NEVER takes the refuted narrative form.
+            assert not (type(value) is str and value.startswith("conflict: ")), (
+                "narrative-conflict claim credited as gold",
+                row["episode_id"],
+            )
+            (record_id,) = claim["evidence_ids"]
+            record = presented[record_id]
+            assert record["claim_key"] == claim["key"], "each claim echoes its own source record's key"
+            assert record["claim_value"] == claim["value"]
+            assert type(record["claim_value"]) is type(claim["value"])
+            assert record["memory_state"] == "current"
+        record_a = presented[left["evidence_ids"][0]]
+        record_b = presented[right["evidence_ids"][0]]
+        assert record_a["source"] != record_b["source"]
+        assert record_a["claim_value"] != record_b["claim_value"], "the two sources genuinely disagree"
+        # Each claim's key embeds its cited record's source attribution.
+        assert record_a["source"].replace("-", "_") in left["key"]
+        assert record_b["source"].replace("-", "_") in right["key"]
+        subject = _asked_subject(row)
+        for record in (record_a, record_b):
+            assert subject in record["text"]
+        families.add(row["meta"]["prompt_family"])
+        ids = [rid for rid in row["meta"].get("conflict_narrative_ids", ()) if rid in presented]
+        if not ids:
+            continue
+        narrative_hits += 1
+        cited = {rid for claim in claims for rid in claim["evidence_ids"]}
+        for rid in ids:
+            near_miss = presented[rid]
+            value = near_miss["claim_value"]
+            assert type(value) is str and value.startswith("conflict: ")
+            assert record_a["source"] in value and record_b["source"] in value
+            assert str(record_a["claim_value"]) in value and str(record_b["claim_value"]) in value
+            assert near_miss["claim_key"] not in keys, "the narrative sits under the base key, not a truth key"
+            assert rid not in cited, "the conflict-narrative record must never be cited"
+    assert families == {name for name, _ in generate._V4_CONFLICT_PROMPTS}, (
+        "every phrasing family must be exercised",
+        families,
+    )
+    rate = narrative_hits / len(rows["conflict_dual_assert"])
+    assert rate >= 0.60, f"conflict-narrative near-misses in only {rate:.0%} of conflict_dual_assert episodes"
+
+
+def test_value_shape_shape(dataset):
+    """v4 (d, observer-driven): value-shape fidelity. The gold claim value is
+    the unit-bearing STRING echoed verbatim from a record whose text ends in
+    the verifier's status_value form ('... is <value>.'); a type-stripped
+    near-miss (same subject, asked key, the same number as a bare int) is
+    ALWAYS present and never cited — the int is the campaign failure."""
+    _, rows = dataset
+    families = set()
+    for row in rows["value_shape"]:
         presented, action = assert_canonical_row(row)
         claims = action["answer"]["claims"]
         assert len(claims) == 1
         claim = claims[0]
         (key,) = _v4_asked_keys(row, action)
-        value = claim["value"]
-        assert type(value) is str and value.startswith("conflict: ")
-        assert len(claim["evidence_ids"]) == 2
-        left = presented[claim["evidence_ids"][0]]
-        right = presented[claim["evidence_ids"][1]]
-        assert left["claim_key"] == right["claim_key"] == claim["key"]
-        assert left["claim_value"] != right["claim_value"]
-        assert left["source"] != right["source"]
-        # Both sources are named in the declaration and both values are
-        # reported as positions, not asserted as fact.
-        assert left["source"] in value and right["source"] in value
-        assert str(left["claim_value"]) in value and str(right["claim_value"]) in value
-        assert claim["value"] != left["claim_value"] and claim["value"] != right["claim_value"]
+        assert key in row["task"]["prompt"], "the asked key is named in the prompt"
+        assert type(claim["value"]) is str, "the gold value is a string, never a bare number"
+        (record_id,) = claim["evidence_ids"]
+        record = presented[record_id]
+        assert record["claim_key"] == claim["key"]
+        assert record["claim_value"] == claim["value"]
+        # The cited record states the value in the verifier's status_value
+        # form: the text ends '... is <value>.' and the tail equals the claim.
+        assert record["text"].endswith(f" is {claim['value']}."), (
+            "cited record is not in status_value form",
+            record["text"],
+        )
+        assert record["memory_state"] == "current"
         subject = _asked_subject(row)
-        for record in (left, right):
-            assert record["memory_state"] == "current"
-            assert subject in record["text"]
+        assert subject in record["text"]
         families.add(row["meta"]["prompt_family"])
-    assert families == {name for name, _ in generate._V4_IDIOM_PROMPTS}, (
-        "every phrasing family must be exercised",
-        families,
-    )
+        # The type-stripped near-miss: same subject, asked key, same number,
+        # bare int — always present, never cited, never the gold's type.
+        ids = row["meta"]["type_stripped_ids"]
+        assert len(ids) == 1 and ids[0] in presented
+        stripped = presented[ids[0]]
+        assert ids[0] != record_id
+        assert stripped["claim_key"] == claim["key"]
+        assert type(stripped["claim_value"]) is int, "the near-miss is the type-stripped int"
+        assert stripped["claim_value"] == int(claim["value"].split()[0])
+        assert subject in stripped["text"]
+        assert stripped["memory_state"] == "current"
+    assert families == {name for name, _ in generate._V4_VALUE_SHAPE_PROMPTS}
 
 
 def test_multipart_decomp_shape(dataset):

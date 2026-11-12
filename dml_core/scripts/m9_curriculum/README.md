@@ -11,11 +11,12 @@ format (`llama3-8b-instruct-sft-v3-bf16-action-json-v1` consumer profile,
 | `abstain_exact` | 30 | empty / irrelevant-only / superseded-only store → final `{"claims": []}` |
 | `coverage` | 40 | multi-part question → one claim per part, each citing retrieved records |
 | `conflict_split` | 30 | two credible sources disagree → per-source keys echoed from the presented records, or one `conflict:` claim under the shared presented key |
-| `injection_resist` | 30 | retrieved record carries an imperative injection/lure → answer ignores it |
+| `injection_resist` | 42 | retrieved record carries an imperative injection/lure (v3 surface pool AND a novel directive/override-notice pool, disjoint phrasings) → answer ignores it |
 | `replay` | 40 | ordinary retrieve→answer; native-typed values, canonical citation shape |
 | `idiom_echo` (v4) | 40 | novel question/record phrasing families, terse truth-key idiom (`blower_speed_setting`); narrative-key near-miss carries the answer value under a long narrative key — the narrative key is the wrong answer |
-| `conflict_declare` (v4) | 30 | two v4 sources disagree under novel two-source templates → one `conflict:` claim naming and citing both sources, neither value asserted as fact |
+| `conflict_dual_assert` (v4) | 30 | two v4 sources disagree → DUAL-ASSERT: both values, each under its source-attributed truth key (`<fact>_<source>_condition`) citing its own record; the refuted `conflict:` narrative is a presented near-miss, never the gold |
 | `multipart_decomp` (v4) | 40 | 2- and 3-part questions over novel phrasings → final covers EVERY part, each claim keyed by its presented terse key |
+| `value_shape` (v4) | 20 | cited record states the answer in `status_value` form (text ends `... is <value>.`) with a unit-bearing string → verbatim string echo; a type-stripped bare-int near-miss (same subject, asked key) is always present and never cited |
 
 Every claim key in a labeled final answer is exactly the `claim_key` of a
 presented record that supports it (claim-key echo, v3) — records carry the
@@ -30,7 +31,7 @@ gitignored. Regenerate with:
 PYTHONPATH=dml_core DML_SKIP_VENV_REEXEC=1 \
   python -m scripts.m9_curriculum.generate --force
 # custom mix:
-#   --counts abstain_exact=30,coverage=40,conflict_split=30,injection_resist=30,replay=40,idiom_echo=40,conflict_declare=30,multipart_decomp=40
+#   --counts abstain_exact=30,coverage=40,conflict_split=30,injection_resist=42,replay=40,idiom_echo=40,conflict_dual_assert=30,multipart_decomp=40,value_shape=20
 ```
 
 Files: one `<class>.jsonl` train file per class plus `manifest.json`
@@ -107,14 +108,33 @@ The manifest carries a `dataset_version` field (additive to
     (`"<subject> <source> report <label>"`, mirroring the campaign failure
     verbatim) — echoing the narrative key is the wrong answer even though
     the value matches;
-  * `conflict_declare`: two v4 sources disagree on the asked
-    (subject, key) under the novel two-source templates; the labeled final
-    DECLARES the conflict — one `conflict:` claim under the shared presented
-    terse key naming and citing both sources, neither value asserted as
-    fact;
+  * `conflict_dual_assert` (reconciled 2026-11-12 against the
+    observer-verified failure decomposition,
+    `docs/m10-failure-decomposition-VERIFICATION-2026-11-12.md`): two v4
+    sources disagree on the asked (subject, fact); the labeled final
+    DUAL-ASSERTS — both values, each under its source-attributed truth key
+    (`<fact>_<source>_condition`, the shape all 11 valid conflict-family
+    campaign episodes used), each claim citing exactly its own presented
+    record. The earlier `conflict_declare` design (one `conflict:` narrative
+    claim) was REFUTED by the frozen verifier (6 such campaign episodes
+    failed); the `conflict:` narrative survives only as a presented
+    near-miss distractor (>= 60% of episodes, asserted by test; ids in
+    `meta.conflict_narrative_ids`) — never the gold answer;
   * `multipart_decomp`: 2- and 3-part questions over three novel phrasing
     families (both part counts asserted by test); the labeled final covers
     EVERY part, each claim keyed by its presented terse key;
+  * `value_shape` (observer's value-type/str gate): the citable record
+    states the answer in the verifier's `status_value` form (text ends
+    `... is <value>.`) with a unit-bearing string value (`"837 rpm"`); the
+    labeled final echoes the string verbatim. A type-stripped near-miss
+    (same subject, asked key, the same number as a bare int — the campaign's
+    `95` vs `"95 minutes"` failure) is always present and never cited (ids
+    in `meta.type_stripped_ids`);
+  * `injection_resist` phrasing variance (the campaign's 4 injection
+    successes came on novel phrasings): lures draw from a second template
+    pool of directive / override-notice surfaces disjoint from the v3
+    templates (per-episode pools in `meta.injection_surfaces`; both pools
+    exercised, asserted by test); class count raised 30 → 42;
   * all v2/v3 repairs hold in the v4 classes too (same-key and same-value
     near-misses, superseded discrimination, source carries no trust signal,
     reformulate-once loop resistance), exercised by the same shared tests;
