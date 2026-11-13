@@ -379,6 +379,106 @@ def test_every_status_value_truth_has_exact_tail_support(tmp_path, workload):
     assert not unwinnable, f"{len(unwinnable)} unwinnable status_value truths: {unwinnable[:5]}"
 
 
+# --- winnability audit extension (2026-11-13) -------------------------------------
+#
+# The dependent_lookups investigation (docs/m10-dependent-lookups-investigation-
+# 2026-11-12.md) found two further generator defects the status_value tail audit
+# above structurally cannot see:
+#   Defect A — the family's rule truth entries used record_text_contains with an
+#     arbitrary 2-word substring no record states as an echoable ' is <value>.'
+#     tail (supportable but uncoverable under exact (key, value) coverage).
+#   Defect B — every dependent_lookups query asks 2 parts while the truth array
+#     carries 3 entries; the intermediate hop is never asked, so the hop entry is
+#     uncoverable by construction.
+# heldout2 was repaired (rule records now end with an exact ' is <value>.' tail
+# and the rule entries are status_value; queries ask the hop explicitly). The
+# burned pilot216/heldout dependent_lookups builders keep both defects; their
+# digests are pinned, so the parity check is xfail-pinned for those sets. The
+# record_text_contains support check passes on all three sets (the substrings DO
+# appear word-bounded in their rule records — support was never the defect) and
+# is vacuous for the repaired heldout2 (no record_text_contains entries remain).
+
+KNOWN_PARITY_DEFECT = (
+    "dependent_lookups asked-part/truth-entry parity defect (M10 investigation, "
+    "2026-11-12): every pilot216/heldout dependent_lookups query asks 2 parts "
+    "('the value..., and which rule governs it?') while the truth array carries 3 "
+    "entries — the intermediate hop is never asked. The sets are burned into M8's "
+    "closure record and digest-pinned; the defect is pinned here, not repaired. "
+    "heldout2 queries name the hop explicitly (3 asked parts, 3 truth entries)."
+)
+
+_INTERROGATIVE = re.compile(r"\b(?:what|which|who|whose|whom|how)\b")
+_IMPERATIVE_OPENERS = ("give", "name", "state", "report", "list")
+
+
+def _asked_part_count(query):
+    """Number of things a sealed-workload query asks, per the builder templates.
+
+    A part is a clause carrying an interrogative (what/which/...) or opening
+    with an imperative (give/name/state/report/list) or 'is/are there'. Fronted
+    adverbials ('According to ...', 'In the ... scope,', 'Per the ...') attach
+    to the clause that follows them; the ', if any,' parenthetical is dropped.
+    A coordinated single-clause ask ('What are the A and the B', 'State the X
+    and the Y for Z') counts one part per 'and' conjunct. Validated against
+    every generated query by the parity test below.
+    """
+    text = query.strip().lower().rstrip("?.")
+    text = re.sub(r",\s*if any,", "", text)
+    parts = 0
+    for clause in re.split(r",\s*(?:and\s+)?", text):
+        if clause.startswith("what are ") or clause.split(" ", 1)[0] in _IMPERATIVE_OPENERS:
+            parts += 1 + len(re.findall(r"\band\b", clause))
+        elif _INTERROGATIVE.search(clause) or clause.startswith(("is there", "are there")):
+            parts += 1
+    return parts
+
+
+@pytest.mark.parametrize("workload", sorted(WORKLOAD_SIZES))
+def test_every_record_text_contains_truth_has_word_bounded_support(tmp_path, workload):
+    """Every record_text_contains truth entry is supportable: its substring value
+    appears word-bounded in at least one event text (checked through the real
+    verifier). heldout2 declares no record_text_contains entries after the
+    2026-11-13 dependent_lookups repair, so the check is vacuous there."""
+    out = tmp_path / workload
+    sealed.generate_workload(workload, out)
+    unsupported = []
+    for path in sorted((out / "scenarios").glob("*.json")):
+        scenario = json.loads(path.read_text(encoding="utf-8"))
+        for entry in scenario["truth"]:
+            if entry["verifier"] != "record_text_contains":
+                continue
+            if not any(
+                verifiers.verify("record_text_contains", {"key": entry["key"], "value": entry["value"]}, event)
+                for event in scenario["events"]
+            ):
+                unsupported.append(f"{scenario['scenario_id']}:{entry['key']}={entry['value']!r}")
+    assert not unsupported, f"{len(unsupported)} unsupported record_text_contains truths: {unsupported[:5]}"
+
+
+@pytest.mark.parametrize(
+    "workload",
+    [
+        pytest.param("pilot", marks=pytest.mark.xfail(reason=KNOWN_PARITY_DEFECT, strict=True)),
+        pytest.param("heldout", marks=pytest.mark.xfail(reason=KNOWN_PARITY_DEFECT, strict=True)),
+        "heldout2",
+    ],
+)
+def test_asked_part_count_equals_truth_entry_count(tmp_path, workload):
+    """Asked-part vs truth-entry parity: the query asks exactly as many things
+    as the truth array carries entries, so every truth entry corresponds to an
+    asked query part (an unasked entry is uncoverable by construction)."""
+    out = tmp_path / workload
+    sealed.generate_workload(workload, out)
+    mismatched = []
+    for path in sorted((out / "scenarios").glob("*.json")):
+        scenario = json.loads(path.read_text(encoding="utf-8"))
+        asked = _asked_part_count(scenario["query"])
+        truth_count = len(scenario["truth"])
+        if asked != truth_count:
+            mismatched.append(f"{scenario['scenario_id']}: asked={asked} truth={truth_count}")
+    assert not mismatched, f"{len(mismatched)} parity mismatches: {mismatched[:5]}"
+
+
 @pytest.mark.parametrize("workload", sorted(WORKLOAD_SIZES))
 def test_conflict_scenarios_carry_both_source_values(tmp_path, workload):
     """conflicting_independent_sources truth arrays carry BOTH sources' values

@@ -1236,7 +1236,8 @@ def _build_dependent_lookup_stock_h2(rng: random.Random, scenario_id: str) -> di
     events = [
         _event(
             700,
-            "Restocking guidance: a part's reorder point equals the reorder point of the storage band it belongs to.",
+            "Restocking guidance: a part's reorder point equals the reorder point of the storage band it "
+            "belongs to; the governing lookup dimension is storage band.",
             scope,
             "restocking-guide",
             "reorder_point_rule",
@@ -1302,11 +1303,12 @@ def _build_dependent_lookup_stock_h2(rng: random.Random, scenario_id: str) -> di
         "dependent_lookups",
         scope,
         events,
-        f"State the reorder point in units that governs {part} at present, and name the restocking rule behind it.",
+        f"State the reorder point in units that governs {part} at present, name the storage band that "
+        f"currently contains {part}, and give the restocking rule behind it.",
         [
             {"key": f"reorder_point_{classes[1]}", "value": f"{amounts[1]} units", "verifier": "status_value"},
             {"key": "storage_band", "value": classes[1], "verifier": "status_value"},
-            {"key": "reorder_point_rule", "value": "storage band", "verifier": "record_text_contains"},
+            {"key": "reorder_point_rule", "value": "storage band", "verifier": "status_value"},
         ],
     )
 
@@ -1319,7 +1321,8 @@ def _build_dependent_lookup_crew_h2(rng: random.Random, scenario_id: str) -> dic
     events = [
         _event(
             700,
-            "Galley policy: a watchkeeper's mess stipend is set by the stipend of that watchkeeper's duty rotation.",
+            "Galley policy: a watchkeeper's mess stipend is set by the stipend of that watchkeeper's duty "
+            "rotation; the governing lookup dimension is duty rotation.",
             scope,
             "galley-policy",
             "mess_stipend_rule",
@@ -1385,11 +1388,12 @@ def _build_dependent_lookup_crew_h2(rng: random.Random, scenario_id: str) -> dic
         "dependent_lookups",
         scope,
         events,
-        f"Give the mess stipend in credits that applies to {person} at present, and name the galley rule behind it.",
+        f"Give the mess stipend in credits that applies to {person} at present, state the duty rotation "
+        f"that currently governs {person}, and name the galley rule behind it.",
         [
             {"key": f"stipend_{sections[1]}", "value": f"{credits[1]} credits", "verifier": "status_value"},
             {"key": "duty_rotation", "value": sections[1], "verifier": "status_value"},
-            {"key": "mess_stipend_rule", "value": "duty rotation", "verifier": "record_text_contains"},
+            {"key": "mess_stipend_rule", "value": "duty rotation", "verifier": "status_value"},
         ],
     )
 
@@ -1402,7 +1406,8 @@ def _build_dependent_lookup_orchard_h2(rng: random.Random, scenario_id: str) -> 
     events = [
         _event(
             700,
-            "Irrigation policy: a plot's weekly irrigation allotment equals the allotment of the soil type beneath it.",
+            "Irrigation policy: a plot's weekly irrigation allotment equals the allotment of the soil type "
+            "beneath it; the governing lookup dimension is soil type.",
             scope,
             "irrigation-policy",
             "irrigation_rule",
@@ -1468,8 +1473,8 @@ def _build_dependent_lookup_orchard_h2(rng: random.Random, scenario_id: str) -> 
         "dependent_lookups",
         scope,
         events,
-        f"Which weekly irrigation allotment in kiloliters covers the {block} plot at present, and which "
-        f"irrigation rule applies?",
+        f"Which weekly irrigation allotment in kiloliters covers the {block} plot at present, which soil "
+        f"type currently underlies the {block} plot, and which irrigation rule applies?",
         [
             {
                 "key": f"allotment_{zones[1]}",
@@ -1477,7 +1482,7 @@ def _build_dependent_lookup_orchard_h2(rng: random.Random, scenario_id: str) -> 
                 "verifier": "status_value",
             },
             {"key": "soil_type", "value": zones[1], "verifier": "status_value"},
-            {"key": "irrigation_rule", "value": "soil type", "verifier": "record_text_contains"},
+            {"key": "irrigation_rule", "value": "soil type", "verifier": "status_value"},
         ],
     )
 
