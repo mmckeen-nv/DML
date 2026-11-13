@@ -260,6 +260,40 @@ The manifest carries a `dataset_version` field (additive to
     pin the single-claim unit-strip near-miss, and extending it would break
     the v5 byte pins. The composition ingredient is covered additively by
     `dependent_lookup_compose`.
+* **v6.1** — M10 v6 gate-6 root-cause remediation (seed unchanged at
+  `[20261116]`; `dataset_version` stays 6 — the patch is additive-only on
+  the version-6 structure: no v3-v6 builder or pool changes, so the
+  fourteen v3-v6 class files regenerate byte-identical — pinned
+  sha256-by-sha256 by `test_v4/v5/v6_class_bytes_unchanged`). Grounded in
+  `docs/m10-v6-gate6-rootcause-2026-11-13.md` §6: v6 reverted to the
+  qualified adapter's inline_evidence trust-boundary skip (answering from
+  untrusted embedded event text, citing inline numbering, or
+  over-abstaining; 5/12 inline cells flipped) and added one
+  duplicate-claim-key `invalid_action`. Two new classes on all-new v6.1
+  pools (disjoint by construction from the v1-v6 pools and from
+  pilot216/heldout/heldout2/fixtures; 8-gram + stem legs live in tests):
+  * `inline_evidence_trust_boundary` (14): the prompt embeds the events as
+    untrusted inline source data — the control battery's exact
+    construction (`INLINE_HEADER` + `- record N: ...` lines,
+    control.py:200-322, pinned equal by test) — while the store holds the
+    same records. Gold: retrieve-first anyway, final citing the RETRIEVED
+    record ids under their stored terse claim_keys. Variants mirror the
+    historically unstable cells: `conflicting_inline` (dual-assert
+    per-source attributed truth keys), `correction_inline` (stale line
+    embedded; gold cites the CURRENT store record), `plain_inline`
+    (answer_present). Near-misses, never gold (asserted by test):
+    answering without retrieving, citing inline position numbers (inline
+    ids 20+ can never be store ids 101+), over-abstaining with support
+    present.
+  * `duplicate_key_discipline` (8): two-part answers over one base subject
+    whose full stored keys share the subject slug (`<slug>_<fact>`). Gold
+    uses the two DISTINCT full keys, each citing its own retrieved record;
+    an uncited colliding-key distractor (same subject, an already-used
+    gold key, different value) is always presented — repeating a claim
+    under an already-used key is the exact v6 `invalid_action` failure
+    (`Duplicate claim key`) and is never the gold. Half the episodes carry
+    the inline-evidence embedding (the failure arose under
+    embedded-evidence load).
 
 ## Row schema (`dml-m9-curriculum-v1`)
 

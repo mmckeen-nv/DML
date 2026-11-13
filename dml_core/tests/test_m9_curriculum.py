@@ -201,6 +201,42 @@ New v6 tests assert the repair properties directly:
   test_v6_pools_disjoint_by_construction   (v6 pools vs v1-v5 pools, fixtures, ALL sealed corpora)
   test_v6_zero_word_8gram_overlap          (M8 method, heldout2 leg live, v1-v5 rows swept live)
   test_v6_key_stems_disjoint_from_measurement_corpora
+
+Dataset version 6.1 (M10 v6 gate-6 root-cause remediation; grounded in
+docs/m10-v6-gate6-rootcause-2026-11-13.md §6: the inline_evidence
+trust-boundary flip + the duplicate-claim-key invalid_action). ADDITIVE:
+every v3-v6 builder and pool is untouched, so the fourteen v3-v6 class files
+regenerate byte-identical under the unchanged seed [20261116] — pinned sha256
+by sha256 in test_v4/v5/v6_class_bytes_unchanged. dataset_version stays 6
+(the v6.1 patch is additive-only on the version-6 structure); the seed stays
+[20261116]. All v1-v6 test intents are preserved; two pins moved with the
+patch:
+
+* test_v6_classes_additive — the v6 class now sits at CLASSES[13:14]; the
+  v6.1 tail is pinned by test_v6_1_classes_additive.
+* test_source_carries_no_trust_signal — the cited-on-lure-source set gains
+  both v6.1 classes (deterministic under the unchanged seed: trust-boundary
+  3, duplicate-key 4 episodes).
+
+New v6.1 tests assert the remediation properties directly:
+  test_v6_class_bytes_unchanged            (v6.1 is additive; v6 bytes pinned)
+  test_v6_1_classes_additive               (CLASSES/counts grow only by the v6.1 classes; version stays 6)
+  test_v6_1_episode_id_prefixes            (m10- prefix, per-class numbering)
+  test_inline_header_matches_control_battery (the INLINE_HEADER text is the battery's, control.py:200)
+  test_inline_evidence_trust_boundary_shape (embedded untrusted events + populated store; gold answers from retrieved records)
+  test_inline_evidence_trust_boundary_retrieve_first (every gold's FIRST action is retrieve despite embedded evidence)
+  test_inline_evidence_trust_boundary_never_abstains_with_support (over-abstention near-miss is never gold)
+  test_inline_evidence_trust_boundary_inline_ids_never_cited (inline position numbers are never citable ids)
+  test_inline_evidence_trust_boundary_conflicting_dual_assert (per-source attributed truth keys, each citing its own retrieved record)
+  test_inline_evidence_trust_boundary_correction_cites_current (stale embedded line + superseded store record passed over)
+  test_inline_evidence_trust_boundary_variants_exercised
+  test_duplicate_key_discipline_shape      (two DISTINCT full keys sharing the subject slug, each citing its own record)
+  test_duplicate_key_discipline_colliding_distractor (same subject, already-used key, different value — never cited, never gold)
+  test_duplicate_key_discipline_no_duplicate_keys_anywhere (the invalid_action shape is never the gold)
+  test_duplicate_key_discipline_embedding_split (half embedded inline, half plain retrieval)
+  test_v6_1_pools_disjoint_by_construction (v6.1 pools vs v1-v6 pools, fixtures, ALL sealed corpora)
+  test_v6_1_zero_word_8gram_overlap        (M8 method, heldout2 leg live, v1-v6 rows swept live)
+  test_v6_1_key_stems_disjoint_from_measurement_corpora
 """
 
 from __future__ import annotations
@@ -844,6 +880,11 @@ def test_source_carries_no_trust_signal(dataset):
         # v6: dependent_lookup_compose cites clean records from lure-prone
         # sources too (deterministic under the unchanged seed).
         "dependent_lookup_compose",
+        # v6.1: both remediation classes cite clean records from lure-prone
+        # sources (deterministic under the unchanged seed: trust-boundary 3,
+        # duplicate-key 4 episodes).
+        "inline_evidence_trust_boundary",
+        "duplicate_key_discipline",
     }, (
         "every answer-bearing class must cite clean records from lure-prone sources",
         cited_on_lure_source,
@@ -1645,6 +1686,15 @@ def _curriculum_pool_stems():
     for source in generate._V6_SOURCES:
         stems |= _tokens(source)
     stems |= generate.V6_KEY_STEMS
+    # v6.1: same audit semantics — first-token stems of the v6.1 entity pool
+    # (site names, warden/pilot person names), every token of the v6.1
+    # source ids, and every declared v6.1 key stem (fact keys/labels, units
+    # and aspect words).
+    for entity in generate.V61_ENTITY_POOL_STRINGS:
+        stems.add(re.findall(r"[a-z0-9]+", entity.lower())[0])
+    for source in generate._V61_SOURCES:
+        stems |= _tokens(source)
+    stems |= generate.V61_KEY_STEMS
     return stems
 
 
@@ -2425,10 +2475,10 @@ def test_v5_class_bytes_unchanged(dataset):
 
 
 def test_v6_classes_additive():
-    """CLASSES and DEFAULT_COUNTS grow ONLY by the v6 class; the v3-v5
-    classes keep their counts and their order (seed-spawn order)."""
+    """CLASSES and DEFAULT_COUNTS keep the v6 class in its v6 position; the
+    v6.1 tail is pinned separately by test_v6_1_classes_additive."""
     assert generate.CLASSES[:13] == generate.V3_CLASSES + generate.V4_CLASSES + generate.V5_CLASSES
-    assert generate.CLASSES[13:] == generate.V6_CLASSES
+    assert generate.CLASSES[13:14] == generate.V6_CLASSES
     assert generate.V6_CLASSES == ("dependent_lookup_compose",)
     assert generate.DEFAULT_COUNTS["dependent_lookup_compose"] == 40
 
@@ -2926,6 +2976,477 @@ def test_v6_key_stems_disjoint_from_measurement_corpora(measurement_key_tokens):
     overlap = generate.V6_KEY_STEMS & tokens
     assert not overlap, (
         "v6 key stems shared with measurement-corpora fact keys",
+        sorted(overlap),
+        coverage,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Tests (v6.1: M10 v6 gate-6 root-cause remediation — additive classes)
+# ---------------------------------------------------------------------------
+
+# The v6 class file at dataset_version 6 (seed [20261116], verified
+# byte-identical to the v6 release out/ when the v6.1 generator landed).
+# v6.1 is ADDITIVE: no v3-v6 builder or pool may change these bytes.
+V6_CLASS_SHAS = {
+    "dependent_lookup_compose.jsonl": "10108c493c2a37a6ff9eb393a6c39735f143e695b49d97acc90f7da4d9678886",
+}
+
+
+def test_v6_class_bytes_unchanged(dataset):
+    """v6.1 is additive: the v6 class file regenerates byte-identical under
+    the unchanged seed [20261116]. Any edit to a v3-v6 builder, pool or draw
+    order breaks this pin."""
+    output, _ = dataset
+    manifest = json.loads((output / "manifest.json").read_text())
+    shas = {entry["path"]: entry["sha256"] for entry in manifest["files"]}
+    for name, sha in V6_CLASS_SHAS.items():
+        assert shas[name] == sha, f"v6 class bytes changed: {name}"
+
+
+def test_v6_1_classes_additive():
+    """CLASSES and DEFAULT_COUNTS grow ONLY by the v6.1 classes; dataset
+    version stays 6 (additive patch level on the version-6 structure) and
+    the seed stays [20261116]."""
+    assert generate.CLASSES[:14] == (
+        generate.V3_CLASSES + generate.V4_CLASSES + generate.V5_CLASSES + generate.V6_CLASSES
+    )
+    assert generate.CLASSES[14:] == generate.V6_1_CLASSES
+    assert generate.V6_1_CLASSES == ("inline_evidence_trust_boundary", "duplicate_key_discipline")
+    assert generate.DEFAULT_COUNTS["inline_evidence_trust_boundary"] == 14
+    assert generate.DEFAULT_COUNTS["duplicate_key_discipline"] == 8
+    assert generate.DATASET_VERSION == 6
+    assert generate.SEED == [20261116]
+
+
+def test_v6_1_episode_id_prefixes(dataset):
+    """v6.1 episodes are m10-prefixed (M10 curriculum), numbered per class."""
+    _, rows = dataset
+    for cls in generate.V6_1_CLASSES:
+        for index, row in enumerate(rows[cls]):
+            assert row["episode_id"] == f"m10-{cls.replace('_', '-')}-{index:04d}"
+
+
+def test_inline_header_matches_control_battery():
+    """The v6.1 inline-evidence construction is the control battery's own:
+    the header text is pinned equal to control.INLINE_HEADER
+    (scripts/m8_battery/control.py:200) and the line shape mirrors
+    build_prompt ('- record N: <text>' lines, then 'Task: ...')."""
+    from scripts.m8_battery import control
+
+    assert generate.V61_INLINE_HEADER == control.INLINE_HEADER
+
+
+# ---------------------------------------------------------------------------
+# v6.1 (a): inline_evidence_trust_boundary — retrieve-first over embedded text
+# ---------------------------------------------------------------------------
+
+
+def _inline_lines(row):
+    """The embedded '- record N: <text>' lines of an inline-evidence prompt."""
+    lines = {}
+    for line in row["task"]["prompt"].splitlines():
+        match = re.match(r"^- record (\d+): (.+)$", line)
+        if match:
+            lines[int(match.group(1))] = match.group(2)
+    return lines
+
+
+def test_inline_evidence_trust_boundary_shape(dataset):
+    """Every episode embeds the events as untrusted inline source data (the
+    battery's construction) while the store holds the same records; the gold
+    answers from the RETRIEVED records under their stored terse claim_keys —
+    the cited record's text is one of the embedded lines, so answer-content
+    alone cannot distinguish gold from the near-miss; only retrieve-first +
+    retrieved-id citation does."""
+    _, rows = dataset
+    for row in rows["inline_evidence_trust_boundary"]:
+        presented, action = assert_canonical_row(row)
+        prompt = row["task"]["prompt"]
+        assert prompt.startswith(generate.V61_INLINE_HEADER)
+        lines = _inline_lines(row)
+        assert lines, "no embedded inline record lines"
+        assert row["meta"]["inline_evidence"] is True
+        assert sorted(lines) == row["meta"]["inline_ids"]
+        assert row["meta"]["inline_ids"][0] == generate.V61_INLINE_ID_BASE
+        claims = action["answer"]["claims"]
+        assert claims, "trust-boundary episodes are answer-bearing"
+        cited = {rid for claim in claims for rid in claim["evidence_ids"]}
+        assert cited, "every claim cites"
+        for rid in cited:
+            record = presented[rid]
+            assert record["text"] in lines.values(), (
+                "the cited store record is not among the embedded events — the store must hold "
+                "the same records the prompt embeds",
+                row["episode_id"],
+            )
+            assert record["claim_key"] in {claim["key"] for claim in claims}
+        subject = _asked_subject(row)
+        assert subject == row["meta"]["asked_subject"]
+        for claim in claims:
+            assert TERSE_KEY.match(claim["key"]), "gold keys are the exact terse truth-key idiom"
+            (record_id,) = claim["evidence_ids"]
+            assert subject in presented[record_id]["text"]
+
+
+def test_inline_evidence_trust_boundary_retrieve_first(dataset):
+    """The regression being re-pinned (v6 answered from the embedded text on
+    2/12 cells): despite the evidence sitting IN the prompt, every gold's
+    first — and only — action is retrieve, before the final."""
+    _, rows = dataset
+    for row in rows["inline_evidence_trust_boundary"]:
+        assert_canonical_row(row)
+        messages = row["messages"]
+        first_action = messages[2]
+        assert first_action["role"] == "assistant" and "tool_calls" in first_action, (
+            "gold does not retrieve first despite embedded evidence",
+            row["episode_id"],
+        )
+        actions = _retrieve_actions(row)
+        assert len(actions) == 1, "one retrieval suffices — the store holds the embedded records"
+        query = actions[0]["arguments"]["query"]
+        assert row["meta"]["asked_subject"] in query
+
+
+def test_inline_evidence_trust_boundary_never_abstains_with_support(dataset):
+    """The second flipped shape (2/12 valid→empty_claims_final): the store
+    always holds support, so the gold ALWAYS answers — the over-abstention
+    near-miss is never the gold."""
+    _, rows = dataset
+    for row in rows["inline_evidence_trust_boundary"]:
+        presented, action = assert_canonical_row(row)
+        assert action["answer"]["claims"], ("over-abstention despite store support", row["episode_id"])
+        # Support really is present: every claim's cited record is current.
+        for claim in action["answer"]["claims"]:
+            (record_id,) = claim["evidence_ids"]
+            assert presented[record_id]["memory_state"] == "current"
+
+
+def test_inline_evidence_trust_boundary_inline_ids_never_cited(dataset):
+    """The third flipped shape (citing inline numbering 20/21, 40/41/42):
+    inline position numbers can never be citable store ids — store ids start
+    at 101 + seed % 700 — and no gold claim cites anything but a presented
+    retrieved record id."""
+    _, rows = dataset
+    for row in rows["inline_evidence_trust_boundary"]:
+        presented, action = assert_canonical_row(row)
+        inline_ids = set(row["meta"]["inline_ids"])
+        assert inline_ids.isdisjoint(presented), "an inline position number collides with a store id"
+        assert all(number >= generate.V61_INLINE_ID_BASE for number in inline_ids)
+        cited = {rid for claim in action["answer"]["claims"] for rid in claim["evidence_ids"]}
+        assert cited <= set(presented), "a claim cites an id no retrieve returned"
+        assert cited.isdisjoint(inline_ids)
+
+
+def test_inline_evidence_trust_boundary_conflicting_dual_assert(dataset):
+    """conflicting_inline (the conflicting_independent_sources cell): two
+    sources disagree; the gold DUAL-ASSERTS both values, each under its own
+    source-attributed truth key (the v4 _conflict_truth_key idiom), each
+    citing exactly its own retrieved record — the 'conflict:' narrative form
+    stays refuted here too."""
+    _, rows = dataset
+    hits = 0
+    for row in rows["inline_evidence_trust_boundary"]:
+        if row["meta"]["variant"] != "conflicting_inline":
+            continue
+        hits += 1
+        presented, action = assert_canonical_row(row)
+        claims = action["answer"]["claims"]
+        assert len(claims) == 2, "conflicting_inline dual-asserts both sources"
+        key_a, key_b = row["meta"]["attributed_keys"]
+        assert [claim["key"] for claim in claims] == [key_a, key_b]
+        assert key_a != key_b
+        assert key_a.endswith("_condition") and key_b.endswith("_condition")
+        assert claims[0]["value"] != claims[1]["value"], "the two sources genuinely disagree"
+        sources = set()
+        for claim in claims:
+            (record_id,) = claim["evidence_ids"]
+            record = presented[record_id]
+            assert record["claim_key"] == claim["key"]
+            assert record["claim_value"] == claim["value"]
+            assert record["memory_state"] == "current"
+            sources.add(record["source"])
+        assert len(sources) == 2, "each attributed claim cites its own source's record"
+        assert not any(claim["key"].startswith("conflict") for claim in claims)
+    assert hits == 5, f"conflicting_inline coverage: {hits}/14"
+
+
+def test_inline_evidence_trust_boundary_correction_cites_current(dataset):
+    """correction_inline (the correction_chain cells: the two v6
+    over-abstentions + the invalid_action episode): the stale line is
+    embedded alongside the correction and the store's stale record is
+    superseded-by the cited current record; the gold cites the CURRENT
+    retrieved record, never the stale one."""
+    _, rows = dataset
+    hits = 0
+    for row in rows["inline_evidence_trust_boundary"]:
+        if row["meta"]["variant"] != "correction_inline":
+            continue
+        hits += 1
+        presented, action = assert_canonical_row(row)
+        (claim,) = action["answer"]["claims"]
+        (record_id,) = claim["evidence_ids"]
+        cited = presented[record_id]
+        assert cited["memory_state"] == "current"
+        (stale_id,) = row["meta"]["stale_ids"]
+        stale = presented[stale_id]
+        assert stale_id != record_id
+        assert stale["memory_state"] == "superseded"
+        assert stale["superseded_by"] == record_id, "the stale store record chains to the cited correction"
+        assert stale["claim_key"] == claim["key"]
+        assert stale["claim_value"] != claim["value"], "the stale record carries the pre-correction value"
+        lines = _inline_lines(row)
+        assert stale["text"] in lines.values(), "the stale line is embedded — the inline trap"
+        assert cited["text"] in lines.values()
+    assert hits == 5, f"correction_inline coverage: {hits}/14"
+
+
+def test_inline_evidence_trust_boundary_variants_exercised(dataset):
+    _, rows = dataset
+    variants = {row["meta"]["variant"] for row in rows["inline_evidence_trust_boundary"]}
+    assert variants == set(generate.V61_INLINE_VARIANTS)
+    families = {row["meta"]["prompt_family"] for row in rows["inline_evidence_trust_boundary"]}
+    expected = (
+        {name for name, _ in generate._V61_PLAIN_PROMPTS}
+        | {name for name, _ in generate._V61_CORRECTION_PROMPTS}
+        | {name for name, _ in generate._V61_CONFLICT_PROMPTS}
+    )
+    assert families == expected
+
+
+# ---------------------------------------------------------------------------
+# v6.1 (b): duplicate_key_discipline — distinct full keys under one subject
+# ---------------------------------------------------------------------------
+
+
+def test_duplicate_key_discipline_shape(dataset):
+    """Two-part answers over one base subject: the gold uses the two DISTINCT
+    full stored keys (``<slug>_<fact>`` — sharing the subject slug, the
+    collision-prone shape), each claim citing exactly its own retrieved
+    record with the record's value."""
+    _, rows = dataset
+    for row in rows["duplicate_key_discipline"]:
+        presented, action = assert_canonical_row(row)
+        claims = action["answer"]["claims"]
+        assert len(claims) == 2, "duplicate_key_discipline asks two parts"
+        key_a, key_b = row["meta"]["asked_keys"]
+        assert [claim["key"] for claim in claims] == [key_a, key_b]
+        assert key_a != key_b
+        subject = row["meta"]["asked_subject"]
+        slug = subject.split()[0]
+        assert key_a.startswith(slug + "_") and key_b.startswith(slug + "_"), (
+            "the two full keys share the base subject slug",
+            key_a,
+            key_b,
+        )
+        assert TERSE_KEY.match(key_a) and TERSE_KEY.match(key_b)
+        assert key_a in row["task"]["prompt"] and key_b in row["task"]["prompt"]
+        for claim in claims:
+            (record_id,) = claim["evidence_ids"]
+            record = presented[record_id]
+            assert record["claim_key"] == claim["key"]
+            assert record["claim_value"] == claim["value"]
+            assert record["memory_state"] == "current"
+            assert subject in record["text"]
+
+
+def test_duplicate_key_discipline_colliding_distractor(dataset):
+    """Spec §6.3: an uncited distractor record ALWAYS invites a second claim
+    under an already-used key — same subject, the first claim's key, a
+    DIFFERENT value. It is never cited and never gold: answering both it and
+    the gold record under one key is the exact invalid_action failure."""
+    _, rows = dataset
+    for row in rows["duplicate_key_discipline"]:
+        presented, action = assert_canonical_row(row)
+        claims = action["answer"]["claims"]
+        cited = {rid for claim in claims for rid in claim["evidence_ids"]}
+        (colliding_id,) = row["meta"]["colliding_ids"]
+        colliding = presented[colliding_id]
+        assert colliding_id not in cited, "the colliding-key distractor was cited"
+        assert colliding["claim_key"] == claims[0]["key"], "the distractor sits under an already-used key"
+        assert colliding["claim_value"] != claims[0]["value"]
+        assert colliding["memory_state"] == "current"
+        assert row["meta"]["asked_subject"] in colliding["text"]
+        # The stale record under the second gold key is likewise present,
+        # chained and uncited.
+        (stale_id,) = row["meta"]["stale_ids"]
+        stale = presented[stale_id]
+        assert stale_id not in cited
+        assert stale["claim_key"] == claims[1]["key"]
+        assert stale["claim_value"] != claims[1]["value"]
+        assert stale["memory_state"] == "superseded"
+        assert stale["superseded_by"] == claims[1]["evidence_ids"][0]
+
+
+def test_duplicate_key_discipline_no_duplicate_keys_anywhere(dataset):
+    """The invalid_action shape — two claims sharing one key — is never the
+    gold, in ANY class: validate_answer (which raises on duplicate claim
+    keys, contracts/agent_episode.py) admits every gold final, and keys are
+    pairwise distinct here by assertion."""
+    _, rows = dataset
+    for row in rows["duplicate_key_discipline"]:
+        presented, action = assert_canonical_row(row)
+        keys = [claim["key"] for claim in action["answer"]["claims"]]
+        assert len(set(keys)) == len(keys), "gold final carries a duplicate claim key"
+        # The near-miss material is confined to uncited records: no gold
+        # claim echoes the colliding distractor's value under the first key.
+        (colliding_id,) = row["meta"]["colliding_ids"]
+        colliding = presented[colliding_id]
+        assert colliding["claim_value"] not in {claim["value"] for claim in action["answer"]["claims"]}
+
+
+def test_duplicate_key_discipline_embedding_split(dataset):
+    """Half the episodes carry the inline-evidence embedding (the v6
+    invalid_action arose under embedded-evidence load), half are plain store
+    retrieval; the gold is retrieve-first in BOTH."""
+    _, rows = dataset
+    embedded = 0
+    for row in rows["duplicate_key_discipline"]:
+        assert_canonical_row(row)
+        actions = _retrieve_actions(row)
+        assert len(actions) == 1
+        prompt = row["task"]["prompt"]
+        if row["meta"]["inline_evidence"]:
+            embedded += 1
+            assert row["meta"]["variant"] == "embedded_pair"
+            assert prompt.startswith(generate.V61_INLINE_HEADER)
+            lines = _inline_lines(row)
+            assert sorted(lines) == row["meta"]["inline_ids"]
+            cited_texts = {
+                record["text"]
+                for message in row["messages"]
+                if message["role"] == "tool"
+                for record in json.loads(message["content"])["records"]
+            }
+            assert set(lines.values()) <= cited_texts, "embedded events must also live in the store"
+        else:
+            assert row["meta"]["variant"] == "plain_pair"
+            assert not prompt.startswith(generate.V61_INLINE_HEADER)
+    assert embedded == 4, f"embedding split: {embedded}/8 embedded"
+
+
+# ---------------------------------------------------------------------------
+# v6.1 leakage discipline (M8 method re-run, heldout2 leg LIVE, v1-v6 rows
+# swept live from the same generated dataset)
+# ---------------------------------------------------------------------------
+
+
+def test_v6_1_pools_disjoint_by_construction(dataset, sealed_corpora_v5):
+    """The v6.1 pools are all-new: token-level disjoint from the v1-v6 pools,
+    the m8 fixtures and ALL sealed workloads (pilot216, heldout, heldout2)."""
+    prior_pool_tokens = set()
+    for pool in (
+        generate.ENTITY_POOL_STRINGS,
+        generate.V4_ENTITY_POOL_STRINGS,
+        generate.V5_ENTITY_POOL_STRINGS,
+        generate.V6_ENTITY_POOL_STRINGS,
+    ):
+        for entity in pool:
+            prior_pool_tokens |= _tokens(entity)
+    v61_pool_tokens = set()
+    for entity in generate.V61_ENTITY_POOL_STRINGS:
+        v61_pool_tokens |= _tokens(entity)
+    assert not (v61_pool_tokens & prior_pool_tokens), (
+        "v6.1 entity pool shares tokens with the v1-v6 pools",
+        sorted(v61_pool_tokens & prior_pool_tokens),
+    )
+    prior_keys = (
+        {fact["key"] for fact in generate.FACTS}
+        | {fact["key"] for fact in generate.V4_FACTS}
+        | {fact["key"] for fact in generate.V5_FACTS}
+    )
+    v61_keys = {fact["key"] for fact in generate.V61_FACTS}
+    assert not (prior_keys & v61_keys)
+    sealed_text_blob = "\n".join(sealed_corpora_v5)
+    sealed_tokens = _tokens(sealed_text_blob)
+    assert not (v61_pool_tokens & sealed_tokens), (
+        "v6.1 entity pool shares tokens with the sealed workloads",
+        sorted(v61_pool_tokens & sealed_tokens),
+    )
+    fixture_blob = "\n".join(path.read_text(encoding="utf-8") for path in sorted(FIXTURES.glob("*.json")))
+    assert not (v61_pool_tokens & _tokens(fixture_blob))
+    # v6.1 key/label/unit/aspect/source vocabulary: absent from every corpus
+    # and every prior pool.
+    value_tokens = set(generate.V61_KEY_STEMS)
+    for fact in generate.V61_FACTS:
+        value_tokens |= _tokens(fact["label"]) | _tokens(fact["key"])
+    for source in generate._V61_SOURCES:
+        value_tokens |= _tokens(source)
+    assert not (value_tokens & sealed_tokens), sorted(value_tokens & sealed_tokens)
+    assert not (value_tokens & _tokens(fixture_blob))
+    assert not (value_tokens & prior_pool_tokens)
+    # String-level: no v6.1 pool string or per-episode v6.1 entity usage
+    # (subjects, persons, composed values) appears in any corpus text.
+    _, rows = dataset
+    used = set()
+    for cls in generate.V6_1_CLASSES:
+        for row in rows[cls]:
+            used.update(row["meta"]["entities"])
+    assert used
+    for entity in set(generate.V61_ENTITY_POOL_STRINGS) | used:
+        assert entity not in sealed_text_blob, entity
+        assert entity not in fixture_blob, entity
+    for key in v61_keys:
+        assert key not in sealed_text_blob, "v6.1 terse key collides with sealed truth keys"
+
+
+def test_v6_1_zero_word_8gram_overlap(dataset, sealed_corpora_v5):
+    """The M8 leakage method re-run for curriculum v6.1: zero shared word
+    8-grams between the v6.1-class rows (prompts, queries, record texts,
+    string claim values) and (1) the sealed pilot216/heldout corpora,
+    (2) the CURRENT sealed heldout2 corpus (live leg), (3) the m8 dev
+    fixtures, (4) the v1-v6 rows of the SAME generated dataset (always
+    live), and (5) a dataset_version 3/4/5 out/ directory when available."""
+    v61_grams = set()
+    for cls in generate.V6_1_CLASSES:
+        for row in dataset[1][cls]:
+            for text in _row_texts(row):
+                v61_grams |= _word_ngrams(text)
+    assert v61_grams
+    sealed_grams = set()
+    for text in sealed_corpora_v5:
+        sealed_grams |= _word_ngrams(text)
+    overlap = v61_grams & sealed_grams
+    assert not overlap, f"shared 8-grams with the sealed corpora (incl. heldout2): {sorted(overlap)[:5]}"
+    fixture_grams = set()
+    for path in sorted(FIXTURES.glob("*.json")):
+        for event in json.loads(path.read_text(encoding="utf-8"))["events"]:
+            fixture_grams |= _word_ngrams(event["text"])
+    overlap = v61_grams & fixture_grams
+    assert not overlap, f"shared 8-grams with the m8 fixtures: {sorted(overlap)[:5]}"
+    # Live leg: the v1-v6 rows of the same generated dataset.
+    prior_grams = set()
+    for cls in generate.CLASSES:
+        if cls in generate.V6_1_CLASSES:
+            continue
+        for row in dataset[1][cls]:
+            for text in _row_texts(row):
+                prior_grams |= _word_ngrams(text)
+    overlap = v61_grams & prior_grams
+    assert not overlap, f"shared 8-grams with the v1-v6 curriculum rows: {sorted(overlap)[:5]}"
+    manifest_path = V3_OUT_DIR / "manifest.json"
+    if manifest_path.is_file() and json.loads(manifest_path.read_text()).get("dataset_version") in (3, 4, 5):
+        prior_out_grams = set()
+        for path in sorted(V3_OUT_DIR.glob("*.jsonl")):
+            for line in path.read_text(encoding="utf-8").splitlines():
+                row = json.loads(line)
+                if row["class"] in generate.V5_CLASSES + generate.V6_CLASSES + generate.V6_1_CLASSES:
+                    continue  # same-generator v5/v6/v6.1 rows, not a prior dataset
+                for text in _row_texts(row):
+                    prior_out_grams |= _word_ngrams(text)
+        overlap = v61_grams & prior_out_grams
+        assert not overlap, f"shared 8-grams with the prior curriculum output: {sorted(overlap)[:5]}"
+
+
+def test_v6_1_key_stems_disjoint_from_measurement_corpora(measurement_key_tokens):
+    """Stem level, v6.1-specific: every declared v6.1 key stem — fact
+    keys/labels, units and aspect words — is disjoint from every
+    measurement-corpora fact/truth key token (heldout2's FIXED
+    dependent_lookups shapes included)."""
+    tokens, coverage = measurement_key_tokens
+    overlap = generate.V61_KEY_STEMS & tokens
+    assert not overlap, (
+        "v6.1 key stems shared with measurement-corpora fact keys",
         sorted(overlap),
         coverage,
     )
