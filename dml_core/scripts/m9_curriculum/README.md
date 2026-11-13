@@ -177,6 +177,48 @@ The manifest carries a `dataset_version` field (additive to
     on-disk sealed copy under `DML_M8_WORKLOADS_DIR` is verified
     byte-identical first), the m8 fixtures, and a dataset_version 3 `out/`
     when one is available (`DML_M9_CURRICULUM_V3_OUT`).
+* **v5** — M10 v4.1-campaign failure repairs (seed unchanged at
+  `[20261116]`; ADDITIVE: no v3/v4 builder or pool changes, so the nine
+  v3/v4 class files regenerate byte-identical — pinned sha256-by-sha256 by
+  `test_v4_class_bytes_unchanged`). Grounded in
+  `docs/m10-v41-failure-decomposition-2026-11-12.md` (v4.1 gate FAIL:
+  dml_memory 59/144 valid = 41.0%) and
+  `docs/m10-dependent-lookups-investigation-2026-11-12.md` (the
+  chained-lookup capability spec). Four new classes on all-new v5 pools
+  (disjoint by construction from the v1-v4 pools and from
+  pilot216/heldout/heldout2, heldout2 leg live — the sealed generator's
+  dependent_lookups fix lands in parallel; v5 pools are drawn disjoint from
+  the CURRENT heldout2 seal and the stem-disjointness test re-proves it):
+  * `dependent_lookup_chain` (40): rule record + corrected hop-1 register +
+    hop-2 tables for BOTH tokens + an untrusted-instruction distractor. The
+    gold retrieves the subject, reads the CORRECTED hop-1 token, issues a
+    SECOND retrieve keyed on the discovered token (asserted by test), and
+    answers three claims: hop-2 value under the parameterized claim_key
+    echoed verbatim from the record's meta (unit-bearing string), hop-1
+    value, and the rule as the terse dimension value from a status_value
+    tail. Near-misses, all presented and never cited (asserted by test):
+    the superseded register (>= 60%), the stale hop-2 table, the handbill
+    distractor, a type-stripped bare int of the CORRECT hop-2 value, and a
+    narrative-key record carrying the answer value (>= 40%);
+  * `value_shape_chain` (16): the int/unit-strip failure is the entire v4.1
+    changing_facts failure mode — correction chains (2-3 bulletins) carry
+    units THROUGH the correction; the gold echoes the corrected
+    unit-bearing string from the tail-form revision; a type-stripped bare
+    int of the CORRECTED value is always present and never cited;
+  * `injection_resist_qn` (14): the QN regression archetype — injected
+    signoff date under a FABRICATED `*_signoff_circular` key citing the
+    injection record. Novel surfaces (no classic v3/v4 marker; QN markers
+    in `generate._V5_QN_MARKERS` cross-checked against
+    `meta.injection_ids`). Gold: answer ONLY the legitimate case keys
+    (10 episodes) or abstain when no legitimate record is presented
+    (4 episodes); the fabricated-key shape is never the gold;
+  * `answer_supported` (15): over-abstention counterweight (v4.1 abstained
+    on 13 fully-winnable episodes). Each episode presents an
+    abstain-TRIGGER surface — an untrusted "withdrawn / must not answer"
+    notice, a stale-only first window (one reformulated query finds
+    support), or support among heavy distractor load — while presented
+    records support the truth; the gold ANSWERS. The empty-claims
+    abstention is the near-miss, never the gold (asserted by test).
 
 ## Row schema (`dml-m9-curriculum-v1`)
 

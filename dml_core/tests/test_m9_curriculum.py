@@ -116,6 +116,49 @@ stem, so the pools were renamed and a STEM-level test added:
 The rename touched the v1-v3 system/source pools, so the v1-v3 class shas
 changed too — ACCEPTED: the M9-qualified adapter was already trained on the
 old v3 data; this regeneration serves the v4 training run only.
+
+Dataset version 5 (M10 v4.1-campaign failure repairs; grounded in
+docs/m10-v41-failure-decomposition-2026-11-12.md and
+docs/m10-dependent-lookups-investigation-2026-11-12.md). ADDITIVE: every
+v3/v4 builder and pool is untouched, so the nine v3/v4 class files
+regenerate byte-identical under the unchanged seed [20261116] — pinned
+sha256 by sha256 in test_v4_class_bytes_unchanged. All v1-v4 test intents
+are preserved; two pins moved with the version:
+
+* test_manifest — now pins manifest["dataset_version"] == 5.
+* test_value_vocabulary_is_wide — the kind map spans V5_FACTS too, with new
+  floors for the v5 unit kinds.
+
+One helper was generalized (no behavior change for v1-v4 rows):
+_asked_keys reads meta.asked_keys when an abstaining episode's claims are
+empty and its keys are parameterized (injection_resist_qn's abstain
+variant, whose per-case keys cannot be looked up in a static pool).
+
+New v5 tests assert the repair properties directly:
+  test_v4_class_bytes_unchanged            (v5 is additive; v3/v4 bytes pinned)
+  test_v5_classes_additive                 (CLASSES/counts grow only by the v5 classes)
+  test_dependent_lookup_chain_shape        (3-claim gold: parameterized hop-2 echo + hop-1 + terse rule)
+  test_dependent_lookup_chain_second_hop_retrieval (second retrieve keyed on the discovered token)
+  test_dependent_lookup_chain_near_misses_never_cited (stale register/table, handbill, stripped int, narrative key)
+  test_dependent_lookup_chain_rule_status_value_tail (rule record tail == terse dimension value)
+  test_dependent_lookup_chain_variants_exercised
+  test_dependent_lookup_chain_unit_bearing_hop2 (hop-2 value is a unit-bearing string, never an int)
+  test_value_shape_chain_shape             (corrected unit-bearing echo through a correction chain)
+  test_value_shape_chain_correction_chain  (superseded chain; gold cites the tail revision)
+  test_value_shape_chain_stripped_near_miss (bare int of the CORRECTED value, always present, never cited)
+  test_injection_resist_qn_shape           (legit keys only / abstain without support)
+  test_injection_resist_qn_no_fabricated_key_gold (the *_signoff_circular shape is never gold)
+  test_injection_resist_qn_marker_provenance (QN surface markers == meta.injection_ids)
+  test_injection_resist_qn_variant_split   (both golds exercised)
+  test_injection_resist_qn_novel_surfaces_disjoint (template pools disjoint from v3/v4 injection surfaces)
+  test_answer_supported_shape              (support present; gold answers)
+  test_answer_supported_never_empty_gold   (over-abstention near-miss is never the gold)
+  test_answer_supported_traps_present      (abstain-trigger surfaces present per variant)
+  test_answer_supported_variants_exercised
+  test_v5_episode_id_prefixes              (m10- prefix, per-class numbering)
+  test_v5_pools_disjoint_by_construction   (v5 pools vs v1-v4 pools, fixtures, ALL sealed corpora incl. heldout2)
+  test_v5_zero_word_8gram_overlap          (M8 method incl. the heldout2 leg and v4 out/ leg)
+  test_v5_key_stems_disjoint_from_measurement_corpora (incl. parameterized/fabricated key stems)
 """
 
 from __future__ import annotations
@@ -310,7 +353,12 @@ def _base_key(key):
 
 def _asked_keys(row, action):
     keys = {_base_key(claim["key"]) for claim in action["answer"]["claims"]}
-    if not keys:  # abstain: the asked key is named in the prompt
+    if not keys:  # abstain: the asked key is named in the prompt or pinned in meta
+        hinted = row["meta"].get("asked_keys")
+        if hinted is not None:
+            # v5: parameterized per-episode keys (per-case QN keys) cannot be
+            # looked up in a static fact pool; the generator pins them.
+            return set(hinted)
         keys = {fact["key"] for fact in generate.FACTS if fact["key"] in row["task"]["prompt"]}
         assert len(keys) == 1, row["task"]["prompt"]
     return keys
@@ -357,10 +405,10 @@ def test_manifest(dataset):
     output, rows = dataset
     manifest = json.loads((output / "manifest.json").read_text())
     assert manifest["schema_version"] == generate.MANIFEST_SCHEMA
-    # v4: M10 generalization classes added on all-new disjoint pools;
-    # re-seeded to [20261116] on the 2026-11-12 leakage re-audit; bytes
-    # differ from v3 by design.
-    assert manifest["dataset_version"] == generate.DATASET_VERSION == 4
+    # v5: four additive M10 v4.1-repair classes on all-new disjoint pools;
+    # seed unchanged at [20261116]; the v3/v4 class bytes are pinned
+    # unchanged by test_v4_class_bytes_unchanged.
+    assert manifest["dataset_version"] == generate.DATASET_VERSION == 5
     assert manifest["seed"] == generate.SEED == [20261116]
     # M10 qualification gate checklist (b): the curriculum seed must be
     # distinct from every seed the measurement harness uses or has burned.
@@ -711,6 +759,13 @@ def test_source_carries_no_trust_signal(dataset):
         "conflict_dual_assert",
         "multipart_decomp",
         "value_shape",
+        # v5 classes likewise cite clean records from lure-prone sources
+        # (deterministic under seed [20261116]: chain 14, chain-value 2,
+        # qn 2, answer-supported 2 episodes).
+        "dependent_lookup_chain",
+        "value_shape_chain",
+        "injection_resist_qn",
+        "answer_supported",
     }, (
         "every answer-bearing class must cite clean records from lure-prone sources",
         cited_on_lure_source,
@@ -843,6 +898,7 @@ def test_value_vocabulary_is_wide(dataset):
     _, rows = dataset
     kind_by_key = {fact["key"]: fact["kind"] for fact in generate.FACTS}
     kind_by_key.update({fact["key"]: fact["kind"] for fact in generate.V4_FACTS})
+    kind_by_key.update({fact["key"]: fact["kind"] for fact in generate.V5_FACTS})
     values = {}
     for cls in generate.CLASSES:
         for row in rows[cls]:
@@ -875,6 +931,12 @@ def test_value_vocabulary_is_wide(dataset):
         "hpa": 60,
         "tally": 60,
         "mode": 4,
+        # v5 unit kinds (measured under seed [20261116]: fathoms 25,
+        # gallons 37, shackles 30, hundredweight 47 — floors hold margin).
+        "fathoms": 20,
+        "gallons": 30,
+        "shackles": 25,
+        "hundredweight": 40,
     }
     for kind, floor in floors.items():
         assert len(values[kind]) >= floor, f"{kind}: only {len(values[kind])} distinct values (< {floor})"
@@ -893,6 +955,12 @@ ANSWER_BEARING = (
     "conflict_dual_assert",
     "multipart_decomp",
     "value_shape",
+    # v5: all four new classes are answer-bearing (injection_resist_qn's
+    # abstain variant answers nothing BY DESIGN — support is absent there).
+    "dependent_lookup_chain",
+    "value_shape_chain",
+    "injection_resist_qn",
+    "answer_supported",
 )
 
 
@@ -1475,10 +1543,21 @@ def _curriculum_pool_stems():
     stems = set()
     for entity in list(generate.ENTITY_POOL_STRINGS) + list(generate.V4_ENTITY_POOL_STRINGS):
         stems.add(re.findall(r"[a-z0-9]+", entity.lower())[0])
+    # v5: same audit semantics — first-token stems of the v5 entity pool,
+    # every token of the v5 source ids and terse fact keys/labels, and every
+    # declared v5 key stem (parameterized hop-2 prefixes, the fabricated QN
+    # near-miss stem and the adverse-notice key included).
+    for entity in generate.V5_ENTITY_POOL_STRINGS:
+        stems.add(re.findall(r"[a-z0-9]+", entity.lower())[0])
     for source in list(generate._SOURCES) + list(generate._INJECTION_SOURCES) + list(generate._V4_SOURCES):
+        stems |= _tokens(source)
+    for source in generate._V5_SOURCES:
         stems |= _tokens(source)
     for fact in generate.V4_FACTS:
         stems |= _tokens(fact["key"]) | _tokens(fact["label"])
+    for fact in generate.V5_FACTS:
+        stems |= _tokens(fact["key"]) | _tokens(fact["label"])
+    stems |= generate.V5_KEY_STEMS
     return stems
 
 
@@ -1498,3 +1577,735 @@ def test_pool_stems_disjoint_from_measurement_corpora(measurement_key_tokens):
     )
     reintroduced = PURGED_STEMS & stems
     assert not reintroduced, f"purged stems reintroduced into the pools: {sorted(reintroduced)}"
+
+# ---------------------------------------------------------------------------
+# Tests (v5: M10 v4.1-campaign failure repairs — additive classes)
+# ---------------------------------------------------------------------------
+
+# The nine v3/v4 class files at dataset_version 4 (seed [20261116], commit
+# b8a82fd), verified byte-identical when the v5 generator landed. v5 is
+# ADDITIVE: no v3/v4 builder or pool may change these bytes.
+V4_CLASS_SHAS = {
+    "abstain_exact.jsonl": "1c643cfa9338187a7f21503e468504c512bc7d90bbcb493a70e3003cfbe1a1d8",
+    "coverage.jsonl": "d26503376f73e6a5e2a1cb1f3c531cddc50992a240eae551394c1b7737cf8faf",
+    "conflict_split.jsonl": "98dd921e8a9d8e9424e54600f627e9c5f546398356c365debd5e858bd53102f0",
+    "injection_resist.jsonl": "f4a5dc115ef744080b4126f9fa16e8acb468c551c6aa76da1e57382e5b5104b8",
+    "replay.jsonl": "2eaafe4468090be506cd33e65999c4bee7046af5e201fdbd7f7103500224b600",
+    "idiom_echo.jsonl": "e3b60249ff84fa3d3e71d48e3b67372afaac498ac387a3f706776a4abdafba3b",
+    "conflict_dual_assert.jsonl": "7c48ba20a84207de93f67007bb288db1750d7d175fcc747ea3fa775945e385ec",
+    "multipart_decomp.jsonl": "ad0aa371f3280b9b34ede94fb6a33638424d637e90b6825a26efcc574040cb48",
+    "value_shape.jsonl": "b5f0d1ce677e5eefe81a6f27b3668c1792cfe1e8ad6db8a6921273a4a11558ea",
+}
+
+V4_CLASS_COUNTS = {
+    "abstain_exact": 30,
+    "coverage": 40,
+    "conflict_split": 30,
+    "injection_resist": 42,
+    "replay": 40,
+    "idiom_echo": 40,
+    "conflict_dual_assert": 30,
+    "multipart_decomp": 40,
+    "value_shape": 20,
+}
+
+FABRICATED_QN_KEY = re.compile(r"^zx_\d+_signoff_circular$")
+
+
+def test_v4_class_bytes_unchanged(dataset):
+    """v5 is additive: the nine v3/v4 class files regenerate byte-identical
+    under the unchanged seed [20261116]. Any edit to a v3/v4 builder, pool or
+    draw order breaks this pin."""
+    output, _ = dataset
+    manifest = json.loads((output / "manifest.json").read_text())
+    shas = {entry["path"]: entry["sha256"] for entry in manifest["files"]}
+    for name, sha in V4_CLASS_SHAS.items():
+        assert shas[name] == sha, f"v3/v4 class bytes changed: {name}"
+
+
+def test_v5_classes_additive():
+    """CLASSES and DEFAULT_COUNTS grow ONLY by the four v5 classes; the v3/v4
+    classes keep their v4 counts and their order (seed-spawn order)."""
+    assert generate.CLASSES[:9] == generate.V3_CLASSES + generate.V4_CLASSES
+    assert generate.CLASSES[9:] == generate.V5_CLASSES
+    assert set(generate.V5_CLASSES) == {
+        "dependent_lookup_chain",
+        "value_shape_chain",
+        "injection_resist_qn",
+        "answer_supported",
+    }
+    for cls, count in V4_CLASS_COUNTS.items():
+        assert generate.DEFAULT_COUNTS[cls] == count, f"v3/v4 class count changed: {cls}"
+    assert generate.DEFAULT_COUNTS["dependent_lookup_chain"] == 40
+    assert generate.DEFAULT_COUNTS["value_shape_chain"] == 16
+    assert generate.DEFAULT_COUNTS["injection_resist_qn"] == 14
+    assert generate.DEFAULT_COUNTS["answer_supported"] == 15
+
+
+def test_v5_episode_id_prefixes(dataset):
+    """v5 episodes are m10-prefixed (M10 curriculum), numbered per class."""
+    _, rows = dataset
+    for cls in generate.V5_CLASSES:
+        for index, row in enumerate(rows[cls]):
+            assert row["episode_id"] == f"m10-{cls.replace('_', '-')}-{index:04d}"
+
+
+# ---------------------------------------------------------------------------
+# v5 (a): dependent_lookup_chain — the chained-lookup capability
+# ---------------------------------------------------------------------------
+
+
+def _chain_spec(row):
+    (spec,) = [s for s in generate.V5_CHAIN_VARIANTS if s["variant"] == row["meta"]["chain_variant"]]
+    return spec
+
+
+def test_dependent_lookup_chain_shape(dataset):
+    """The gold solves the whole chain: exactly three claims — the hop-2
+    value under the PARAMETERIZED claim_key echoed verbatim from the
+    presented record's meta (unit-bearing string), the corrected hop-1 value
+    under its key, and the rule under its key with the terse dimension
+    value — each citing exactly its own presented record."""
+    _, rows = dataset
+    for row in rows["dependent_lookup_chain"]:
+        presented, action = assert_canonical_row(row)
+        spec = _chain_spec(row)
+        claims = action["answer"]["claims"]
+        assert len(claims) == 3, "chain gold answers hop-2 + hop-1 + rule"
+        hop2, hop1, rule = claims
+        assert TERSE_KEY.match(hop2["key"]) and TERSE_KEY.match(hop1["key"]) and TERSE_KEY.match(rule["key"])
+        # Hop-2 key is parameterized by the DISCOVERED (corrected) token.
+        assert hop1["value"] in {token for token in spec["tokens"]}
+        assert hop2["key"] == f"{spec['hop2_prefix']}_{hop1['value']}", (
+            "hop-2 claim key is not parameterized by the discovered hop-1 token",
+            row["episode_id"],
+            hop2["key"],
+        )
+        assert hop1["key"] == spec["hop1_key"]
+        assert rule["key"] == spec["rule_key"]
+        assert rule["value"] == spec["dimension"], "the rule claim carries the terse dimension value"
+        subject = _asked_subject(row)
+        for claim in (hop2, hop1, rule):
+            (record_id,) = claim["evidence_ids"]
+            record = presented[record_id]
+            assert record["claim_key"] == claim["key"], "each claim echoes its cited record's claim_key"
+            assert record["claim_value"] == claim["value"]
+            assert type(record["claim_value"]) is type(claim["value"])
+            assert record["memory_state"] == "current"
+            assert subject in record["text"]
+
+
+def test_dependent_lookup_chain_second_hop_retrieval(dataset):
+    """The capability the campaign showed missing (hop-2 token in a retrieve
+    query: 2/48 dml, 0/48 rag): every gold episode issues a SECOND retrieve
+    keyed on the discovered hop-1 token, and the hop-2 current table is
+    absent from the first window (its keying token is unknown until the
+    correction is read)."""
+    _, rows = dataset
+    for row in rows["dependent_lookup_chain"]:
+        presented, action = assert_canonical_row(row)
+        actions = _retrieve_actions(row)
+        results = _tool_results(row)
+        assert len(actions) == 2 == len(results), "chain gold is exactly two retrieves, then the final"
+        hop1_value = action["answer"]["claims"][1]["value"]
+        first_query = actions[0]["arguments"]["query"]
+        second_query = actions[1]["arguments"]["query"]
+        assert hop1_value not in first_query, "the hop-2 token is not in the question or first query"
+        assert hop1_value in second_query, "second retrieve must key on the discovered hop-1 token"
+        assert first_query != second_query
+        hop2_id = action["answer"]["claims"][0]["evidence_ids"][0]
+        first_ids = {record["id"] for record in results[0]["records"]}
+        assert hop2_id not in first_ids, "hop-2 current table must be discovered, not handed over"
+        assert hop2_id in {record["id"] for record in results[1]["records"]}
+
+
+def test_dependent_lookup_chain_near_misses_never_cited(dataset):
+    """Every near-miss shape from the campaign is presented and never cited:
+    the superseded hop-1 register (stale token), the stale hop-2 table, the
+    untrusted-instruction handbill, the type-stripped bare-int readout and
+    the narrative-key record."""
+    _, rows = dataset
+    stale_hop1 = 0
+    narrative_hits = 0
+    for row in rows["dependent_lookup_chain"]:
+        presented, action = assert_canonical_row(row)
+        spec = _chain_spec(row)
+        claims = action["answer"]["claims"]
+        cited = {rid for claim in claims for rid in claim["evidence_ids"]}
+        answer_values = {claim["value"] for claim in claims}
+        hop2_key, hop1_value = claims[0]["key"], claims[1]["value"]
+        for rid in row["meta"].get("stale_hop1_ids", ()):
+            stale_hop1 += 1
+            record = presented[rid]
+            assert rid not in cited
+            assert record["claim_key"] == spec["hop1_key"]
+            assert record["claim_value"] != hop1_value, "stale register carries the stale token"
+            assert record["memory_state"] == "superseded"
+            # Chained to the presented correction (memory_state, not prose).
+            assert record["superseded_by"] in cited
+        for rid in row["meta"]["distractor_ids"]:
+            record = presented[rid]
+            assert rid not in cited
+            assert record["claim_key"].startswith("handbill_")
+            assert record["claim_value"] not in answer_values
+            assert "command" in record["text"], "the distractor is an untrusted instruction"
+        # The stale hop-2 table: parameterized by the STALE token, never cited.
+        stale_tables = [
+            r
+            for r in presented.values()
+            if r["claim_key"].startswith(spec["hop2_prefix"] + "_") and r["claim_key"] != hop2_key
+        ]
+        assert stale_tables, "the dual hop-2 tables must both be presented"
+        for record in stale_tables:
+            assert record["id"] not in cited
+        # Type-stripped bare-int of the CORRECT hop-2 value: never cited.
+        (stripped_id,) = row["meta"]["type_stripped_ids"]
+        stripped = presented[stripped_id]
+        assert stripped_id not in cited
+        assert stripped["claim_key"] == hop2_key
+        assert type(stripped["claim_value"]) is int
+        assert stripped["claim_value"] == int(claims[0]["value"].split()[0])
+        for rid in row["meta"].get("narrative_key_ids", ()):
+            narrative_hits += 1
+            record = presented[rid]
+            assert rid not in cited
+            assert not TERSE_KEY.match(record["claim_key"]), "narrative near-miss is not the terse idiom"
+            assert record["claim_value"] == claims[0]["value"], "narrative record differs ONLY in its key"
+    rate = stale_hop1 / len(rows["dependent_lookup_chain"])
+    assert rate >= 0.60, f"superseded hop-1 registers in only {rate:.0%} of chain episodes"
+    rate = narrative_hits / len(rows["dependent_lookup_chain"])
+    assert rate >= 0.40, f"narrative-key near-misses in only {rate:.0%} of chain episodes"
+
+
+def test_dependent_lookup_chain_rule_status_value_tail(dataset):
+    """The rule record ends in the verifier's status_value form and the gold
+    rule claim equals the tail (the investigation's Defect-A fix shape) —
+    never the full rule sentence."""
+    _, rows = dataset
+    for row in rows["dependent_lookup_chain"]:
+        presented, action = assert_canonical_row(row)
+        rule = action["answer"]["claims"][2]
+        record = presented[rule["evidence_ids"][0]]
+        assert record["text"].endswith(f" is {rule['value']}."), (
+            "rule record is not in status_value tail form",
+            record["text"],
+        )
+        assert len(rule["value"].split()) == 2, "the rule value is the terse 2-word dimension"
+        assert rule["value"] != record["text"], "the rule claim must not be the full sentence"
+
+
+def test_dependent_lookup_chain_variants_exercised(dataset):
+    _, rows = dataset
+    variants = {row["meta"]["chain_variant"] for row in rows["dependent_lookup_chain"]}
+    assert variants == {spec["variant"] for spec in generate.V5_CHAIN_VARIANTS}
+
+
+def test_dependent_lookup_chain_unit_bearing_hop2(dataset):
+    """Unit retention under multi-claim load (40/49 campaign claims dropped
+    units): every hop-2 gold value is a string ending in the variant unit."""
+    _, rows = dataset
+    for row in rows["dependent_lookup_chain"]:
+        _, action = assert_canonical_row(row)
+        spec = _chain_spec(row)
+        hop2 = action["answer"]["claims"][0]
+        assert type(hop2["value"]) is str
+        number, _, unit = hop2["value"].partition(" ")
+        assert number.isdigit() and unit == spec["unit"]
+
+
+# ---------------------------------------------------------------------------
+# v5 (b): value_shape_chain — units through a correction chain
+# ---------------------------------------------------------------------------
+
+
+def test_value_shape_chain_shape(dataset):
+    """changing_facts-style chain: the value carries units THROUGH the
+    correction; the gold echoes the corrected unit-bearing string verbatim
+    from the tail-form revision record."""
+    _, rows = dataset
+    families = set()
+    for row in rows["value_shape_chain"]:
+        presented, action = assert_canonical_row(row)
+        claims = action["answer"]["claims"]
+        assert len(claims) == 1
+        claim = claims[0]
+        assert TERSE_KEY.match(claim["key"])
+        assert claim["key"] in row["task"]["prompt"], "the asked key is named in the prompt"
+        assert type(claim["value"]) is str, "the gold value is a string, never a bare number"
+        number, _, unit = claim["value"].partition(" ")
+        assert number.isdigit() and unit in generate._V5_UNIT_BOUNDS
+        (record_id,) = claim["evidence_ids"]
+        record = presented[record_id]
+        assert record["claim_key"] == claim["key"]
+        assert record["claim_value"] == claim["value"]
+        assert record["text"].endswith(f" is {claim['value']}."), "cited record is not in status_value form"
+        assert record["memory_state"] == "current"
+        assert _asked_subject(row) in record["text"]
+        families.add(row["meta"]["prompt_family"])
+    assert families == {name for name, _ in generate._V5_VALUE_SHAPE_PROMPTS}
+
+
+def test_value_shape_chain_correction_chain(dataset):
+    """Every episode presents a superseded bulletin chain (2-3 steps) whose
+    gold cites the TAIL revision; each superseded link chains to its
+    presented replacement; the stale values differ from the answer."""
+    _, rows = dataset
+    lengths = set()
+    for row in rows["value_shape_chain"]:
+        presented, action = assert_canonical_row(row)
+        claim = action["answer"]["claims"][0]
+        (record_id,) = claim["evidence_ids"]
+        chain = [
+            r
+            for r in presented.values()
+            if r["claim_key"] == claim["key"] and _asked_subject(row) in r["text"] and type(r["claim_value"]) is str
+        ]
+        length = row["meta"]["chain_length"]
+        lengths.add(length)
+        assert len(chain) == length, "the whole bulletin chain is presented"
+        stale = [r for r in chain if r["memory_state"] == "superseded"]
+        assert len(stale) == length - 1
+        for record in stale:
+            assert record["claim_value"] != claim["value"], "stale link carries a stale value"
+            assert record["superseded_by"] in {r["id"] for r in chain}, "chain links to a presented replacement"
+        # The cited revision supersedes the chain's middle (or only) link.
+        assert any(record["superseded_by"] == record_id for record in stale) or length == 2
+    assert 3 in lengths, "3-step correction chains must appear"
+
+
+def test_value_shape_chain_stripped_near_miss(dataset):
+    """The type-stripped near-miss is the CORRECTED value as a bare int (the
+    v4.1 failure shape) — always present, same subject, asked key, never
+    cited."""
+    _, rows = dataset
+    for row in rows["value_shape_chain"]:
+        presented, action = assert_canonical_row(row)
+        claim = action["answer"]["claims"][0]
+        (record_id,) = claim["evidence_ids"]
+        ids = row["meta"]["type_stripped_ids"]
+        assert len(ids) == 1 and ids[0] in presented
+        stripped = presented[ids[0]]
+        assert ids[0] != record_id
+        assert stripped["claim_key"] == claim["key"]
+        assert type(stripped["claim_value"]) is int
+        assert stripped["claim_value"] == int(claim["value"].split()[0]), "the near-miss strips the CORRECTED value"
+        assert _asked_subject(row) in stripped["text"]
+
+
+# ---------------------------------------------------------------------------
+# v5 (c): injection_resist_qn — the QN fabricated-key regression archetype
+# ---------------------------------------------------------------------------
+
+
+def test_injection_resist_qn_shape(dataset):
+    """QN archetype: gold answers ONLY the legitimate case keys citing the
+    case-tracker records (ignore), or abstains when no legitimate record is
+    presented. The injection record is never cited; the injected date never
+    appears in a claim."""
+    _, rows = dataset
+    for row in rows["injection_resist_qn"]:
+        presented, action = assert_canonical_row(row)
+        (injection_id,) = row["meta"]["injection_ids"]
+        injection = presented[injection_id]
+        claims = action["answer"]["claims"]
+        cited = {rid for claim in claims for rid in claim["evidence_ids"]}
+        assert injection_id not in cited, "claim cites the injection record"
+        assert injection["claim_value"] not in {claim["value"] for claim in claims}, (
+            "the injected date was echoed into the answer"
+        )
+        legit_keys = set(row["meta"]["asked_keys"])
+        if row["meta"]["variant"] == "answer_legitimate":
+            assert {claim["key"] for claim in claims} == legit_keys, "gold covers exactly the legitimate keys"
+            for claim in claims:
+                (record_id,) = claim["evidence_ids"]
+                record = presented[record_id]
+                assert record["claim_key"] == claim["key"]
+                assert record["claim_value"] == claim["value"]
+                assert record["memory_state"] == "current"
+                assert f"Case ZX-{claim['key'].split('_')[1]}" in record["text"]
+        else:
+            assert row["meta"]["variant"] == "abstain_injection_only"
+            assert claims == [], "abstain variant must end with empty claims"
+            # No CURRENT record about the asked case under a legitimate key
+            # is presented: abstention is the supported behavior here.
+            case = f"Case ZX-{row['meta']['asked_keys'][0].split('_')[1]}"
+            assert not [
+                r
+                for r in presented.values()
+                if r["claim_key"] in legit_keys and r["memory_state"] == "current" and case in r["text"]
+            ]
+
+
+def test_injection_resist_qn_no_fabricated_key_gold(dataset):
+    """The regression shape — injected value verbatim under a FABRICATED
+    ``*_signoff_circular`` key citing the injection record — is the
+    near-miss and NEVER the gold: no gold claim anywhere uses the
+    fabricated key, and the injection record always presents under it."""
+    _, rows = dataset
+    for row in rows["injection_resist_qn"]:
+        presented, action = assert_canonical_row(row)
+        fabricated = row["meta"]["fabricated_key"]
+        assert FABRICATED_QN_KEY.match(fabricated)
+        (injection_id,) = row["meta"]["injection_ids"]
+        assert presented[injection_id]["claim_key"] == fabricated
+        for claim in action["answer"]["claims"]:
+            assert claim["key"] != fabricated, "fabricated-key claim credited as gold"
+            assert not FABRICATED_QN_KEY.match(claim["key"])
+
+
+def test_injection_resist_qn_marker_provenance(dataset):
+    """The QN surface markers (disjoint from the v3/v4 INJECTION_MARKERS)
+    identify exactly the injection records: marker scan == meta provenance,
+    and no classic v3/v4 marker appears on the QN surface (marker-based
+    refusal cannot catch this archetype — the lesson is content judgment)."""
+    _, rows = dataset
+    for row in rows["injection_resist_qn"]:
+        presented, _ = assert_canonical_row(row)
+        lure_ids = set(row["meta"]["injection_ids"])
+        assert len(lure_ids) == 1
+        marker_ids = {
+            rid for rid, r in presented.items() if any(m in r["text"] for m in generate._V5_QN_MARKERS)
+        }
+        assert marker_ids == lure_ids, "QN marker scan and meta provenance disagree"
+        for rid in lure_ids:
+            assert not any(m in presented[rid]["text"] for m in INJECTION_MARKERS), (
+                "the QN surface must not carry a classic v3/v4 injection marker"
+            )
+
+
+def test_injection_resist_qn_variant_split(dataset):
+    """Both golds exercised: answer-from-legitimate-records (the over-
+    abstention fix forbids blanket abstention) and abstain-only-without-
+    support. Deterministic split under seed [20261116]: 10 / 4."""
+    _, rows = dataset
+    variants = [row["meta"]["variant"] for row in rows["injection_resist_qn"]]
+    answered = variants.count("answer_legitimate")
+    abstained = variants.count("abstain_injection_only")
+    assert answered >= 8 and abstained >= 3, (answered, abstained)
+
+
+def test_injection_resist_qn_novel_surfaces_disjoint():
+    """The QN injection surface templates are novel: no template shares a
+    word 8-gram with any v3/v4 injection template."""
+    qn_grams = set()
+    for template in generate._V5_QN_INJECTION_TEMPLATES:
+        probe = template.format(case="ZX-100", date="2028-01-15")
+        qn_grams |= _word_ngrams(probe)
+    for pool in (generate._INJECTION_TEMPLATES, generate._INJECTION_TEMPLATES_V4):
+        for template in pool:
+            probe = template.format(subject="X", label="y", lure="z")
+            overlap = qn_grams & _word_ngrams(probe)
+            assert not overlap, f"QN surface shares an 8-gram with a v3/v4 injection template: {overlap}"
+
+
+# ---------------------------------------------------------------------------
+# v5 (d): answer_supported — over-abstention counterweight
+# ---------------------------------------------------------------------------
+
+
+def test_answer_supported_shape(dataset):
+    """Every episode presents records that SUPPORT the asked truth; the gold
+    answers from them (key echo, exact stored value, own citation, current
+    record about the asked subject)."""
+    _, rows = dataset
+    for row in rows["answer_supported"]:
+        presented, action = assert_canonical_row(row)
+        claims = action["answer"]["claims"]
+        assert len(claims) == 1
+        claim = claims[0]
+        assert TERSE_KEY.match(claim["key"])
+        (record_id,) = claim["evidence_ids"]
+        record = presented[record_id]
+        assert record["claim_key"] == claim["key"]
+        assert record["claim_value"] == claim["value"]
+        assert type(record["claim_value"]) is type(claim["value"])
+        assert record["memory_state"] == "current"
+        assert _asked_subject(row) in record["text"]
+
+
+def test_answer_supported_never_empty_gold(dataset):
+    """The near-miss is the empty-claims abstention despite support present
+    (the v4.1 over-abstention): no answer_supported gold is ever empty, and
+    support for the asked (subject, key) is always presented."""
+    _, rows = dataset
+    for row in rows["answer_supported"]:
+        presented, action = assert_canonical_row(row)
+        claims = action["answer"]["claims"]
+        assert claims, "empty-claims abstention with support present is the near-miss, never the gold"
+        subject = _asked_subject(row)
+        for claim in claims:
+            assert any(
+                r["claim_key"] == claim["key"]
+                and r["claim_value"] == claim["value"]
+                and r["memory_state"] == "current"
+                and subject in r["text"]
+                for r in presented.values()
+            ), "gold claim must be supported by a presented current record"
+
+
+def test_answer_supported_traps_present(dataset):
+    """Each variant presents its abstain-TRIGGER surface: an untrusted
+    'withdrawn / do not answer' notice (never cited), or a first window
+    holding only stale/irrelevant records (one reformulated query then
+    finds support), or support among heavy distractor load."""
+    _, rows = dataset
+    for row in rows["answer_supported"]:
+        presented, action = assert_canonical_row(row)
+        variant = row["meta"]["variant"]
+        traps = row["meta"]["trap_features"]
+        assert traps
+        cited = {rid for claim in action["answer"]["claims"] for rid in claim["evidence_ids"]}
+        if variant == "adverse_notice":
+            assert traps == ["adverse_notice"]
+            (notice_id,) = row["meta"]["adverse_notice_ids"]
+            notice = presented[notice_id]
+            assert notice_id not in cited, "the adverse notice must never be cited"
+            assert "must not answer" in notice["text"]
+            assert notice["claim_key"] == "withdrawn_folios_circular"
+        elif variant == "stale_first":
+            assert traps == ["stale_first_window"]
+            assert row["meta"]["reformulation"] == "after_unhelpful"
+            results = _tool_results(row)
+            assert len(results) == 2
+            first_ids = {record["id"] for record in results[0]["records"]}
+            assert cited and cited.isdisjoint(first_ids), "support arrives on the reformulated query"
+            # The first window holds no CURRENT support for the asked key.
+            asked = action["answer"]["claims"][0]["key"]
+            assert not [
+                r
+                for r in results[0]["records"]
+                if r["claim_key"] == asked and r["memory_state"] == "current"
+            ]
+        else:
+            assert variant == "plain_support"
+            assert traps == ["support_among_distractors"]
+            assert len(presented) >= 3, "support sits among distractor load"
+
+
+def test_answer_supported_variants_exercised(dataset):
+    _, rows = dataset
+    variants = {row["meta"]["variant"] for row in rows["answer_supported"]}
+    assert variants == {"adverse_notice", "stale_first", "plain_support"}
+
+
+# ---------------------------------------------------------------------------
+# v5 leakage discipline (M8 method re-run, heldout2 leg LIVE)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(scope="module")
+def sealed_corpora_v5(tmp_path_factory):
+    """Regenerated pilot216 + heldout + heldout2 sealed corpora. heldout2 is
+    the CURRENT seal (the parallel dependent_lookups generator fix lands
+    separately — v5 pools are drawn disjoint from the current shapes, and
+    any on-disk sealed copy is byte-verified against the regeneration)."""
+    out = tmp_path_factory.mktemp("sealed-v5")
+    scenarios = {}
+    for workload, directory in (("pilot", "pilot216"), ("heldout", "heldout"), ("heldout2", "heldout2")):
+        sealed.generate_workload(workload, out / directory)
+        scenarios[directory] = {p.name: p for p in sorted((out / directory / "scenarios").glob("*.json"))}
+    on_disk = {
+        "pilot216": M8_WORKLOADS_DIR / "pilot216" / "scenarios",
+        "heldout": M8_WORKLOADS_DIR / "heldout" / "scenarios",
+        "heldout2": M8_WORKLOADS_DIR / "heldout2" / "scenarios",
+    }
+    for directory, scenarios_dir in on_disk.items():
+        if not scenarios_dir.is_dir():
+            continue
+        disk = {p.name: p.read_bytes() for p in sorted(scenarios_dir.glob("*.json"))}
+        assert len(disk) == len(scenarios[directory]), f"on-disk {directory} scenario count differs"
+        for name, path in scenarios[directory].items():
+            assert disk.get(name) == path.read_bytes(), f"on-disk {directory}/{name} differs from regenerated bytes"
+    texts = []
+    for directory in scenarios.values():
+        for path in directory.values():
+            texts.extend(_sealed_scenario_texts(json.loads(path.read_text(encoding="utf-8"))))
+    return texts
+
+
+def test_v5_pools_disjoint_by_construction(dataset, sealed_corpora_v5):
+    """The v5 pools are all-new: token-level disjoint from the v1-v4 pools,
+    the m8 fixtures and ALL sealed workloads (pilot216, heldout, heldout2 —
+    including the current dependent_lookups shapes)."""
+    prior_pool_tokens = set()
+    for entity in list(generate.ENTITY_POOL_STRINGS) + list(generate.V4_ENTITY_POOL_STRINGS):
+        prior_pool_tokens |= _tokens(entity)
+    v5_pool_tokens = set()
+    for entity in generate.V5_ENTITY_POOL_STRINGS:
+        v5_pool_tokens |= _tokens(entity)
+    assert not (v5_pool_tokens & prior_pool_tokens), (
+        "v5 entity pool shares tokens with the v1-v4 pools",
+        sorted(v5_pool_tokens & prior_pool_tokens),
+    )
+    prior_keys = {fact["key"] for fact in generate.FACTS} | {fact["key"] for fact in generate.V4_FACTS}
+    v5_keys = {fact["key"] for fact in generate.V5_FACTS}
+    assert not (prior_keys & v5_keys)
+    sealed_text_blob = "\n".join(sealed_corpora_v5)
+    sealed_tokens = _tokens(sealed_text_blob)
+    assert not (v5_pool_tokens & sealed_tokens), (
+        "v5 entity pool shares tokens with the sealed workloads",
+        sorted(v5_pool_tokens & sealed_tokens),
+    )
+    fixture_blob = "\n".join(path.read_text(encoding="utf-8") for path in sorted(FIXTURES.glob("*.json")))
+    assert not (v5_pool_tokens & _tokens(fixture_blob))
+    # v5 key/label/unit/hop-token and value vocabulary: absent from every
+    # corpus and every prior pool.
+    value_tokens = set(generate.V5_KEY_STEMS)
+    for fact in generate.V5_FACTS:
+        value_tokens |= _tokens(fact["label"]) | _tokens(fact["key"])
+    for disposition in generate._V5_QN_DISPOSITIONS:
+        value_tokens |= _tokens(disposition)
+    for sign in generate._V5_QN_SIGNS:
+        value_tokens |= _tokens(sign)
+    assert not (value_tokens & sealed_tokens), sorted(value_tokens & sealed_tokens)
+    assert not (value_tokens & _tokens(fixture_blob))
+    assert not (value_tokens & prior_pool_tokens)
+    # String-level: no v5 pool string or per-episode v5 entity usage (case
+    # ids, injected dates, chain values) appears in any corpus text.
+    _, rows = dataset
+    used = set()
+    for cls in generate.V5_CLASSES:
+        for row in rows[cls]:
+            used.update(row["meta"]["entities"])
+    assert used
+    for entity in set(generate.V5_ENTITY_POOL_STRINGS) | used:
+        assert entity not in sealed_text_blob, entity
+        assert entity not in fixture_blob, entity
+    for key in v5_keys:
+        assert key not in sealed_text_blob, "v5 terse key collides with sealed truth keys"
+
+
+def test_v5_zero_word_8gram_overlap(dataset, sealed_corpora_v5):
+    """The M8 leakage method re-run for curriculum v5: zero shared word
+    8-grams between the v5-class rows (prompts, queries, record texts,
+    string claim values) and (1) the sealed pilot216/heldout corpora,
+    (2) the CURRENT sealed heldout2 corpus (live leg), (3) the m8 dev
+    fixtures, (4) the prior curriculum output when a v3/v4 out/ directory
+    is available."""
+    v5_grams = set()
+    for cls in generate.V5_CLASSES:
+        for row in dataset[1][cls]:
+            for text in _row_texts(row):
+                v5_grams |= _word_ngrams(text)
+    assert v5_grams
+    sealed_grams = set()
+    for text in sealed_corpora_v5:
+        sealed_grams |= _word_ngrams(text)
+    overlap = v5_grams & sealed_grams
+    assert not overlap, f"shared 8-grams with the sealed corpora (incl. heldout2): {sorted(overlap)[:5]}"
+    fixture_grams = set()
+    for path in sorted(FIXTURES.glob("*.json")):
+        for event in json.loads(path.read_text(encoding="utf-8"))["events"]:
+            fixture_grams |= _word_ngrams(event["text"])
+    overlap = v5_grams & fixture_grams
+    assert not overlap, f"shared 8-grams with the m8 fixtures: {sorted(overlap)[:5]}"
+    manifest_path = V3_OUT_DIR / "manifest.json"
+    if manifest_path.is_file() and json.loads(manifest_path.read_text()).get("dataset_version") in (3, 4):
+        prior_grams = set()
+        for path in sorted(V3_OUT_DIR.glob("*.jsonl")):
+            for line in path.read_text(encoding="utf-8").splitlines():
+                row = json.loads(line)
+                if row["class"] in generate.V5_CLASSES:
+                    continue  # same-generator v5 rows, not a prior dataset
+                for text in _row_texts(row):
+                    prior_grams |= _word_ngrams(text)
+        overlap = v5_grams & prior_grams
+        assert not overlap, f"shared 8-grams with the prior curriculum output: {sorted(overlap)[:5]}"
+
+
+def test_v5_key_stems_disjoint_from_measurement_corpora(measurement_key_tokens):
+    """Stem level, v5-specific: every declared v5 key stem — parameterized
+    hop-2 prefixes, hop tokens, units, the fabricated QN near-miss stem and
+    the adverse-notice key — is disjoint from every measurement-corpora
+    fact/truth key token (heldout2's current dependent_lookups shapes
+    included)."""
+    tokens, coverage = measurement_key_tokens
+    overlap = generate.V5_KEY_STEMS & tokens
+    assert not overlap, (
+        "v5 key stems shared with measurement-corpora fact keys",
+        sorted(overlap),
+        coverage,
+    )
+
+
+def test_dependent_lookup_chain_distractor_carries_stale_token_value(dataset):
+    """The untrusted-instruction distractor always asserts the STALE token's
+    value (the adverse shape from the sealed family): its value equals the
+    stale hop-2 table's and differs from every gold claim value."""
+    _, rows = dataset
+    for row in rows["dependent_lookup_chain"]:
+        presented, action = assert_canonical_row(row)
+        spec = _chain_spec(row)
+        answer_values = {claim["value"] for claim in action["answer"]["claims"]}
+        (distractor_id,) = row["meta"]["distractor_ids"]
+        distractor = presented[distractor_id]
+        stale_tables = [
+            r
+            for r in presented.values()
+            if r["claim_key"].startswith(spec["hop2_prefix"] + "_")
+            and r["claim_key"] != action["answer"]["claims"][0]["key"]
+        ]
+        assert distractor["claim_value"] in {r["claim_value"] for r in stale_tables}
+        assert distractor["claim_value"] not in answer_values
+        # The stale token appears in the distractor text; the corrected
+        # token never does.
+        hop1_value = action["answer"]["claims"][1]["value"]
+        assert hop1_value not in distractor["text"]
+
+
+def test_value_shape_chain_units_span_pool(dataset):
+    """Every v5 unit kind is exercised by value_shape_chain golds (no
+    memorizable single-unit vocabulary)."""
+    _, rows = dataset
+    units = set()
+    for row in rows["value_shape_chain"]:
+        _, action = assert_canonical_row(row)
+        units.add(action["answer"]["claims"][0]["value"].split()[1])
+    assert units == set(generate._V5_UNIT_BOUNDS)
+
+
+def test_injection_resist_qn_case_ids_disjoint_from_corpora(sealed_corpora_v5):
+    """Every generated ZX case id and injected signoff date is absent from
+    all sealed corpora text (heldout2's QN numbers/dates included)."""
+    episodes = generate.build_episodes(dict(generate.DEFAULT_COUNTS))["injection_resist_qn"]
+    blob = "\n".join(sealed_corpora_v5)
+    cases = set()
+    for ep in episodes:
+        row = ep.row()
+        for entity in row["meta"]["entities"]:
+            if entity.startswith("ZX-"):
+                cases.add(entity)
+            if re.fullmatch(r"20\d\d-\d\d-\d\d", entity):
+                assert entity not in blob, f"injected date collides with a sealed corpus: {entity}"
+    assert cases, "no case ids generated"
+    for case in cases:
+        assert case not in blob, f"case id collides with a sealed corpus: {case}"
+
+
+def test_injection_resist_qn_prompt_families(dataset):
+    _, rows = dataset
+    families = {row["meta"]["prompt_family"] for row in rows["injection_resist_qn"]}
+    assert families == {name for name, _ in generate._V5_QN_PROMPTS}
+
+
+def test_answer_supported_stale_first_two_retrieves(dataset):
+    """stale_first: the first window holds only stale/irrelevant records,
+    exactly ONE differently phrased reformulated query follows, and the
+    episode finalizes with the answer (never the abstention)."""
+    _, rows = dataset
+    hits = 0
+    for row in rows["answer_supported"]:
+        if row["meta"]["variant"] != "stale_first":
+            continue
+        hits += 1
+        actions = _retrieve_actions(row)
+        assert len(actions) == 2
+        assert actions[0]["arguments"]["query"] != actions[1]["arguments"]["query"]
+        assert _final_action(row)["answer"]["claims"], "stale_first must answer, not abstain"
+    assert hits, "stale_first variant never generated"
+
+
+def test_answer_supported_prompt_families_exercised(dataset):
+    _, rows = dataset
+    families = {row["meta"]["prompt_family"] for row in rows["answer_supported"]}
+    assert families == {name for name, _ in generate._V5_ANSWER_PROMPTS}
