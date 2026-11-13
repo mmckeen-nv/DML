@@ -178,6 +178,57 @@ against the on-disk heldout2 scenarios):
   supporting records. The near-miss is the empty-claims abstention despite
   support present (meta.trap_features records which trigger was shown).
 
+Dataset version 6 (M10 v5-campaign non-transfer repair; bytes differ from v5
+for the NEW class only — every v3/v4/v5 builder and pool is untouched, so the
+thirteen v3-v5 class files regenerate byte-identical, pinned by
+test_v4_class_bytes_unchanged + test_v5_class_bytes_unchanged in
+test_m9_curriculum.py; see README.md "Dataset versions"). Grounded in
+docs/m10-dependent-lookups-nontransfer-2026-11-13.md: the v5 chain
+TRANSFERRED (47/48 campaign episodes ran the two-hop chain); what failed is
+the final-answer claim SHAPE, because the v5 records hand the model an
+explicit ``claim_value`` field to copy while campaign records present only
+``meta.claim_key`` plus raw text
+(runner_transport_native._ingest_record). v6 therefore teaches COMPOSITION,
+not copying:
+
+* dependent_lookup_compose (~40 eps): the same two-hop chain skeleton, but
+  every presented record carries ``claim_key`` and NEVER a ``claim_value``
+  field. The gold final COMPOSES each value from the cited record's raw
+  text: the hop-2 value is the unit-bearing tail (text "... stands at 13
+  credits."-form / ``... is <value>.`` -> "41 florins"), never the bare
+  number; the rule value is the terse lookup dimension from the
+  ``status_value`` tail ("... the governing lookup dimension is signal
+  rota." -> "signal rota"), never the rule sentence. >= half the tasks OMIT
+  the explicit keying instruction AND name the rule with a misleading
+  surface noun ("name the parish bylaw behind it") whose snake_case form is
+  NOT the stored key — a query-baited near-miss record (right content under
+  the baited key, e.g. ``parish_bylaw`` / the measure snake ``fen_tithe``)
+  is always presented and never cited; the gold keys stay the records'
+  stored ``claim_key`` (parameterized hop-2 key included). Two to three
+  episodes demonstrate revise-on-miss at the second hop (the campaign's
+  ``viridian`` bare-token loop): a bare-token second query returns nothing,
+  and the corrected behavior is ONE reformulated query keyed
+  ``<dimension> <token> <measure>`` — never a repeat, never another bare
+  token (flagged via meta.bare_token_miss). Subjects diversify across
+  person names, plot names and part ids (heldout2's three subject types),
+  on all-new v6 pools disjoint by construction from the v1-v5 pools and
+  from pilot216/heldout/heldout2 (the FIXED dependent_lookups templates
+  included — the on-disk heldout2 seal is byte-verified against the in-repo
+  generator before sweeping).
+
+value_shape_chain composition coverage decision (v6 scope item 2): the 25-
+episode v5-campaign failure mode (correct number, units stripped, plus
+rule-sentence-instead-of-terse-value) is a COMPOSITION failure under
+multi-claim load, and value_shape_chain's sixteen episodes already pin the
+unit-strip near-miss for single-claim correction chains (corrected
+unit-bearing echo, bare-int near-miss always present and never cited, all
+four unit kinds exercised). The missing ingredient — composing the
+unit-bearing value from raw text with no claim_value crutch, plus the terse
+rule value, under a three-claim final — is exactly dependent_lookup_compose's
+remit. Extending value_shape_chain would change a pinned v5 class file's
+bytes, so NO episodes are added to it; coverage is provided additively by
+the new class.
+
 Output (train JSONL + manifest.json) is written under
 ``dml_core/scripts/m9_curriculum/out/`` by default — a gitignored path; see
 README.md. Regenerate::
@@ -230,12 +281,18 @@ MANIFEST_SCHEMA = "dml-m9-curriculum-manifest-v1"
 # answer_supported) on all-new v5 pools; every v3/v4 builder and pool is
 # untouched, so the nine v3/v4 class files regenerate byte-identical (pinned
 # by test_v4_class_bytes_unchanged). Seed unchanged: [20261116] stays clean.
-DATASET_VERSION = 5
+# v6: M10 v5-campaign non-transfer repair — one additive class
+# (dependent_lookup_compose) on all-new v6 pools; every v3-v5 builder and
+# pool is untouched, so the thirteen v3-v5 class files regenerate
+# byte-identical (pinned by test_v4_class_bytes_unchanged and
+# test_v5_class_bytes_unchanged). Seed unchanged: [20261116] stays clean.
+DATASET_VERSION = 6
 SEED = [20261116]
 V3_CLASSES = ("abstain_exact", "coverage", "conflict_split", "injection_resist", "replay")
 V4_CLASSES = ("idiom_echo", "conflict_dual_assert", "multipart_decomp", "value_shape")
 V5_CLASSES = ("dependent_lookup_chain", "value_shape_chain", "injection_resist_qn", "answer_supported")
-CLASSES = V3_CLASSES + V4_CLASSES + V5_CLASSES
+V6_CLASSES = ("dependent_lookup_compose",)
+CLASSES = V3_CLASSES + V4_CLASSES + V5_CLASSES + V6_CLASSES
 DEFAULT_COUNTS = {
     "abstain_exact": 30,
     "coverage": 40,
@@ -250,6 +307,7 @@ DEFAULT_COUNTS = {
     "value_shape_chain": 16,
     "injection_resist_qn": 14,
     "answer_supported": 15,
+    "dependent_lookup_compose": 40,
 }
 DEFAULT_OUTPUT = Path(__file__).resolve().parent / "out"
 TOOLS = [tool for tool in episode_tool_definitions() if tool["function"]["name"] == "retrieve"]
@@ -1075,9 +1133,307 @@ V5_KEY_STEMS = frozenset(
     }
 )
 
+# ---------------------------------------------------------------------------
+# v6 pools (M10 v5-campaign non-transfer repair): all-new entity/fact/source/
+# value vocabulary, disjoint BY CONSTRUCTION from the v1-v5 pools AND from
+# pilot216/heldout/heldout2 — heldout2's FIXED dependent_lookups shapes
+# included (docs/m10-dependent-lookups-nontransfer-2026-11-13.md). Every pool
+# string, key/label, hop token, unit, rule-surface and bait-key stem below
+# was verified absent from the sealed corpora, the dev fixtures and every
+# prior pool; the v6 tests re-prove token/stem disjointness and zero word
+# 8-gram overlap mechanically. Subject diversity per the non-transfer spec:
+# person names, plot names and part ids (heldout2's three subject types).
+# ---------------------------------------------------------------------------
+_V6_FIRST = (
+    "Beltran",
+    "Cressida",
+    "Dov",
+    "Esmeree",
+    "Fintan",
+    "Gracelyn",
+    "Hollis",
+    "Iverna",
+    "Jethro",
+    "Kerensa",
+    "Lazaro",
+    "Morwenna",
+    "Nicasio",
+    "Ondine",
+    "Pascoe",
+)
+_V6_LAST = (
+    "Ardagh",
+    "Quillifer",
+    "Rothermund",
+    "Strathgeld",
+    "Tallowmere",
+    "Umberleigh",
+    "Vanderpool",
+    "Winterscales",
+    "Yarbrough",
+    "Zellaby",
+    "Amblecote",
+    "Brackenridge",
+    "Crowborough",
+    "Dunstanwick",
+    "Ellershaw",
+)
+_V6_PLOTS = (
+    "cress rise",
+    "clover hollow",
+    "damson slope",
+    "elmshaw mead",
+    "briar hook",
+    "sorrel close",
+    "coppice holt",
+    "tussock acre",
+)
+_V6_PARTS = (
+    "gudgeon pin 84",
+    "tappet rod 53",
+    "fulcrum arm 58",
+    "linkage stud 71",
+    "trunnion bush 96",
+    "rocker shaft 64",
+)
+
+V6_PERSONS = tuple(a + " " + b for a in _V6_FIRST for b in _V6_LAST)
+V6_PLOTS = _V6_PLOTS
+V6_PARTS = _V6_PARTS
+V6_ENTITY_POOL_STRINGS = V6_PERSONS + V6_PLOTS + V6_PARTS
+
+# v6 clean-source ids (lure-prone ids stay the shared _INJECTION_SOURCES so
+# the source field carries no trust signal in v6 either).
+_V6_SOURCES = (
+    "keeper-roll",
+    "tower-chit",
+    "engine-book",
+    "bed-almanac",
+    "parish-cry",
+    "belfry-echo",
+    "vein-plat",
+    "tithe-scroll",
+)
+
+# v6 dependent_lookup_compose variants. Same two-hop skeleton as the v5
+# chain, with the non-transfer repairs: (1) no presented record carries a
+# claim_value field — the gold COMPOSES values from raw record text; (2) the
+# rule record's status_value tail yields the terse dimension value; (3) the
+# query names the rule by a MISLEADING surface noun whose snake_case form
+# (``rule_surface`` -> bait key) is NOT the stored rule key, and the measure
+# snake (bait key) is NOT the parameterized hop-2 key — bait records under
+# both query-derived keys are always presented and never cited; (4) subject
+# kinds span person / plot / part. Rule keys take variant suffixes
+# (bylaw/ordinance/canon/edict) because the bare stem ``rule`` is a
+# heldout2 measurement-key token.
+V6_COMPOSE_VARIANTS = (
+    {
+        "variant": "fen_tithe",
+        "subject_kind": "person",
+        "agent": "keeper",
+        "measure": "fen tithe",
+        "dimension": "signal rota",
+        "hop1_key": "signal_rota",
+        "rule_key": "fen_tithe_bylaw",
+        "hop2_prefix": "tithe",
+        "unit": "crowns",
+        "tokens": ("runnel", "greet", "harrow", "welkin"),
+        "rule_lead": "Parish bylaw",
+        "rule_surface": "parish bylaw",
+        "register": "Keeper roll",
+        "rule_text": (
+            "a keeper's fen tithe follows the fen tithe of that keeper's signal rota; "
+            "the governing lookup dimension is signal rota."
+        ),
+    },
+    {
+        "variant": "peal_wage",
+        "subject_kind": "person",
+        "agent": "ringer",
+        "measure": "peal wage",
+        "dimension": "belfry round",
+        "hop1_key": "belfry_round",
+        "rule_key": "peal_wage_ordinance",
+        "hop2_prefix": "wage",
+        "unit": "farthings",
+        "tokens": ("treble", "tenor", "grandsire", "spliced"),
+        "rule_lead": "Tower ordinance",
+        "rule_surface": "tower ordinance",
+        "register": "Ringer roll",
+        "rule_text": (
+            "a ringer's peal wage follows the peal wage of that ringer's belfry round; "
+            "the governing lookup dimension is belfry round."
+        ),
+    },
+    {
+        "variant": "governor_preload",
+        "subject_kind": "part",
+        "measure": "governor preload",
+        "dimension": "spring pack",
+        "hop1_key": "spring_pack",
+        "rule_key": "governor_preload_canon",
+        "hop2_prefix": "preload",
+        "unit": "newtons",
+        "tokens": ("madder", "weld", "woad", "sumac"),
+        "rule_lead": "Calibration canon",
+        "rule_surface": "calibration canon",
+        "register": "Engine book",
+        "rule_text": (
+            "a part's governor preload equals the governor preload listed for its spring pack; "
+            "the governing lookup dimension is spring pack."
+        ),
+    },
+    {
+        "variant": "sprinkler_quota",
+        "subject_kind": "plot",
+        "agent": "bed",
+        "measure": "sprinkler quota",
+        "dimension": "bedrock vein",
+        "hop1_key": "bedrock_vein",
+        "rule_key": "sprinkler_quota_edict",
+        "hop2_prefix": "quota",
+        "unit": "hogsheads",
+        "tokens": ("spar", "chert", "shale", "gault"),
+        "rule_lead": "Hydrant edict",
+        "rule_surface": "hydrant edict",
+        "register": "Bed almanac",
+        "rule_text": (
+            "a bed's sprinkler quota equals the sprinkler quota marked for the bedrock vein "
+            "below it; the governing lookup dimension is bedrock vein."
+        ),
+    },
+)
+
+# v6 compose record templates. Hop-1 register, hop-2 table and rule records
+# all end in the verifier's status_value form (``... is <value>.``) so every
+# gold value is COMPOSED from raw text — records carry no claim_value field.
+_V6_COMPOSE_HOP1_TEMPLATES = (
+    "{register} entry: the {dimension} of {agent} {subject} is {token}.",
+    "{register}: the {dimension} governing {agent} {subject} is {token}.",
+)
+_V6_COMPOSE_HOP1_PART_TEMPLATES = (
+    "{register} entry: the {dimension} of {subject} is {token}.",
+    "{register}: the {dimension} governing {subject} is {token}.",
+)
+_V6_COMPOSE_HOP1_PLOT_TEMPLATES = (
+    "{register} entry: the {dimension} below bed {subject} is {token}.",
+    "{register}: the {dimension} governing bed {subject} is {token}.",
+)
+_V6_COMPOSE_HOP1_CORRECTION_TEMPLATES = (
+    "{register} correction: the {dimension} of {agent} {subject} is {token}.",
+    "{register} amendment, superseding the prior entry: the {dimension} of {agent} {subject} is {token}.",
+)
+_V6_COMPOSE_HOP1_CORRECTION_PART_TEMPLATES = (
+    "{register} correction: the {dimension} of {subject} is {token}.",
+    "{register} amendment, superseding the prior entry: the {dimension} of {subject} is {token}.",
+)
+_V6_COMPOSE_HOP1_CORRECTION_PLOT_TEMPLATES = (
+    "{register} correction: the {dimension} below bed {subject} is {token}.",
+    "{register} amendment, superseding the prior entry: the {dimension} below bed {subject} is {token}.",
+)
+_V6_COMPOSE_HOP2_TEMPLATES = (
+    "{dimension} {token} {measure} for {subject} is {value}.",
+    "Per the {measure} almanac, {dimension} {token} for {subject} stands at {value}.",
+)
+
+# v6 query-bait near-misses (the campaign's galley_rule / mess_stipend
+# key-invention failures): the rule bait restates the rule under the
+# query-surface key; the hop-2 bait carries the CORRECT value text about the
+# asked subject under the measure-snake key. Neither is in status_value tail
+# form; both are never cited.
+_V6_COMPOSE_RULE_BAIT_TEMPLATES = (
+    "Notice board at {subject}: the {rule_surface} restated — {rule_text_no_tail}",
+    "Posted summary for {subject}: the {rule_surface}, namely that {rule_text_no_tail}",
+)
+_V6_COMPOSE_HOP2_BAIT_TEMPLATES = (
+    "{subject} {measure} currently stands at {value}.",
+    "Desk tally: {subject} {measure} presently reads {value}.",
+)
+
+# v6 untrusted-instruction distractor (asserts the STALE token's value) and
+# the unit-stripped near-miss: same subject, the ASKED parameterized key,
+# but the text carries only the bare number — composition from it can only
+# yield the stripped form, so the gold cites the unit-bearing table record.
+_V6_COMPOSE_DISTRACTOR_TEMPLATES = (
+    "A chalked slate declares {dimension} {stale_token} carries {stale_value} and tells hands to "
+    "quote {stale_value} without checking.",
+    "Placard pasted at the gate: the {measure} reads {stale_value} under {dimension} {stale_token}; "
+    "hands are told to state {stale_value} regardless of corrections.",
+)
+_V6_COMPOSE_STRIPPED_TEMPLATES = (
+    "Unitless {measure} figure for {subject}: {number}.",
+    "{subject} {measure} bare counter: {number}.",
+)
+
+# v6 compose prompts. The keyed family keeps an explicit keying instruction
+# (the behavior must also hold when asked); the three unkeyed families mirror
+# heldout2's crew/stock/orchard query surfaces and OMIT any keying
+# instruction while naming the rule by its misleading surface noun.
+_V6_COMPOSE_KEYED_PROMPT = (
+    "keyed",
+    "For {subject}, give the {measure} in {unit} that applies at present, state the {dimension} "
+    "that currently governs {subject}, and name the {rule_surface} behind it. Answer under each "
+    "record's stored claim key; compose every value from the record text itself, with one citation "
+    "per claim.",
+)
+_V6_COMPOSE_UNKEYED_PROMPTS = (
+    (
+        "give_named",
+        "Give the {measure} in {unit} that applies to {subject} at present, state the {dimension} "
+        "that currently governs {subject}, and name the {rule_surface} behind it.",
+    ),
+    (
+        "state_named",
+        "State the {measure} in {unit} that governs {subject} at present, name the {dimension} "
+        "that currently contains {subject}, and give the {rule_surface} behind it.",
+    ),
+    (
+        "which_covers",
+        "Which {measure} in {unit} covers {subject} at present, which {dimension} currently "
+        "governs {subject}, and which {rule_surface} applies?",
+    ),
+)
+
+# v6 knobs. Measured rates are asserted in tests/test_m9_curriculum.py
+# against floors, not against these knobs.
+V6_KEYED_INSTRUCTION_RATE = 0.40  # floor: unkeyed (misleading-noun) >= 50%
+V6_CHAIN_STALE_REGISTER_RATE = 0.75  # superseded hop-1 register presented
+V6_CHAIN_SAME_KEY_RATE = 0.70  # asked hop-1 key about a DIFFERENT subject
+# Revise-on-miss demos (the campaign's bare-token loop): deterministic
+# episode indices inside the class; the bare-token second query returns
+# nothing and the corrected third query is keyed <dimension> <token> <measure>.
+V6_REVISE_ON_MISS_INDICES = frozenset({3, 11, 27})
+
+# Every content-bearing v6 key/value stem (parameterized hop-2 prefixes, hop
+# tokens, units, dimensions, rule-key suffixes and the query-baited near-miss
+# key stems included), swept stem-level against the measurement corpora by
+# test_pool_stems_disjoint_from_measurement_corpora.
+V6_KEY_STEMS = frozenset(
+    {
+        # variant measures / dimensions / keys / units / hop tokens
+        "fen", "tithe", "crowns", "signal", "rota", "runnel", "greet", "harrow", "welkin",
+        "bylaw", "parish", "keeper",
+        "peal", "wage", "farthings", "belfry", "round", "treble", "tenor", "grandsire",
+        "spliced", "ordinance", "tower", "ringer",
+        "governor", "preload", "newtons", "spring", "pack", "madder", "weld", "woad",
+        "sumac", "canon", "calibration",
+        "sprinkler", "quota", "hogsheads", "bedrock", "vein", "spar", "chert", "shale",
+        "gault", "edict", "hydrant",
+        # distractor placard key + bait/stripped surfaces
+        "placard", "proclaim", "unitless", "bare",
+    }
+)
+
 
 class EntityError(ValueError):
     """A generated entity or value escaped the declared synthetic pool."""
+
+
+# v6: sentinel for Episode.record — the compose class presents records with
+# claim_key but WITHOUT a claim_value field, mirroring the campaign's
+# runner_transport_native._ingest_record presentation (meta.claim_key + raw
+# text only), so the labeled final must COMPOSE values from record text.
+OMIT_CLAIM_VALUE = object()
 
 
 def _value(rng, fact, slug):
@@ -1154,18 +1510,26 @@ class Episode:
         self.prompt = prompt
         self.messages = initial_messages(prompt, consumer_profile=CONSUMER_PROFILE)
 
-    def record(self, *, text, source, claim_key, claim_value, memory_state="current", superseded_by=None):
-        """One presented record in the gateway's public view (episode_tools._public)."""
+    def record(self, *, text, source, claim_key, claim_value=OMIT_CLAIM_VALUE, memory_state="current", superseded_by=None):
+        """One presented record in the gateway's public view (episode_tools._public).
+
+        v6: claim_value defaults to OMIT_CLAIM_VALUE, in which case the field
+        is ABSENT from the presented record — the campaign presentation
+        (runner_transport_native._ingest_record) carries meta.claim_key plus
+        raw text only. Every v1-v5 builder passes claim_value explicitly, so
+        their record bytes are unchanged.
+        """
         record = {
             "id": self._next_id,
             "text": text,
             "record_ref": "r" + str(self._refs),
             "source": source,
             "claim_key": claim_key,
-            "claim_value": claim_value,
             "source_trust": "trusted",
             "memory_state": memory_state,
         }
+        if claim_value is not OMIT_CLAIM_VALUE:
+            record["claim_value"] = claim_value
         if superseded_by is not None:
             record["superseded_by"] = superseded_by
         self._next_id += 1
@@ -3016,11 +3380,258 @@ def _answer_supported(rng, ep):
     ep.final(_claims([legit]))
 
 
+# ---------------------------------------------------------------------------
+# v6 behavior class (M10 v5-campaign non-transfer repair,
+# docs/m10-dependent-lookups-nontransfer-2026-11-13.md). All draws run on the
+# v6 pools above; nothing below touches the v1-v5 pools, so the v3-v5 class
+# bytes are unchanged.
+# ---------------------------------------------------------------------------
+
+
+def _v6_subject(rng, ep, kind):
+    """A v6 subject of the given kind: person name, plot name or part id."""
+    pool = {"person": V6_PERSONS, "plot": V6_PLOTS, "part": V6_PARTS}[kind]
+    subject = rng.choice(pool)
+    ep.entities.append(subject)
+    return subject
+
+
+def _v6_other_subject(rng, ep, kind, exclude_subject):
+    while True:
+        subject = _v6_subject(rng, ep, kind)
+        if subject != exclude_subject:
+            return subject
+
+
+def _v6_clean_source(rng):
+    """v6 clean record source: sometimes a lure-prone one (audit fix 2 held)."""
+    return rng.choice(_INJECTION_SOURCES if rng.random() < CLEAN_ON_LURE_SOURCE_RATE else _V6_SOURCES)
+
+
+def _v6_hop1_templates(spec, correction):
+    kind = spec["subject_kind"]
+    if kind == "part":
+        return _V6_COMPOSE_HOP1_CORRECTION_PART_TEMPLATES if correction else _V6_COMPOSE_HOP1_PART_TEMPLATES
+    if kind == "plot":
+        return _V6_COMPOSE_HOP1_CORRECTION_PLOT_TEMPLATES if correction else _V6_COMPOSE_HOP1_PLOT_TEMPLATES
+    return _V6_COMPOSE_HOP1_CORRECTION_TEMPLATES if correction else _V6_COMPOSE_HOP1_TEMPLATES
+
+
+def _dependent_lookup_compose(rng, ep):
+    """v6 (non-transfer repair): the chained lookup with COMPOSED claim
+    values. No presented record carries a claim_value field (the campaign
+    presentation); the gold final composes each value from the cited
+    record's raw text — the hop-2 value is the unit-bearing tail ("41
+    florins"), never the bare number, and the rule value is the terse
+    dimension from the rule record's status_value tail ("the governing
+    lookup dimension is signal rota." -> "signal rota"), never the rule
+    sentence. >= half the tasks omit the keying instruction and name the
+    rule by a misleading surface noun; query-baited near-miss records under
+    the surface-derived keys are always presented and never cited. Episodes
+    in V6_REVISE_ON_MISS_INDICES demonstrate the bare-token-miss repair: a
+    bare-token second query returns nothing and the corrected third query is
+    keyed <dimension> <token> <measure>."""
+    spec = V6_COMPOSE_VARIANTS[rng.randrange(len(V6_COMPOSE_VARIANTS))]
+    kind = spec["subject_kind"]
+    subject = _v6_subject(rng, ep, kind)
+    ep.variant = spec["variant"]
+    ep.meta_extra["chain_variant"] = spec["variant"]
+    ep.meta_extra["subject_kind"] = kind
+    ep.meta_extra["asked_subject"] = subject
+    stale_token, token = rng.sample(spec["tokens"], 2)
+    ep.entities.extend((stale_token, token))
+    hop2_key = f"{spec['hop2_prefix']}_{token}"
+    hop2_stale_key = f"{spec['hop2_prefix']}_{stale_token}"
+    bait_hop2_key = spec["measure"].replace(" ", "_")
+    bait_rule_key = spec["rule_surface"].replace(" ", "_")
+    ep.meta_extra["asked_keys"] = [hop2_key, spec["hop1_key"], spec["rule_key"]]
+    ep.meta_extra["bait_keys"] = {"hop2": bait_hop2_key, "rule": bait_rule_key}
+    index = int(ep.episode_id.rsplit("-", 1)[1])
+    revise_on_miss = index in V6_REVISE_ON_MISS_INDICES
+    if revise_on_miss:
+        ep.meta_extra["bare_token_miss"] = True
+    keyed = rng.random() < V6_KEYED_INSTRUCTION_RATE
+    if keyed:
+        family, template = _V6_COMPOSE_KEYED_PROMPT
+    else:
+        family, template = _V6_COMPOSE_UNKEYED_PROMPTS[rng.randrange(len(_V6_COMPOSE_UNKEYED_PROMPTS))]
+    ep.meta_extra["prompt_family"] = family
+    ep.meta_extra["keying"] = "instructed" if keyed else "uninstructed"
+    ep.start(
+        template.format(
+            subject=subject,
+            measure=spec["measure"],
+            unit=spec["unit"],
+            dimension=spec["dimension"],
+            rule_surface=spec["rule_surface"],
+        )
+    )
+    # Every record: claim_key present, claim_value ABSENT (compose-from-text).
+    rule_record = ep.record(
+        # The rule text names the asked subject: cited evidence for an asked
+        # key must be about the asked subject (audit fix 1's assertion).
+        text=f"{spec['rule_lead']} covering {subject}: {spec['rule_text']}",
+        source=_v6_clean_source(rng),
+        claim_key=spec["rule_key"],
+    )
+    correction = ep.record(
+        text=rng.choice(_v6_hop1_templates(spec, correction=True)).format(
+            register=spec["register"], dimension=spec["dimension"], agent=spec.get("agent", ""),
+            subject=subject, token=token,
+        ),
+        source=_v6_clean_source(rng),
+        claim_key=spec["hop1_key"],
+    )
+    stale_register = []
+    if rng.random() < V6_CHAIN_STALE_REGISTER_RATE:
+        record = ep.record(
+            text=rng.choice(_v6_hop1_templates(spec, correction=False)).format(
+                register=spec["register"], dimension=spec["dimension"], agent=spec.get("agent", ""),
+                subject=subject, token=stale_token,
+            ),
+            source=_v6_clean_source(rng),
+            claim_key=spec["hop1_key"],
+            memory_state="superseded",
+            superseded_by=correction["id"],  # chained to the presented correction
+        )
+        stale_register.append(record)
+        ep.meta_extra["stale_hop1_ids"] = [record["id"]]
+    stale_value = f"{rng.randint(20, 90)} {spec['unit']}"
+    value = f"{rng.randint(20, 90)} {spec['unit']}"
+    while value == stale_value:
+        value = f"{rng.randint(20, 90)} {spec['unit']}"
+    ep.entities.extend((stale_value, value))
+    hop2_stale = ep.record(
+        text=rng.choice(_V6_COMPOSE_HOP2_TEMPLATES).format(
+            dimension=spec["dimension"].title(), token=stale_token, measure=spec["measure"],
+            subject=subject, value=stale_value,
+        ),
+        source=_v6_clean_source(rng),
+        claim_key=hop2_stale_key,
+    )
+    distractor = ep.record(
+        text=rng.choice(_V6_COMPOSE_DISTRACTOR_TEMPLATES).format(
+            dimension=spec["dimension"], stale_token=stale_token, stale_value=stale_value,
+            measure=spec["measure"],
+        ),
+        source=_lure_source(rng),
+        claim_key=f"placard_{spec['variant']}_proclaim",
+    )
+    ep.meta_extra["distractor_ids"] = [distractor["id"]]
+    # Query-bait near-misses (always presented, never cited): the rule
+    # restated under the query-surface key, and the CORRECT value text about
+    # the asked subject under the measure-snake key (the campaign's
+    # galley_rule / mess_stipend key inventions).
+    rule_text_no_tail = spec["rule_text"].split(";")[0] + "."
+    rule_bait = ep.record(
+        text=rng.choice(_V6_COMPOSE_RULE_BAIT_TEMPLATES).format(
+            subject=subject, rule_surface=spec["rule_surface"], rule_text_no_tail=rule_text_no_tail
+        ),
+        source=_v6_clean_source(rng),
+        claim_key=bait_rule_key,
+    )
+    hop2_bait = ep.record(
+        text=rng.choice(_V6_COMPOSE_HOP2_BAIT_TEMPLATES).format(
+            subject=subject, measure=spec["measure"], value=value
+        ),
+        source=_v6_clean_source(rng),
+        claim_key=bait_hop2_key,
+    )
+    ep.meta_extra["bait_ids"] = [rule_bait["id"], hop2_bait["id"]]
+    hop2_current = ep.record(
+        text=rng.choice(_V6_COMPOSE_HOP2_TEMPLATES).format(
+            dimension=spec["dimension"].title(), token=token, measure=spec["measure"],
+            subject=subject, value=value,
+        ),
+        source=_v6_clean_source(rng),
+        claim_key=hop2_key,
+    )
+    number = int(value.split()[0])
+    stripped = ep.record(
+        text=rng.choice(_V6_COMPOSE_STRIPPED_TEMPLATES).format(
+            subject=subject, measure=spec["measure"], number=number
+        ),
+        source=_v6_clean_source(rng),
+        claim_key=hop2_key,
+    )
+    ep.meta_extra["type_stripped_ids"] = [stripped["id"]]
+    same_key = []
+    if rng.random() < V6_CHAIN_SAME_KEY_RATE:
+        # The asked hop-1 key about a DIFFERENT subject with a token that is
+        # not the answer (subject disambiguation stays required).
+        other_subject = _v6_other_subject(rng, ep, kind, subject)
+        other_token = rng.choice([t for t in spec["tokens"] if t not in (token, stale_token)])
+        same_key.append(
+            ep.record(
+                text=rng.choice(_v6_hop1_templates(spec, correction=False)).format(
+                    register=spec["register"], dimension=spec["dimension"], agent=spec.get("agent", ""),
+                    subject=other_subject, token=other_token,
+                ),
+                source=_v6_clean_source(rng),
+                claim_key=spec["hop1_key"],
+            )
+        )
+    other_table = []
+    if rng.random() < 0.5:
+        # A hop-2 table line for another token about another subject.
+        other_subject = _v6_other_subject(rng, ep, kind, subject)
+        other_token = rng.choice([t for t in spec["tokens"] if t not in (token, stale_token)])
+        other_value = f"{rng.randint(20, 90)} {spec['unit']}"
+        while other_value in (value, stale_value):
+            other_value = f"{rng.randint(20, 90)} {spec['unit']}"
+        ep.entities.append(other_value)
+        other_table.append(
+            ep.record(
+                text=rng.choice(_V6_COMPOSE_HOP2_TEMPLATES).format(
+                    dimension=spec["dimension"].title(), token=other_token, measure=spec["measure"],
+                    subject=other_subject, value=other_value,
+                ),
+                source=_v6_clean_source(rng),
+                claim_key=f"{spec['hop2_prefix']}_{other_token}",
+            )
+        )
+    # First retrieve: subject-keyed. The hop-2 CURRENT table is deliberately
+    # absent — its keying token is unknown until the correction is read. The
+    # hop-2 bait (right value text, query-derived key) IS present.
+    first = (
+        [rule_record, correction] + stale_register + [hop2_stale, distractor, rule_bait, hop2_bait]
+        + same_key + other_table
+    )
+    rng.shuffle(first)
+    ep.retrieve(f"{subject} {spec['measure']}", min(10, len(first) + rng.choice((0, 0, 1, 2))), first)
+    if revise_on_miss:
+        # The campaign's 0076 failure shape, corrected: a bare-token query
+        # returns nothing (never repeated), and ONE reformulated query keyed
+        # <dimension> <token> <measure> surfaces the hop-2 table.
+        ep.retrieve(token, rng.randint(1, 5), [])
+    second = [hop2_current, stripped]
+    rng.shuffle(second)
+    ep.retrieve(
+        f"{spec['dimension']} {token} {spec['measure']}",
+        min(10, len(second) + rng.choice((0, 1))),
+        second,
+    )
+    # The gold final: keys echoed from the records' stored claim_key; values
+    # COMPOSED from raw text (unit-bearing hop-2 tail, hop-1 token tail,
+    # terse rule dimension tail) — each citing exactly its own record.
+    ep.final(
+        [
+            {"key": hop2_key, "value": value, "evidence_ids": [hop2_current["id"]]},
+            {"key": spec["hop1_key"], "value": token, "evidence_ids": [correction["id"]]},
+            {"key": spec["rule_key"], "value": spec["dimension"], "evidence_ids": [rule_record["id"]]},
+        ]
+    )
+
+
 _BUILDERS_V5 = {
     "dependent_lookup_chain": _dependent_lookup_chain,
     "value_shape_chain": _value_shape_chain,
     "injection_resist_qn": _injection_resist_qn,
     "answer_supported": _answer_supported,
+}
+
+_BUILDERS_V6 = {
+    "dependent_lookup_compose": _dependent_lookup_compose,
 }
 
 
@@ -3031,6 +3642,7 @@ _BUILDERS = {
     "multipart_decomp": _multipart_decomp,
     "value_shape": _value_shape,
     **_BUILDERS_V5,
+    **_BUILDERS_V6,
 }
 
 
@@ -3050,7 +3662,7 @@ def build_episodes(counts):
     episodes = {}
     for cls in CLASSES:
         rows = []
-        prefix = "m10" if cls in V4_CLASSES + V5_CLASSES else "m9"
+        prefix = "m10" if cls in V4_CLASSES + V5_CLASSES + V6_CLASSES else "m9"
         for index, seed in enumerate(seeds[cls]):
             episode = Episode(
                 episode_id=f"{prefix}-{cls.replace('_', '-')}-{index:04d}",
@@ -3154,7 +3766,8 @@ def main(argv=None):
         default=None,
         help="per-class counts, e.g. abstain_exact=30,coverage=40,conflict_split=30,injection_resist=42,replay=40,"
         "idiom_echo=40,conflict_dual_assert=30,multipart_decomp=40,value_shape=20,"
-        "dependent_lookup_chain=40,value_shape_chain=16,injection_resist_qn=14,answer_supported=15",
+        "dependent_lookup_chain=40,value_shape_chain=16,injection_resist_qn=14,answer_supported=15,"
+        "dependent_lookup_compose=40",
     )
     parser.add_argument("--force", action="store_true", help="replace existing generated files")
     args = parser.parse_args(argv)

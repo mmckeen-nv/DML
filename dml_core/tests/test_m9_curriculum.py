@@ -159,6 +159,48 @@ New v5 tests assert the repair properties directly:
   test_v5_pools_disjoint_by_construction   (v5 pools vs v1-v4 pools, fixtures, ALL sealed corpora incl. heldout2)
   test_v5_zero_word_8gram_overlap          (M8 method incl. the heldout2 leg and v4 out/ leg)
   test_v5_key_stems_disjoint_from_measurement_corpora (incl. parameterized/fabricated key stems)
+
+Dataset version 6 (M10 v5-campaign non-transfer repair; grounded in
+docs/m10-dependent-lookups-nontransfer-2026-11-13.md: the chain transferred,
+the claim SHAPE did not). ADDITIVE: every v3/v4/v5 builder and pool is
+untouched, so the thirteen v3-v5 class files regenerate byte-identical under
+the unchanged seed [20261116] — pinned sha256 by sha256 in
+test_v4_class_bytes_unchanged and test_v5_class_bytes_unchanged. All v1-v5
+test intents are preserved; three pins/helpers moved with the version:
+
+* test_manifest — now pins manifest["dataset_version"] == 6.
+* test_v5_classes_additive — v5 classes now sit at CLASSES[9:13]; the v6
+  tail is pinned by test_v6_classes_additive.
+* _presented — the shared record walker now admits the v6 compose record
+  shape: for V6_CLASSES rows a presented record carries claim_key and NEVER
+  claim_value (the campaign presentation, runner_transport_native
+  ._ingest_record); for all other classes claim_value stays mandatory.
+  _near_misses reads a record's advertised value via _record_value (the
+  claim_value field when present, else the composable status_value tail of
+  the raw text), and _asked_subject falls back to meta.asked_subject for
+  prompts without a "For <subject>," clause (mirrors the v5 _asked_keys
+  meta fallback precedent).
+
+New v6 tests assert the repair properties directly:
+  test_v5_class_bytes_unchanged            (v6 is additive; v5 bytes pinned)
+  test_v6_classes_additive                 (CLASSES/counts grow only by the v6 class)
+  test_v6_episode_id_prefixes              (m10- prefix, per-class numbering)
+  test_dependent_lookup_compose_shape      (3-claim gold: parameterized hop-2 + hop-1 + terse rule)
+  test_dependent_lookup_compose_no_claim_value_crutch (no presented record carries claim_value)
+  test_dependent_lookup_compose_value_composition (every gold value is the cited record's text tail)
+  test_dependent_lookup_compose_rule_status_value_tail (rule tail -> terse dimension, never the sentence)
+  test_dependent_lookup_compose_keying_instruction_omitted (>= half unkeyed + misleading rule noun)
+  test_dependent_lookup_compose_query_bait_near_miss (query-baited keys presented, never cited, never gold)
+  test_dependent_lookup_compose_second_hop_retrieval (second retrieve keyed on the discovered token)
+  test_dependent_lookup_compose_revise_on_miss (bare-token miss -> ONE reformulated query -> success)
+  test_dependent_lookup_compose_bare_token_queries_confined (bare-token queries only in flagged demos)
+  test_dependent_lookup_compose_near_misses_never_cited (stale register/table, placard, unit-stripped text)
+  test_dependent_lookup_compose_distractor_carries_stale_token_value
+  test_dependent_lookup_compose_subject_diversity (person / plot / part subjects)
+  test_dependent_lookup_compose_variants_exercised
+  test_v6_pools_disjoint_by_construction   (v6 pools vs v1-v5 pools, fixtures, ALL sealed corpora)
+  test_v6_zero_word_8gram_overlap          (M8 method, heldout2 leg live, v1-v5 rows swept live)
+  test_v6_key_stems_disjoint_from_measurement_corpora
 """
 
 from __future__ import annotations
@@ -199,6 +241,10 @@ ROW_KEYS = {
     "meta",
 }
 RECORD_KEYS = {"id", "text", "record_ref", "source", "claim_key", "claim_value", "source_trust", "memory_state"}
+# v6 compose records carry claim_key but NEVER claim_value (the campaign
+# presentation: meta.claim_key + raw text only — the value must be composed
+# from the text, not copied from a field).
+COMPOSE_RECORD_KEYS = RECORD_KEYS - {"claim_value"}
 SMALL = {cls: 2 for cls in generate.CLASSES}
 
 # Injection text markers: every injection template must carry at least one,
@@ -260,13 +306,17 @@ def _presented(row):
         assert result["returned_count"] == len(result["records"])
         assert result["limit_reached"] == (result["returned_count"] == result["requested_top_k"])
         for record in result["records"]:
-            assert RECORD_KEYS <= set(record) <= RECORD_KEYS | {"superseded_by"}
+            if row["class"] in generate.V6_CLASSES:
+                assert COMPOSE_RECORD_KEYS <= set(record) <= COMPOSE_RECORD_KEYS | {"superseded_by"}
+                assert "claim_value" not in record, "v6 compose records never carry the claim_value crutch"
+            else:
+                assert RECORD_KEYS <= set(record) <= RECORD_KEYS | {"superseded_by"}
+                assert type(record["claim_value"]) in (str, int, float, bool, type(None))
             assert type(record["id"]) is int and record["id"] >= 0
             assert type(record["text"]) is str and record["text"].strip()
             assert type(record["record_ref"]) is str and record["record_ref"]
             assert type(record["source"]) is str and record["source"]
             assert type(record["claim_key"]) is str and record["claim_key"]
-            assert type(record["claim_value"]) in (str, int, float, bool, type(None))
             assert record["source_trust"] == "trusted"
             assert record["memory_state"] in ("current", "superseded")
             if "superseded_by" in record:
@@ -343,8 +393,14 @@ def assert_canonical_row(row):
 
 def _asked_subject(row):
     match = re.search(r"[Ff]or (.+?)[?,]", row["task"]["prompt"])
-    assert match, row["task"]["prompt"]
-    return match.group(1)
+    if match:
+        return match.group(1)
+    # v6 compose prompts mirror the heldout2 query surfaces, which need not
+    # carry a "For <subject>," clause; the generator pins the asked subject
+    # (mirrors the v5 meta.asked_keys fallback precedent in _asked_keys).
+    pinned = row["meta"].get("asked_subject")
+    assert pinned, row["task"]["prompt"]
+    return pinned
 
 
 def _base_key(key):
@@ -364,6 +420,20 @@ def _asked_keys(row, action):
     return keys
 
 
+def _record_value(record):
+    """The value a presented record advertises: the claim_value field when
+    present (v1-v5 records), else the composable tail of the raw text for the
+    v6 compose records ('... is <value>.' or '... stands at <value>.'), else
+    None when the text advertises no tail value."""
+    if "claim_value" in record:
+        return record["claim_value"]
+    text = record["text"].rstrip(".")
+    for marker in (" is ", " stands at "):
+        if marker in text:
+            return text.rsplit(marker, 1)[1]
+    return None
+
+
 def _near_misses(row, presented, action):
     """Uncited records with an ASKED claim_key whose text is NOT about the
     asked subject. Asserts en route that none carries an answer value."""
@@ -372,16 +442,20 @@ def _near_misses(row, presented, action):
     cited = {rid for claim in action["answer"]["claims"] for rid in claim["evidence_ids"]}
     answers = {}
     for claim in action["answer"]["claims"]:
-        for rid in claim["evidence_ids"]:
-            answers.setdefault(presented[rid]["claim_key"], set()).add(presented[rid]["claim_value"])
+        # The claim's own (key, value): by the claim-key-echo property this
+        # equals the cited record's (claim_key, advertised value) — and it
+        # stays well-defined for v6 compose records (no claim_value field).
+        answers.setdefault(claim["key"], set()).add(claim["value"])
     misses = []
     for rid, record in presented.items():
         if record["claim_key"] in keys and rid not in cited and subject not in record["text"]:
-            assert record["claim_value"] not in answers.get(record["claim_key"], set()), (
-                "near-miss record carries the answer value",
-                row["episode_id"],
-                record,
-            )
+            value = _record_value(record)
+            if value is not None:
+                assert value not in answers.get(record["claim_key"], set()), (
+                    "near-miss record carries the answer value",
+                    row["episode_id"],
+                    record,
+                )
             misses.append(record)
     return misses
 
@@ -405,10 +479,11 @@ def test_manifest(dataset):
     output, rows = dataset
     manifest = json.loads((output / "manifest.json").read_text())
     assert manifest["schema_version"] == generate.MANIFEST_SCHEMA
-    # v5: four additive M10 v4.1-repair classes on all-new disjoint pools;
-    # seed unchanged at [20261116]; the v3/v4 class bytes are pinned
-    # unchanged by test_v4_class_bytes_unchanged.
-    assert manifest["dataset_version"] == generate.DATASET_VERSION == 5
+    # v6: one additive M10 v5-campaign non-transfer-repair class on all-new
+    # disjoint pools; seed unchanged at [20261116]; the v3/v4 and v5 class
+    # bytes are pinned unchanged by test_v4_class_bytes_unchanged and
+    # test_v5_class_bytes_unchanged.
+    assert manifest["dataset_version"] == generate.DATASET_VERSION == 6
     assert manifest["seed"] == generate.SEED == [20261116]
     # M10 qualification gate checklist (b): the curriculum seed must be
     # distinct from every seed the measurement harness uses or has burned.
@@ -766,6 +841,9 @@ def test_source_carries_no_trust_signal(dataset):
         "value_shape_chain",
         "injection_resist_qn",
         "answer_supported",
+        # v6: dependent_lookup_compose cites clean records from lure-prone
+        # sources too (deterministic under the unchanged seed).
+        "dependent_lookup_compose",
     }, (
         "every answer-bearing class must cite clean records from lure-prone sources",
         cited_on_lure_source,
@@ -1558,6 +1636,15 @@ def _curriculum_pool_stems():
     for fact in generate.V5_FACTS:
         stems |= _tokens(fact["key"]) | _tokens(fact["label"])
     stems |= generate.V5_KEY_STEMS
+    # v6: same audit semantics — first-token stems of the v6 entity pool
+    # (persons, plots, part ids), every token of the v6 source ids, and every
+    # declared v6 key stem (parameterized hop-2 prefixes, hop tokens, units,
+    # rule-key suffixes and the query-baited near-miss key stems included).
+    for entity in generate.V6_ENTITY_POOL_STRINGS:
+        stems.add(re.findall(r"[a-z0-9]+", entity.lower())[0])
+    for source in generate._V6_SOURCES:
+        stems |= _tokens(source)
+    stems |= generate.V6_KEY_STEMS
     return stems
 
 
@@ -1624,10 +1711,10 @@ def test_v4_class_bytes_unchanged(dataset):
 
 
 def test_v5_classes_additive():
-    """CLASSES and DEFAULT_COUNTS grow ONLY by the four v5 classes; the v3/v4
-    classes keep their v4 counts and their order (seed-spawn order)."""
+    """CLASSES and DEFAULT_COUNTS keep the v5 classes in their v5 positions;
+    the v6 tail is pinned separately by test_v6_classes_additive."""
     assert generate.CLASSES[:9] == generate.V3_CLASSES + generate.V4_CLASSES
-    assert generate.CLASSES[9:] == generate.V5_CLASSES
+    assert generate.CLASSES[9:13] == generate.V5_CLASSES
     assert set(generate.V5_CLASSES) == {
         "dependent_lookup_chain",
         "value_shape_chain",
@@ -2309,3 +2396,536 @@ def test_answer_supported_prompt_families_exercised(dataset):
     _, rows = dataset
     families = {row["meta"]["prompt_family"] for row in rows["answer_supported"]}
     assert families == {name for name, _ in generate._V5_ANSWER_PROMPTS}
+
+
+# ---------------------------------------------------------------------------
+# Tests (v6: M10 v5-campaign non-transfer repair — additive class)
+# ---------------------------------------------------------------------------
+
+# The four v5 class files at dataset_version 5 (seed [20261116], verified
+# byte-identical to the v5 release out/ when the v6 generator landed). v6 is
+# ADDITIVE: no v3/v4/v5 builder or pool may change these bytes.
+V5_CLASS_SHAS = {
+    "dependent_lookup_chain.jsonl": "87b1577709861b7722af8dda6863fc81886db552e2e2125ab0656da4b38614ff",
+    "value_shape_chain.jsonl": "8c349908273f59e56775f363d53d502754b5e5b0e5f700f9b32c0b5bafe3a4c2",
+    "injection_resist_qn.jsonl": "552ee04698424dfd3f6bf6d3b72cdb2c56b043e72379d90835de2efdd4377649",
+    "answer_supported.jsonl": "95b709cc5be281c482677c397c28acf9f96809523283cecb1791a248ccca8084",
+}
+
+
+def test_v5_class_bytes_unchanged(dataset):
+    """v6 is additive: the four v5 class files regenerate byte-identical
+    under the unchanged seed [20261116]. Any edit to a v3/v4/v5 builder,
+    pool or draw order breaks this pin (or the v3/v4 pin above)."""
+    output, _ = dataset
+    manifest = json.loads((output / "manifest.json").read_text())
+    shas = {entry["path"]: entry["sha256"] for entry in manifest["files"]}
+    for name, sha in V5_CLASS_SHAS.items():
+        assert shas[name] == sha, f"v5 class bytes changed: {name}"
+
+
+def test_v6_classes_additive():
+    """CLASSES and DEFAULT_COUNTS grow ONLY by the v6 class; the v3-v5
+    classes keep their counts and their order (seed-spawn order)."""
+    assert generate.CLASSES[:13] == generate.V3_CLASSES + generate.V4_CLASSES + generate.V5_CLASSES
+    assert generate.CLASSES[13:] == generate.V6_CLASSES
+    assert generate.V6_CLASSES == ("dependent_lookup_compose",)
+    assert generate.DEFAULT_COUNTS["dependent_lookup_compose"] == 40
+
+
+def test_v6_episode_id_prefixes(dataset):
+    """v6 episodes are m10-prefixed (M10 curriculum), numbered per class."""
+    _, rows = dataset
+    for cls in generate.V6_CLASSES:
+        for index, row in enumerate(rows[cls]):
+            assert row["episode_id"] == f"m10-{cls.replace('_', '-')}-{index:04d}"
+
+
+# ---------------------------------------------------------------------------
+# v6: dependent_lookup_compose — composition, not copying
+# ---------------------------------------------------------------------------
+
+
+def _compose_spec(row):
+    (spec,) = [s for s in generate.V6_COMPOSE_VARIANTS if s["variant"] == row["meta"]["chain_variant"]]
+    return spec
+
+
+def test_dependent_lookup_compose_shape(dataset):
+    """The gold solves the whole chain with COMPOSED values: exactly three
+    claims — the hop-2 value under the PARAMETERIZED claim_key echoed from
+    the presented record's claim_key (unit-bearing string), the corrected
+    hop-1 value under its key, and the rule under its key with the terse
+    dimension value — each citing exactly its own presented record."""
+    _, rows = dataset
+    for row in rows["dependent_lookup_compose"]:
+        presented, action = assert_canonical_row(row)
+        spec = _compose_spec(row)
+        claims = action["answer"]["claims"]
+        assert len(claims) == 3, "compose gold answers hop-2 + hop-1 + rule"
+        hop2, hop1, rule = claims
+        assert TERSE_KEY.match(hop2["key"]) and TERSE_KEY.match(hop1["key"]) and TERSE_KEY.match(rule["key"])
+        assert [claim["key"] for claim in claims] == row["meta"]["asked_keys"]
+        # Hop-2 key is parameterized by the DISCOVERED (corrected) token.
+        assert hop1["value"] in set(spec["tokens"])
+        assert hop2["key"] == f"{spec['hop2_prefix']}_{hop1['value']}", (
+            "hop-2 claim key is not parameterized by the discovered hop-1 token",
+            row["episode_id"],
+            hop2["key"],
+        )
+        assert hop1["key"] == spec["hop1_key"]
+        assert rule["key"] == spec["rule_key"]
+        assert rule["value"] == spec["dimension"], "the rule claim carries the terse dimension value"
+        subject = _asked_subject(row)
+        for claim in (hop2, hop1, rule):
+            (record_id,) = claim["evidence_ids"]
+            record = presented[record_id]
+            assert record["claim_key"] == claim["key"], "each claim echoes its cited record's claim_key"
+            assert record["memory_state"] == "current"
+            assert subject in record["text"]
+
+
+def test_dependent_lookup_compose_no_claim_value_crutch(dataset):
+    """The primary non-transfer gap: campaign records present meta.claim_key
+    plus raw text only. EVERY presented record in the class carries claim_key
+    and NEVER a claim_value field — the gold cannot be produced by copying."""
+    _, rows = dataset
+    for row in rows["dependent_lookup_compose"]:
+        presented, action = assert_canonical_row(row)
+        assert presented
+        for record in presented.values():
+            assert "claim_value" not in record, (
+                "compose record carries the claim_value crutch",
+                row["episode_id"],
+                record,
+            )
+            assert record["claim_key"]
+        assert action["answer"]["claims"], "compose episodes are answer-bearing"
+
+
+def test_dependent_lookup_compose_value_composition(dataset):
+    """Every gold value is COMPOSED from its cited record's raw text: the
+    claim value equals the record's tail ('... is <value>.' or '... stands
+    at <value>.'), the hop-2 value keeps number AND unit together (never the
+    bare number), and the number itself is visible in the cited text."""
+    _, rows = dataset
+    for row in rows["dependent_lookup_compose"]:
+        presented, action = assert_canonical_row(row)
+        spec = _compose_spec(row)
+        hop2, hop1, rule = action["answer"]["claims"]
+        for claim in (hop2, hop1, rule):
+            record = presented[claim["evidence_ids"][0]]
+            assert _record_value(record) == claim["value"], (
+                "claim value is not composable from the cited record's text",
+                row["episode_id"],
+                claim,
+                record["text"],
+            )
+            tail_forms = (f" is {claim['value']}.", f" stands at {claim['value']}.")
+            assert any(record["text"].endswith(tail) for tail in tail_forms), (
+                "cited record carries no composable tail for the claim value",
+                record["text"],
+            )
+        # Unit retention under multi-claim load (28/48 campaign episodes
+        # stripped units): the hop-2 value is the unit-bearing string.
+        assert type(hop2["value"]) is str
+        number, _, unit = hop2["value"].partition(" ")
+        assert number.isdigit() and unit == spec["unit"]
+        record = presented[hop2["evidence_ids"][0]]
+        assert f"{number} {unit}" in record["text"]
+        assert hop2["value"] != number, "the gold is never the bare number"
+
+
+def test_dependent_lookup_compose_rule_status_value_tail(dataset):
+    """The rule claim value comes from the rule record's status_value tail
+    ('the governing lookup dimension is <dimension>.') — the terse 2-word
+    dimension, NEVER the full rule sentence (27/48 campaign episodes echoed
+    the sentence)."""
+    _, rows = dataset
+    for row in rows["dependent_lookup_compose"]:
+        presented, action = assert_canonical_row(row)
+        rule = action["answer"]["claims"][2]
+        record = presented[rule["evidence_ids"][0]]
+        assert record["text"].endswith(f"the governing lookup dimension is {rule['value']}."), (
+            "rule record is not in the status_value tail form",
+            record["text"],
+        )
+        assert len(rule["value"].split()) == 2, "the rule value is the terse 2-word dimension"
+        assert rule["value"] != record["text"], "the rule claim must not be the full sentence"
+
+
+def test_dependent_lookup_compose_keying_instruction_omitted(dataset):
+    """Spec (c): >= half the tasks OMIT the explicit keying instruction, and
+    every query names the rule by its MISLEADING surface noun (whose
+    snake_case form is the bait key, never the stored rule key). Keyed
+    episodes still exist so the behavior also holds when asked."""
+    _, rows = dataset
+    uninstructed = 0
+    instructed = 0
+    for row in rows["dependent_lookup_compose"]:
+        assert_canonical_row(row)
+        spec = _compose_spec(row)
+        prompt = row["task"]["prompt"]
+        keying = row["meta"]["keying"]
+        assert keying in ("instructed", "uninstructed")
+        # The misleading surface noun is used in every query; its snake form
+        # is the bait key, never the stored key.
+        assert spec["rule_surface"] in prompt
+        bait_rule_key = row["meta"]["bait_keys"]["rule"]
+        assert bait_rule_key == spec["rule_surface"].replace(" ", "_")
+        assert bait_rule_key != spec["rule_key"]
+        if keying == "uninstructed":
+            uninstructed += 1
+            assert "claim key" not in prompt, "uninstructed prompt carries a keying instruction"
+        else:
+            instructed += 1
+            assert "stored claim key" in prompt
+    total = len(rows["dependent_lookup_compose"])
+    assert uninstructed >= total // 2, f"only {uninstructed}/{total} episodes omit the keying instruction"
+    assert instructed, "keyed-instruction episodes must exist (behavior holds when asked)"
+
+
+def test_dependent_lookup_compose_query_bait_near_miss(dataset):
+    """The query-baited near-miss keys (the campaign's galley_rule /
+    mess_stipend inventions): every episode presents a rule-bait record under
+    the surface-noun key and a hop-2 bait record carrying the CORRECT value
+    text about the asked subject under the measure-snake key. Both are never
+    cited and the bait keys are never gold."""
+    _, rows = dataset
+    for row in rows["dependent_lookup_compose"]:
+        presented, action = assert_canonical_row(row)
+        spec = _compose_spec(row)
+        claims = action["answer"]["claims"]
+        cited = {rid for claim in claims for rid in claim["evidence_ids"]}
+        gold_keys = {claim["key"] for claim in claims}
+        bait_keys = row["meta"]["bait_keys"]
+        assert bait_keys["hop2"] == spec["measure"].replace(" ", "_")
+        assert spec["measure"] in row["task"]["prompt"], "the hop-2 bait key is query-derived"
+        assert bait_keys["rule"] == spec["rule_surface"].replace(" ", "_")
+        assert spec["rule_surface"] in row["task"]["prompt"], "the rule bait key is query-derived"
+        assert not ({bait_keys["hop2"], bait_keys["rule"]} & gold_keys), "a query-baited key was credited as gold"
+        rule_bait_id, hop2_bait_id = row["meta"]["bait_ids"]
+        rule_bait = presented[rule_bait_id]
+        hop2_bait = presented[hop2_bait_id]
+        assert rule_bait_id not in cited and hop2_bait_id not in cited
+        assert rule_bait["claim_key"] == bait_keys["rule"]
+        assert hop2_bait["claim_key"] == bait_keys["hop2"]
+        # The hop-2 bait carries the ANSWER value text about the asked
+        # subject — only the key is wrong (the strongest bait).
+        assert claims[0]["value"] in hop2_bait["text"]
+        assert _asked_subject(row) in hop2_bait["text"]
+        assert spec["rule_surface"] in rule_bait["text"]
+
+
+def test_dependent_lookup_compose_second_hop_retrieval(dataset):
+    """The chain is preserved from v5 (it transferred): every standard
+    episode issues a SECOND retrieve keyed on the discovered hop-1 token as
+    '<dimension> <token> <measure>', and the hop-2 current table is absent
+    from the first window."""
+    _, rows = dataset
+    standard = 0
+    for row in rows["dependent_lookup_compose"]:
+        if row["meta"].get("bare_token_miss"):
+            continue
+        standard += 1
+        presented, action = assert_canonical_row(row)
+        spec = _compose_spec(row)
+        actions = _retrieve_actions(row)
+        results = _tool_results(row)
+        assert len(actions) == 2 == len(results), "standard compose gold is exactly two retrieves"
+        hop1_value = action["answer"]["claims"][1]["value"]
+        first_query = actions[0]["arguments"]["query"]
+        second_query = actions[1]["arguments"]["query"]
+        assert hop1_value not in first_query, "the hop-2 token is not in the question or first query"
+        assert hop1_value in second_query, "second retrieve must key on the discovered hop-1 token"
+        assert spec["dimension"] in second_query and spec["measure"] in second_query, (
+            "the reformulated second-hop query is fully keyed, never a bare token"
+        )
+        assert first_query != second_query
+        hop2_id = action["answer"]["claims"][0]["evidence_ids"][0]
+        first_ids = {record["id"] for record in results[0]["records"]}
+        assert hop2_id not in first_ids, "hop-2 current table must be discovered, not handed over"
+        assert hop2_id in {record["id"] for record in results[1]["records"]}
+    assert standard == 40 - len(generate.V6_REVISE_ON_MISS_INDICES)
+
+
+def test_dependent_lookup_compose_revise_on_miss(dataset):
+    """Spec (d): the flagged demos reproduce the campaign's bare-token loop
+    AND its correction — the bare-token second query returns NOTHING, and
+    the corrected behavior is ONE reformulated query keyed
+    '<dimension> <token> <measure>' (never a repeat, never another bare
+    token), then the final succeeds."""
+    _, rows = dataset
+    flagged = 0
+    for row in rows["dependent_lookup_compose"]:
+        presented, action = assert_canonical_row(row)
+        if not row["meta"].get("bare_token_miss"):
+            continue
+        flagged += 1
+        spec = _compose_spec(row)
+        actions = _retrieve_actions(row)
+        results = _tool_results(row)
+        assert len(actions) == 3 == len(results), "revise-on-miss: subject query, bare-token miss, reformulation"
+        hop1_value = action["answer"]["claims"][1]["value"]
+        bare_query = actions[1]["arguments"]["query"]
+        assert bare_query == hop1_value, "the miss is the bare discovered token"
+        assert len(bare_query.split()) == 1
+        assert results[1]["returned_count"] == 0, "the bare-token query returns nothing"
+        third_query = actions[2]["arguments"]["query"]
+        assert third_query == f"{spec['dimension']} {hop1_value} {spec['measure']}"
+        assert third_query != bare_query
+        hop2_id = action["answer"]["claims"][0]["evidence_ids"][0]
+        assert hop2_id in {record["id"] for record in results[2]["records"]}
+        assert hop2_id not in {record["id"] for record in results[0]["records"]}
+        assert action["answer"]["claims"], "the episode finalizes with the answer after ONE reformulation"
+    assert flagged == len(generate.V6_REVISE_ON_MISS_INDICES) == 3
+
+
+def test_dependent_lookup_compose_bare_token_queries_confined(dataset):
+    """Bare-token retrieve queries appear ONLY in the flagged revise-on-miss
+    demos and only in the failing position — the never-gold near-miss
+    behavior (bare-token repeats) is confined to the demonstrated miss."""
+    _, rows = dataset
+    for row in rows["dependent_lookup_compose"]:
+        actions = _retrieve_actions(row)
+        bare = [a for a in actions if len(a["arguments"]["query"].split()) == 1]
+        if row["meta"].get("bare_token_miss"):
+            assert len(bare) == 1 and bare[0] is actions[1]
+        else:
+            assert not bare, ("bare-token query outside the revise-on-miss demos", row["episode_id"])
+
+
+def test_dependent_lookup_compose_near_misses_never_cited(dataset):
+    """Every near-miss shape from the campaign is presented and never cited:
+    the superseded hop-1 register (stale token, chained to the correction),
+    the stale hop-2 table, the untrusted-instruction placard, and the
+    unit-stripped bare-number record under the ASKED parameterized key (its
+    text can only compose to the stripped form)."""
+    _, rows = dataset
+    stale_hop1 = 0
+    for row in rows["dependent_lookup_compose"]:
+        presented, action = assert_canonical_row(row)
+        spec = _compose_spec(row)
+        claims = action["answer"]["claims"]
+        cited = {rid for claim in claims for rid in claim["evidence_ids"]}
+        hop2_key, hop1_value = claims[0]["key"], claims[1]["value"]
+        subject = _asked_subject(row)
+        for rid in row["meta"].get("stale_hop1_ids", ()):
+            stale_hop1 += 1
+            record = presented[rid]
+            assert rid not in cited
+            assert record["claim_key"] == spec["hop1_key"]
+            assert _record_value(record) != hop1_value, "stale register carries the stale token"
+            assert record["memory_state"] == "superseded"
+            # Chained to the presented correction (memory_state, not prose).
+            assert record["superseded_by"] in cited
+        for rid in row["meta"]["distractor_ids"]:
+            record = presented[rid]
+            assert rid not in cited
+            assert record["claim_key"].startswith("placard_")
+            assert "tells hands" in record["text"] or "told to" in record["text"], (
+                "the distractor is an untrusted instruction"
+            )
+        # The stale hop-2 table: parameterized by the STALE token, never cited.
+        stale_tables = [
+            r
+            for r in presented.values()
+            if r["claim_key"].startswith(spec["hop2_prefix"] + "_") and r["claim_key"] != hop2_key
+        ]
+        assert stale_tables, "the dual hop-2 tables must both be presented"
+        for record in stale_tables:
+            assert record["id"] not in cited
+        # Unit-stripped near-miss: same subject, the ASKED parameterized key,
+        # but the text carries ONLY the bare number (no unit token).
+        (stripped_id,) = row["meta"]["type_stripped_ids"]
+        stripped = presented[stripped_id]
+        assert stripped_id not in cited
+        assert stripped["claim_key"] == hop2_key
+        assert subject in stripped["text"]
+        number = claims[0]["value"].split()[0]
+        assert number in stripped["text"]
+        assert spec["unit"] not in stripped["text"], "the stripped record must not carry the unit"
+    rate = stale_hop1 / len(rows["dependent_lookup_compose"])
+    assert rate >= 0.60, f"superseded hop-1 registers in only {rate:.0%} of compose episodes"
+
+
+def test_dependent_lookup_compose_distractor_carries_stale_token_value(dataset):
+    """The untrusted-instruction distractor always asserts the STALE token's
+    value (the adverse shape from the sealed family): its text carries the
+    stale hop-2 table's value and never the corrected token."""
+    _, rows = dataset
+    for row in rows["dependent_lookup_compose"]:
+        presented, action = assert_canonical_row(row)
+        spec = _compose_spec(row)
+        claims = action["answer"]["claims"]
+        (distractor_id,) = row["meta"]["distractor_ids"]
+        distractor = presented[distractor_id]
+        stale_tables = [
+            r
+            for r in presented.values()
+            if r["claim_key"].startswith(spec["hop2_prefix"] + "_")
+            and r["claim_key"] != claims[0]["key"]
+        ]
+        stale_values = {_record_value(r) for r in stale_tables}
+        assert any(value in distractor["text"] for value in stale_values), (
+            "the distractor asserts the stale token's value"
+        )
+        # The hop-2 answer value and the corrected hop-1 token never appear;
+        # the rule claim's dimension value DOES appear by design — the
+        # distractor asserts the stale token's value UNDER the dimension.
+        assert claims[0]["value"] not in distractor["text"], "the distractor carries the hop-2 answer value"
+        hop1_value = claims[1]["value"]
+        assert hop1_value not in distractor["text"]
+
+
+def test_dependent_lookup_compose_subject_diversity(dataset):
+    """Spec (e): subjects diversify across heldout2's three subject types —
+    person names, plot names and part ids — each drawn from its own v6 pool."""
+    _, rows = dataset
+    kinds = set()
+    for row in rows["dependent_lookup_compose"]:
+        assert_canonical_row(row)
+        kind = row["meta"]["subject_kind"]
+        kinds.add(kind)
+        subject = row["meta"]["asked_subject"]
+        pool = {"person": generate.V6_PERSONS, "plot": generate.V6_PLOTS, "part": generate.V6_PARTS}[kind]
+        assert subject in pool
+        spec = _compose_spec(row)
+        assert spec["subject_kind"] == kind
+    assert kinds == {"person", "plot", "part"}
+
+
+def test_dependent_lookup_compose_variants_exercised(dataset):
+    _, rows = dataset
+    variants = {row["meta"]["chain_variant"] for row in rows["dependent_lookup_compose"]}
+    assert variants == {spec["variant"] for spec in generate.V6_COMPOSE_VARIANTS}
+
+
+# ---------------------------------------------------------------------------
+# v6 leakage discipline (M8 method re-run, heldout2 leg LIVE, v1-v5 rows
+# swept live from the same generated dataset)
+# ---------------------------------------------------------------------------
+
+
+def test_v6_pools_disjoint_by_construction(dataset, sealed_corpora_v5):
+    """The v6 pools are all-new: token-level disjoint from the v1-v5 pools,
+    the m8 fixtures and ALL sealed workloads (pilot216, heldout, heldout2 —
+    including the FIXED dependent_lookups shapes)."""
+    prior_pool_tokens = set()
+    for pool in (generate.ENTITY_POOL_STRINGS, generate.V4_ENTITY_POOL_STRINGS, generate.V5_ENTITY_POOL_STRINGS):
+        for entity in pool:
+            prior_pool_tokens |= _tokens(entity)
+    v6_pool_tokens = set()
+    for entity in generate.V6_ENTITY_POOL_STRINGS:
+        v6_pool_tokens |= _tokens(entity)
+    assert not (v6_pool_tokens & prior_pool_tokens), (
+        "v6 entity pool shares tokens with the v1-v5 pools",
+        sorted(v6_pool_tokens & prior_pool_tokens),
+    )
+    prior_keys = (
+        {fact["key"] for fact in generate.FACTS}
+        | {fact["key"] for fact in generate.V4_FACTS}
+        | {fact["key"] for fact in generate.V5_FACTS}
+    )
+    v6_keys = set()
+    for spec in generate.V6_COMPOSE_VARIANTS:
+        v6_keys |= {spec["hop1_key"], spec["rule_key"], spec["hop2_prefix"]}
+    assert not (prior_keys & v6_keys)
+    sealed_text_blob = "\n".join(sealed_corpora_v5)
+    sealed_tokens = _tokens(sealed_text_blob)
+    assert not (v6_pool_tokens & sealed_tokens), (
+        "v6 entity pool shares tokens with the sealed workloads",
+        sorted(v6_pool_tokens & sealed_tokens),
+    )
+    fixture_blob = "\n".join(path.read_text(encoding="utf-8") for path in sorted(FIXTURES.glob("*.json")))
+    assert not (v6_pool_tokens & _tokens(fixture_blob))
+    # v6 key/dimension/unit/hop-token/source and value vocabulary: absent
+    # from every corpus and every prior pool.
+    value_tokens = set(generate.V6_KEY_STEMS)
+    for spec in generate.V6_COMPOSE_VARIANTS:
+        value_tokens |= _tokens(spec["measure"]) | _tokens(spec["dimension"]) | _tokens(spec["rule_surface"])
+        value_tokens |= _tokens(spec["register"]) | _tokens(spec["rule_lead"]) | {spec["unit"]}
+        if "agent" in spec:
+            value_tokens.add(spec["agent"])
+    for source in generate._V6_SOURCES:
+        value_tokens |= _tokens(source)
+    assert not (value_tokens & sealed_tokens), sorted(value_tokens & sealed_tokens)
+    assert not (value_tokens & _tokens(fixture_blob))
+    assert not (value_tokens & prior_pool_tokens)
+    # String-level: no v6 pool string or per-episode v6 entity usage (subjects,
+    # hop tokens, composed values) appears in any corpus text.
+    _, rows = dataset
+    used = set()
+    for cls in generate.V6_CLASSES:
+        for row in rows[cls]:
+            used.update(row["meta"]["entities"])
+    assert used
+    for entity in set(generate.V6_ENTITY_POOL_STRINGS) | used:
+        assert entity not in sealed_text_blob, entity
+        assert entity not in fixture_blob, entity
+    for spec in generate.V6_COMPOSE_VARIANTS:
+        assert spec["rule_key"] not in sealed_text_blob, "v6 rule key collides with sealed truth keys"
+
+
+def test_v6_zero_word_8gram_overlap(dataset, sealed_corpora_v5):
+    """The M8 leakage method re-run for curriculum v6: zero shared word
+    8-grams between the v6-class rows (prompts, queries, record texts,
+    string claim values) and (1) the sealed pilot216/heldout corpora,
+    (2) the CURRENT sealed heldout2 corpus (fixed dependent_lookups
+    templates, live leg), (3) the m8 dev fixtures, (4) the v1-v5 rows of the
+    SAME generated dataset (always live), and (5) a dataset_version 3/4/5
+    out/ directory when one is available."""
+    v6_grams = set()
+    for cls in generate.V6_CLASSES:
+        for row in dataset[1][cls]:
+            for text in _row_texts(row):
+                v6_grams |= _word_ngrams(text)
+    assert v6_grams
+    sealed_grams = set()
+    for text in sealed_corpora_v5:
+        sealed_grams |= _word_ngrams(text)
+    overlap = v6_grams & sealed_grams
+    assert not overlap, f"shared 8-grams with the sealed corpora (incl. heldout2): {sorted(overlap)[:5]}"
+    fixture_grams = set()
+    for path in sorted(FIXTURES.glob("*.json")):
+        for event in json.loads(path.read_text(encoding="utf-8"))["events"]:
+            fixture_grams |= _word_ngrams(event["text"])
+    overlap = v6_grams & fixture_grams
+    assert not overlap, f"shared 8-grams with the m8 fixtures: {sorted(overlap)[:5]}"
+    # Live leg: the v1-v5 rows of the same generated dataset.
+    prior_grams = set()
+    for cls in generate.CLASSES:
+        if cls in generate.V6_CLASSES:
+            continue
+        for row in dataset[1][cls]:
+            for text in _row_texts(row):
+                prior_grams |= _word_ngrams(text)
+    overlap = v6_grams & prior_grams
+    assert not overlap, f"shared 8-grams with the v1-v5 curriculum rows: {sorted(overlap)[:5]}"
+    manifest_path = V3_OUT_DIR / "manifest.json"
+    if manifest_path.is_file() and json.loads(manifest_path.read_text()).get("dataset_version") in (3, 4, 5):
+        prior_out_grams = set()
+        for path in sorted(V3_OUT_DIR.glob("*.jsonl")):
+            for line in path.read_text(encoding="utf-8").splitlines():
+                row = json.loads(line)
+                if row["class"] in generate.V5_CLASSES + generate.V6_CLASSES:
+                    continue  # same-generator v5/v6 rows, not a prior dataset
+                for text in _row_texts(row):
+                    prior_out_grams |= _word_ngrams(text)
+        overlap = v6_grams & prior_out_grams
+        assert not overlap, f"shared 8-grams with the prior curriculum output: {sorted(overlap)[:5]}"
+
+
+def test_v6_key_stems_disjoint_from_measurement_corpora(measurement_key_tokens):
+    """Stem level, v6-specific: every declared v6 key stem — parameterized
+    hop-2 prefixes, hop tokens, units, dimensions, rule-key suffixes and the
+    query-baited near-miss key stems — is disjoint from every
+    measurement-corpora fact/truth key token (heldout2's FIXED
+    dependent_lookups shapes included)."""
+    tokens, coverage = measurement_key_tokens
+    overlap = generate.V6_KEY_STEMS & tokens
+    assert not overlap, (
+        "v6 key stems shared with measurement-corpora fact keys",
+        sorted(overlap),
+        coverage,
+    )

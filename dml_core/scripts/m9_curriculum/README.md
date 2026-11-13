@@ -219,6 +219,47 @@ The manifest carries a `dataset_version` field (additive to
     support), or support among heavy distractor load — while presented
     records support the truth; the gold ANSWERS. The empty-claims
     abstention is the near-miss, never the gold (asserted by test).
+* **v6** — M10 v5-campaign non-transfer repair (seed unchanged at
+  `[20261116]`; ADDITIVE: no v3/v4/v5 builder or pool changes, so the
+  thirteen v3-v5 class files regenerate byte-identical — pinned
+  sha256-by-sha256 by `test_v4_class_bytes_unchanged` and
+  `test_v5_class_bytes_unchanged`). Grounded in
+  `docs/m10-dependent-lookups-nontransfer-2026-11-13.md`: the v5
+  dependent_lookup chain TRANSFERRED (47/48 campaign episodes ran the
+  two-hop retrieval); what failed is the final-answer claim SHAPE, because
+  v5 records hand over an explicit `claim_value` field to copy while
+  campaign records present only `meta.claim_key` plus raw text. One new
+  class on all-new v6 pools (disjoint by construction from the v1-v5 pools
+  and from pilot216/heldout/heldout2 — heldout2's FIXED dependent_lookups
+  templates included; the on-disk seal is byte-verified before sweeping):
+  * `dependent_lookup_compose` (40): the same two-hop chain skeleton, but
+    no presented record carries a `claim_value` field. The gold final
+    COMPOSES each value from the cited record's raw text: the hop-2 value
+    is the unit-bearing tail (`... is 41 florins.` / `... stands at 41
+    florins.` -> `"41 florins"`), never the bare number; the rule value is
+    the terse lookup dimension from the `status_value` tail (`... the
+    governing lookup dimension is signal rota.` -> `"signal rota"`),
+    never the rule sentence. >= half the tasks OMIT the keying instruction
+    and every query names the rule by a misleading surface noun (`"name the
+    parish bylaw behind it"`) whose snake_case form is a presented,
+    never-cited bait key (`parish_bylaw`, and the measure-snake bait
+    `fen_tithe` carrying the correct value text); gold keys stay the
+    records' stored `claim_key` (asserted by test). Three deterministic
+    episodes (`meta.bare_token_miss`) demonstrate the campaign's bare-token
+    loop and its correction: a bare-token second query returns nothing, and
+    ONE reformulated query keyed `<dimension> <token> <measure>` succeeds —
+    never a repeat, never another bare token. Subjects span person names,
+    plot names and part ids (heldout2's three subject types). Near-misses,
+    all presented and never cited (asserted by test): the superseded
+    register (>= 60%), the stale hop-2 table, the placard distractor
+    asserting the stale token's value, and the unit-stripped bare-number
+    record under the ASKED parameterized key.
+  * `value_shape_chain` is UNCHANGED (documented decision): the 25-episode
+    v5-campaign unit-strip + rule-sentence failure is a composition failure
+    under multi-claim load; value_shape_chain's sixteen episodes already
+    pin the single-claim unit-strip near-miss, and extending it would break
+    the v5 byte pins. The composition ingredient is covered additively by
+    `dependent_lookup_compose`.
 
 ## Row schema (`dml-m9-curriculum-v1`)
 
