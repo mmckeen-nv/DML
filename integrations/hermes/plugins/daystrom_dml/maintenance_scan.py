@@ -17,13 +17,11 @@ from pathlib import Path
 from typing import Any
 
 
-DEFAULT_STORE = Path(
-    "/Users/markmckeen/.hermes/hermes-agent/integrations/daystrom-dml/stores/hermes-runtime-store"
-)
+DEFAULT_STORE = Path.home() / ".hermes/hermes-agent/integrations/daystrom-dml/stores/hermes-runtime-store"
 STATE_TYPE = "daystrom_dml.memory"
 PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("smoke_or_self_test", re.compile(r"\b(?:smoke[- ]?test|self[- ]?test|test record|pre[- ]?fix)\b", re.IGNORECASE)),
-    ("completed_turn_artifact", re.compile(r"\bcompleted (?:snips_?2|citizen snips) turn\b", re.IGNORECASE)),
+    ("completed_turn_artifact", re.compile(r"\bcompleted [^.!?\n]{1,80} turn\b", re.IGNORECASE)),
     ("injected_memory_context", re.compile(r"<\s*/?\s*memory-context\s*>", re.IGNORECASE)),
     ("daystrom_injected_block", re.compile(r"=== Daystrom (?:Personality Matrix Overlay|DML Active Continuity|DML Retrieved Memory) ===", re.IGNORECASE)),
     ("repeated_role_prefix", re.compile(r"\b(?:user|assistant):\s*\|?\s*(?:user|assistant):", re.IGNORECASE)),

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-OPENCLAW_HOME="${OPENCLAW_HOME:-/Users/markmckeen/.openclaw}"
+OPENCLAW_HOME="${OPENCLAW_HOME:-$HOME/.openclaw}"
 OPENCLAW_WORKSPACE="${OPENCLAW_WORKSPACE:-$OPENCLAW_HOME/workspace}"
 QUEUE_PATH="${1:-$OPENCLAW_WORKSPACE/out/dml_ingest_queue.jsonl}"
 DAYSTROM_DML_HOME="${DAYSTROM_DML_HOME:-$OPENCLAW_HOME/daystrom-dml-v2}"

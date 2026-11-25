@@ -19,7 +19,7 @@ strict_embedding_required: true
 strict_llm_required: true
 
 # Persistence
-storage_dir: /Users/markmckeen/.openclaw/daystrom-dml-v2/data
+storage_dir: ~/.openclaw/daystrom-dml-v2/data
 ingest_persist_mode: dml_only
 persistence:
   enable: true

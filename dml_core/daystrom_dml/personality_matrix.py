@@ -245,7 +245,7 @@ class PersonalityMatrix:
         tendency = self._render_tendencies(active)
         adaptation = self._render_context_adaptation(context, active)
         laws = self._hard_laws()
-        rendered = self._fit_overlay_budget(" ".join(["Identity: Citizen Snips.", f"Current tendency: {tendency}.", f"Context adaptation: {adaptation}.", "Personality is allowed to vary within these rails; it must not override the human, safety, privacy, or the current task.", "Constraints: " + " ".join(laws)]))
+        rendered = self._fit_overlay_budget(" ".join([f"Current tendency: {tendency}.", f"Context adaptation: {adaptation}.", "Personality is allowed to vary within these rails; it must not override the human, safety, privacy, or the current task.", "Constraints: " + " ".join(laws)]))
         scope = self._shape_scope(None, thread_id=thread_id, project_id=project_id, relationship_id=relationship_id or self.relationship_id)
         return {"schema_version": "dpm.replay-overlay.v1", "overlay_id": f"overlay:{scope['primary']}:{scope.get(scope['primary'] + '_id') or 'evolution'}:{self.mode}", "mode": self.mode, "generated_at": str(graph.get("updated_at") or graph.get("created_at") or self._now_iso()), "scope": scope, "retrieval_order_applied": ["evolution_graph", "preference_graph"], "overlay": {"persona_summary": rendered, "style_directives": [f"Current tendency: {tendency}.", f"Context adaptation: {adaptation}."], "do_not_do": laws, "open_questions": [], "max_chars": self.max_overlay_chars, "rendered_text": rendered}, "effective_constraints": {**self._effective_constraints(), "hard_laws_immutable": True}, "sources": [{"source_id": str(graph.get("graph_id") or "evolution-graph:runtime"), "scope": scope["primary"], "kind": "evolution_graph", "included": True, "priority": 0, "confidence": 0.72, "updated_at": str(graph.get("updated_at") or ""), "summary": "Runtime personality assembled from sliding trait/state/environment graph."}], "audit": {"included_source_ids": [str(graph.get("graph_id") or "evolution-graph:runtime")], "excluded_sources": [], "conflicts_detected": [], "notes": ["Evolution overlay is bounded by immutable hard laws."]}, "override_state": self._override_state(None, prompt)}
 
@@ -639,7 +639,7 @@ class PersonalityMatrix:
         """Return the most human-readable phrase for a preference node.
 
         Early active-write extraction often derives short labels from the
-        first few words of a full preference sentence, e.g. "Snips 2 Should
+        first few words of a full preference sentence, e.g. "The Assistant Should
         Preserve The".  The provenance note usually preserves the full user
         preference and is a better replay surface for DPM overlays.
         """
@@ -724,7 +724,7 @@ class PersonalityMatrix:
         return " ".join(deduped)
 
     def _structured_overlay_text(self, directives: list[str], constraints: list[str]) -> str:
-        parts = ["Identity: Citizen Snips."]
+        parts: list[str] = []
         if directives:
             parts.append("Preferences: " + " ".join(directives))
             parts.append("Style: Follow stable preferences when they fit the request.")

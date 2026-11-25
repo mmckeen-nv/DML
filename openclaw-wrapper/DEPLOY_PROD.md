@@ -1,7 +1,7 @@
 # Daystrom DML Production Deploy Checklist
 
 ## 1) Environment
-- [ ] GPU venv exists: `/Users/markmckeen/.openclaw/workspace/.venv-dmlgpu`
+- [ ] GPU venv exists: `~/.openclaw/workspace/.venv-dmlgpu`
 - [ ] CUDA torch active in venv (`torch.cuda.is_available() == True`)
 - [ ] DML config is GPU-only: `skills/daystrom-dml/config/dml_gpu_only.yaml`
 
@@ -14,16 +14,16 @@
 
 ## 3) Run one-command readiness
 ```bash
-source /Users/markmckeen/.openclaw/workspace/.venv-dmlgpu/bin/activate
-/Users/markmckeen/.openclaw/workspace/skills/daystrom-dml/scripts/prod_readiness_check.sh
+source ~/.openclaw/workspace/.venv-dmlgpu/bin/activate
+~/.openclaw/workspace/skills/daystrom-dml/scripts/prod_readiness_check.sh
 ```
 
 Expected: `PASS: production readiness checks completed`
 
 ## 4) Runtime usage
 ```bash
-source /Users/markmckeen/.openclaw/workspace/.venv-dmlgpu/bin/activate
-python3 /Users/markmckeen/.openclaw/workspace/skills/daystrom-dml/scripts/dml_memory.py retrieve \
+source ~/.openclaw/workspace/.venv-dmlgpu/bin/activate
+python3 ~/.openclaw/workspace/skills/daystrom-dml/scripts/dml_memory.py retrieve \
   --query "How do I export USD and what is fallback path?" \
   --top-k 6 \
   --ground-truth-policy low-confidence \

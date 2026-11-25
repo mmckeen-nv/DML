@@ -9,14 +9,14 @@ description: Use the Daystrom Memory Lattice (DML) as a local long-horizon memor
 Attach OpenClaw workflows to a persistent local memory substrate (DML) for ingest + retrieval beyond short chat context.
 
 ## Repo
-- Active local operator wrapper: `/Users/markmckeen/.openclaw/workspace/skills/daystrom-dml`
+- Active local operator wrapper: `~/.openclaw/workspace/skills/daystrom-dml`
 - Portable/install bundle lane: bundle root with `dml/` + `openclaw-wrapper/`
 - Durable-home bundle remains a reference/proof surface, not the current live operator
 - Branch: `openclaw`
 
 ## Durable GPU venv
-- Canonical durable env: `/Users/markmckeen/.openclaw/daystrom-dml-v2/.venv-dml`
-- Activate: `source /Users/markmckeen/.openclaw/daystrom-dml-v2/.venv-dml/bin/activate`
+- Canonical durable env: `~/.openclaw/daystrom-dml-v2/.venv-dml`
+- Activate: `source ~/.openclaw/daystrom-dml-v2/.venv-dml/bin/activate`
 - Required production path: Ollama-backed embeddings + Ollama summarization + FAISS persistence
 - CUDA stack pinned for GPU execution:
   - `torch==2.10.0+cu130`
@@ -141,8 +141,8 @@ Inference pipeline policy:
 ## Benchmark token savings + speed
 Run in the durable GPU venv:
 
-- `source /Users/markmckeen/.openclaw/daystrom-dml-v2/.venv-dml/bin/activate`
-- `python3 /Users/markmckeen/.openclaw/daystrom-dml-v2/openclaw-wrapper/scripts/benchmark_openclaw_memory.py --memories 120 --top-k 6`
+- `source ~/.openclaw/daystrom-dml-v2/.venv-dml/bin/activate`
+- `python3 ~/.openclaw/daystrom-dml-v2/openclaw-wrapper/scripts/benchmark_openclaw_memory.py --memories 120 --top-k 6`
 
 Outputs JSON with:
 - baseline token estimate (naive full-context)
@@ -156,7 +156,7 @@ Outputs JSON with:
 Run before beta-facing changes that touch ingest, retrieve, resume, scoping, or
 compaction-continuity behavior:
 
-- `python3 /Users/markmckeen/.openclaw/daystrom-dml-v2/openclaw-wrapper/scripts/recall_eval.py --output-dir /tmp/dml-recall-eval`
+- `python3 ~/.openclaw/daystrom-dml-v2/openclaw-wrapper/scripts/recall_eval.py --output-dir /tmp/dml-recall-eval`
 
 The eval writes a small isolated fixture store by default, then scores:
 
@@ -172,7 +172,7 @@ run against a specific disposable store, not the production memory store.
 ## Concurrency stress
 Run this before beta releases or multi-agent harness changes:
 
-- `python3 /Users/markmckeen/.openclaw/daystrom-dml-v2/openclaw-wrapper/scripts/stress_harness.py --writes 6 --workers 3 --tenants 2 --sessions 2`
+- `python3 ~/.openclaw/daystrom-dml-v2/openclaw-wrapper/scripts/stress_harness.py --writes 6 --workers 3 --tenants 2 --sessions 2`
 
 The stress harness uses an isolated temporary store by default, launches
 parallel `ingest` subprocesses, verifies durable marker persistence, runs
@@ -185,7 +185,7 @@ concurrent sessions.
 ## Resume quality smoke
 Run after continuity changes:
 
-- `python3 /Users/markmckeen/.openclaw/daystrom-dml-v2/openclaw-wrapper/scripts/resume_quality_smoke.py --sessions 3`
+- `python3 ~/.openclaw/daystrom-dml-v2/openclaw-wrapper/scripts/resume_quality_smoke.py --sessions 3`
 
 The smoke writes several session handoffs to an isolated store, then verifies
 tenant-wide `resume` selects the newest active checkpoint.
@@ -202,7 +202,7 @@ tenant-wide `resume` selects the newest active checkpoint.
 ## Beta readiness gate
 Run before shipping or switching a harness to a store:
 
-- `python3 /Users/markmckeen/.openclaw/daystrom-dml-v2/openclaw-wrapper/scripts/beta_readiness.py --storage-dir "$DML_STORE" --tenant-id openclaw --output-dir /tmp/dml-beta-readiness`
+- `python3 ~/.openclaw/daystrom-dml-v2/openclaw-wrapper/scripts/beta_readiness.py --storage-dir "$DML_STORE" --tenant-id openclaw --output-dir /tmp/dml-beta-readiness`
 
 The gate runs `health`, `verify`, `conflicts`, `audit-tail`, and the isolated
 recall eval, then emits JSON plus optional Markdown. Use

@@ -86,7 +86,7 @@ def test_thread_scope_keeps_precedence_when_relationship_source_is_compatible():
     assert expected["audit"]["relationship_outcome"] == "included"
     assert len(expected["audit"]["notes"]) <= relationship_source["boundedness"]["audit_note_max_items"]
     assert "formal" in thread_source["summary"].lower()
-    assert "concise" in relationship_source["summary"].lower()
+    assert "synthetic" in relationship_source["summary"].lower()
 
 
 

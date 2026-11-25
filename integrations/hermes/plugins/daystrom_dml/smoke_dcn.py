@@ -25,8 +25,8 @@ def _install_stubs(config_block=None) -> None:
     sys.modules["agent.memory_provider"] = memory_provider
 
     hermes_constants = types.ModuleType("hermes_constants")
-    setattr(hermes_constants, "get_default_hermes_root", lambda: Path("/Users/markmckeen/.hermes"))
-    setattr(hermes_constants, "get_hermes_home", lambda: Path("/Users/markmckeen/.hermes"))
+    setattr(hermes_constants, "get_default_hermes_root", lambda: Path("/home/example-user/.hermes"))
+    setattr(hermes_constants, "get_hermes_home", lambda: Path("/home/example-user/.hermes"))
     sys.modules["hermes_constants"] = hermes_constants
 
     hermes_cli = types.ModuleType("hermes_cli")
@@ -61,7 +61,7 @@ def _provider(plugin, *, mode="disabled", decision=None, fail_dcn=False, promoti
             self.overlay_calls += 1
             return {
                 "overlay": {
-                    "rendered_text": "Identity: Citizen Snips.",
+                    "rendered_text": "Identity: Example Assistant.",
                     "style_directives": [],
                     "do_not_do": [],
                 }

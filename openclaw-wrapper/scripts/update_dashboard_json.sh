@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-WS="/Users/markmckeen/.openclaw/workspace"
+WS="$HOME/.openclaw/workspace"
 OUT="/opt/homebrew/lib/node_modules/openclaw/dist/control-ui/assets/dml-savings.json"
 source "$WS/.venv-dmlgpu/bin/activate"
 TMP=$(mktemp)

@@ -1,30 +1,30 @@
 {
   "schema_version": "dpm.replay-overlay.v1",
-  "overlay_id": "overlay:relationship:mark-nv:2026-04-14T10:05:00Z",
+  "overlay_id": "overlay:relationship:example-user:2026-04-14T10:05:00Z",
   "mode": "active-read",
   "generated_at": "2026-04-14T10:05:00Z",
   "scope": {
     "primary": "relationship",
     "thread_id": null,
     "project_id": "project:dpm",
-    "relationship_id": "relationship:mark-nv"
+    "relationship_id": "relationship:example-user"
   },
   "retrieval_order_applied": [
     "relationship",
     "preference_graph"
   ],
   "overlay": {
-    "persona_summary": "Be direct, concise, and privacy-safe.",
+    "persona_summary": "Synthetic formatting: uppercase headings and numbered steps.",
     "style_directives": [
-      "Prefer direct answers over padded phrasing.",
-      "Keep responses concise unless the user explicitly asks for detail."
+      "Use uppercase headings in the synthetic sample.",
+      "Use numbered steps unless the synthetic task explicitly overrides them."
     ],
     "do_not_do": [
       "Do not trade privacy boundaries for speed or directness."
     ],
     "open_questions": [],
     "max_chars": 220,
-    "rendered_text": "Direct, concise, privacy-safe. Prefer clear answers without padding, and keep privacy boundaries intact."
+    "rendered_text": "Synthetic formatting only: uppercase headings and numbered steps; preserve privacy boundaries."
   },
   "effective_constraints": {
     "explicit_instruction_precedence": "always_override",
@@ -34,30 +34,30 @@
   },
   "sources": [
     {
-      "source_id": "relationship:mark-nv",
+      "source_id": "relationship:example-user",
       "scope": "relationship",
       "kind": "relationship_summary",
       "included": true,
       "priority": 1,
       "confidence": 0.94,
       "updated_at": "2026-04-13T18:42:00Z",
-      "summary": "Stable preference for direct, concise assistance."
+      "summary": "Synthetic preference for uppercase headings and numbered steps."
     },
     {
-      "source_id": "preference-graph:relationship:mark-nv",
+      "source_id": "preference-graph:relationship:example-user",
       "scope": "relationship",
       "kind": "preference_graph",
       "included": true,
       "priority": 2,
       "confidence": 0.9,
       "updated_at": "2026-04-14T00:00:00Z",
-      "summary": "Preference graph reinforces directness, concision, and privacy caution."
+      "summary": "Synthetic graph tests uppercase headings, numbered steps and privacy constraints."
     }
   ],
   "audit": {
     "included_source_ids": [
-      "relationship:mark-nv",
-      "preference-graph:relationship:mark-nv"
+      "relationship:example-user",
+      "preference-graph:relationship:example-user"
     ],
     "excluded_sources": [],
     "conflicts_detected": [],

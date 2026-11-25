@@ -1,7 +1,7 @@
 {
   "schema_version": "dpm.preference-graph.v1",
-  "graph_id": "relationship:mark-nv",
-  "subject_id": "user:mark-nv",
+  "graph_id": "relationship:example-user",
+  "subject_id": "user:example-user",
   "generated_at": "2026-04-14T00:00:00Z",
   "default_policy": {
     "explicit_instruction_precedence": "always_override",
@@ -10,28 +10,34 @@
   },
   "nodes": [
     {
-      "id": "pref.directness",
+      "id": "pref.uppercase_headings",
       "kind": "preference_dimension",
-      "label": "Directness",
+      "label": "Uppercase headings",
       "scope": "relationship",
       "state": "active",
-      "weight": 0.92,
-      "confidence": 0.95,
+      "weight": 0.5,
+      "confidence": 0.5,
       "polarity": "prefer_high",
       "value_type": "scalar",
-      "value": {"target": 0.95, "allowed_range": [0.75, 1.0]},
+      "value": {
+        "target": 0.5,
+        "allowed_range": [
+          0.0,
+          1.0
+        ]
+      },
       "evidence": {
-        "support_count": 11,
-        "contradiction_count": 1,
+        "support_count": 2,
+        "contradiction_count": 0,
         "last_supported_at": "2026-04-13T18:42:00Z",
         "last_contradicted_at": "2026-03-29T09:15:00Z"
       },
       "provenance": [
         {
           "type": "relationship_summary",
-          "source_id": "relationship:mark-nv",
+          "source_id": "relationship:example-user",
           "observed_at": "2026-04-13T18:42:00Z",
-          "note": "Direct answers are consistently preferred over padded phrasing."
+          "note": "Synthetic schema case 1: exercises preference_dimension in relationship scope."
         }
       ],
       "constraints": {
@@ -42,28 +48,34 @@
       "updated_at": "2026-04-13T18:42:00Z"
     },
     {
-      "id": "pref.concision",
+      "id": "pref.numbered_steps",
       "kind": "interaction_style",
-      "label": "Concision",
+      "label": "Numbered steps",
       "scope": "relationship",
       "state": "active",
-      "weight": 0.89,
-      "confidence": 0.93,
+      "weight": 0.5,
+      "confidence": 0.5,
       "polarity": "prefer_high",
       "value_type": "scalar",
-      "value": {"target": 0.88, "allowed_range": [0.65, 1.0]},
+      "value": {
+        "target": 0.5,
+        "allowed_range": [
+          0.0,
+          1.0
+        ]
+      },
       "evidence": {
-        "support_count": 9,
-        "contradiction_count": 1,
+        "support_count": 2,
+        "contradiction_count": 0,
         "last_supported_at": "2026-04-12T22:00:00Z",
         "last_contradicted_at": "2026-03-18T11:00:00Z"
       },
       "provenance": [
         {
           "type": "relationship_summary",
-          "source_id": "relationship:mark-nv",
+          "source_id": "relationship:example-user",
           "observed_at": "2026-04-12T22:00:00Z",
-          "note": "Concise assistance is repeatedly reinforced."
+          "note": "Synthetic schema case 2: exercises interaction_style in relationship scope."
         }
       ],
       "constraints": {
@@ -79,13 +91,15 @@
       "label": "Privacy Caution",
       "scope": "relationship",
       "state": "active",
-      "weight": 0.97,
-      "confidence": 0.98,
+      "weight": 0.5,
+      "confidence": 0.5,
       "polarity": "binary_yes",
       "value_type": "boolean",
-      "value": {"enabled": true},
+      "value": {
+        "enabled": true
+      },
       "evidence": {
-        "support_count": 12,
+        "support_count": 2,
         "contradiction_count": 0,
         "last_supported_at": "2026-04-13T09:00:00Z",
         "last_contradicted_at": null
@@ -95,7 +109,7 @@
           "type": "policy_summary",
           "source_id": "workspace:AGENTS.md",
           "observed_at": "2026-04-13T09:00:00Z",
-          "note": "Private data should remain private across sessions and channels."
+          "note": "Synthetic schema case 3: exercises safety_boundary in relationship scope."
         }
       ],
       "constraints": {
@@ -109,11 +123,11 @@
   "edges": [
     {
       "id": "edge.directness.supports.concision",
-      "from": "pref.directness",
-      "to": "pref.concision",
+      "from": "pref.uppercase_headings",
+      "to": "pref.numbered_steps",
       "relation": "supports",
-      "weight": 0.81,
-      "confidence": 0.86,
+      "weight": 0.5,
+      "confidence": 0.5,
       "scope": "relationship",
       "evidence": {
         "support_count": 7,
@@ -124,7 +138,7 @@
           "type": "project_summary",
           "source_id": "project:dpm",
           "observed_at": "2026-04-11T17:20:00Z",
-          "note": "Direct and concise responses are commonly reinforced together."
+          "note": "Synthetic edge case 1: exercises supports."
         }
       ],
       "updated_at": "2026-04-11T17:20:00Z"
@@ -132,10 +146,10 @@
     {
       "id": "edge.privacy.constrains.directness",
       "from": "value.privacy_caution",
-      "to": "pref.directness",
+      "to": "pref.uppercase_headings",
       "relation": "constrains",
-      "weight": 0.72,
-      "confidence": 0.9,
+      "weight": 0.5,
+      "confidence": 0.5,
       "scope": "relationship",
       "evidence": {
         "support_count": 4,
@@ -146,7 +160,7 @@
           "type": "policy_summary",
           "source_id": "workspace:AGENTS.md",
           "observed_at": "2026-04-10T14:00:00Z",
-          "note": "Directness is allowed, but not at the expense of privacy boundaries."
+          "note": "Synthetic edge case 2: exercises constrains."
         }
       ],
       "updated_at": "2026-04-10T14:00:00Z"
@@ -155,7 +169,7 @@
   "audit": {
     "source_count": 4,
     "included_sources": [
-      "relationship:mark-nv",
+      "relationship:example-user",
       "project:dpm",
       "workspace:AGENTS.md",
       "workspace:USER.md"

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-WS="/Users/markmckeen/.openclaw/workspace"
-DAYSTROM_DML_HOME="${DAYSTROM_DML_HOME:-/Users/markmckeen/.openclaw/daystrom-dml-v2}"
+WS="$HOME/.openclaw/workspace"
+DAYSTROM_DML_HOME="${DAYSTROM_DML_HOME:-$HOME/.openclaw/daystrom-dml-v2}"
 DML_SCRIPT="$WS/skills/daystrom-dml/scripts/dml_memory.py"
 CONFIG_PATH="${DML_CONFIG_PATH:-$DAYSTROM_DML_HOME/openclaw-wrapper/config/dml_gpu_only.yaml}"
 FRESH_STORE_DEFAULT="${DML_FRESH_STORE_DEFAULT:-/tmp/dml-ollama-fresh-store}"

@@ -234,9 +234,9 @@ def run_worker(
     storage_dir: Path,
     launcher: Optional[Path] = None,
     config_path: Optional[Path] = None,
-    session_id: str = "snips2-hermes-default",
+    session_id: str = "hermes-default",
     tenant_id: str = "openclaw",
-    client_id: str = "snips2",
+    client_id: str = "hermes",
     model: str = _DEFAULT_MODEL,
     ollama_url: str = _DEFAULT_OLLAMA_URL,
     min_events: int = 1,
@@ -282,9 +282,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--storage-dir", required=True, type=Path)
     parser.add_argument("--launcher", type=Path)
     parser.add_argument("--config-path", type=Path)
-    parser.add_argument("--session-id", default="snips2-hermes-default")
+    parser.add_argument("--session-id", default="hermes-default")
     parser.add_argument("--tenant-id", default="openclaw")
-    parser.add_argument("--client-id", default="snips2")
+    parser.add_argument("--client-id", default="hermes")
     parser.add_argument("--model", default=os.environ.get("DAYSTROM_COOKBOOK_MODEL", _DEFAULT_MODEL))
     parser.add_argument("--ollama-url", default=os.environ.get("OLLAMA_HOST", _DEFAULT_OLLAMA_URL))
     parser.add_argument("--min-events", type=int, default=1)

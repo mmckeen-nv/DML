@@ -37,7 +37,7 @@ A replay overlay document is a JSON object with this top-level shape:
     "primary": "thread",
     "thread_id": "thread:self-architecture-portrait",
     "project_id": "project:dpm",
-    "relationship_id": "relationship:mark-nv"
+    "relationship_id": "relationship:example-user"
   },
   "retrieval_order_applied": [
     "explicit_current_turn",
@@ -49,7 +49,7 @@ A replay overlay document is a JSON object with this top-level shape:
   "overlay": {
     "persona_summary": "Be direct, concise, and respect privacy boundaries.",
     "style_directives": [
-      "Prefer concise answers over padded phrasing.",
+      "Use uppercase headings in the synthetic sample.",
       "Keep thread-specific formal tone when compatible with the current request."
     ],
     "do_not_do": [
@@ -184,7 +184,7 @@ The `audit` object remains summary-sized and machine-readable.
   "included_source_ids": [
     "turn:current",
     "thread:self-architecture-portrait",
-    "relationship:mark-nv"
+    "relationship:example-user"
   ],
   "excluded_sources": [
     {

@@ -54,14 +54,14 @@ A relationship continuity source document is a JSON object with this shape:
 ```json
 {
   "schema_version": "dpm.relationship-source.v1",
-  "source_id": "relationship:mark-nv",
-  "relationship_id": "relationship:mark-nv",
+  "source_id": "relationship:example-user",
+  "relationship_id": "relationship:example-user",
   "scope": "relationship",
-  "label": "Mark_NV relationship continuity",
-  "summary": "Stable cross-thread preference for direct, concise, privacy-safe assistance.",
+  "label": "ExampleUser relationship continuity",
+  "summary": "Synthetic formatting scenario: uppercase headings and numbered steps.",
   "directives": [
-    "Prefer concise answers over padded phrasing.",
-    "Keep continuity guidance summary-sized and audit-friendly."
+    "Use uppercase headings in the synthetic sample.",
+    "Use numbered steps in the synthetic sample."
   ],
   "constraints": [
     "Do not override explicit current-turn instructions.",

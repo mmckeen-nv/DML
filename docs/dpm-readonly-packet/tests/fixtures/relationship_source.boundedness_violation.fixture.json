@@ -1,13 +1,13 @@
 {
   "schema_version": "dpm.relationship-source.v1",
-  "source_id": "relationship:mark-nv",
-  "relationship_id": "relationship:mark-nv",
+  "source_id": "relationship:example-user",
+  "relationship_id": "relationship:example-user",
   "scope": "relationship",
-  "label": "Mark_NV relationship continuity",
+  "label": "ExampleUser relationship continuity",
   "summary": "This relationship source intentionally exceeds the bounded summary cap by carrying too much runtime-facing explanation, transcript-like detail, and cross-thread narrative material for Packet 4 validation.",
   "directives": [
-    "Prefer concise answers over padded phrasing.",
-    "Keep continuity guidance summary-sized and audit-friendly.",
+    "Use uppercase headings in the synthetic sample.",
+    "Use numbered steps in the synthetic sample.",
     "Avoid transcript-like relationship narration in overlays.",
     "Preserve privacy-safe defaults.",
     "Do not exceed bounded read contracts."

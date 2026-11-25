@@ -224,7 +224,7 @@ dml_core/daystrom_dml/        Core durable lattice, adapters, provider, DPM, DCN
 dml_core/daystrom_dml/context/ DCM contracts, pages, working sets, checkpoints, runtime adapters, KV fabric
 deploy/vllm-cooperative/      Version-pinned cooperative-vLLM deployment and rollback workflow
 openclaw-wrapper/             Stable JSON wrapper contract for agent harnesses
-integrations/hermes/          Hermes/Citizen Snips memory-provider plugin
+integrations/hermes/          Hermes memory-provider plugin
 skills/                       OpenClaw-style skill and helper scripts
 scripts/                      Utility, benchmark, import, and audit scripts
 dml_mcp/                      MCP server entrypoint
@@ -574,7 +574,7 @@ python openclaw-wrapper/scripts/dml_memory.py --storage-dir ./data/dml backend-p
 
 ---
 
-## Hermes / Citizen Snips integration
+## Hermes integration
 
 The Hermes plugin lives in `integrations/hermes/plugins/daystrom_dml/`.
 
