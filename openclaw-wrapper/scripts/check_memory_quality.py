@@ -28,7 +28,7 @@ def load_items(state_file: Path) -> list[dict]:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    durable_home = Path(os.environ.get("DAYSTROM_DML_HOME", "/Users/markmckeen/.openclaw/daystrom-dml-v2")).resolve()
+    durable_home = Path(os.environ.get("DAYSTROM_DML_HOME", str(Path.home() / ".openclaw/daystrom-dml-v2"))).resolve()
     ap.add_argument("--state-file", default=str(durable_home / "data" / "dml_state.jsonl"))
     ap.add_argument("--old-fidelity-threshold", type=float, default=0.55)
     ap.add_argument("--min-old-summary-ratio", type=float, default=0.60)

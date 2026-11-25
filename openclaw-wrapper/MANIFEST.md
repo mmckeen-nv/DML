@@ -3,7 +3,7 @@
 This directory is a mirror of the active OpenClaw-facing Daystrom DML wrapper bundle from the workspace.
 
 ## Source of mirror
-- `/Users/markmckeen/.openclaw/workspace/skills/daystrom-dml/`
+- `~/.openclaw/workspace/skills/daystrom-dml/`
 
 ## Mirrored files
 
@@ -29,7 +29,7 @@ This directory is a mirror of the active OpenClaw-facing Daystrom DML wrapper bu
 This is currently a **preserved mirror bundle**, not the live operational entrypoint.
 
 Live operational entrypoint remains:
-- `/Users/markmckeen/.openclaw/workspace/skills/daystrom-dml/scripts/dml_memory.py`
+- `~/.openclaw/workspace/skills/daystrom-dml/scripts/dml_memory.py`
 
 ## Why mirrored separately
 The earlier staged wrapper under `dml/skills/scripts/` did not match the active command surface.

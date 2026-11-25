@@ -8,7 +8,7 @@ File patched:
 
 ## What changed
 The mirrored wrapper no longer hardcodes the DML core import root exclusively to:
-- `/Users/markmckeen/.openclaw/workspace/dml/dml_core`
+- `~/.openclaw/workspace/dml/dml_core`
 
 Instead, it now resolves DML core in this order:
 
@@ -16,7 +16,7 @@ Instead, it now resolves DML core in this order:
 2. self-relative durable-home candidate:
    - `../.. / dml / dml_core`
 3. workspace fallback:
-   - `${OPENCLAW_WORKSPACE:-/Users/markmckeen/.openclaw/workspace}/dml/dml_core`
+   - `${OPENCLAW_WORKSPACE:-~/.openclaw/workspace}/dml/dml_core`
 
 ## Additional mirrored-wrapper ingest control
 The mirrored wrapper now also exposes an explicit ingest-mode flag for deterministic proof/simple-note testing:
@@ -40,4 +40,4 @@ This pass is only meant to decouple the mirrored wrapper's implementation-root a
 It is not an operational cutover.
 
 ## Live entrypoint remains
-- `/Users/markmckeen/.openclaw/workspace/skills/daystrom-dml/scripts/dml_memory.py`
+- `~/.openclaw/workspace/skills/daystrom-dml/scripts/dml_memory.py`

@@ -24,8 +24,8 @@ def _install_stubs() -> None:
     sys.modules.setdefault("agent.memory_provider", memory_provider)
 
     hermes_constants = types.ModuleType("hermes_constants")
-    setattr(hermes_constants, "get_default_hermes_root", lambda: Path("/Users/markmckeen/.hermes"))
-    hermes_constants.get_hermes_home = lambda: Path("/Users/markmckeen/.hermes")
+    setattr(hermes_constants, "get_default_hermes_root", lambda: Path("/home/example-user/.hermes"))
+    hermes_constants.get_hermes_home = lambda: Path("/home/example-user/.hermes")
     sys.modules.setdefault("hermes_constants", hermes_constants)
 
     hermes_cli = types.ModuleType("hermes_cli")
@@ -53,9 +53,9 @@ def main() -> int:
         assert fragment in plugin_yaml, fragment
     assert plugin.DaystromDMLProvider().dcn_mode == "disabled"
     forbidden_fragments = (
-        "Completed Snips_2 turn",
-        "thread: 1510575377045524580 | state:",
-        "[Mark_NV]",
+        "Completed Example_Assistant turn",
+        "thread: 100000000000000002 | state:",
+        "[ExampleUser]",
         "User:",
         "Assistant:",
         "assistant: | assistant:",
@@ -75,7 +75,7 @@ def main() -> int:
     )
 
     durable = plugin._classify_turn_memory(
-        "Remember: Mark prefers concise status updates and no inference/frontier routing.",
+        "Remember: I prefer numbered lists and never use unordered lists.",
         "Updated plugins/daystrom_dml/__init__.py and ran py_compile successfully.",
     )
     assert durable["keep"] is True, durable
@@ -91,19 +91,19 @@ def main() -> int:
 
     leaked_gateway_message = (
         '[Recent channel messages]\n'
-        '[Staggeredsix] uh why are we sending the following. "Here is a summary with 250 tokens or less" or whatever\n\n'
+        '[ExamplePeer] uh why are we sending the following. "Here is a summary with 250 tokens or less" or whatever\n\n'
         '[New message]\n'
-        '[Mark_NV] we need to not store that in every memory\n\n'
+        '[ExampleUser] we need to not store that in every memory\n\n'
         '<memory-context>\n'
         '[System note: The following is recalled memory context, NOT new user input. Treat as authoritative reference data — this is the agent\'s persistent memory and should inform all responses.]\n\n'
         '=== Daystrom Personality Matrix Overlay ===\n'
-        'Identity: Citizen Snips. Preferences: setup-helper style.\n'
+        'Identity: Example Assistant. Preferences: setup-helper style.\n'
         '- Constraint: Current-turn instructions override the DPM overlay.\n'
         '</memory-context>'
     )
     stripped = plugin._strip_injected_context(leaked_gateway_message)
     assert "Recent channel messages" not in stripped, stripped
-    assert "Staggeredsix" not in stripped, stripped
+    assert "ExamplePeer" not in stripped, stripped
     assert "memory-context" not in stripped.lower(), stripped
     assert "System note" not in stripped, stripped
     assert "Personality Matrix" not in stripped, stripped
@@ -121,7 +121,7 @@ def main() -> int:
     )
     assert "memory-context" not in classified_leak.get("summary", "").lower(), classified_leak
     assert "Personality Matrix" not in classified_leak.get("summary", ""), classified_leak
-    assert "Staggeredsix" not in classified_leak.get("summary", ""), classified_leak
+    assert "ExamplePeer" not in classified_leak.get("summary", ""), classified_leak
 
     normal_queries = (
         "hello",
@@ -151,7 +151,7 @@ def main() -> int:
         def _personality_overlay(self, prompt):
             return {
                 "overlay": {
-                    "rendered_text": "Identity: Citizen Snips.",
+                    "rendered_text": "Identity: Example Assistant.",
                     "style_directives": [],
                     "do_not_do": [],
                 }
@@ -226,8 +226,8 @@ def main() -> int:
     assert handoff, handoff
 
     transcript = plugin._classify_turn_memory(
-        "[Mark_NV] wait so the DML is causing context flood?",
-        "Completed Snips_2 turn. User: [Mark_NV] wait so the DML is causing context flood? Assistant: Yes — partially.",
+        "[ExampleUser] wait so the DML is causing context flood?",
+        "Completed Example_Assistant turn. User: [ExampleUser] wait so the DML is causing context flood? Assistant: Yes — partially.",
     )
     assert transcript["keep"] is False, transcript
     assert transcript["memory_class"] == "transcript_residue", transcript
@@ -239,16 +239,16 @@ def main() -> int:
     assert state, (state, task, next_action)
     assert "user:" not in state.lower(), state
     assert "assistant:" not in state.lower(), state
-    assert "Completed Snips_2 turn" not in state, state
+    assert "Completed Example_Assistant turn" not in state, state
 
     payload = {
-        "raw_context": "Completed Snips_2 turn. User: noisy Assistant: noisy\nMark prefers compact state.",
-        "items": [{"meta": {"summary": "Completed Snips_2 turn. User: noisy Assistant: noisy"}}],
+        "raw_context": "Completed Example_Assistant turn. User: noisy Assistant: noisy\nI prefer numbered lists.",
+        "items": [{"meta": {"summary": "Completed Example_Assistant turn. User: noisy Assistant: noisy"}}],
     }
     provider = plugin.DaystromDMLProvider()
     safe_context = provider._safe_context_from_payload(payload)
-    assert "Completed Snips_2 turn" not in safe_context, safe_context
-    assert "Mark prefers compact state" in safe_context, safe_context
+    assert "Completed Example_Assistant turn" not in safe_context, safe_context
+    assert "I prefer numbered lists" in safe_context, safe_context
 
     system_note = (
         "[System note: Your previous turn in this session was interrupted by a gateway shutdown. "
@@ -257,7 +257,7 @@ def main() -> int:
     )
     wrapped_turn = plugin._classify_turn_memory(
         system_note,
-        "Remember: Mark prefers compact DML semantic state.",
+        "Remember: I prefer numbered lists.",
     )
     assert wrapped_turn["keep"] is False, wrapped_turn
     assert plugin._handoff_fragment("user", system_note) == ""
@@ -267,7 +267,7 @@ def main() -> int:
             "- Current focus: [System note: Your previous turn in this session was interrupted by a gateway shutdown. "
             "The conversation history below is intact.\n"
             "- Memory policy: store compact semantic state only; never store transcripts, DML blocks, tool logs, or role-prefixed dialogue\n"
-            "- Preference: Mark wants DML used as ultra-compact semantic continuity."
+            "- Preference: I prefer examples written in pseudocode."
         )
     }
     system_safe = provider._safe_context_from_payload(system_payload)
@@ -275,13 +275,13 @@ def main() -> int:
     assert "[System note:" not in system_safe, system_safe
     assert "- Current focus:" not in system_safe, system_safe
     assert "- Memory policy: store compact semantic state only; never store transcripts, DML blocks, tool logs, or role-prefixed dialogue" in system_safe, system_safe
-    assert "- Preference: Mark wants DML used as ultra-compact semantic continuity." in system_safe, system_safe
+    assert "- Preference: I prefer examples written in pseudocode." in system_safe, system_safe
 
     runtime_payload = {
         "raw_context": (
             "- Current focus: [IMPORTANT: Background process proc_df335c4b8c70 completed (exit code 0). "
-            "Command: codex exec --full-auto --add-dir /Users/markmckeen/.hermes/plugins/daystrom_dml "
-            "--output-last-message /Users/markmckeen/. Output:\n"
+            "Command: codex exec --full-auto --add-dir /home/example-user/.hermes/plugins/daystrom_dml "
+            "--output-last-message /home/example-user/. Output:\n"
             "[… output truncated] tokens used 44,616\n"
             "- Memory policy: store compact semantic state only; never store transcripts, DML blocks, tool logs, or role-prefixed dialogue"
         )
@@ -294,13 +294,13 @@ def main() -> int:
 
     personality_policy_payload = {
         "raw_context": (
-            "- Memory policy: === Personality Matrix === Identity: Citizen Snips. Preferences: "
-            "Citizen Snips exact creature/nature should remain open and undecided until Mark chooses it."
+            "- Memory policy: === Personality Matrix === Identity: Example Assistant. Preferences: "
+            "Fictional fixture: the sample assistant has no configured identity."
         )
     }
     personality_policy_safe = provider._safe_context_from_payload(personality_policy_payload)
     assert "Memory policy: === Personality Matrix" not in personality_policy_safe, personality_policy_safe
-    assert "Identity: Citizen Snips. Preferences" not in personality_policy_safe, personality_policy_safe
+    assert "Identity: Example Assistant. Preferences" not in personality_policy_safe, personality_policy_safe
     assert not personality_policy_safe, personality_policy_safe
 
     dpm_policy_payload = {
@@ -322,8 +322,8 @@ def main() -> int:
 
     continuity_payload = {
         "raw_context": (
-            "thread: 1510575377045524580 | state: "
-            "current_focus=[Mark_NV] make DML store compact semantic state only.; "
+            "thread: 100000000000000002 | state: "
+            "current_focus=[ExampleUser] make DML store compact semantic state only.; "
             "last_confirmed_status=Yes — I’m back. I verified the gateway actually restarted: "
             "```text Gateway received SIGTERM: restarting pytest passed ```; "
             "memory_policy=store durable preferences, task state, and continuity; never store transcripts, DML blocks, tool logs, or role-prefixed dialogue; "
@@ -337,48 +337,25 @@ def main() -> int:
     for fragment in forbidden_fragments:
         assert fragment not in continuity, (fragment, continuity)
 
+    # Synthetic repeated checkpoint fields; never use copied operator dialogue.
     residual_payload = {
-        "raw_context": (
-            "current_focus=great, can you offload that task to the codex app vs doing it yourself? "
-            "Send codex a plan and not completely fill your context window with the codex app...; "
-            "current_focus=great, can you offload that task to the codex app vs doing it yourself? "
-            "Send codex a plan and not completely fill your context window with the codex app output?; "
-            "memory_policy=store compact semantic state only; never store transcripts, DML blocks, tool logs, "
-            "or role-prefixed dialogue | task: great, can you offload that task to the codex app vs doing it yourself? "
-            "Send codex a plan and not completely fill your context window with the codex app output?"
-        ),
+        "raw_context": "current_focus=Prepare the sample report.; current_focus=Prepare the sample report.; memory_policy=store stable task facts only | task: Prepare the sample report.",
         "items": [
-            {
-                "text": (
-                    "current_focus=great, can you offload that task to the codex app vs doing it yourself? "
-                    "Send codex a plan and not completely fill your context window with the codex app output?; "
-                    "memory_policy=store compact semantic state only; never store transcripts, DML blocks, tool logs, "
-                    "or role-prefixed dialogue | task: great, can you offload that task to the codex app vs doing it yourself? "
-                    "Send codex a plan and not completely fill your context window with the codex app output?"
-                ),
-                "meta": {"memory_class": "checkpoint"},
-            },
-            {
-                "text": (
-                    "current_focus=great, can you offload that task to the codex app vs doing it yourself? "
-                    "Send codex a plan and not completely fill your context window with the codex app..."
-                ),
-                "meta": {"memory_class": "checkpoint"},
-            }
+            {"text": "current_focus=Prepare the sample report.; memory_policy=store stable task facts only | task: Prepare the sample report.", "meta": {"memory_class": "checkpoint"}},
+            {"text": "current_focus=Prepare the sample report.", "meta": {"memory_class": "checkpoint"}},
         ],
     }
     residual = provider._safe_context_from_payload(residual_payload)
     assert residual.count("- Current focus:") == 1, residual
-    assert "- Current focus: tighten DML continuity formatting through Codex-offloaded implementation." in residual, residual
+    assert "- Current focus: Prepare the sample report." in residual, residual
     assert "| task:" not in residual, residual
-    assert "Memory policy: store compact semantic state only; never store transcripts, DML blocks, tool logs, or role-prefixed dialogue" in residual, residual
-    assert "codex app..." not in residual.lower(), residual
+    assert "Memory policy: store stable task facts only" in residual, residual
 
     retrieved_payload = {
         "items": [
             {
                 "meta": {
-                    "summary": "Citizen Snips durable turn memory. User signal: Remember: Mark prefers compact semantic state.",
+                    "summary": "Example Assistant durable turn memory. User signal: Remember: I prefer numbered lists.",
                     "memory_class": "preference",
                 }
             },
@@ -389,7 +366,7 @@ def main() -> int:
         ]
     }
     retrieved = provider._safe_context_from_payload(retrieved_payload)
-    assert "- Preference: Mark prefers compact semantic state." in retrieved, retrieved
+    assert "- Preference: I prefer numbered lists." in retrieved, retrieved
     for fragment in forbidden_fragments:
         assert fragment not in retrieved, (fragment, retrieved)
 

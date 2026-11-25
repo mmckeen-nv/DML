@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-WS="/Users/markmckeen/.openclaw/workspace"
+WS="$HOME/.openclaw/workspace"
 VENV="$WS/.venv-dmlgpu"
 STORE="$WS/data/dml-gpu-prod"
 CLI="$WS/skills/daystrom-dml/scripts/dml_memory.py"

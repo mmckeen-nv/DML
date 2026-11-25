@@ -21,8 +21,8 @@ A preference graph document is a JSON object with this top-level shape:
 ```json
 {
   "schema_version": "dpm.preference-graph.v1",
-  "graph_id": "rel:mark-nv",
-  "subject_id": "user:mark-nv",
+  "graph_id": "rel:example-user",
+  "subject_id": "user:example-user",
   "generated_at": "2026-04-14T00:00:00Z",
   "default_policy": {
     "explicit_instruction_precedence": "always_override",
@@ -50,9 +50,9 @@ Each node represents a preference dimension, value, instruction-derived constrai
 
 ```json
 {
-  "id": "pref.directness",
+  "id": "pref.uppercase_headings",
   "kind": "preference_dimension",
-  "label": "Directness",
+  "label": "Uppercase headings",
   "scope": "relationship",
   "state": "active",
   "weight": 0.86,
@@ -114,8 +114,8 @@ Each edge expresses a directional relationship between two nodes.
 ```json
 {
   "id": "edge.directness.supports.concision",
-  "from": "pref.directness",
-  "to": "pref.concision",
+  "from": "pref.uppercase_headings",
+  "to": "pref.numbered_steps",
   "relation": "supports",
   "weight": 0.74,
   "confidence": 0.79,
@@ -177,7 +177,7 @@ The `audit` object should remain summary-sized:
   "included_sources": [
     "thread:self-architecture-portrait",
     "project:dpm",
-    "relationship:mark-nv"
+    "relationship:example-user"
   ],
   "excluded_sources": [
     {

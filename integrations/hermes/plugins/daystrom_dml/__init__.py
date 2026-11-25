@@ -1,4 +1,4 @@
-"""Daystrom DML memory provider for Hermes/Citizen Snips.
+"""Daystrom DML memory provider for Hermes.
 
 This provider intentionally uses the Hermes-owned Daystrom DML launcher,
 source tree, venv, and runtime store. It does not route model inference
@@ -74,7 +74,7 @@ _SCAFFOLD_RE = re.compile(
     re.IGNORECASE,
 )
 _SMOKE_TEST_RE = re.compile(
-    r"\b(?:smoke[- ]?test|self[- ]?test|test record|pre[- ]?fix|completed snips_?2 turn|completed citizen snips turn)\b",
+    r"\b(?:smoke[- ]?test|self[- ]?test|test record|pre[- ]?fix|completed [^.!?\n]{1,80} turn)\b",
     re.IGNORECASE,
 )
 _TOOL_EXHAUST_RE = re.compile(
@@ -199,8 +199,8 @@ def _iteration_extension_decision(run_state: Dict[str, Any]) -> Dict[str, Any]:
 
 
 _DURABLE_PATTERNS: Tuple[Tuple[str, re.Pattern[str]], ...] = (
-    ("preference", re.compile(r"\b(?:i|we|mark)\s+(?:prefers?|likes?|wants?|needs?|expects?)\b|\bplease\s+(?:prefer|use|keep|make|remember|avoid)\b|\bmore\s+[^.!?]{1,80}\bless\s+|\bless\s+[^.!?]{1,80}\bmore\s+|\btoo\s+(?:mechanical|rigid|formal|verbose|terse)\b", re.IGNORECASE)),
-    ("identity", re.compile(r"\b(?:assistant identity|citizen snips|snips_?2|you are citizen snips)\b", re.IGNORECASE)),
+    ("preference", re.compile(r"\b(?:i|we|the user)\s+(?:prefers?|likes?|wants?|needs?|expects?)\b|\bplease\s+(?:prefer|use|keep|make|remember|avoid)\b|\bmore\s+[^.!?]{1,80}\bless\s+|\bless\s+[^.!?]{1,80}\bmore\s+|\btoo\s+(?:mechanical|rigid|formal|verbose|terse)\b", re.IGNORECASE)),
+    ("identity", re.compile(r"\b(?:assistant identity|your name is|call yourself)\b", re.IGNORECASE)),
     ("constraint", re.compile(r"\b(?:do not|don't|never|always|must|should|explicit(?:ly)? instructed|current-turn instructions?)\b", re.IGNORECASE)),
     ("artifact", re.compile(r"\b(?:changed|updated|added|implemented|fixed|created|wrote|patched|configured|wired|compiled)\b.*(?:/[^\s]+|\b[\w.-]+\.(?:py|yaml|yml|json|md|sh|txt)\b)", re.IGNORECASE)),
     ("validation", re.compile(r"\b(?:test|pytest|py_compile|validation|smoke script|compile)\b.*\b(?:pass(?:ed)?|fail(?:ed)?|error|blocked|ran|run)\b", re.IGNORECASE)),
@@ -254,7 +254,7 @@ _TRANSIENT_READ_TOOLS = {"read_file", "search_files", "browser_console"}
 _TRANSIENT_READ_MAX_RESULT_CHARS = 1200
 _TRANSIENT_READ_MAX_DURATION = 2.0
 _TRANSCRIPT_RESIDUE_RE = re.compile(
-    r"(?:\bCompleted\s+(?:Snips_?2|Citizen Snips)\s+turn\b|"
+    r"(?:\bCompleted\s+[^.!?\n]{1,80}\s+turn\b|"
     r"\b(?:User|Assistant):\s|"
     r"\bassistant:\s*\|\s*assistant:\b|"
     r"===\s*Daystrom\s+(?:DML|Personality)|"
@@ -281,7 +281,7 @@ _SYSTEM_WRAPPER_RE = re.compile(
 _PERSONALITY_OVERLAY_RE = re.compile(
     r"(?:"
     r"===\s*(?:Daystrom\s+)?Personality Matrix(?:\s+Overlay)?\s*===|"
-    r"\bIdentity:\s*Citizen Snips\.\s*Preferences:|"
+    r"\bIdentity:\s*[^.\n]{1,80}\.\s*Preferences:|"
     r"\bConstraint:\s*Current-turn instructions override the DPM overlay\b|"
     r"\bDPM overlay\b"
     r")",
@@ -315,7 +315,7 @@ _MEMORY_REHYDRATION_RE = re.compile(
 _EXPLICIT_MEMORY_RECALL_RE = re.compile(
     r"(?:"
     r"\b(?:what|where|when|why|how)\b.{0,80}\b(?:did|do|had)\s+we\s+(?:decide|agree|choose|settle|plan|say)\b|"
-    r"\b(?:what|where|when|why|how)\b.{0,80}\b(?:did|do|had)\s+(?:i|you|mark)\s+(?:decide|agree|choose|settle|plan|say|ask|tell)\b|"
+    r"\b(?:what|where|when|why|how)\b.{0,80}\b(?:did|do|had)\s+(?:i|you|the user)\s+(?:decide|agree|choose|settle|plan|say|ask|tell)\b|"
     r"\b(?:recall|remember|remind me|look up|retrieve)\b.{0,80}\b(?:memory|memories|decision|decisions|context|what we|what i|what you|yesterday|earlier|last time|previously)\b|"
     r"\b(?:what did we|what was the|what were the)\b.{0,80}\b(?:yesterday|earlier|last time|previously)\b"
     r")",
@@ -419,7 +419,7 @@ def _strip_dialogue_noise(value: str) -> str:
     text = _DISCORD_PREFIX_RE.sub("", text)
     text = re.sub(r"\b(?:user|assistant):\s*", "", text, flags=re.IGNORECASE)
     text = re.sub(r"\b(?:thread|state)\s*:\s*[^|;]*\|?", " ", text, flags=re.IGNORECASE)
-    text = text.replace("Citizen Snips durable turn memory.", " ")
+    text = re.sub(r"\b[^.!?\n]{1,80} durable turn memory\.", " ", text, flags=re.IGNORECASE)
     text = text.replace("Durable Hermes workflow memory.", " ")
     text = re.sub(r"\b(?:User signal|Assistant outcome)\s*:\s*", "", text, flags=re.IGNORECASE)
     text = re.sub(r"\bRemember\s*:\s*", "", text, flags=re.IGNORECASE)
@@ -454,8 +454,6 @@ def _semantic_label_value(label: str, value: str, *, limit: int = 220) -> str:
             maxsplit=1,
             flags=re.IGNORECASE,
         )[0].strip(" -;|")
-    elif label == "Current focus" and re.search(r"\boffload\b.*\bcodex\b|\bcodex\b.*\boffload\b", safe, re.IGNORECASE):
-        safe = "tighten DML continuity formatting through Codex-offloaded implementation."
     return safe
 
 
@@ -850,7 +848,7 @@ def _continuity_state_from_messages(messages: List[Dict[str, Any]]) -> Tuple[str
         state_parts.append("last_confirmed_status=" + _fit_sentence_boundary(latest_assistant, 260))
     state_parts.append("memory_policy=store compact semantic state only; never store transcripts, DML blocks, tool logs, or role-prefixed dialogue")
     state = _safe_memory_text("; ".join(state_parts), limit=700)
-    task = _safe_memory_text(latest_user or "Maintain Citizen Snips continuity using compact DML state.", limit=220)
+    task = _safe_memory_text(latest_user or "Maintain task continuity using compact DML state.", limit=220)
     next_action = "Continue from compact DML state and retrieve only relevant durable facts."
     return state, task, next_action
 
@@ -868,7 +866,7 @@ class DaystromDMLProvider(MemoryProvider):
         self.store_dir = _resolve_path(self._cfg.get("storage_dir"), integration_dir / "stores" / "hermes-runtime-store")
         self.config_path = _resolve_path(self._cfg.get("config_path"), integration_dir / "source" / "openclaw-wrapper" / "config" / "dml_gpu_only.yaml")
         self.tenant_id = str(self._cfg.get("tenant_id") or "openclaw")
-        self.client_id = self._cfg.get("client_id") or "snips2"
+        self.client_id = self._cfg.get("client_id") or "hermes"
         self.top_k = int(self._cfg.get("top_k") or 6)
         self.timeout = float(self._cfg.get("timeout_seconds") or 20)
         self.max_context_chars = int(self._cfg.get("max_context_chars") or 5000)
@@ -888,8 +886,8 @@ class DaystromDMLProvider(MemoryProvider):
         self._session_id = ""
         self._thread_id = ""
         self._chat_id = ""
-        self._relationship_id = str(self._cfg.get("relationship_id") or "relationship:mark-snips2")
-        self._project_id = str(self._cfg.get("project_id") or "project:snips2")
+        self._relationship_id = str(self._cfg.get("relationship_id") or "relationship:runtime")
+        self._project_id = str(self._cfg.get("project_id") or "project:runtime")
         self._last_sync_key = ""
         self._lock = threading.Lock()
         self._dcn_observations: List[Dict[str, Any]] = []
@@ -981,10 +979,10 @@ class DaystromDMLProvider(MemoryProvider):
         thread = str(kwargs.get("thread_id") or "").strip()
         chat = str(kwargs.get("chat_id") or "").strip()
         if thread:
-            return f"snips2-discord-{thread}"
+            return f"hermes-discord-{thread}"
         if chat:
-            return f"snips2-discord-{chat}"
-        return session_id or "snips2-hermes-default"
+            return f"hermes-discord-{chat}"
+        return session_id or "hermes-default"
 
     def system_prompt_block(self) -> str:
         return (
@@ -1132,7 +1130,7 @@ class DaystromDMLProvider(MemoryProvider):
         query = _clean_text(query, 1200)
         if not query:
             return ""
-        effective_session = self._session_id or session_id or "snips2-hermes-default"
+        effective_session = self._session_id or session_id or "hermes-default"
         if self.dcn_mode in {"active_read", "active_learn"}:
             gates = self._active_read_gates(query, session_id=effective_session)
             include_dpm = bool(gates.get("include_dpm"))
@@ -1186,7 +1184,7 @@ class DaystromDMLProvider(MemoryProvider):
             if key == self._last_sync_key:
                 return
             self._last_sync_key = key
-        effective_session = self._session_id or session_id or "snips2-hermes-default"
+        effective_session = self._session_id or session_id or "hermes-default"
         text = f"Durable Hermes workflow memory. {summary}"
         meta = {
             "source": "hermes-memory-provider",
@@ -1284,7 +1282,7 @@ class DaystromDMLProvider(MemoryProvider):
         text = _tool_cookbook_text(tool_name, outcome, args_summary, result_summary)
         if not text:
             return
-        effective_session = self._session_id or session_id or "snips2-hermes-default"
+        effective_session = self._session_id or session_id or "hermes-default"
         meta = {
             "source": "hermes-tool-result-hook",
             "phase": "tool-result",
@@ -1337,11 +1335,11 @@ class DaystromDMLProvider(MemoryProvider):
                 return ""
             self._run_cli([
                 "handoff",
-                "--thread", self._thread_id or self._session_id or "snips2-hermes",
+                "--thread", self._thread_id or self._session_id or "hermes",
                 "--state", state,
                 "--task", task,
                 "--next-action", next_action,
-                "--session-id", self._session_id or "snips2-hermes-default",
+                "--session-id", self._session_id or "hermes-default",
                 "--tenant-id", self.tenant_id,
                 "--client-id", self.client_id,
             ], timeout=self.timeout)
@@ -1455,8 +1453,8 @@ adapter = DMLAdapter(
             "enable": True,
             "mode": os.environ.get("DAYSTROM_DPM_MODE", "active-write"),
             "preference_graph_path": str(Path(os.environ["DAYSTROM_DML_STORE"]) / "dpm_preference_graph.json"),
-            "relationship_id": os.environ.get("DAYSTROM_DPM_RELATIONSHIP_ID", "relationship:mark-snips2"),
-            "project_id": os.environ.get("DAYSTROM_DPM_PROJECT_ID", "project:snips2"),
+            "relationship_id": os.environ.get("DAYSTROM_DPM_RELATIONSHIP_ID", "relationship:runtime"),
+            "project_id": os.environ.get("DAYSTROM_DPM_PROJECT_ID", "project:runtime"),
             "token_budget": int(os.environ.get("DAYSTROM_DPM_TOKEN_BUDGET", "80")),
         },
     },
@@ -1464,8 +1462,8 @@ adapter = DMLAdapter(
 overlay = adapter.personality_overlay(
     prompt=os.environ.get("DAYSTROM_DML_PROMPT", ""),
     thread_id=os.environ.get("DAYSTROM_DML_THREAD_ID") or None,
-    relationship_id=os.environ.get("DAYSTROM_DPM_RELATIONSHIP_ID", "relationship:mark-snips2"),
-    project_id=os.environ.get("DAYSTROM_DPM_PROJECT_ID", "project:snips2"),
+    relationship_id=os.environ.get("DAYSTROM_DPM_RELATIONSHIP_ID", "relationship:runtime"),
+    project_id=os.environ.get("DAYSTROM_DPM_PROJECT_ID", "project:runtime"),
 )
 print(json.dumps(overlay or {}))
 '''

@@ -568,7 +568,7 @@ class CognitionController:
 
 ### Phase 8: Observe-Only Hermes Integration
 
-**Objective:** Let Hermes/Citizen Snips call DCN for telemetry and planning without changing live prompt behavior yet.
+**Objective:** Let Hermes call DCN for telemetry and planning without changing live prompt behavior yet.
 
 **Files:**
 - Modify: `integrations/hermes/plugins/daystrom_dml/__init__.py`
