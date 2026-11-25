@@ -236,12 +236,12 @@ def test_import_repairs_legacy_items_with_missing_lattice_metadata():
 def test_gpt_runner_summary_strips_instruction_preface() -> None:
     noisy = (
         "Here is a summary of the content in 256 characters or less:\n\n"
-        '"Maintain Citizen Snips continuity using compact DML state."'
+        '"Maintain task continuity using compact DML state."'
     )
 
     assert (
         GPTRunner._clean_summary_output(noisy, max_len=256)
-        == "Maintain Citizen Snips continuity using compact DML state."
+        == "Maintain task continuity using compact DML state."
     )
 
 
@@ -1529,7 +1529,7 @@ def test_personality_matrix_mixed_positive_preference_with_avoid_clause_stays_po
     )
 
     adapter.record_personality_preference(
-        "Mark prefers Citizen Snips to sound warm and human; avoid rigid mechanical writing.",
+        "I prefer detailed walkthroughs; avoid unexplained abbreviations.",
         source_id="turn:mixed",
         explicit=True,
     )
@@ -1541,7 +1541,7 @@ def test_personality_matrix_mixed_positive_preference_with_avoid_clause_stays_po
     overlay = adapter.personality_overlay(prompt="voice")
     assert overlay is not None
     rendered = overlay["overlay"]["rendered_text"]
-    assert "Mark prefers Citizen Snips to sound warm and human" in rendered
+    assert "Prefer detailed walkthroughs" in rendered
     assert "restrained" not in rendered
 
 
@@ -1571,7 +1571,7 @@ def test_personality_matrix_prefers_user_preference_note_over_repair_provenance(
                                 "type": "current_turn_preference",
                                 "source_id": "turn:user",
                                 "observed_at": "2026-06-29T00:00:00Z",
-                                "note": "Mark prefers Citizen Snips to sound warm and personable.",
+                                "note": "I prefer numbered troubleshooting steps.",
                             },
                             {
                                 "type": "polarity_repair",
@@ -1609,7 +1609,7 @@ def test_personality_matrix_prefers_user_preference_note_over_repair_provenance(
     overlay = adapter.personality_overlay(prompt="voice")
     assert overlay is not None
     rendered = overlay["overlay"]["rendered_text"]
-    assert "warm and personable" in rendered
+    assert "I prefer numbered troubleshooting steps" in rendered
     assert "Repair implementation note" not in rendered
 
 

@@ -297,7 +297,7 @@ def test_ambiguous_query_fails_closed_without_selecting_a_thread(monkeypatch, tm
     checkpoint_b = tmp_path / "2026-04-03_self-architecture-portrait.md"
     checkpoint_a.write_text("Older checkpoint")
     checkpoint_b.write_text("Newer checkpoint")
-    threads["threads"]["1488668819655495782"]["latest_checkpoint"] = str(checkpoint_a)
+    threads["threads"]["100000000000000001"]["latest_checkpoint"] = str(checkpoint_a)
     threads["threads"]["thread:self-architecture-portrait"]["latest_checkpoint"] = str(checkpoint_b)
 
     monkeypatch.setattr(continuity_recall, "THREADS", tmp_path / "thread_registry.json")

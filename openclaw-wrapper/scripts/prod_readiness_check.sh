@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-WS="/Users/markmckeen/.openclaw/workspace"
-DAYSTROM_DML_HOME="${DAYSTROM_DML_HOME:-/Users/markmckeen/.openclaw/daystrom-dml-v2}"
+WS="$HOME/.openclaw/workspace"
+DAYSTROM_DML_HOME="${DAYSTROM_DML_HOME:-$HOME/.openclaw/daystrom-dml-v2}"
 VENV="${DAYSTROM_DML_VENV:-$DAYSTROM_DML_HOME/.venv-dml}"
 DML_PY="$WS/skills/daystrom-dml/scripts/dml_memory.py"
 STORE="${DML_STORE:-$DAYSTROM_DML_HOME/data-prod-smoke}"

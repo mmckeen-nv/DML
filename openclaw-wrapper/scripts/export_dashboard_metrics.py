@@ -5,7 +5,7 @@ import subprocess
 import time
 from pathlib import Path
 
-WS = Path('/Users/markmckeen/.openclaw/workspace')
+WS = (Path.home() / '.openclaw/workspace')
 DML_CLI = WS / 'skills' / 'daystrom-dml' / 'scripts' / 'dml_memory.py'
 STORE = WS / 'data' / 'dml-gpu-prod'
 OUT = Path('/opt/homebrew/lib/node_modules/openclaw/dist/control-ui/assets/dml-savings.json')

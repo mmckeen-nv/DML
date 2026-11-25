@@ -1,15 +1,15 @@
 {
   "schema_version": "v1",
   "threads": {
-    "1488668819655495782": {
+    "100000000000000001": {
       "key": "self-architecture-portrait",
       "provider": "discord",
       "channel": "discord",
-      "chat_id": "1488668819655495782",
+      "chat_id": "100000000000000001",
       "topic_id": "topic-self-1",
-      "thread_label": "Citizen Snips architecture portrait / continuity substrate",
+      "thread_label": "Example Assistant architecture portrait / continuity substrate",
       "session_scope": "thread",
-      "topic": "Citizen Snips architecture portrait / continuity substrate",
+      "topic": "Example Assistant architecture portrait / continuity substrate",
       "status": "active",
       "latest_checkpoint": "/tmp/older.md",
       "last_summary_at": "2026-04-01T00:46:18Z",

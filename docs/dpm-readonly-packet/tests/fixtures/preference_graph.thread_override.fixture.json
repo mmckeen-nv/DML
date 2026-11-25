@@ -1,7 +1,7 @@
 {
   "schema_version": "dpm.preference-graph.v1",
   "graph_id": "thread:self-architecture-portrait",
-  "subject_id": "user:mark-nv",
+  "subject_id": "user:example-user",
   "generated_at": "2026-04-14T00:00:00Z",
   "default_policy": {
     "explicit_instruction_precedence": "always_override",
@@ -10,28 +10,34 @@
   },
   "nodes": [
     {
-      "id": "pref.directness",
+      "id": "pref.uppercase_headings",
       "kind": "preference_dimension",
-      "label": "Directness",
+      "label": "Uppercase headings",
       "scope": "relationship",
       "state": "active",
-      "weight": 0.92,
-      "confidence": 0.95,
+      "weight": 0.5,
+      "confidence": 0.5,
       "polarity": "prefer_high",
       "value_type": "scalar",
-      "value": {"target": 0.95, "allowed_range": [0.75, 1.0]},
+      "value": {
+        "target": 0.5,
+        "allowed_range": [
+          0.0,
+          1.0
+        ]
+      },
       "evidence": {
-        "support_count": 11,
-        "contradiction_count": 1,
+        "support_count": 2,
+        "contradiction_count": 0,
         "last_supported_at": "2026-04-13T18:42:00Z",
         "last_contradicted_at": "2026-03-29T09:15:00Z"
       },
       "provenance": [
         {
           "type": "relationship_summary",
-          "source_id": "relationship:mark-nv",
+          "source_id": "relationship:example-user",
           "observed_at": "2026-04-13T18:42:00Z",
-          "note": "Directness is generally preferred."
+          "note": "Synthetic schema case 1: exercises preference_dimension in relationship scope."
         }
       ],
       "constraints": {
@@ -47,11 +53,17 @@
       "label": "Formality",
       "scope": "thread",
       "state": "active",
-      "weight": 0.68,
-      "confidence": 0.73,
+      "weight": 0.5,
+      "confidence": 0.5,
       "polarity": "prefer_high",
       "value_type": "scalar",
-      "value": {"target": 0.7, "allowed_range": [0.5, 0.9]},
+      "value": {
+        "target": 0.5,
+        "allowed_range": [
+          0.0,
+          1.0
+        ]
+      },
       "evidence": {
         "support_count": 2,
         "contradiction_count": 0,
@@ -63,7 +75,7 @@
           "type": "thread_summary",
           "source_id": "thread:self-architecture-portrait",
           "observed_at": "2026-04-14T09:55:00Z",
-          "note": "For this thread, slightly more formal phrasing was requested."
+          "note": "Synthetic schema case 2: exercises interaction_style in thread scope."
         }
       ],
       "constraints": {
@@ -79,13 +91,15 @@
       "label": "Explicit current-turn brevity override",
       "scope": "thread",
       "state": "suppressed",
-      "weight": 1.0,
+      "weight": 0.5,
       "confidence": 1.0,
       "polarity": "prefer_high",
       "value_type": "text_hint",
-      "value": {"text": "be brief for this request"},
+      "value": {
+        "text": "be brief for this request"
+      },
       "evidence": {
-        "support_count": 1,
+        "support_count": 2,
         "contradiction_count": 0,
         "last_supported_at": "2026-04-14T09:58:00Z",
         "last_contradicted_at": null
@@ -95,7 +109,7 @@
           "type": "current_turn_instruction",
           "source_id": "turn:current",
           "observed_at": "2026-04-14T09:58:00Z",
-          "note": "Current-turn instruction narrows output to a brief style."
+          "note": "Synthetic schema case 3: exercises instruction_override in thread scope."
         }
       ],
       "constraints": {
@@ -111,29 +125,35 @@
       "label": "Humor",
       "scope": "relationship",
       "state": "conflicted",
-      "weight": 0.42,
-      "confidence": 0.58,
+      "weight": 0.5,
+      "confidence": 0.5,
       "polarity": "prefer_high",
       "value_type": "scalar",
-      "value": {"target": 0.45, "allowed_range": [0.1, 0.8]},
+      "value": {
+        "target": 0.5,
+        "allowed_range": [
+          0.0,
+          1.0
+        ]
+      },
       "evidence": {
-        "support_count": 3,
-        "contradiction_count": 2,
+        "support_count": 2,
+        "contradiction_count": 1,
         "last_supported_at": "2026-04-08T16:00:00Z",
         "last_contradicted_at": "2026-04-14T09:58:00Z"
       },
       "provenance": [
         {
           "type": "relationship_summary",
-          "source_id": "relationship:mark-nv",
+          "source_id": "relationship:example-user",
           "observed_at": "2026-04-08T16:00:00Z",
-          "note": "Light humor is sometimes welcome."
+          "note": "Synthetic schema case 4: exercises interaction_style in relationship scope."
         },
         {
           "type": "current_turn_instruction",
           "source_id": "turn:current",
           "observed_at": "2026-04-14T09:58:00Z",
-          "note": "Brevity/formality request reduces room for humor in this turn."
+          "note": "Synthetic schema case 4: exercises interaction_style in relationship scope."
         }
       ],
       "constraints": {
@@ -148,10 +168,10 @@
     {
       "id": "edge.thread.formality.specializes.relationship.directness",
       "from": "pref.formality",
-      "to": "pref.directness",
+      "to": "pref.uppercase_headings",
       "relation": "specializes",
-      "weight": 0.63,
-      "confidence": 0.7,
+      "weight": 0.5,
+      "confidence": 0.5,
       "scope": "thread",
       "evidence": {
         "support_count": 2,
@@ -162,7 +182,7 @@
           "type": "thread_summary",
           "source_id": "thread:self-architecture-portrait",
           "observed_at": "2026-04-14T09:55:00Z",
-          "note": "Thread-specific tone refines, but does not erase, directness."
+          "note": "Synthetic edge case 1: exercises specializes."
         }
       ],
       "updated_at": "2026-04-14T09:55:00Z"
@@ -172,8 +192,8 @@
       "from": "instruction.override.be_brief",
       "to": "pref.humor",
       "relation": "suppressed_by",
-      "weight": 1.0,
-      "confidence": 1.0,
+      "weight": 0.5,
+      "confidence": 0.5,
       "scope": "thread",
       "evidence": {
         "support_count": 1,
@@ -184,7 +204,7 @@
           "type": "current_turn_instruction",
           "source_id": "turn:current",
           "observed_at": "2026-04-14T09:58:00Z",
-          "note": "Explicit instruction suppresses lower-precedence humor shaping for the turn."
+          "note": "Synthetic edge case 2: exercises suppressed_by."
         }
       ],
       "updated_at": "2026-04-14T09:58:00Z"
@@ -194,8 +214,8 @@
       "from": "pref.humor",
       "to": "pref.formality",
       "relation": "conflicts_with",
-      "weight": 0.56,
-      "confidence": 0.67,
+      "weight": 0.5,
+      "confidence": 0.5,
       "scope": "thread",
       "evidence": {
         "support_count": 2,
@@ -206,7 +226,7 @@
           "type": "merge_audit",
           "source_id": "audit:current-merge",
           "observed_at": "2026-04-14T09:58:00Z",
-          "note": "Humor preference conflicts with the thread's brief/formal instruction mix."
+          "note": "Synthetic edge case 3: exercises conflicts_with."
         }
       ],
       "updated_at": "2026-04-14T09:58:00Z"
@@ -215,7 +235,7 @@
   "audit": {
     "source_count": 5,
     "included_sources": [
-      "relationship:mark-nv",
+      "relationship:example-user",
       "thread:self-architecture-portrait",
       "turn:current",
       "project:dpm"

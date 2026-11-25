@@ -1,5 +1,5 @@
 name: daystrom_dml
-description: Daystrom DML memory and personality provider for Citizen Snips/Hermes.
+description: Daystrom DML memory and personality provider for Hermes.
 version: 0.3.0
 config:
   dcn:

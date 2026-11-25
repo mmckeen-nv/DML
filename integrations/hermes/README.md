@@ -1,6 +1,6 @@
-# Hermes / Citizen Snips integration
+# Hermes integration
 
-This directory contains the Hermes memory-provider plugin that connects Hermes/Citizen Snips to Daystrom DML memory, DPM/personality overlays, and DCN retrieval-policy gates.
+This directory contains the Hermes memory-provider plugin that connects Hermes to Daystrom DML memory, DPM/personality overlays, and DCN retrieval-policy gates.
 
 The plugin is intentionally a memory/personality/cognition integration. It does **not** route model inference through the DML frontier pipeline unless a separate harness explicitly uses DIP/frontier preparation.
 
@@ -66,7 +66,7 @@ The provider rejects or strips common context-pollution sources before writeback
 
 Hermes plugin version: `0.3.0`.
 
-This version includes Citizen Snips DML default retrieval, DPM overlay rendering, DCN active-read gates, cognition-gated iteration extension decisions, and memory hygiene hardening for bounded context use.
+This version includes Example Assistant DML default retrieval, DPM overlay rendering, DCN active-read gates, cognition-gated iteration extension decisions, and memory hygiene hardening for bounded context use.
 
 ## Operational notes
 

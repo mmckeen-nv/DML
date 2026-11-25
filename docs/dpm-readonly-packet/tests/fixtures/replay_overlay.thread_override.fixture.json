@@ -7,7 +7,7 @@
     "primary": "thread",
     "thread_id": "thread:self-architecture-portrait",
     "project_id": "project:dpm",
-    "relationship_id": "relationship:mark-nv"
+    "relationship_id": "relationship:example-user"
   },
   "retrieval_order_applied": [
     "explicit_current_turn",
@@ -69,14 +69,14 @@
       "summary": "Project context favors concise implementation-focused communication."
     },
     {
-      "source_id": "relationship:mark-nv",
+      "source_id": "relationship:example-user",
       "scope": "relationship",
       "kind": "relationship_summary",
       "included": true,
       "priority": 4,
       "confidence": 0.94,
       "updated_at": "2026-04-13T18:42:00Z",
-      "summary": "Stable relationship preference for direct, concise assistance."
+      "summary": "Synthetic relationship fixture for uppercase headings and numbered steps."
     },
     {
       "source_id": "preference-graph:thread:self-architecture-portrait",
@@ -94,7 +94,7 @@
       "turn:current",
       "thread:self-architecture-portrait",
       "project:dpm",
-      "relationship:mark-nv",
+      "relationship:example-user",
       "preference-graph:thread:self-architecture-portrait"
     ],
     "excluded_sources": [

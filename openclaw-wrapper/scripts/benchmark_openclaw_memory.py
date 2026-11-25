@@ -16,7 +16,7 @@ import time
 from pathlib import Path
 from typing import Iterable
 
-WORKSPACE = Path("/Users/markmckeen/.openclaw/workspace")
+WORKSPACE = (Path.home() / '.openclaw/workspace')
 DML_CORE = WORKSPACE / "dml" / "dml_core"
 SCRIPT_DIR = Path(__file__).resolve().parent
 for p in (DML_CORE, SCRIPT_DIR):

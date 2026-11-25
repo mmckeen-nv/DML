@@ -28,7 +28,7 @@ def run(cmd, env=None):
             'self-architecture-portrait',
             'thread:self-architecture-portrait',
             'self-architecture-portrait',
-            '1488668819655495782',
+            '100000000000000001',
             'topic-self-2',
             'continuity substrate drill',
         ),

@@ -6,7 +6,7 @@ from __future__ import annotations
 from pathlib import Path
 import sys
 
-ROOT = Path("/Users/markmckeen/.openclaw/workspace")
+ROOT = (Path.home() / '.openclaw/workspace')
 
 REQUIRED_TOKENS = (
     "--ground-truth-policy",

@@ -225,7 +225,7 @@ python openclaw-wrapper/scripts/dml_memory.py \
   --session-id "$DML_SESSION_ID"
 ```
 
-## 7. Hermes/Citizen Snips operation
+## 7. Hermes operation
 
 Hermes uses DML through the profile plugin at `integrations/hermes/plugins/daystrom_dml`.
 

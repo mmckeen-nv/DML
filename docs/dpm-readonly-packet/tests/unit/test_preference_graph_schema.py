@@ -21,8 +21,8 @@ def test_relationship_fixture_matches_schema_contract():
     assert payload["nodes"]
     assert payload["edges"]
     assert {node["id"] for node in payload["nodes"]} == {
-        "pref.directness",
-        "pref.concision",
+        "pref.uppercase_headings",
+        "pref.numbered_steps",
         "value.privacy_caution",
     }
     for node in payload["nodes"]:

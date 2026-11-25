@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-OPENCLAW_HOME="${OPENCLAW_HOME:-/Users/markmckeen/.openclaw}"
+OPENCLAW_HOME="${OPENCLAW_HOME:-$HOME/.openclaw}"
 WORKSPACE="${OPENCLAW_WORKSPACE:-$OPENCLAW_HOME/workspace}"
 QUEUE_PATH="${QUEUE_PATH:-$WORKSPACE/out/dml_ingest_queue.jsonl}"
 LOG_PATH="${LOG_PATH:-$WORKSPACE/out/dml_ingest_worker.log}"
