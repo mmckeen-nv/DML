@@ -1,0 +1,135 @@
+{
+  "schema_version": "dml-agent-episode-ci-receipt-v1",
+  "evidence_scope": "source_ci_only_not_live_model_qualification",
+  "repository": "mmckeen-nv/DML",
+  "source_commit": "2915b65290315e4eead5ee05bbb5179e31cfc189",
+  "workflow_run": 35514202959,
+  "workflow_run_url": "https://github.com/mmckeen-nv/DML/actions/runs/35514202959",
+  "initial_attempt": {
+    "jobs": 20,
+    "success": 19,
+    "failure": 1,
+    "cancelled": 0,
+    "failed_job": {
+      "id": 106087261196,
+      "name": "production-evidence",
+      "url": "https://github.com/mmckeen-nv/DML/actions/runs/35514202959/job/106087261196",
+      "failed_step": "Stress 256 mixed transaction clients",
+      "test": "dml_core/tests/test_transaction_recovery.py::test_mixed_adapter_clients_preserve_independent_committed_history",
+      "result": "1 failed in 34.02s",
+      "error": "StoreLockTimeout",
+      "operation": "mixed-batch",
+      "lock_wait_budget_ms": 30000,
+      "profile": "legacy j1",
+      "adapter_clients": 256,
+      "worker_threads": 32,
+      "downstream_recovery_and_baseline_steps": "skipped after failure",
+      "evidence_limit": "The acquisition exceeded its wait budget. Logs do not establish starvation, slow contention, or another cause; final all-client history assertions were not reached."
+    }
+  },
+  "diagnostic_retry": {
+    "action": "rerun_workflow_job",
+    "requested_original_job_id": 106087261196,
+    "executed_job_id": 106088970795,
+    "url": "https://github.com/mmckeen-nv/DML/actions/runs/35514202959/job/106088970795",
+    "source_changed": false,
+    "bounds_changed": false,
+    "executed_jobs": 1,
+    "carried_forward_successful_jobs": 19,
+    "result": "success",
+    "previously_failing_test": {
+      "result": "1 passed",
+      "pytest_duration_seconds": 22.25
+    },
+    "interpretation": "The failure did not reproduce on one unchanged-source retry. Its cause remains undetermined; it is not classified as a flake or a fixed defect."
+  },
+  "latest_attempt": {
+    "jobs": 20,
+    "success": 20,
+    "failure": 0,
+    "cancelled": 0
+  },
+  "original_cpu_evidence": {
+    "execution_job_id": 106087261266,
+    "url": "https://github.com/mmckeen-nv/DML/actions/runs/35514202959/job/106087261266",
+    "carried_forward_job_id": 106088988687,
+    "passed": 715,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "required_module_and_zero_skip_gate": "passed",
+    "strict_lint": "passed",
+    "artifact_id": 10606421338,
+    "archive_digest": "sha256:31221c2ccf8c06b90ee2418a66c0ba48fc8a7dd892e6eb9b8ed11ac2aa8290d5",
+    "provenance_limit": "This receipt records GitHub job logs and artifact metadata. Independent archive/source-manifest verification is recorded separately.",
+    "independent_source_receipt": "docs/artifacts/agent-episode-ci328-cpu-receipt-2026-09-20.json",
+    "independent_source_receipt_sha256": "93a689b24b3d3c03e22040783ac528f5ffffdf90e4f4ace17e050328a87a02e0"
+  },
+  "full_suites": [
+    {
+      "python": "3.10",
+      "execution_job_id": 106087261248,
+      "url": "https://github.com/mmckeen-nv/DML/actions/runs/35514202959/job/106087261248",
+      "passed": 4672,
+      "skipped": 205,
+      "duration_seconds": 573.57,
+      "hygiene": "passed"
+    },
+    {
+      "python": "3.11",
+      "execution_job_id": 106087261314,
+      "url": "https://github.com/mmckeen-nv/DML/actions/runs/35514202959/job/106087261314",
+      "passed": 4672,
+      "skipped": 205,
+      "duration_seconds": 509.15,
+      "hygiene": "passed"
+    }
+  ],
+  "full_suite_skip_context": {
+    "reported_skip_count_per_lane": 205,
+    "installed_optional_runtime": {
+      "torch": "2.14.0",
+      "transformers": "5.17.0",
+      "tokenizers": "0.23.2",
+      "safetensors": "0.8.0"
+    },
+    "limitation": "Quiet full-suite logs do not list individual skip reasons. These optional dependency versions differ from the exact fixture pins; dependency-guarded model tests skip outside the mandatory pinned CPU lane. The mandatory CPU lane had zero skips."
+  },
+  "production_retry_evidence": {
+    "serial_recovery": {
+      "passed": 1783
+    },
+    "retrieval_context": {
+      "passed": 104
+    },
+    "transaction_coordinator": {
+      "passed": 129,
+      "skipped": 1
+    },
+    "supported_profile": {
+      "passed": 394
+    },
+    "offline_baseline_and_history_steps": "passed"
+  },
+  "retained_production_artifacts": [
+    {
+      "id": 10606756811,
+      "created_at": "2026-09-20T14:00:03Z",
+      "digest": "sha256:97cbda0b36f25364c8a3578de8ccde8c03800a87fd2358746b615f73724db780",
+      "size_in_bytes": 41868,
+      "url": "https://api.github.com/repos/mmckeen-nv/DML/actions/artifacts/10606756811"
+    },
+    {
+      "id": 10606143281,
+      "created_at": "2026-09-20T13:44:06Z",
+      "digest": "sha256:adb11368a1a9bb5a146e6f2b48e6f9c900f48eb8ed9c17268092ffd70904effa",
+      "size_in_bytes": 6883,
+      "url": "https://api.github.com/repos/mmckeen-nv/DML/actions/artifacts/10606143281"
+    }
+  ],
+  "release_boundary": {
+    "live_model_qualification_established": false,
+    "production_ready": false,
+    "unresolved_observation": "Initial legacy j1 contention timeout; unchanged-source retry passed, root cause unestablished."
+  }
+}

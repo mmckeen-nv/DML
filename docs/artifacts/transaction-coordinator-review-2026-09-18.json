@@ -1,0 +1,145 @@
+{
+  "schema_version": 1,
+  "review": "Stage 15 persistence and transaction coordinator extraction",
+  "reviewer": "independent transaction_grader agent",
+  "created_at_utc": "2026-09-18T08:38:49.322597+00:00",
+  "repository": "/workspace/scratch/ad6cdef78c95/DML-core",
+  "base_commit": "7ef33402e3e25c787f4aba6eee6041be450cb761",
+  "source_identity": "Frozen working-tree files identified by the 13 SHA-256 hashes below; this is not an exact-commit remote CI attestation.",
+  "acceptance_threshold": 9.5,
+  "score": 9.6,
+  "decision": "accept",
+  "unresolved_blocking_findings": [],
+  "grade_scope": "Bounded ownership/nesting/rollback and component snapshot/restore/refresh/commit extraction with adapter compatibility, relevant safety fixes, and unchanged receipt transaction semantics.",
+  "review_history": [
+    {
+      "stage": "Baseline boundary inspection and independent adversarial reproduction",
+      "decision": "reject",
+      "numeric_score": null,
+      "note": "No numeric grade was recorded contemporaneously; rejection and concrete fix requests were communicated during review.",
+      "findings": [
+        "JSON, JSONL, journal-v1 and RAG writes that published then raised were omitted from compensation; reopened state retained rejected content.",
+        "BaseException bypassed legacy rollback; accepted policy now performs best-effort compensation and preserves original interruption identity on success.",
+        "Inner compensation failures lost touched-component tracking needed by outer recovery.",
+        "Successful inner compensation can publish uncommitted parent changes; outer frames must retain all inner touched components."
+      ]
+    },
+    {
+      "stage": "Integrated candidate before process-identity guard",
+      "decision": "reject pending concrete ownership fix",
+      "numeric_score": null,
+      "note": "The recovery reviewer reproduced POSIX fork inheritance of nonzero thread-local depth; no fabricated intermediate numeric grade is asserted.",
+      "required_fix": "Reject inherited coordinator use before callbacks/body based on creating PID, requiring a fresh adapter in the child; do not reset inherited runtime or locks."
+    },
+    {
+      "stage": "Final frozen-source review",
+      "decision": "accept",
+      "numeric_score": 9.6,
+      "evidence": "164 independently executed focused tests passed; all identified blockers resolved. Final documentation was corrected to identify publication/remote CI as pending."
+    }
+  ],
+  "resolved_findings": [
+    {
+      "boundary": "Uncertain file and manifest publication",
+      "fix": "Compare prior file SHA-256 fingerprints after failure and track changed or unknown outcomes; compensation includes possibly published lattice and RAG components.",
+      "independent_evidence": "Actual publish-then-OSError, postpublication stat failure, indistinguishable stat stamps, FAISS manifest acknowledgement loss, and postpublication KeyboardInterrupt cases passed."
+    },
+    {
+      "boundary": "Journal compensation and external authority",
+      "fix": "Only a verified expected-next revision containing the attempted payload permits compensation rebasing; explicit CAS rejection does not claim peer state, and divergent/unverifiable authority surfaces rollback failure.",
+      "independent_evidence": "Differing later peer commit preserved; equal-payload peer CAS rejection preserved; JSONL/journal interruption identity preserved after successful compensation."
+    },
+    {
+      "boundary": "Nested mutation recovery",
+      "fix": "One shared mutation frame catches BaseException and always propagates inner touched components to the parent, including successful or failed inner compensation.",
+      "independent_evidence": "Successful inner publication, failed inner compensation retried by parent, successful inner compensation of outer uncommitted changes, and original exception identity cases passed."
+    },
+    {
+      "boundary": "Ownership lifecycle and fork inheritance",
+      "fix": "Outermost ownership refreshes before capture; thread-local nesting and operation labels restore on failure; process-identity guards refuse inherited coordinator entry before callbacks.",
+      "independent_evidence": "Failed-refresh cleanup, single nested refresh, service foreign-PID probes, actual POSIX fork refusal, thread/process contention and waiting-peer compensation recovery passed."
+    },
+    {
+      "boundary": "Refresh, health and receipt compatibility",
+      "fix": "Observed revision remains pinned to the imported journal payload; failed import does not advance stamps or clear runtime degradation; receipt paths remain outside legacy compensation.",
+      "independent_evidence": "Peer publication during refresh, cache invalidation, failed-import health preservation, receipt fail-closed guards, lost-acknowledgement and receipt-adapter regression cases passed."
+    }
+  ],
+  "independently_executed_evidence": {
+    "passed": 164,
+    "failed": 0,
+    "skipped": 0,
+    "test_file_counts": {
+      "test_transaction_service.py": 34,
+      "test_persistence_service.py": 18,
+      "test_transaction_integration.py": 25,
+      "test_transaction_recovery.py": 31,
+      "test_transaction_adversarial.py": 22,
+      "test_fail_closed_persistence.py": 10,
+      "test_receipt_adapter.py": 24
+    },
+    "runs": [
+      {
+        "command": "/workspace/scratch/ad6cdef78c95/dml-venv/bin/python -m pytest dml_core/tests/test_transaction_adversarial.py dml_core/tests/test_persistence_service.py dml_core/tests/test_transaction_service.py dml_core/tests/test_transaction_integration.py dml_core/tests/test_fail_closed_persistence.py dml_core/tests/test_receipt_adapter.py -q",
+        "passed": 133,
+        "exit_code": 0,
+        "warnings": "One external Starlette/AnyIO deprecation warning."
+      },
+      {
+        "command": "/workspace/scratch/ad6cdef78c95/dml-venv/bin/python -m pytest dml_core/tests/test_transaction_recovery.py -o addopts= -q",
+        "passed": 31,
+        "exit_code": 0,
+        "elapsed_seconds": 5.52
+      }
+    ]
+  },
+  "separate_reported_evidence": {
+    "expanded_stress": {
+      "owner": "transaction_recovery agent",
+      "independently_rerun_by_grader": false,
+      "clients": 256,
+      "maximum_active_workers": 32,
+      "runs": 1,
+      "result": "passed",
+      "elapsed_seconds": 23.64
+    },
+    "full_local_suite": {
+      "owner": "root agent",
+      "independently_rerun_by_grader": false,
+      "passed": 2948,
+      "skipped": 9,
+      "failed": 0,
+      "errors": 0,
+      "warnings_reported": 3,
+      "elapsed_seconds_reported": 145.63,
+      "grader_xml_inspection": "/tmp/transaction-full.xml independently read: tests=2957, failures=0, errors=0, skipped=9; XML suite time=145.578 seconds."
+    },
+    "root_checks": "Root reports maintained Ruff, stricter Ruff on the two services and five new test files, mypy over 59 maintained source files, and Hermes hygiene passed; these were not rerun by this grader.",
+    "exact_commit_remote_ci": "Pending publication and exact-commit remote CI at this source snapshot; workflow configuration and local passes are not remote CI results."
+  },
+  "qualification_limits": [
+    "Legacy compensation covers caught Python failures under cooperating local ownership; it is not crash-atomic across lattice, RAG, DPM/DCN, runtime KV or external projections.",
+    "Abrupt process death can leave split legacy components; this limitation is explicitly tested. Atomic receipt durability comes from the separate authoritative SQLite transaction and existing retry semantics.",
+    "Failed compensation remains a visible degraded outcome and may interrupt later component compensation; no durable recovery log, automatic poisoned-state policy or guaranteed complete repair is introduced.",
+    "Ordinary file refresh remains stat based. Content fingerprints protect failed write reconciliation, add prior-file read cost, and do not qualify arbitrary noncooperating file writers.",
+    "The PID guard protects inherited coordinator entry; it is not general fork-safety qualification of the adapter, providers or runtime.",
+    "The 256-client result has at most 32 active workers and does not qualify complete HTTP/provider cancellation, fairness, starvation, lock-latency, multi-host, network-filesystem or power-loss guarantees.",
+    "This bounded accepted extraction does not promote repository maturity or complete the remaining production-release qualification milestones."
+  ],
+  "frozen_file_count": 13,
+  "frozen_file_sha256": {
+    "dml_core/daystrom_dml/dml_adapter.py": "86f89b996c43f52f813cf942e2dd99eb4ac1125dedb18b2b2270d4f93c7a5c4f",
+    "dml_core/daystrom_dml/services/transactions.py": "fecb28621ddf27204005721f756672cdd05a09eac08fde087695d661e1e8b768",
+    "dml_core/daystrom_dml/services/persistence.py": "fd9e10d4b59f4cc4b0a9a2d8d15d533d7c6bfb678efe83cc40a3560799d7d4a2",
+    "dml_core/tests/test_transaction_service.py": "25ce5c7923e2df00cd330fe64068e808084df8e92e669b96ced248075fb5f29a",
+    "dml_core/tests/test_persistence_service.py": "c47bbf6f044219641ffa508ecb1228bbfda6226e72c0fb2dc6e988a5719c6052",
+    "dml_core/tests/test_transaction_integration.py": "f89b99ef657405ee4b2e9b16b38d3526c21699c3d4db1706b2362c4750099b0c",
+    "dml_core/tests/test_transaction_recovery.py": "4471bdb28af11fe88c14dd1a127b208657bcd199ce9ab63f9d6a0eb2f83a1b11",
+    "dml_core/tests/test_transaction_adversarial.py": "d838973e2f760e6e08a3946c7cd5ad4fdf7f3a58835111be6f2e8e466878b105",
+    "docs/transaction-coordinator-hardening-2026-09-18.md": "1f3c93808dd199bee93a3d82d1c2222e86c030819e2d69d195d73b4218374eba",
+    "docs/production-remaining-work-2026-09-18.md": "2f08970814df366e3d85dc87b492f4b570338c000ed1c712801da4027a46e441",
+    "docs/production-foundations-2026-09-12.md": "501da83c7a5e72beb60425b7a0e114ff1c6ec00891fa5f658f5f01a1b3b34d65",
+    "docs/contracts/production-v1.md": "1e779abcc8ac4fb419b83acc3c7a9a7abb7d1023b2d4cc1eb399e2fb5acd3587",
+    ".github/workflows/ci.yml": "40ae31642c7ff70bf339835201ccad36ae98bf1441f81a9087d53f6f19edbe79"
+  }
+}

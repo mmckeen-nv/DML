@@ -1,0 +1,31 @@
+{
+  "accepted_for_publication": true,
+  "blocking_findings": [],
+  "independent_verification": {
+    "actual_source_files_matching_receipt": 434,
+    "all4_retained_log_hashes_verified": true,
+    "both_strict_lint_scopes_and_mypy_exit_zero": true,
+    "errors": 0,
+    "failures": 0,
+    "mandatory_modules": 21,
+    "mandatory_testcases": 784,
+    "raw_junit_hash_and_counts_verified": true,
+    "skipped": 0,
+    "source_manifest_and_module_inventory_match_prior": true
+  },
+  "limits": [
+    "Publication acceptance is source and validation scope only.",
+    "Raw logs remain local per user instruction; compact hash-bound receipts are published.",
+    "Matching published-source successful CI, actual admission, independently reviewed freeze, genuine live campaign and independent replay/completion gates remain required."
+  ],
+  "live_qualified": false,
+  "milestone_7_closed": false,
+  "production_ready": false,
+  "recorded_at_utc": "2026-09-24T14:56:36.595539+00:00",
+  "reviewer": "/root/m7_grader",
+  "schema_version": "dml-m7-ci-repair-integrated-grader-review-v1",
+  "source_review_score": 9.6,
+  "source_review_sha256": "a3d27cc9b84d6bcabab09e6c8d63170f97882864f6e80099c0ca3c05e411579e",
+  "validation_receipt_sha256": "af38e876f499144c27f74565d9abe7115a9b53826f3f313ba6f105aa30ae7f53",
+  "workflow_sha256": "38b0273e09aa361286f01210f073d9c6f41d884d0e452a047a581130441a9da7"
+}

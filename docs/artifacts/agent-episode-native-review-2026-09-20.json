@@ -1,0 +1,86 @@
+{
+  "decision": "accepted_source_revision",
+  "historical_live_rejections": [
+    {
+      "attempt": 1,
+      "milestone_completion_score": 7.0,
+      "path": "docs/artifacts/agent-episode-live-attempt-1-review-2026-09-20.json",
+      "sha256": "03fad1b8b99939f39de54e53de0e0fc12fc02fc87515b0dd066acdeae66e1098"
+    },
+    {
+      "attempt": 2,
+      "milestone_completion_score": 8.5,
+      "path": "docs/artifacts/agent-episode-live-attempt-2-review-2026-09-20.json",
+      "sha256": "81a7f2d703622b8a33ea2b02fb8038f59f5319cd8b557d667994e3f13ef6f4b0"
+    }
+  ],
+  "milestone_7_closed": false,
+  "minimum_acceptable_score": 9.5,
+  "observed_problem": "Attempt 2 generated a content/role transport wrapper rather than the action inside it. The previous renderer placed complete message JSON in assistant bodies. The native renderer removes that generic interface mismatch; it does not prove why the model skipped supersession or guarantee task success.",
+  "parent_source": {
+    "commit": "a8a50a46945592a39a5b56b82957a15537e8483b",
+    "tree": "bc4c32e9ca07c552f962fc53a748c02c4f7e4a73"
+  },
+  "production_ready": false,
+  "recorded_at_utc": "2026-09-20T10:46:04.645119+00:00",
+  "remaining_milestone_blockers": [
+    "Prepare and independently admit the native-template bundle while preserving the historical bundle and source.",
+    "Freeze exact new source/model/template/runtime identities before running all nine tasks once with unchanged bounds and acceptance gates; independently replay the complete result.",
+    "Pass required CI on the published final source; do not merge."
+  ],
+  "review_findings": [
+    "System, user and assistant message content is placed directly inside ChatML bodies; tool data uses a user-role tool_response body. Ordinary assistant action JSON is no longer wrapped in serialized message JSON.",
+    "All original non-content message fields, including original roles, names, tool call arguments and tool result IDs, remain exactly recoverable in an indexed JSON metadata sidecar alongside complete tools. Explicit instructions identify metadata as data without raising user/tool authority.",
+    "Content escapes ampersand before less-than. Reversing only the two versioned escapes recovers exact original content, including literal entity strings, Unicode and control characters. JSON metadata escapes less-than after serialization. Caller data cannot emit framing delimiters.",
+    "A fixed exact-template digest participates in model identity. The old renderer is rejected even when its manifest hashes are recomputed; snapshot schema/profile names do not imply compatibility with different templates.",
+    "The preparer records dml-qwen-native-content-chatml-v2. Model weights, tokenizer, architecture admission, greedy generation, request-local cache, action parser, agent policy, corpus, execution limits and qualification gates remain unchanged.",
+    "The optional-dependency test fixture now runs guarded dependency admission before imports, yielding intentional optional skips and mandatory-lane failures without heavy imports or writes. This repairs a controlled .[dev]-only defect; no GitHub CI failure was observed.",
+    "The new renderer module is included both in the mandatory CPU pytest command and in the no-skips required-module gate."
+  ],
+  "reviewed_files_sha256": {
+    ".github/workflows/ci.yml": "e4fef7b5e2887e3a1ba0f58a69cecffa9dd3e5275f7e9c79681c2f0af7a67d1b",
+    "dml_core/daystrom_dml/services/qwen_model_snapshot.py": "71f55ea4fb900c1e6953ddb73001824332c8fc610a0fce0624524e3b2e8271ae",
+    "dml_core/daystrom_dml/services/qwen_pretrained_snapshot.py": "c5e9aacabe8ccedcf21e79ce8bd75d6d1ca453450a9789566271e19262734916",
+    "dml_core/tests/test_qwen_chat_template.py": "133de3cc69e502b54a9089b725ac7a420ad6afd6aeecefae30311f497e2b05be",
+    "dml_core/tests/test_qwen_model_adversarial.py": "ee974dabcc2dbfbba002df47c7ab3435c07b427e685bbb16be2c371cf1e733db",
+    "dml_core/tests/test_qwen_pretrained_snapshot.py": "fb1251e53815be1f51eabfff0f70ee26327f31d98602eb5f441c21992b49b49b"
+  },
+  "reviewer": "independent delegated m7_final_grader",
+  "schema_version": "dml-independent-native-renderer-review-v1",
+  "scope": "Generic Qwen native-content renderer repair, strict compatibility and framing tests, optional-dependency fixture admission, and mandatory CI coverage. Trained campaign outcomes remain a separate gate.",
+  "score": 9.6,
+  "source_blockers": [],
+  "trained_live_qualified": false,
+  "validation": {
+    "grader_tokenizer_inverse_controls": {
+      "errors": 0,
+      "failures": 0,
+      "junit_sha256": "fd350534623cb175cc424df4a899b627bb010370af69ada627173649d3e0374f",
+      "skipped": 0,
+      "tests": 4
+    },
+    "mandatory_cpu": {
+      "errors": 0,
+      "failures": 0,
+      "junit_independently_parsed": true,
+      "junit_sha256": "85977989e3365ae01938aea1448aae836500aa25d31cfb6c3a20e6a693b1905f",
+      "module_count": 18,
+      "skipped": 0,
+      "source_before_after_equal": true,
+      "tests": 715
+    },
+    "official_tokenizer_probe": {
+      "checks": 4,
+      "scope": "tokenizer only; no model generation",
+      "template_sha256": "24bd5fcdd71018049c672f96778e9162c6d00337e22f8f5f9b358c52705d9348",
+      "tokenizer_sha256": "c0382117ea329cdf097041132f6d735924b697924d6f6fc3945713e96ce87539"
+    },
+    "public_manifest": {
+      "all_current_source_files_independently_rehashed": true,
+      "file_count": 429,
+      "path": "docs/artifacts/agent-episode-native-validation-2026-09-20.json",
+      "sha256": "f3c2edca8473ce5ae7f0a75d6e8241c29c0b6007dceffb74d1c7bc5e66a0f9e7"
+    },
+    "ruff_mypy": "Integration owner reports strict Ruff success and 76 maintained files passing mypy with a fresh nonincremental cache. An earlier checker-internal failure is retained in the validation manifest; no source change was required."
+  }
+}

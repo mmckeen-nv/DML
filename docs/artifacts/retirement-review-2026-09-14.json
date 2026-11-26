@@ -1,0 +1,87 @@
+{
+  "schema_version": "dml-feature-review-v1",
+  "feature": "scoped-receipted-memory-retirement-v1",
+  "base_commit": "6c14549a7b1f83d4cf287e8320de31c75a9424c6",
+  "reviewed_at": "2026-09-14",
+  "reviewer": "independent grading agent, separate from lifecycle service and adapter/provider builders",
+  "minimum_accepted_score": 9.5,
+  "review_history": [
+    {
+      "score": 9.6,
+      "decision": "accepted",
+      "findings_resolved_before_grading": [
+        "Direct service freezes and validates canonical request and its digest before storage access",
+        "Generic historical receipts must match target ID, deleted state and exact retirement decision before replay",
+        "Two integration test assumptions corrected to actual full-state outbox operation/receipt binding"
+      ]
+    },
+    {
+      "score": 9.6,
+      "decision": "accepted",
+      "resolution": "Full suite exposed diagnostic-only compatibility regression in legacy mutation rejection. Wording now retains only receipted and explicitly lists append and retirement. All23 embedding-contract regressions pass independently; behavior unchanged."
+    }
+  ],
+  "score": 9.6,
+  "decision": "accepted",
+  "numerical_category_scores_assigned": false,
+  "qualitative_review_categories": [
+    "transition and receipt invariants",
+    "failure recovery",
+    "concurrency and compare-and-swap",
+    "strict public API boundaries",
+    "normal retrieval and projection suppression",
+    "contract and test coverage accuracy"
+  ],
+  "source_sha256": {
+    "dml_core/daystrom_dml/services/receipt_lifecycle.py": "9453638a7bc0bf83e17fac778d04fca7480c29e9d53191215121d9e8a9119a9a",
+    "dml_core/daystrom_dml/dml_adapter.py": "ecdc42d407a93574641b067ceacbb06d61f029da52184fe052694b948afe3f22",
+    "dml_core/daystrom_dml/provider_server.py": "ea9ad19aab8899012cb2253a22cf4906b17e7eabb829b95c1933a5ee3639ef68",
+    "dml_core/daystrom_dml/contracts/production.py": "3c413a21c3250a62fdfc0dbbbc613c1d781e41549c2b24ef45bdab87d14b02ef",
+    "dml_core/tests/test_receipt_retirement.py": "4e2bed5d0ae0d861ae6184898e55744d1fd3592a5a0e86cd409f4cf17ae5faf8",
+    "dml_core/tests/test_retirement_integration.py": "fcc093dba374ed483537846d46b5e39346ef748b4a16b8640bbd15e3ded31be7",
+    "dml_core/tests/test_retirement_recovery.py": "28476c6d125ed570868c2854e056b058733f583a8a00ceebc1d2abcc51b2bc60",
+    "dml_core/tests/test_retirement_adversarial.py": "d33d37c46bef933a868379cd566f32b455f83d2506ba0a45fca62e0ec13f470f",
+    ".github/workflows/ci.yml": "ce5a2423c9802dcb9de433f4936f716d5225d8479da02c37219b5c394fc3cbd9"
+  },
+  "verification": {
+    "independent_focused": "151 passed, zero failures/skips",
+    "service_cases": 65,
+    "adapter_api_cases": 43,
+    "recovery_concurrency_cases": 32,
+    "independent_adversarial_cases": 11,
+    "actual_process_kill_cases": 26,
+    "supported_journal_schemas": [
+      2,
+      3,
+      4
+    ],
+    "simultaneous_clients_per_schema": 256,
+    "competing_processes_per_schema": 8,
+    "stress": "Three schema scenarios passed with256workers and256-party start barrier; one retirement revision and historical receipt per shared request",
+    "disk_full": "Real SQLite max_page_count exhaustion rejects retirement with original ingestion receipt and state preserved",
+    "serialization": "Injected retirement encoding failure preserves original state without acknowledgement",
+    "ruff": "passed",
+    "mypy": "52 maintained source files passed; local Python target3.12",
+    "hermes_hygiene": "passed",
+    "full_suite": "1752 passed,9 optional-dependency skips,2 known warnings in76.26s"
+  },
+  "local_validation_history": [
+    {
+      "outcome": "1751 passed,1failed,9optional-dependency skips,2knownwarnings in72.81s",
+      "finding": "Existing test expected only receipted in rejection diagnostic; corrected compatible wording without changing rejection behavior"
+    }
+  ],
+  "limitations": [
+    "Candidate feature review, not whole-platform production readiness",
+    "Retirement is a tombstone; historical content and capacity remain retained",
+    "Existing trusted include_quarantined inspection can expose tombstones",
+    "No model/backend calls; existing construction and retrieval dependencies remain",
+    "Exact record digest requires authoritative record; no new record inspection endpoint",
+    "No automatic reclamation, unretirement, update, supersession, merge or promotion",
+    "No per-token tenant authorization; bearer service callers choose scopes",
+    "Checksums do not authenticate malicious authority writers",
+    "Full-history verification/full-state event costs remain unqualified at growing-store scale",
+    "26process-kill cases do not establish physical power-loss guarantees",
+    "Final exact-commit CI remains a separate gate recorded on PR118"
+  ]
+}

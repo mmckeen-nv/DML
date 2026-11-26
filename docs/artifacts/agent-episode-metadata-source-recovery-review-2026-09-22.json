@@ -1,0 +1,70 @@
+{
+  "builder_validation_boundary": "318 passes were reported by the builder in the retained scoped review. Only the independent 234-case raw JUnit was available and reverified during this recovery; these overlapping counts are not added.",
+  "decision": "accepted_recovered_exact_scoped_candidate",
+  "only_candidate_source_differences": [
+    "dml_core/daystrom_dml/contracts/agent_episode.py",
+    "dml_core/daystrom_dml/services/episode_tools.py",
+    "dml_core/tests/test_episode_tools.py"
+  ],
+  "public_baseline_commit": "1c4ccd591a2162ab64509015f64cef0a75acdb0e",
+  "qualification_boundary": {
+    "fresh_integrated_validation_complete": false,
+    "fresh_test_execution": false,
+    "historical_missing_artifacts_recreated": false,
+    "milestone_7_closed": false,
+    "model_loads_or_generation": false,
+    "production_ready": false,
+    "published_source_ci_qualified": false,
+    "trained_live_qualified": false
+  },
+  "recorded_at_utc": "2026-09-22T17:33:41.003776+00:00",
+  "recovery_findings": [
+    "The old /workspace/scratch/ad6cdef78c95 workspace is absent. Existing surviving worktrees have dangling Git administrative pointers; file bytes were compared against immutable objects in a fresh clone of the public baseline.",
+    "All 723 tracked candidate files were readable; comparison found only the original three reviewed metadata changes. Every changed-file hash matches the original scoped review.",
+    "The standalone scoped review and its raw independent 234-case JUnit match their original hashes. The original 9.6 scoped acceptance remains supported without rerunning models or redundant tests."
+  ],
+  "remaining_requirements": [
+    "Preserve surviving exact candidate and evidence; record the missing unpublished evidence explicitly.",
+    "Integrate only the exact accepted three source files into the recovered public checkout, then run fresh complete mandatory and static validation with retained raw evidence and source hashes.",
+    "Publish the new exact recovered revision and independently verify its own CI; do not claim it is the unavailable old 27-file tree.",
+    "Reacquire and verify any missing model payloads through separately reviewed operations, produce fresh provenance/admission, and obtain a new pre-generation freeze before further live qualification."
+  ],
+  "retained_independent_validation": {
+    "counts": {
+      "error": 0,
+      "failure": 0,
+      "skipped": 0,
+      "testcase": 234
+    },
+    "junit_filename": "retrieval-metadata-independent.xml",
+    "junit_sha256": "eb4c71ffff7231a39b08618f3102da4b655f96d91d1ce410328e6d82ad25d53f",
+    "modules": [
+      "test_episode_tools",
+      "test_agent_episode_contract",
+      "test_agent_episode_adversarial",
+      "test_episode_verifiers"
+    ]
+  },
+  "retained_review": {
+    "decision": "accepted_scoped_source_revision",
+    "filename": "agent-episode-retrieval-metadata-review-2026-09-22.json",
+    "score": 9.6,
+    "sha256": "cc7d84a5e8378ceda3b7410b917941520cb45e971c2b6227b6397edf61071d66"
+  },
+  "reviewed_files_sha256": {
+    "dml_core/daystrom_dml/contracts/agent_episode.py": "eaabd755fa26643a629f2f66ed41a4faa95d35a42faf7a45476435015ac17ff6",
+    "dml_core/daystrom_dml/services/episode_tools.py": "2bf860b0e384c3db204fd76ae69f30e241c92ec89010b930b836dee344769a31",
+    "dml_core/tests/test_episode_tools.py": "286af662a018c39c09ccebe7a73737016f4898c9e88f7156fc021ec8ed04bf34"
+  },
+  "reviewer": "independent delegated m7_candidate",
+  "schema_version": "dml-metadata-source-recovery-review-v1",
+  "score": 9.6,
+  "score_scope": "Retained scoped source acceptance with independently reverified surviving source/review/JUnit bytes. Not a fresh integrated validation or campaign qualification.",
+  "source_blockers": [],
+  "tracked_baseline_files_compared": 723,
+  "unavailable_evidence": [
+    "Unpublished commit 97df9a569baf0c4c1a81370f91094a13b777946f and its 97d7aed92e0cea92e467404bcf173069a58039ba tree were not recovered or reconstructed.",
+    "The old 784-test integrated-validation raw receipt and its 434-file source manifest were not available in the recovered workspace.",
+    "The old integrated 9.6 review and unpublished campaign artifacts were not available for fresh byte verification. Historical conversation reports do not replace these missing artifacts."
+  ]
+}

@@ -1,0 +1,79 @@
+{
+  "accepted_for_milestone_completion": false,
+  "accepted_source_change": true,
+  "actual_trained_generations": 0,
+  "consumer_profile": "qwen3-action-json-nonthinking-sampled-bf16-v1",
+  "decision": "accepted_source_candidate_for_publication_and_zero_generation_preparation",
+  "grade": 9.5,
+  "independent_findings": [
+    "Both retained failures are model-selected under-retrieval and premature finalization; no storage/retrieval/verifier defect demonstrated.",
+    "The new explicit profile hashes fixed nonthinking sampling parameters and seed0 per execute into runtime identity; legacy greedy identity and behavior remain unchanged.",
+    "Pinned Transformers4.56.2 source and actual tiny-model tests establish grammar then temperature/top-k/top-p/min-p ordering before single multinomial selection.",
+    "CPU-only seeding restores ambient CPU RNG on success and exceptions; module lock serializes sampled-profile consumers without claiming isolation from unrelated RNG users.",
+    "Actual tiny generation matches independent configured generation; A/B/A, changed nonces and other consumers retain output determinism. Forgery, policy/config drift and cross-profile relabeling fail closed.",
+    "Every public action and final branch remains expressible; model choices, raw tokens, counts and causal transcript are retained. No retry, reranking, seed search or hidden action repair.",
+    "Static comparison independently confirms unchanged policy/guidance/tool constants, ceilings and acceptance gates; grammar, corpus, verifier, loader and snapshot files are byte-identical to base.",
+    "Worker/CLI/contract/replay require explicit matching profile/runtime identity. New test modules are mandatory in model CI with zero-skips enforcement.",
+    "Reviewed actual JUnit1226passes and each current521sourcehash. Initial mypy command failure is retained; only Python target/cache options changed for the same maintained82file scope and passed.",
+    "Documentation correctly separates vendor sampling recommendation from project seed rule, preserves both prior failures/history and does not claim live improvement."
+  ],
+  "live_qualified": false,
+  "merge_authorized": false,
+  "milestone_7_closed": false,
+  "open_gates": [
+    "Fresh exact-published-source CI, zero-generation admission and frozen declaration.",
+    "Independent pre-generation review before one complete9task campaign; both sequential evidence replays and outcome review required.",
+    "Both named failed tasks must succeed before claiming this user request resolved; unchanged M7 gates remain independently evaluated."
+  ],
+  "production_ready": false,
+  "raw_logs_uploaded": false,
+  "recorded_at_utc": "2026-09-26T02:47:24.245340+00:00",
+  "reviewed_change_sha256": {
+    ".github/workflows/ci.yml": "ae03ed10a0c5cc4c87c0e259eb3d1ce4e640567a7a82ceca31f50955ec436a83",
+    "dml_core/daystrom_dml/contracts/agent_episode.py": "5051b02f8864292f1fe39ba31a754b705ebecc14810d55a1641db628309bf596",
+    "dml_core/daystrom_dml/services/agent_episode.py": "feb188282f4068102587e7b42098bf68f5b1746bcae4260748d2cac35f69ee99",
+    "dml_core/daystrom_dml/services/qwen3_action_input.py": "8177983bf3fbfa665caa72f2f0e9654cb63731ed987111ce129a115fc55be28e",
+    "dml_core/scripts/agent_campaign_evidence.py": "f9d411aa3cd896d59a792470953410cd2e4cd42e3c1d488679f8a610b1ee65ce",
+    "dml_core/scripts/agent_episodes.py": "91181ed1efa6eedd6be6732cdf96e9af00bb36077848a9281a81bbaec8c6ae7c",
+    "dml_core/tests/test_qwen3_sampled_action_input.py": "6b01b11b3be9f96f218076c6c508e4bacf8816f55381ff5eaedbf3de21342a24",
+    "dml_core/tests/test_qwen3_sampled_profile.py": "ffd4c9fa76256b8f114fb257e2771af52936660d29bcf65ae3abeef3bcff2bcd",
+    "docs/agent-episode-live-qualification-2026-09-20.md": "db7ed5f93c0052fd03d0f43ac7cc1e6e6de4804cf37baecf14edd6855417c439",
+    "docs/artifacts/agent-episode-attempt-12-recovery3-outcome-2026-09-25.json": "fbc1989e1f69a036f96b964551cad25c558347dbba92788291fb246f97cee6ff",
+    "docs/artifacts/agent-episode-attempt-13-source-validation-2026-09-26.json": "f01730f34ad9f80e5468fcf05efbdb52106fee6584be79f7270096dafa35f2a9",
+    "docs/production-handoff-2026-09-24.md": "5596f059a04e957d0d2d4d84b0b5ffc432a5251e962850b20dfbfac11d794ecc",
+    "docs/production-remaining-work-2026-09-18.md": "4185ad8fcd963226fef8a31aec730398f825ad8b2d8a63eaf1bacdffca1c545b",
+    "docs/qwen3-sampled-action-v1.md": "f337abdf51b7f7a72bb655d8b122ae0b11a89147f8456d8424bf207faa5205ef"
+  },
+  "reviewer": "independent supervisor/grader /root/supervisor_grader",
+  "schema_version": "dml-attempt13-independent-source-review-v1",
+  "source_base_commit": "88b76025f8d4f3d8b20b6434e33a1388abdffec8",
+  "source_ci_qualified": false,
+  "validation": {
+    "actual_junit_sha256": "9db2e4d6ca76c2f853e7542165782b7ddd22f6eab871e4ea81e205edb0cb3dd2",
+    "compact": {
+      "path": "/workspace/scratch/c79340404ab9/DML-attempt13-isolated/docs/artifacts/agent-episode-attempt-13-source-validation-2026-09-26.json",
+      "sha256": "f01730f34ad9f80e5468fcf05efbdb52106fee6584be79f7270096dafa35f2a9"
+    },
+    "corrected_local_mypy": {
+      "path": "/workspace/scratch/c79340404ab9/m7-resume/attempt13-20260926/mypy-r2.json",
+      "sha256": "3db25060eaddd41b3a10f1aca92fe0e7df4491a681010aee9132584319c39437"
+    },
+    "counts": {
+      "error": 0,
+      "failure": 0,
+      "skipped": 0,
+      "testcase": 1226
+    },
+    "initial_mypy_target_failure_retained": true,
+    "lint_scopes_passed": 3,
+    "modules": 28,
+    "mypy_local_python_target": "3.12",
+    "mypy_source_files": 82,
+    "retained_full": {
+      "path": "/workspace/scratch/c79340404ab9/m7-resume/attempt13-20260926/validation/full.json",
+      "sha256": "23d00a9583d0b763971b45fa41c418f3a57301f1494f038c4469921290fef176"
+    },
+    "tests_repeated_for_command_correction": false,
+    "unchanged_nondocumentation_file_hashes": 521
+  }
+}

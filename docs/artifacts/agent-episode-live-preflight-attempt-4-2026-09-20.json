@@ -1,0 +1,33 @@
+{
+  "abandoned_copy_file_mtimes_utc": {
+    "chat_template.jinja": "2026-09-20T13:48:55.637328+00:00",
+    "config.json": "2026-09-20T13:48:55.637394+00:00",
+    "model.safetensors": "2026-09-20T13:49:00.121754+00:00",
+    "tokenizer.json": "2026-09-20T13:49:00.129754+00:00"
+  },
+  "campaign_specification_sha256": "5b4e70f02bf3d45e80dd2d714f7fdb63e6d569748769c666b11f7ded47ac016d",
+  "cleanup": {
+    "file_sha256": {
+      "chat_template.jinja": "24bd5fcdd71018049c672f96778e9162c6d00337e22f8f5f9b358c52705d9348",
+      "config.json": "034b72cb6cf9a9675eb9bc4b4ea77f430ba8fb3bcb506b2a6dab7f63e6c57cb9",
+      "model.safetensors": "03c6c9523873b288883dfe9e4e37ec2d85a9bedccf761c20eddaa55d93363f95",
+      "tokenizer.json": "c0382117ea329cdf097041132f6d735924b697924d6f6fc3945713e96ce87539"
+    },
+    "free_bytes_after": 13620379648,
+    "model_generations_before_cleanup": 0,
+    "removed_directory": "/tmp/dml-qwen-input-zmyiyqe5",
+    "scope": "abandoned_reproducible_private_snapshot_only",
+    "verified_against_specification_sha256": "5b4e70f02bf3d45e80dd2d714f7fdb63e6d569748769c666b11f7ded47ac016d"
+  },
+  "cleanup_permission": "Verified same-user owner; changed only abandoned private directory mode to permit removal after all four files matched frozen original hashes.",
+  "cleanup_receipt_sha256": "125b92882674891d9776ae33b29ad9382046e6230f0e36ccaacdd24d6c1eec77",
+  "declared_campaign_commands_launched": 1,
+  "historical_bundles_and_evidence_preserved": true,
+  "limitation": "Abrupt worker termination can leave a private snapshot requiring supervised cleanup; this record does not claim automatic crash cleanup.",
+  "model_generations_before_cleanup": 0,
+  "preflight_failure": "Free disk below the execution wrapper 7 GiB guard; stopped before worker subprocess, log, work directory or campaign output creation.",
+  "prior_failure": "Attempt 3 killed its two_agents_related_state worker at the 300-second deadline; an abandoned sealed private model copy remained on disk.",
+  "recorded_utc": "2026-09-20T14:24:25.703986+00:00",
+  "schema_version": "dml-agent-campaign-preflight-v1",
+  "source_or_dependency_changes": false
+}

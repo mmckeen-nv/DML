@@ -1,0 +1,42 @@
+{
+  "execution_receipt_sha256": "5963c3383f32e94a874cab71499bfa16a35d034b44d3103e111da6bd5cd024b4",
+  "free_bytes_after": 13633441792,
+  "historical_bundles_authority_and_evidence_preserved": true,
+  "limitation": "Frozen source did not automatically reclaim a hard-killed worker private snapshot. Cleanup was supervised and is recorded rather than credited to the producer.",
+  "model_generations_during_cleanup": 0,
+  "preflight_artifact_sha256": "1023436074856b52d622b875cfc42b822531772034a23b6807c4355c5ce5a367",
+  "recorded_utc": "2026-09-20T14:45:37.220626+00:00",
+  "removed_private_copies": [
+    {
+      "file_evidence": {
+        "chat_template.jinja": {
+          "bytes": 1343,
+          "mtime_utc": "2026-09-20T14:33:35.051349+00:00",
+          "sha256": "24bd5fcdd71018049c672f96778e9162c6d00337e22f8f5f9b358c52705d9348"
+        },
+        "config.json": {
+          "bytes": 557,
+          "mtime_utc": "2026-09-20T14:33:35.051412+00:00",
+          "sha256": "034b72cb6cf9a9675eb9bc4b4ea77f430ba8fb3bcb506b2a6dab7f63e6c57cb9"
+        },
+        "model.safetensors": {
+          "bytes": 6174895536,
+          "mtime_utc": "2026-09-20T14:33:39.718146+00:00",
+          "sha256": "03c6c9523873b288883dfe9e4e37ec2d85a9bedccf761c20eddaa55d93363f95"
+        },
+        "tokenizer.json": {
+          "bytes": 7031645,
+          "mtime_utc": "2026-09-20T14:33:39.730146+00:00",
+          "sha256": "c0382117ea329cdf097041132f6d735924b697924d6f6fc3945713e96ce87539"
+        }
+      },
+      "owner_uid": 0,
+      "path": "/tmp/dml-qwen-input-954g_eu6",
+      "reason": "Sealed reproducible private copy left after completed campaign with hard-killed timed-out worker; all workers stopped before removal.",
+      "removed": true
+    }
+  ],
+  "schema_version": "dml-agent-campaign-resource-cleanup-v1",
+  "source_or_dependency_changes": false,
+  "specification_sha256": "5b4e70f02bf3d45e80dd2d714f7fdb63e6d569748769c666b11f7ded47ac016d"
+}

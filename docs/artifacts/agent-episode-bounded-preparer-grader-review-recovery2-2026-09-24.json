@@ -1,0 +1,50 @@
+{
+  "accepted_for_model_generation": false,
+  "accepted_for_scoped_preparation_after_fresh_validation": true,
+  "accepted_for_source": true,
+  "blocking_findings": [],
+  "candidate_files": {
+    "normalizer": {
+      "path": "/workspace/scratch/c79340404ab9/DML-core/dml_core/daystrom_dml/services/qwen_pretrained_snapshot.py",
+      "sha256": "06cf798ee045a6509f974c6d2b3a3412b37dc1079cc53006804f7d90f84d6d96"
+    },
+    "preparation_helper": {
+      "path": "/workspace/scratch/c79340404ab9/m7-resume/prepare_coder_streamed_recovery2_20260924.py",
+      "sha256": "9fecfb468cff2d2ca0a09c620e1510db333813c1c063225ab31090885b1d79de"
+    },
+    "tests": {
+      "path": "/workspace/scratch/c79340404ab9/DML-core/dml_core/tests/test_qwen_pretrained_snapshot.py",
+      "sha256": "7dcab290c1b392c30487529b1e0b8b54b139fac88081f6c549943e8e8ebcd3bc"
+    }
+  },
+  "findings": [
+    "Canonical preparer serializes exact finite BF16-to-F32 tensors in bounded conversion chunks; source keys/shapes/CPU/dtype/layout, round-trip byte equality and both tensor digests remain checked. It no longer retains a full converted state dictionary.",
+    "Serialized readback now checks keys, exact shapes, F32 dtype and target byte hashes. Existing source pins, canonical configuration/tokenizer/template, snapshot verifier, exclusive target reservation, owned staging cleanup and provenance generation remain in force. normalize_state API stays unchanged.",
+    "Independent 56-case focused run passed with zero skips/failures/errors. Exact-byte oracle uses pinned safetensors save_file plus eager normalization, including signed zero, extremes and subnormals across chunk sizes. Tests also reject malformed tensors, late nonfinite/disk failure, preexisting output and payload/dtype/shape corruption.",
+    "TorchDispatchMode fault control bounds actual live F32 tensor storage on the fixture. It does not establish full-process memory use; actual full-size preparation remains required.",
+    "Reviewed one-shot helper uses a new prepared-streamed destination and exclusive fsynced start/final records, binds exact current normalizer bytes, separately records and rechecks HEAD, and requires fresh provenance equal to the surviving historical provenance except its honestly changed normalizer SHA. No historical artifact is recreated and no model generation is performed."
+  ],
+  "independent_controls": {
+    "counts": {
+      "error": 0,
+      "failure": 0,
+      "skipped": 0,
+      "testcase": 56
+    },
+    "exit_code": 0,
+    "junit_path": "/workspace/scratch/c79340404ab9/m7-resume/normalizer-grader-tests-recovery2.xml",
+    "junit_sha256": "8cc5f92fbe186ef16a7291c54abca48eec1ad6cd91c0c611761a3a7b144fc9c4"
+  },
+  "live_qualified": false,
+  "milestone_7_closed": false,
+  "preparation_conditions": [
+    "Fresh complete validation must cover the changed source with 803 CPU cases across the original 21 modules, plus34 filesystem controls and all static lanes, with zero mandatory skips/failures/errors; all436 source hashes must remain stable.",
+    "Root coordinates exclusive heavy execution and keeps source/HEAD unchanged throughout preparation. Retain the prior OOM and its incomplete staging separately.",
+    "Require actual successful prepared output, exact expected bundle/tensor provenance, independent verification of all338 learned tensors and a fresh strict zero-generation admission before a separately frozen live campaign."
+  ],
+  "production_ready": false,
+  "recorded_at_utc": "2026-09-24T22:53:17.662945+00:00",
+  "review_score": 9.6,
+  "reviewer": "/root/m7_grader",
+  "schema_version": "dml-bounded-qwen-preparer-grader-review-v1"
+}

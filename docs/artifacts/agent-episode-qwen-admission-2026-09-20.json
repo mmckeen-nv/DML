@@ -1,0 +1,53 @@
+{
+  "schema_version": "dml-qwen-cached-admission-v1",
+  "scope": "strict-loaded-consumer-and-non-corpus-timing-only",
+  "strict_consumer_loaded": true,
+  "live_qualified": false,
+  "trained_model_qualification": false,
+  "model_identity": {
+    "model_digest": "8c25fedc9b83e38504746ed5342e013565c365514bd9a7b4504ab14502590abc",
+    "tokenizer_digest": "2e8e31c0c66a7bb12ebc8deddf0d503b42df4911c701c73f54e0543da828feac",
+    "chat_template_digest": "690ab7f7ba88ce2fa8f6ec41b067d9ba08d679ebe16b2e6a8ff1d4c75672a532",
+    "runtime_identity": "dml-qwen-model-input-runtime-v1:09d6ffce6fb460925b15550dbffcdfc4fe65c2b80127723455c04e053205a723",
+    "model_window_tokens": 32768
+  },
+  "bundle_files": {
+    "chat_template.jinja": {
+      "sha256": "690ab7f7ba88ce2fa8f6ec41b067d9ba08d679ebe16b2e6a8ff1d4c75672a532",
+      "bytes": 405
+    },
+    "config.json": {
+      "sha256": "034b72cb6cf9a9675eb9bc4b4ea77f430ba8fb3bcb506b2a6dab7f63e6c57cb9",
+      "bytes": 557
+    },
+    "model.safetensors": {
+      "sha256": "03c6c9523873b288883dfe9e4e37ec2d85a9bedccf761c20eddaa55d93363f95",
+      "bytes": 6174895536
+    },
+    "snapshot.json": {
+      "sha256": "229419215f18f2383fce2723740a62d422e82adb28fea3113fac909ac52ab402",
+      "bytes": 753
+    },
+    "tokenizer.json": {
+      "sha256": "c0382117ea329cdf097041132f6d735924b697924d6f6fc3945713e96ce87539",
+      "bytes": 7031645
+    }
+  },
+  "original_provenance_sha256": "2c850b97b3aa7a6721f312c861ea9854ecff4f32a10a4d7e67bc9499d0e9e21c",
+  "source_sha256": {
+    "dml_core/daystrom_dml/services/qwen_model_input.py": "31c538bb1738851833e08d57d79148b1e378347e206aa50f756cf6d4a7ffe0a7",
+    "dml_core/daystrom_dml/services/qwen_model_snapshot.py": "b12a7f10c3e7029680b962df7d9e60c049428a069ebe6f8b88e66739e76e5c3c",
+    "dml_core/daystrom_dml/services/qwen_pretrained_snapshot.py": "aa2281ebdfb4bba9536825b589493fa50f1402c8328edf8d155cffe4b5f16204"
+  },
+  "cache_policy": "request-local-dynamic-v1",
+  "generic_timing_sha256": "6bab6beb34deec32e55bb8b97c98fdcd59bbe0bc0556c5e8de2c6820ce27a7e0",
+  "original_admission_sha256": "151bdf7e88ffda60c12fb614ea24655f5b32d329bbceafaf380c933d3a2ed94b",
+  "input_and_output_ids_identical_to_no_cache": true,
+  "retained_model_cache": false,
+  "actual_generations": 1,
+  "generated_scope": "generic-neutral-greeting-no-corpus",
+  "threads": 4,
+  "admission_and_compile_seconds": 37.21221641000011,
+  "execution_seconds": 21.00740771799974,
+  "max_rss_kib": 7487004
+}

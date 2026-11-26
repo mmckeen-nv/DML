@@ -124,6 +124,7 @@ setup(
     },
     package_data={
         "daystrom_dml": ["config.yaml", "web/*", "web/**/*", "provider_web/*", "contracts/schemas/*.json"],
+        "daystrom_dml.services": ["fixtures/*.json"],
     },
     entry_points={
         "console_scripts": [
@@ -137,6 +138,7 @@ setup(
             "dcm-workload-benchmark=scripts.dcm_workload_benchmark:main",
             "dcm-kv-probe=scripts.dcm_kv_probe:main",
             "dml-journal=scripts.dml_journal:main",
+            "dml-agent-episodes=scripts.agent_episodes:main",
         ]
     },
     ext_modules=(

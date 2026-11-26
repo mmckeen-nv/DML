@@ -1,0 +1,123 @@
+{
+  "accepted_for_generation": false,
+  "accepted_for_publication": true,
+  "base_source_commit": "dff77b11c070bdb51060abcb7527615dfafad8db",
+  "base_source_tree": "307b6b481d5014a7970d9739e2bc05b7b8bd9334",
+  "current_source_validation": {
+    "errors": 0,
+    "expanded_stress": {
+      "automatic_retries": 0,
+      "campaign_deadline_seconds": 120,
+      "clients": 256,
+      "errors": 0,
+      "failures": 0,
+      "junit": {
+        "bytes": 401,
+        "path": "/workspace/scratch/c79340404ab9/m7-resume/attempt14-r2-20260926/stress-256.xml",
+        "sha256": "86866dbc76dff2bd193944fc0f10ac57254201accfec5d486f925a7b6cf6594a"
+      },
+      "junit_case_seconds": 18.657,
+      "max_workers": 32,
+      "ownership_timeout_ms": 30000,
+      "passed": 1,
+      "pytest_report_seconds": 18.93,
+      "receipt": {
+        "bytes": 63994,
+        "path": "/workspace/scratch/c79340404ab9/m7-resume/attempt14-r2-20260926/stress-256-receipt.json",
+        "sha256": "d6681f88f6e34293ab62a0d8c716845c09dd40a7fdb75367bf03aed0cdb89a5e"
+      },
+      "skipped": 0,
+      "whole_command_seconds": 41.28327288899891
+    },
+    "failures": 0,
+    "full_receipt": {
+      "bytes": 69315,
+      "path": "/workspace/scratch/c79340404ab9/m7-resume/attempt14-r2-20260926/validation/full.json",
+      "sha256": "99604dfd1de921efef538a339e797a5adf95231b2a486c6b16805ef8e50d427b"
+    },
+    "impact_modules": [
+      "test_persistence",
+      "test_persistence_service",
+      "test_transaction_adversarial",
+      "test_transaction_integration",
+      "test_transaction_recovery",
+      "test_transaction_service"
+    ],
+    "junit": {
+      "bytes": 21402,
+      "path": "/workspace/scratch/c79340404ab9/m7-resume/attempt14-r2-20260926/validation/tests.xml",
+      "sha256": "bcd678da18292b1c378c570f3df15a464436d5b55c56d042e3024dde645f7e23"
+    },
+    "passed": 136,
+    "skip": {
+      "reason": "could not import 'faiss': No module named 'faiss'",
+      "test": "test_persistent_rag_publication_then_error_is_compensated"
+    },
+    "skipped": 1,
+    "source_file_count": 531,
+    "source_unchanged": true,
+    "static_checks": "Maintained broad lint, both strict model/episode lint scopes, adapter lint and maintained mypy (local Python 3.12 target) all passed."
+  },
+  "decision": "Accepted for publication and fresh source qualification; live generation remains unapproved.",
+  "grade": 9.6,
+  "independent_findings": [
+    "The old callback causes journal.stamp() to validate the full snapshot and then load_with_revision() to validate it again when changed. The revised branch reuses the paired read already implemented in PersistenceCoordinator.refresh.",
+    "The same constructor-assigned journal backs adapter and lattice persistence; routing remains coherent. Unchanged-revision refresh still performs fresh full integrity validation. No journal validator, lock acquisition, retry behavior, worker count or timeout changed.",
+    "All five new regression cases were inspected: one verified read with peer revision and RAG import; unchanged revision still validated; same-revision and restored-mtime corruption rejected before mutation; missing journal rejected without recreation; JSON/JSONL callbacks preserved. The primary regression failed on the old adapter with two reads.",
+    "Only adapter and integration tests differ across all 531 non-documentation hashes from the previously reviewed dff source. All model/preparer/tokenizer/grammar/policy/corpus/verifier/budget sources and the CI workflow are byte-identical.",
+    "Independently parsed the actual new JUnit and checked all validation log hashes, final 531 source hashes, compact receipt/doc hashes and clean diff formatting. No additional test or trained model generation was performed by this reviewer.",
+    "Three updated status documents preserve the CI341 failure, exact historical validation attribution, memory limits, no model result, and unresolved attempt13 task failures. Only compact receipts are included."
+  ],
+  "inherited_validation": {
+    "justification": "Only the persistence routing condition and five integration cases changed. Impact validation is appropriate locally; fresh exact-source CI must execute the complete mandatory and broader suites.",
+    "passed": 1457,
+    "reexecuted_locally_for_r2": false,
+    "skipped": 0,
+    "source_commit": "dff77b11c070bdb51060abcb7527615dfafad8db",
+    "source_review": {
+      "bytes": 7958,
+      "path": "/workspace/scratch/c79340404ab9/m7-resume/attempt14-20260926/grader-source-review.json",
+      "sha256": "6001c8275e32be0da2ca16f2a31b56ab429823c19c72ee09947db5b6866596a6"
+    }
+  },
+  "limitations": [
+    "The confirmed duplicate read is corrected. The original CI timeout schedule and sole cause remain unproven; no FIFO or arbitrary-scheduler fairness guarantee is established.",
+    "One passing local 256-client stress run does not qualify CI or guarantee production latency.",
+    "The optional missing-FAISS skip is disclosed; inherited 1,457 cases are not represented as newly executed r2 tests.",
+    "Model capacity and live semantic success remain unqualified; M7 remains open."
+  ],
+  "milestone_7_closed": false,
+  "original_failed_ci_review": {
+    "bytes": 4120,
+    "path": "/workspace/scratch/c79340404ab9/m7-resume/attempt14-20260926/grader-source-ci-review.json",
+    "sha256": "42171482caff2e43dcb36d7771a32fae7be0fae6000113e08ec63dd170e87170"
+  },
+  "production_change": "Legacy journal-backed refresh omits the custom stamp callback and uses the existing single fully verified payload/revision read. Legacy file adapters retain the callback. Auxiliary RAG refresh remains enabled for legacy profiles.",
+  "production_ready": false,
+  "recorded_at_utc": "2026-09-26T03:54:02.948248+00:00",
+  "red_green_correction_receipt": {
+    "bytes": 4419,
+    "path": "/workspace/scratch/c79340404ab9/m7-resume/attempt14-r2-20260926/paired-read-correction-receipt.json",
+    "sha256": "a1308b673e49af9a27e406c04d3a7bebe1202ad50351cb7b04f4d4c0e091b690"
+  },
+  "remaining_requirements": [
+    "Publish exactly these reviewed eight paths plus this review; bind final commit/tree and complete tracked inventory.",
+    "Independently approve actual preparation reuse with exact original/current source diff and fresh complete retained-input hashes. Historical original preparation/admission remain attributed to dff.",
+    "Fresh corrected-source zero-generation admission and exact-source CI qualification, followed by a separate frozen-spec pre-generation review.",
+    "One complete failure-inclusive nine-task campaign and both sequential independent evidence replays; both prior failed tasks must succeed before their resolution is claimed."
+  ],
+  "reviewed_sha256": {
+    "dml_core/daystrom_dml/dml_adapter.py": "7034fe3bc95ec0829577de76d4f372f22ea12138a696bcb96e8881d1a8ddd0e1",
+    "dml_core/tests/test_transaction_integration.py": "b1759ce0c2d1ca4a835a1a7fc8f87b56103cb1c5a3618fc06b18561f6c821364",
+    "docs/agent-episode-live-qualification-2026-09-20.md": "96dc5bb6a5425b6dae0ceec15be5343e6ce74ff200979fc132d6beb643d16877",
+    "docs/artifacts/agent-episode-attempt-14-prequalification-2026-09-26.json": "288c23c954d0096827239f7fa5f71a45148cf22c0709e49eb343c64de57e513a",
+    "docs/artifacts/agent-episode-attempt-14-r2-source-validation-2026-09-26.json": "32a0579252e0e6fec6ac9c31ad4edf3e54c87201e78fd966460885e8e4d2d20c",
+    "docs/artifacts/agent-episode-paired-read-correction-2026-09-26.json": "a1308b673e49af9a27e406c04d3a7bebe1202ad50351cb7b04f4d4c0e091b690",
+    "docs/production-handoff-2026-09-24.md": "8b539f6314b9200a231fb09c1dbd6ce31ed9819a17a5a3d22e10c2b140d8712a",
+    "docs/production-remaining-work-2026-09-18.md": "44717e0221962d58416a2f7666089d941e48c98dfe55183fbdb6e7ccc4491e55"
+  },
+  "reviewer": "supervisor_grader",
+  "schema_version": "dml-attempt14-r2-independent-source-review-v1",
+  "source_ci_qualified": false,
+  "source_not_yet_published": true
+}

@@ -1,7 +1,10 @@
 """Prometheus metrics instrumentation for the Daystrom Memory Lattice."""
 from __future__ import annotations
 
-from typing import Iterable, Optional
+from contextlib import contextmanager
+from functools import wraps
+from threading import local
+from typing import Callable, Iterable, Iterator, Optional, ParamSpec
 
 try:  # pragma: no cover - optional dependency for lean environments
     from prometheus_client import (  # type: ignore
@@ -19,6 +22,38 @@ except Exception:  # pragma: no cover - graceful degradation when dependency abs
 
     def generate_latest(_: Optional[CollectorRegistry] = None) -> bytes:  # type: ignore[misc]
         return b""
+
+
+_INSTRUMENTATION = local()
+_P = ParamSpec("_P")
+
+
+@contextmanager
+def _instrumentation_scope() -> Iterator[bool]:
+    """Keep finalizer-driven telemetry out of non-reentrant metric locks.
+
+    Prometheus may allocate while holding a lock, triggering a finalizer that
+    performs ordinary DML cleanup and records another metric. Only that nested
+    telemetry is omitted; cleanup and other threads continue normally.
+    """
+    if getattr(_INSTRUMENTATION, "active", False):
+        yield False
+        return
+    _INSTRUMENTATION.active = True
+    try:
+        yield True
+    finally:
+        _INSTRUMENTATION.active = False
+
+
+def _without_reentrant_metrics(function: Callable[_P, None]) -> Callable[_P, None]:
+    @wraps(function)
+    def guarded(*args: _P.args, **kwargs: _P.kwargs) -> None:
+        with _instrumentation_scope() as admitted:
+            if admitted:
+                function(*args, **kwargs)
+
+    return guarded
 
 
 class _NoOpMetric:
@@ -126,6 +161,7 @@ EXPANDED_CONTEXT_SIZE = _build_histogram(
 )
 
 
+@_without_reentrant_metrics
 def record_retrieval(mode: str, latency_ms: float) -> None:
     """Record latency and mode information for a retrieval."""
 
@@ -133,6 +169,7 @@ def record_retrieval(mode: str, latency_ms: float) -> None:
     RETRIEVAL_LATENCY.observe(max(float(latency_ms), 0.0))
 
 
+@_without_reentrant_metrics
 def record_tokens(consumed: int, saved: int) -> None:
     """Increment token consumption and savings counters."""
 
@@ -142,12 +179,14 @@ def record_tokens(consumed: int, saved: int) -> None:
         TOKENS_SAVED.inc(saved)
 
 
+@_without_reentrant_metrics
 def update_memory_gauge(count: int) -> None:
     """Update the gauge tracking the number of stored items."""
 
     DML_ITEMS.set(max(0, int(count)))
 
 
+@_without_reentrant_metrics
 def record_operation(operation: str, *, latency_ms: float | None = None, count: int = 1) -> None:
     """Record a structured hot-path operation and optional latency."""
 
@@ -156,6 +195,7 @@ def record_operation(operation: str, *, latency_ms: float | None = None, count: 
         OPERATION_LATENCY.labels(operation=operation).observe(max(float(latency_ms), 0.0))
 
 
+@_without_reentrant_metrics
 def record_source_expansion(selected_sources: int, expanded_chars: int) -> None:
     """Record bounded source-expansion cardinality and output size."""
 
@@ -168,6 +208,10 @@ def latest_metrics() -> tuple[bytes, str]:
 
     if CollectorRegistry is None:
         return b"", CONTENT_TYPE_LATEST
-    payload = generate_latest(REGISTRY)
-    return payload, CONTENT_TYPE_LATEST
+    # Collection also allocates while holding Prometheus locks.
+    with _instrumentation_scope() as admitted:
+        if not admitted:
+            return b"", CONTENT_TYPE_LATEST
+        payload = generate_latest(REGISTRY)
+        return payload, CONTENT_TYPE_LATEST
 

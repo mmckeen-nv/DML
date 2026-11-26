@@ -1,0 +1,243 @@
+{
+  "acceptance_accounting": "19 successful original job executions plus one separately identified controlled production diagnostic retry success; not20 fresh first-attempt successes",
+  "actual_job_executions": 21,
+  "all_attempt_api_conclusions": {
+    "failure": 1,
+    "success": 39
+  },
+  "all_attempt_api_rows": 40,
+  "carried_forward_identity_verified_against_original_started_completed_runner_and_steps": true,
+  "carried_forward_rows": 19,
+  "cpu": {
+    "artifact_id": 10815403902,
+    "counts": {
+      "error": 0,
+      "failure": 0,
+      "skipped": 0,
+      "testcase": 784
+    },
+    "module_count": 21,
+    "source_file_count": 373,
+    "source_inventory_and_all_public_git_blob_hashes_verified": true,
+    "tested_commit": "0a69e87cdab8a0a82fb39c6754d2d3c18f61a0bd",
+    "tested_tree": "a236791ea7bd7b04a14c636b2cbc64694dbd4e77",
+    "zip_sha256": "cdcb4435725488096fa031c4d876e6daa33f9cf6928ccf3e0b3658a2c6c2886a"
+  },
+  "diagnostic_retry_context": "The existing conversation retains the independent authorization and exactly-one diagnostic retry policy. This recovery performed no rerun; it re-observed both completed attempts. The original unpublished policy file was lost in the workspace rollback and is not reconstructed or claimed byte-recovered.",
+  "failure_retention": "Original production failure log and artifact were reacquired alongside retry success; StoreLockTimeout occurred before mutation body entry and final history assertions were not reached. Cause/fairness/repeatability remains unresolved.",
+  "full_suites": [
+    {
+      "job_id": 107698163885,
+      "log_sha256": "bcdcd308634ed18f93fecd77825b02895679c7bde4009422e6539f491ecf1277",
+      "name": "lint-test (3.11)",
+      "passed": 4714,
+      "skipped": 266
+    },
+    {
+      "job_id": 107698163916,
+      "log_sha256": "33521a84ba92a90b804e8c7a063845a3f2148f43c5289ccad3449f8581c54dd5",
+      "name": "lint-test (3.10)",
+      "passed": 4714,
+      "skipped": 266
+    }
+  ],
+  "latest_conclusion": "success",
+  "latest_run_attempt": 2,
+  "latest_status": "completed",
+  "linux_concurrency": {
+    "accepted": true,
+    "all_public_git_blob_hashes_verified": true,
+    "artifact_id": 10816650718,
+    "campaigns": 48,
+    "counts": {
+      "error": 0,
+      "failure": 0,
+      "skipped": 0,
+      "testcase": 359
+    },
+    "histories_replayed_during_this_recovery": false,
+    "history_envelope_event_counts_verified": true,
+    "recorded_history_acceptance_flags_and_raw_gzip_hashes_verified": true,
+    "remount": {
+      "actual_readback_admitted": true,
+      "after_options": [
+        "data=writeback",
+        "errors=remount-ro",
+        "relatime",
+        "rw"
+      ],
+      "before_options": [
+        "data=writeback",
+        "errors=remount-ro",
+        "nobarrier",
+        "relatime",
+        "rw"
+      ],
+      "command": [
+        "sudo",
+        "mount",
+        "-o",
+        "remount,barrier=1",
+        "/"
+      ],
+      "device_id": 2049,
+      "returncode": 0,
+      "same_root_source": "/dev/sda1",
+      "selection_sha256": "6e27f5313095b56559afec3d26ba0ae49b0c16bce2ac394c7a8df93640e89574",
+      "type": "ext4"
+    },
+    "source_file_count": 217,
+    "zip_sha256": "515d0e3b0e52e76460284c4e061908eef3c78c6b357b2dfe754f4aa70cd9bc7f"
+  },
+  "linux_recovery": [
+    {
+      "accepted": true,
+      "artifact_id": 10816012007,
+      "counts": {
+        "error": 0,
+        "failure": 0,
+        "skipped": 0,
+        "testcase": 460
+      },
+      "python": "3.10.21",
+      "remount": {
+        "actual_readback_admitted": true,
+        "after_options": [
+          "data=writeback",
+          "errors=remount-ro",
+          "relatime",
+          "rw"
+        ],
+        "before_options": [
+          "data=writeback",
+          "errors=remount-ro",
+          "nobarrier",
+          "relatime",
+          "rw"
+        ],
+        "command": [
+          "sudo",
+          "mount",
+          "-o",
+          "remount,barrier=1",
+          "/"
+        ],
+        "device_id": 2049,
+        "returncode": 0,
+        "same_root_source": "/dev/sda1",
+        "selection_sha256": "85eef5481b7354908aa6a31ec2226a01a47b2682f3fd9c5625d304e9b297ef05",
+        "type": "ext4"
+      },
+      "working_tree_dirty": true,
+      "zip_sha256": "1b465d62f8375719e6f0edc13306badd807556535b73248fda4cdbcbb1100284"
+    },
+    {
+      "accepted": true,
+      "artifact_id": 10816191036,
+      "counts": {
+        "error": 0,
+        "failure": 0,
+        "skipped": 0,
+        "testcase": 460
+      },
+      "python": "3.13.15",
+      "remount": {
+        "actual_readback_admitted": true,
+        "after_options": [
+          "data=writeback",
+          "errors=remount-ro",
+          "relatime",
+          "rw"
+        ],
+        "before_options": [
+          "data=writeback",
+          "errors=remount-ro",
+          "nobarrier",
+          "relatime",
+          "rw"
+        ],
+        "command": [
+          "sudo",
+          "mount",
+          "-o",
+          "remount,barrier=1",
+          "/"
+        ],
+        "device_id": 2049,
+        "returncode": 0,
+        "same_root_source": "/dev/sda1",
+        "selection_sha256": "db4a0abd6ab15ca266539348cdd04d6d8124ab983b53991346e9c259c5ee3657",
+        "type": "ext4"
+      },
+      "working_tree_dirty": true,
+      "zip_sha256": "e839e26014517c3347b7c35541cef639b6d84aa40211e3f3bd29f46dd68b561d"
+    }
+  ],
+  "live_model_qualification": false,
+  "milestone_7_closed": false,
+  "new_ci_execution_performed": false,
+  "new_rerun_requested": false,
+  "original_attempt_conclusions": {
+    "failure": 1,
+    "success": 19
+  },
+  "production_attempts": [
+    {
+      "artifact_id": 10815553960,
+      "attempt": 1,
+      "job_id": 107698164005,
+      "log_sha256": "4f7363466b940f80d2bda2feaf223633e086162d020e8eafb8d62e8392ebf8d2",
+      "reported_transaction_pytest_seconds": 37.5,
+      "source_checkout_commit_verified": "0a69e87cdab8a0a82fb39c6754d2d3c18f61a0bd",
+      "transaction_counts": {
+        "error": 0,
+        "failure": 1,
+        "skipped": 0,
+        "testcase": 1
+      },
+      "xml_reports": 12,
+      "zip_sha256": "a64f9ac7bb0c45daef2af08bad457fb63c2565416813e9bcd3679667c8e06ff1"
+    },
+    {
+      "artifact_id": 10817600412,
+      "attempt": 2,
+      "job_id": 107705711121,
+      "log_sha256": "b5a4a9616d1349263ae542a95be282cd59bc79eba081805990e15696a7ba4159",
+      "reported_transaction_pytest_seconds": 26.87,
+      "source_checkout_commit_verified": "0a69e87cdab8a0a82fb39c6754d2d3c18f61a0bd",
+      "transaction_counts": {
+        "error": 0,
+        "failure": 0,
+        "skipped": 0,
+        "testcase": 1
+      },
+      "xml_reports": 16,
+      "zip_sha256": "be086ff805a7c11763609526ed3ab97882209f5e6b9eaa07c20f253c3af41f0a"
+    }
+  ],
+  "production_ready": false,
+  "raw_evidence_storage": "local only outside Git checkout; no raw log or ZIP upload",
+  "recorded_at_utc": "2026-09-24T22:44:10.896672+00:00",
+  "recovery_dirty_flag_assessment": {
+    "clean_recovery_working_tree_claimed": false,
+    "inference": "The unignored pre-test recovery output is sufficient to explain the dirty flag under repository ignore rules; no per-path runner git-status was retained, so exclusivity is not established.",
+    "reason": "Existing recovery recorder accepted its measured filesystem/test gates; exact-source CPU and concurrency manifests separately verify public source. Preserve the dirty flag without reopening closed recovery scope.",
+    "requires_m7_source_change": false,
+    "source_observation": "Published helper writes profile-recovery-artifacts/filesystem-selection.json before recovery recorder git-status capture; repository ignores concurrency artifact/work directories but not recovery artifact directory.",
+    "working_tree_dirty": true
+  },
+  "retained_local_metadata_sha256": {
+    "artifacts.json": "48e15d3aab42955084f4c8cb1919bd9329f73c147b8397b90d2b8f79e807a470",
+    "jobs-all-attempts.json": "a2a4a2c53ac324de811b2a7c6004e238d8e9c52b679cd5f0055aeb1964f533da",
+    "run.json": "e2c4f19a0a71e01fd9227eac45744faec6211f13628bac00106cc15c117be34d",
+    "tested-merge.json": "0fb5b05dd166a02e8069041025331d45e07c9fa05508aaeb4898c3a991699b22"
+  },
+  "run_id": 36018821624,
+  "run_number": 334,
+  "schema_version": "dml-ci-334-recovery2-assessment-v1",
+  "source_commit": "a6f54953241ea644da1770dd86dc86ec6b7fda8f",
+  "source_tree": "a236791ea7bd7b04a14c636b2cbc64694dbd4e77",
+  "tested_commit": "0a69e87cdab8a0a82fb39c6754d2d3c18f61a0bd",
+  "tested_tree_verified_via_github_api": "a236791ea7bd7b04a14c636b2cbc64694dbd4e77",
+  "url": "https://github.com/mmckeen-nv/DML/actions/runs/36018821624"
+}

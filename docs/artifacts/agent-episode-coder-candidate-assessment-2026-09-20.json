@@ -1,0 +1,74 @@
+{
+  "candidate": {
+    "capability_basis": "Official card identifies an instruction-tuned code model with code reasoning and agent-oriented training; this does not demonstrate stronger memory lifecycle/task performance than the existing general model.",
+    "license": "Apache-2.0",
+    "license_file_sha256": "832dd9e00a68dd83b3c3fb9f5588dad7dcf337a0db50f7d9483f310cd292e92e",
+    "model_id": "Qwen/Qwen2.5-Coder-1.5B-Instruct",
+    "official_card": "https://huggingface.co/Qwen/Qwen2.5-Coder-1.5B-Instruct/blob/2e1fd397ee46e1388853d2af2c993145b0f1098a/README.md",
+    "revision": "2e1fd397ee46e1388853d2af2c993145b0f1098a"
+  },
+  "decision": "eligible_narrow_future_experiment_subject_to_source_provenance_resource_and_freeze_gates",
+  "generation_by_reviewer": false,
+  "independent_configuration_check": {
+    "actual_source_tensors_verified": false,
+    "all_expected_shapes_equal_original_model": true,
+    "existing_architecture_or_resource_bounds_expanded": false,
+    "expected_parameter_count": 1543714304,
+    "expected_tensor_count": 338,
+    "only_normalization_change_before_check": "torch_dtype bfloat16 to float32",
+    "passes_unchanged_check_config": true,
+    "source_config_differences": {
+      "max_window_layers": {
+        "candidate": 28,
+        "current": 21
+      },
+      "transformers_version": {
+        "candidate": "4.44.0",
+        "current": "4.43.1"
+      }
+    }
+  },
+  "milestone_7_closed": false,
+  "model_admitted": false,
+  "production_ready": false,
+  "rationale": [
+    "A separately pretrained stock instruction model at the same admitted architecture and size is a legitimate next engineering experiment after retained instruction-following failures. It changes the inference input model, not the DML task oracle, memory truth or action-selection rules.",
+    "The configuration admits all338 expected tensors and1,543,714,304 parameters under unchanged bounds. This establishes metadata compatibility only; no learned tensor byte, dtype, finiteness, source payload or actual consumer load is verified by the count calculation.",
+    "The candidate can reuse CPU/F32/eager execution, native template, request-local cache, syntax-only grammar and the existing policy/tool descriptions. No stronger memory or lifecycle competence is asserted from its name or code-oriented training.",
+    "Any qualifying outcome would apply to the explicitly pinned model and declared bounded campaign. Failed original-model runs remain failures; eventual model selection is not an unseen-workload quality comparison or evidence that DML beats a baseline."
+  ],
+  "recorded_at_utc": "2026-09-20T15:09:23.482022+00:00",
+  "required_before_next_campaign": [
+    "Finish the entire active attempt5 and both sequential replays; preserve raw successes, conflicts, timeouts and all historical source/model identities before releasing the freeze.",
+    "Review an explicit second exact-source preparation entry point/version. Keep original model/revision/pins and rejection behavior, with no caller-supplied trust hashes, arbitrary model selector, widened architecture bounds or consumer fallback.",
+    "Freeze the selected built-in source profile at call entry. Provenance must hash every module that defines source pins or normalization if implementation is split; one common safe pipeline may be reused.",
+    "Verify complete pinned source payloads, including tokenizer configuration and actual safetensors; all338 learned tensors must have exact expected names/shapes, CPU BF16 dtype, finite values, exact BF16-to-F32-to-BF16 bytes and verified serialized output digests.",
+    "Review and execute storage preparation only after all current workers/replays close; measure sufficient disk and memory headroom before downloads and normalization, preserve historical paths/content and all private-copy admission guarantees.",
+    "Independently grade code at least9.5, validate required final source, produce new trained provenance and zero-generation strict admission, and declare new model/source identity before any corpus generation.",
+    "Freeze the identical nine tasks/order, current policy/tool descriptions, grammar/parser/verifiers, greedy/cache/runtime pins, limits and acceptance gates. Run every task once, retain every failure and independently replay the complete campaign. Do not select per-task successful outputs or probe hidden corpus answers."
+  ],
+  "retained_metadata_assessment_sha256": "b1be1873f35101cd0352176c7281cadd5623ec98f5b8e69d88ee4d107561bac5",
+  "reviewer": "independent delegated m7_final_grader",
+  "schema_version": "dml-independent-model-candidate-assessment-v1",
+  "scope": "Read-only model-selection and storage-plan assessment. This is not preparer code acceptance, model admission, trained outcome qualification or permission to mutate the active frozen campaign.",
+  "source_changes_by_reviewer": false,
+  "source_confirmation_boundary": {
+    "fresh_model_card_and_config_web_access": "Unavailable through browsing; no successful fresh retrieval is claimed. Configuration checks used the retained revision-pinned metadata assessment.",
+    "official_license_label": "Apache-2.0",
+    "official_pinned_license_page_accessed": "https://huggingface.co/Qwen/Qwen2.5-Coder-1.5B-Instruct/blob/2e1fd397ee46e1388853d2af2c993145b0f1098a/LICENSE",
+    "remote_lfs_weight_hash_is_not_payload_verification": true,
+    "tokenizer_config_sha256": "Must be obtained and pinned before preparation."
+  },
+  "storage_plan_review": {
+    "decision": "accepted_conditional_on_declared_quiescence_and_measured_headroom",
+    "duplicate_bytes_recoverable": 6174895536,
+    "execution_performed_by_reviewer": false,
+    "mandatory_before_download": "Measured available disk must cover two actual pinned raw payloads plus two expected F32 payloads, all metadata/copy overhead and1GiB reserve. Abort if insufficient.",
+    "plan_sha256": "7def1168422469bda05977406868c6bc862338492334a42bf699fa801267fac8",
+    "preserved_boundary": "Same-filesystem verified readonly source-blob hardlink and atomic replacement of only the duplicate historical path; both historical inventories/bytes remain available. Never deduplicate private consumer snapshots.",
+    "recovery": "Before atomic replacement both originals remain; after it both paths refer to verified retained bytes. Unexpected identities or cleanup errors are retained explicitly, with no broad deletion.",
+    "unchanged_historical_weight_sha256": "03c6c9523873b288883dfe9e4e37ec2d85a9bedccf761c20eddaa55d93363f95"
+  },
+  "trained_live_qualified": false,
+  "weight_downloads_by_reviewer": false
+}

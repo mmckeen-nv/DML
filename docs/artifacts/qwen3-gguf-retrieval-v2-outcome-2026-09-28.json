@@ -1,0 +1,227 @@
+{
+ "branch": "codex/remote-vllm-candidate",
+ "campaign_frozen": false,
+ "campaign_launched": false,
+ "candidate": "qwen3-8b-gguf-cuda-action-json-retrieval-v2",
+ "classification": "synthetic-noncorpus-staged-qualification",
+ "date": "2026-09-28",
+ "evidence_sha256": {
+  "ci-model-input-evidence.zip": "232c00ffb82b8496219e2d6646265c1f59f65a2c877723646e74b69f1f93ae7e",
+  "compact-staged-summary.json": "7924207abf043e96287aa982d546113293b8bfe9c8f411000a28f1c29a079c1d",
+  "exact-source-ci.json": "f9ae2f23e7fd79f3c082618658a214c11d47d03f31824d1aed659dedb2766e9b",
+  "gpu-admission-r2-predeclaration.json": "e28958e31aa3835f7f773da23a9f0fd8eb0927785d53fe24f03fbf0e21e5b951",
+  "gpu-admission.json": "898eb30374c7873f71788ab9398a9629bca0b25f257541db2f59909225dda9a3",
+  "gpu-admission.log": "156d0141ee96cf73b174f3bb185daa0456296f676422b3e9fb004ee0f545119c",
+  "gpu-live-monitor/freeze-binding.json": "cc0e919199bcaa64042011aae70fbbb9ec7c1208e3e9e79a9cbc7ab49bffb258",
+  "gpu-live-monitor/summary.json": "832d149dd239e5f75e1cae1c980ee02b9fdf6c173a0fe902a1895a297b458dcb",
+  "historical-cpu-compatibility-replay.json": "1cc3c7eba81bc3bf772daffe52678cd7db2e03ee721adcdede2a95aba47df712",
+  "historical-gpu-v1-compatibility-replay.json": "244a6f0a2402eb32475fd98609c60dce9f65f54bd2377ca05918ca8d1a203a56",
+  "independent-cpu-compatibility.json": "6c5dbdfe04cec57d5bedd69eb139b659c15dc951d79c00a13cec87b47607d8ad",
+  "independent-final-qualification-review.json": "a976a44fe667c7c809aaeefb2cf771294651a69437296bd11c17e2fe2defccc6",
+  "independent-gpu-v1-compatibility.json": "3d199d81e097ed4589ccc5ac86bf5b3a986e2168a842e5f9986f4a62f02e96fd",
+  "independent-live-approval.json": "d2041538b569d37ad83fe89a8475e0e44c70afa45f11177aa575126beca283d7",
+  "independent-planning-replay.json": "2d8541d5dbb0a770295e8ff96517cf4a323509d6d58f09bd1742bd07ed840b00",
+  "independent-preparation-review.json": "c8be721c84e8be4c92b28faa7dab54fa994897236e537e4ca0083de0eff7fabb",
+  "interface-preflight.json": "5476744df47691dbff8b821e558aa88f5befb6fde0955e4fc02efe9ecf2e6d5c",
+  "lifecycle/qualification.json": "7a34ca6b1cec2e44bbdd0b3a7f116502b3f474cf46a7d500a7895bc66d54f19c",
+  "paired-records-failure-audit.json": "b42f709a767cdc5f86b09320625d2fe9ba578b33725710e3b9aac7276085c1d4",
+  "planning-reachability/receipt.json": "7e92260581a3c925872eb4700ad901950d609250b2a750542a5090457e6b2f4a",
+  "planning-suite.json": "9f6d345f4baf42d12536a7a272300f3c894fa30658ffcf5970c6ecf5e0fc7859",
+  "primary-staged-replay/summary.json": "4ba0adf31b9f5c8ad5c5ea6c136016087a04c5cb4ee0c508c47d4130b81bce8e",
+  "readiness-reachability/receipt.json": "c2e54987c5aab0ab27d386286bb5a2788be45a0b32020e3f067cbc9e51983af8",
+  "readiness-suite.json": "001d19dc4aa54a8978ccf5e99aa96c0914bfe767b8df068a4e84122fc26525a8",
+  "source-tests.log": "b4ad2ec82508f70e9662cb1784219d87b15ec92aad7c86b19cf9fb1d3d2f4111",
+  "staged-once/freeze.json": "c13ede6b73ad7c9fc4e233ff82b02dfc954144a3c227064c1768bda31d9fed5d",
+  "staged-once/start.json": "3c3d5ca299027dbf21d27e403ac6ed51d709ea9a399377b776807ae58dbe3747",
+  "staged-once/terminal.json": "0b3564cf4af2fd11a7397fa841dd34dcf81a963cc8f9857e210d8abdedc2ff0f",
+  "staged-summary-correction-tests.log": "511fb971caf59261241ec2a3919d9d10c7dcb9ec044ee07d50b2db465184f057"
+ },
+ "finding": "Both cases retrieved only the current record with top_k=1 and immediately finalized with one cited fact. The old fact was missing. Both full requirements remained in both rendered requests. No returned call was discarded. Original verifier reported claim_coverage_mismatch; no integration defect found in these traces.",
+ "gpu_admission": {
+  "cumulative_probes": 4,
+  "generated_tokens": 0,
+  "history": "Receipt assembly failed after first2 probes; declared instrumentation-only successor2 passed.",
+  "negative_seconds": 0.33434355099961977,
+  "positive_seconds": 0.4971009930013679,
+  "successful_probes": 2,
+  "token_rows": 151669
+ },
+ "independent_decision": "Evidence integrity passed; behavior failed 0/2; readiness unrun and campaign denied.",
+ "limitations": [
+  "Two development cases do not establish that the model can never perform the task.",
+  "New guidance did not establish complete retrieval planning; no successful reformulation observed.",
+  "Exact IDs do not guarantee cross-device floating-point or seeded-token equivalence.",
+  "Offline replay does not recreate signing secrets or rerun logits.",
+  "Periodic GPU allocation is not per-kernel tracing; host buffers and CPU sampler remain.",
+  "Durability covers disconnect/process termination, not physical reboot or power loss."
+ ],
+ "limits": {
+  "max_input_tokens": 32768,
+  "max_output_tokens": 1536,
+  "max_steps": 6,
+  "output_tokens_per_call": 256,
+  "unchanged": true,
+  "wall_time_seconds": 300
+ },
+ "live_gpu_monitor": {
+  "nemotron_baseline_continuity_verified": true,
+  "samples": 10,
+  "worker_peak_mib": [
+   5204,
+   5206
+  ]
+ },
+ "m7_closed": false,
+ "merged": false,
+ "model": {
+  "id": "Qwen/Qwen3-8B-GGUF",
+  "identity": {
+   "chat_template_digest": "be79a58bcd06ee9d914bd82954d83e2179c87b1cadc684efd6f66e310f1fcad4",
+   "model_digest": "3a805753fdd975d48e722623a1cd8bd2a7b5a21c3b5d4f81b98741d383803ea2",
+   "model_window_tokens": 32768,
+   "runtime_identity": "dml-qwen3-gguf-cuda-action-runtime-v2:e90c89598422819c97a67323243bb9c8c4547939bd70dcd133534cc133478fcd",
+   "tokenizer_digest": "7edfd17627c6e211f4a8dd3969f3a756f9163b21c486504045fc3bcd1a84253d"
+  },
+  "metadata_revision": "b968826d9c46dd6066d109eabc6255188de91218",
+  "revision": "7c41481f57cb95916b40956ab2f0b139b296d974",
+  "sha256": {
+   "chat_template.jinja": "be79a58bcd06ee9d914bd82954d83e2179c87b1cadc684efd6f66e310f1fcad4",
+   "model.gguf": "d98cdcbd03e17ce47681435b5150e34c1417f50b5c0019dd560e4882c5745785",
+   "tokenizer.json": "aeb13307a71acd8fe81861d94ad54ab689df773318809eed3cbe794b4492dae4",
+   "tokenizer_config.json": "d5d09f07b48c3086c508b30d1c9114bd1189145b74e982a265350c923acd8101"
+  }
+ },
+ "planning": {
+  "attempted": 2,
+  "cases": [
+   {
+    "calls": 2,
+    "elapsed_seconds": 44.641,
+    "events_sha256": "5af2550a11796d83faeae276322e8eabfeebba2af7ab094ca2e6e26be92536b5",
+    "final_claim_count": 1,
+    "final_schema_valid": true,
+    "id": "paired_records",
+    "input_tokens": 2562,
+    "original_verifier_reasons": [
+     "claim_coverage_mismatch"
+    ],
+    "output_tokens": 103,
+    "qualified": false,
+    "query_reformulation_observed": false
+   },
+   {
+    "calls": 2,
+    "elapsed_seconds": 45.18,
+    "events_sha256": "beeb52355ac4c79df05d4f13ccfeb7fca65930829e8bb66a7063410203e6040f",
+    "final_claim_count": 1,
+    "final_schema_valid": true,
+    "id": "paired_records_with_distractors",
+    "input_tokens": 2568,
+    "original_verifier_reasons": [
+     "claim_coverage_mismatch"
+    ],
+    "output_tokens": 106,
+    "qualified": false,
+    "query_reformulation_observed": false
+   }
+  ],
+  "passed": 0
+ },
+ "policy": {
+  "guidance_sha256": "61a310b96ce6cf49740b55a087ff86de69144c945a523a2ae204e14e7856e2b0",
+  "sha256": "70509e768e4a669488a7fa03c8b5161cdf67439d2bfefc862da33ee41e81f3f2",
+  "system_sha256": "b0ec3d6f643b4363ba6e2765cbea937588f78ec1da4372cdbf1342f934b8cdc4"
+ },
+ "preserved": {
+  "CPU_and_GPUv1_qualifications": "3/4 each unchanged",
+  "Nemotron_service_unchanged": true,
+  "Nemotron_v4_campaign": "8/9 unchanged",
+  "corpus_retrieval_authorization_final_contract_budgets_M7_gates": true,
+  "no_forced_calls_retries_repairs_or_feedback_conversion": true,
+  "old_profiles_and_replays": true,
+  "weights_tokenizer_template_GPU_backend_grammar_sampling": true
+ },
+ "qualification_passed": false,
+ "raw_evidence_root": "/home/nvidia/dml-debug/qwen3-8b-gpu-retrieval-v2-20260928",
+ "readiness": {
+  "reason": "predeclared planning 2/2 prerequisite failed",
+  "started": false,
+  "unrun_cases": [
+   "live_retrieval",
+   "dependent_feedback",
+   "live_supersession",
+   "untrusted_injection"
+  ]
+ },
+ "replays": {
+  "completions_verified_each": 4,
+  "historical_compatibility": "Both reviewers preserved CPU10 and GPUv1 12 completions, identities and 3/4 results.",
+  "independent_passed": true,
+  "primary_passed": true,
+  "scope": "Exact IDs, grammar, transcript, receipts, authority, verifier and staged execution; no inference.",
+  "stage_gate_verified": true
+ },
+ "runtime": {
+  "backend_unchanged_from_v1": true,
+  "cuda_toolkit": "13.1.115",
+  "device": {
+   "compute_capability": "10.3",
+   "driver_version": "590.48.01",
+   "name": "NVIDIA GB300"
+  },
+  "native_wheel_sha256": "ad01cbde928d504b609ee943a06b341cdb0d1dc62712099ba32b492648f2fd32",
+  "placement": "37/37 layers CUDA; host input/embedding; CPU grammar/sampler; fresh CUDA F16 KV; no flash",
+  "versions": {
+   "llama-cpp-python": "0.3.35",
+   "tokenizers": "0.22.0",
+   "torch": "2.8.0+cpu",
+   "transformers": "4.56.2",
+   "xgrammar": "0.2.7"
+  }
+ },
+ "sampling": {
+  "candidates": 1,
+  "min_p": 0,
+  "order": [
+   "authenticated_action_grammar",
+   "temperature",
+   "top_k",
+   "top_p",
+   "min_p",
+   "torch_multinomial"
+  ],
+  "policy_sha256": "18269215dde3c03b02951f75aafd5c57cfb4a8aa08e467631190376194fccd7a",
+  "seed": 0,
+  "temperature": 0.7,
+  "top_k": 20,
+  "top_p": 0.8
+ },
+ "schema_version": "dml-qwen3-gguf-retrieval-v2-outcome-v1",
+ "source_commit": "37471b68a53cb052876409b5d02b5f08ffb175a8",
+ "source_validation": {
+  "ci": {
+   "conclusion": "success",
+   "model_input_skips": 0,
+   "model_input_tests": 1589,
+   "passed_jobs": 21,
+   "run_id": 36486509780,
+   "total_jobs": 21,
+   "url": "https://github.com/mmckeen-nv/DML/actions/runs/36486509780"
+  },
+  "corrected_stage_tests": 15,
+  "focused_tests_initial": 214,
+  "lint_passed": true,
+  "review_correction": "Preserve actual unrun readiness cases and reason on interruption; regression passed."
+ },
+ "usage": {
+  "errors": 0,
+  "input_tokens": 5130,
+  "model_calls": 4,
+  "output_tokens": 209,
+  "summed_episode_seconds": 89.821,
+  "timeouts": 0,
+  "unknown_effects": false,
+  "unknown_usage": false,
+  "validation_rejections": 0
+ }
+}

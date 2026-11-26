@@ -1,0 +1,147 @@
+{
+  "schema_version": "dml-independent-review-v1",
+  "stage": "13: scoped retention inspection",
+  "base_commit": "f8a7d7a733e19f88671f81c4cb6b3406b143430d",
+  "reviewer": "/root/retention_grader",
+  "score": 9.6,
+  "required_score": 9.5,
+  "accepted": true,
+  "blocking_findings": [],
+  "review_history": [
+    {
+      "phase": "contract review",
+      "outcome": "bounded inspection contract accepted",
+      "notes": [
+        "Physical erasure remains unsupported; five literal payload surfaces exclude outbox receipt bindings.",
+        "Stored missing optional scope values equal null; caller request contains all four scope keys."
+      ]
+    },
+    {
+      "phase": "preacceptance test corrections",
+      "outcome": "resolved without runtime change",
+      "notes": [
+        "Integration no-mutation guard now permits exactly the two intentional read hooks and rejects mutation hooks.",
+        "Unit SQLite row-oracle helper now closes connection explicitly for portable handle cleanup."
+      ]
+    },
+    {
+      "phase": "final independent review",
+      "score": 9.6,
+      "accepted": true,
+      "blocking_findings": []
+    }
+  ],
+  "reviewed_contract": {
+    "supported_journal_schemas": [
+      2,
+      3,
+      4
+    ],
+    "coverage": "Known direct records and recognized first-level promotion source records within one verified pinned journal transaction.",
+    "surfaces": [
+      "current_items",
+      "current_lineage",
+      "journal_snapshot",
+      "receipts",
+      "outbox_states"
+    ],
+    "scope": "Exact tenant/client/session/instance identity; no foreign outer record or receipt proof traversal.",
+    "safety": "No logical authority mutation, repair, pruning, hydration, embedding model call, or writer ownership.",
+    "unsupported_shapes": "Malformed, unknown, recursive or cross-scope embedded proof in an in-scope container fails typed unsupported.",
+    "public_output": "Counts, caller request, authority identity/revision/digest, fixed coverage and uninspected surfaces; no retained memory payload or receipt key.",
+    "physical_erasure_supported": false,
+    "erasure_proven": false
+  },
+  "independent_evidence": {
+    "targeted_junit": "/tmp/retention-review-targeted.xml",
+    "tests": 213,
+    "passed": 213,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 20.671,
+    "test_file_counts": {
+      "test_retention": 55,
+      "test_retention_integration": 65,
+      "test_retention_recovery": 61,
+      "test_retention_adversarial": 32
+    },
+    "independent_adversarial_cases": 32,
+    "process_kill_cases": 6,
+    "pinned_read_write_races": 6,
+    "corruption_cases": 37,
+    "ruff": "passed for service, static contract and independent adversarial test file",
+    "maximum_test_nodeid_utf16_units": 140,
+    "maximum_test_nodeid": "dml_core/tests/test_retention_recovery.py::test_process_death_during_inspection_preserves_every_acknowledged_row[retention_after_snapshot-2]",
+    "qualification_status": "Targeted suite passed locally. Root independently owns full regression, type checking, 256-reader evidence and exact-commit CI.",
+    "warnings": 1,
+    "known_warning": "Existing Starlette TestClient AnyIO BlockingPortal alias deprecation."
+  },
+  "reasoning": [
+    "All report surfaces are read after full journal history validation inside one SQLite read transaction; competing commits cannot mix revisions.",
+    "Independent literal-copy oracles confirm historical-only targets and avoid counting outbox receipt bindings as payload duplicates.",
+    "Foreign carriers, damaged historical proof, caller aliasing, null scope equivalence and retirement of derived carriers were tested independently.",
+    "API errors and validation failures are sanitized; static API/CLI contract does not open storage; existing provider behavior has compatibility coverage.",
+    "Docs and machine-readable contract consistently preserve candidate maturity and explicitly exclude erasure, external copies and unbounded history costs."
+  ],
+  "limits_not_release_blockers_for_this_contract": [
+    "This gate implements inspection only; physical erasure, history expiry/compaction and capacity reclamation remain future separately versioned work.",
+    "Arbitrary metadata, bare lineage identifiers, semantic duplicates, projections, consumers, checkpoints, backup/migration sources, runtime/caller copies and physical SQLite/filesystem remnants are not inspected.",
+    "Verification and inspection cost grows with retained history; no production-scale latency or memory bound is claimed.",
+    "This review does not qualify the whole repository for production or replace exact-commit platform CI."
+  ],
+  "accepted_file_sha256": {
+    ".github/workflows/ci.yml": "678214463d128b864de17204f9b01d7a79ff6b6b7a8a74cb22a9bac9f037580b",
+    "dml_core/daystrom_dml/contracts/production.py": "e8ecad1df37da5ae8c42ee46f693c26aa549b373d47188e37665df7e7cad2c3a",
+    "dml_core/daystrom_dml/contracts/retention.py": "e6770cfac74c2813afc902cd3dde06b4c726c86b28585cd54634a9b3cf34d41e",
+    "dml_core/daystrom_dml/dml_adapter.py": "508282f50d07082b20d1556a68b3a513e423a5fbb6747578dfb9d48fede6cff8",
+    "dml_core/daystrom_dml/journal.py": "94d26905138ce37048de9056e7ff092b0f551d803b9337d1d797c74d8d40ca00",
+    "dml_core/daystrom_dml/provider_server.py": "e3af8ab0f9500b8f81a2a4dde87285409c5dfb42eeda02c259c10fae132ed114",
+    "dml_core/daystrom_dml/services/retention.py": "fc405e6f26ab5bd6015dcdb3d8da26c5fc33222e36467d8d1717fe47df51b302",
+    "dml_core/scripts/dml_journal.py": "1e40481db446aada4906057d2a87731eba8aeab715e1e66a31044ee5f8e2c688",
+    "dml_core/tests/test_retention.py": "bdc75297990ef9eb866072f10ddb1f69ff5b6525b3d19873e22c61a5723aee9a",
+    "dml_core/tests/test_retention_adversarial.py": "91d6491ad1ac30ce01d6df098ab895c30dfc7a88d1299270175406018803fc65",
+    "dml_core/tests/test_retention_integration.py": "3903d36795c2703dab9a32bd985d215e28e5eb40e33e41d4a0041294db234c28",
+    "dml_core/tests/test_retention_recovery.py": "0908441a27edb50a053145045d074f132ab01c193c9d8128fcd15780a42bee74"
+  },
+  "reviewed_document_sha256": {
+    "docs/contracts/production-v1.md": "21b44e357f966ddba4041edf44dc311fb339b498eddd84f0c789d3c8a85f8c1f",
+    "docs/production-foundations-2026-09-12.md": "b9532794fbc321446a98c98c8ee9b1ae8c201a3c99a9d8e1afb0bd9c8735a1ce",
+    "docs/retention-inspection-hardening-2026-09-17.md": "b8837db509fb59ae350a6c181c10bd59ecc662b70371e2514dbeaf51f9fabc79"
+  },
+  "documentation_note": "Root may fill final evidence numbers and review artifact links after local regression; documented behavioral contract was reviewed and must remain unchanged.",
+  "reviewed_at": "2026-09-17",
+  "root_verification": {
+    "ruff": "passed for all changed runtime and test files",
+    "mypy": "57 maintained source files passed; local target Python 3.12",
+    "hermes_hygiene": "passed",
+    "simultaneous_readers_per_schema": 256,
+    "concurrency": {
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "time": "16.591"
+    },
+    "provider_compatibility": "9 passed",
+    "full_suite": "2714 passed, 9 optional-dependency skips, 2 known warnings in 295.32s",
+    "exact_commit_ci": "Separate final gate recorded on PR118",
+    "full_suite_junit": {
+      "tests": "2723",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "9",
+      "time": "295.182"
+    },
+    "known_warnings": [
+      "Existing Starlette AnyIO alias deprecation",
+      "NumPy norm overflow in an intentionally rejected huge-vector query"
+    ],
+    "final_document_sha256": {
+      "docs/contracts/production-v1.md": "21b44e357f966ddba4041edf44dc311fb339b498eddd84f0c789d3c8a85f8c1f",
+      "docs/production-foundations-2026-09-12.md": "b9532794fbc321446a98c98c8ee9b1ae8c201a3c99a9d8e1afb0bd9c8735a1ce",
+      "docs/retention-inspection-hardening-2026-09-17.md": "2d304b99506fbf76ae25d23fc60f49cf3ccd279cd5545915769c34c591e1d35a"
+    },
+    "documentation_finalization": "Only the qualification paragraph gained accepted review counts, links and final local results after independent review; behavioral contract unchanged."
+  }
+}

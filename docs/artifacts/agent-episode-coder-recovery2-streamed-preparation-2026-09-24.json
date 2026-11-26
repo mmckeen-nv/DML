@@ -1,0 +1,41 @@
+{
+  "actual_generations": 0,
+  "complete": true,
+  "finished_at_utc": "2026-09-24T22:55:55.081956+00:00",
+  "helper_sha256": "9fecfb468cff2d2ca0a09c620e1510db333813c1c063225ab31090885b1d79de",
+  "historical_output_bytes_and_tensor_provenance_match": true,
+  "max_rss_kib": 7812780,
+  "milestone_7_closed": false,
+  "model_identity": {
+    "chat_template_digest": "24bd5fcdd71018049c672f96778e9162c6d00337e22f8f5f9b358c52705d9348",
+    "model_digest": "76518196be2e47de1f020a98f391df579b1e74005699c9262f8e1908d22cff5b",
+    "model_window_tokens": 32768,
+    "runtime_identity": "dml-qwen-model-input-runtime-v1:09d6ffce6fb460925b15550dbffcdfc4fe65c2b80127723455c04e053205a723",
+    "tokenizer_digest": "2e8e31c0c66a7bb12ebc8deddf0d503b42df4911c701c73f54e0543da828feac"
+  },
+  "normalizer_source_sha256": "06cf798ee045a6509f974c6d2b3a3412b37dc1079cc53006804f7d90f84d6d96",
+  "normalizer_source_unchanged": true,
+  "prepared_directory": "/tmp/dml-m7-coder-recovery2-20260924/prepared-streamed",
+  "production_ready": false,
+  "provenance_difference_from_historical": [
+    "normalizer_sha256"
+  ],
+  "provenance_sha256": "1f05ab3c6b3dc4fc5db15e3498aa9fa28d09f93fc78a7a5c14ce92b98149dfba",
+  "raw_directory": "/tmp/dml-m7-coder-recovery2-20260924/raw",
+  "resources_after": {
+    "memory.events": "low 0\nhigh 0\nmax 45758\noom 1\noom_kill 1\noom_group_kill 0",
+    "memory.max": "8589934592",
+    "memory.peak": "8589934592"
+  },
+  "resources_before": {
+    "memory.events": "low 0\nhigh 0\nmax 31528\noom 1\noom_kill 1\noom_group_kill 0",
+    "memory.max": "8589934592",
+    "memory.peak": "8589934592"
+  },
+  "schema_version": "dml-coder-bounded-preparation-execution-v1",
+  "seconds": 38.946819559999994,
+  "source_binding": "Exact reviewed working-tree normalizer bytes; commit identity recorded separately.",
+  "source_commit_at_start": "a6f54953241ea644da1770dd86dc86ec6b7fda8f",
+  "started_at_utc": "2026-09-24T22:55:16.135164+00:00",
+  "tensor_count": 338
+}

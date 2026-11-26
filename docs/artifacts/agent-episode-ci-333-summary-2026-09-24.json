@@ -1,0 +1,111 @@
+{
+  "all_attempt_job_count": 20,
+  "artifact_count": 10,
+  "ci_pass": false,
+  "conclusion": "failure",
+  "cpu": {
+    "all_source_sha256_match_public_commit_git_blobs": true,
+    "archive_sha256": "78c8b4584d259367c842a3acce64d53b334371b295ae54b64aa23e5f4e30c72f",
+    "artifact_id": 10815575530,
+    "counts": {
+      "error": 0,
+      "failure": 0,
+      "skipped": 0,
+      "testcase": 784
+    },
+    "module_count": 21,
+    "source_file_count": 371,
+    "tested_commit": "9e228cefd1f74b78ca0766ccbf51aa9a3234d087",
+    "tested_merge_tree_matches_reviewed_head_tree": true,
+    "tested_tree": "7d8b041f5c53cd55c3d4a94318f67f5b3677bdd1"
+  },
+  "failed_jobs": [
+    {
+      "failed_steps": [
+        "Select an admitted existing Linux test filesystem"
+      ],
+      "id": 107690754344,
+      "name": "profile-concurrency (ubuntu-latest, full, 1,16,64,256)"
+    },
+    {
+      "failed_steps": [
+        "Qualify profile recovery on the measured test filesystem"
+      ],
+      "id": 107690754508,
+      "name": "profile-recovery (ubuntu-latest, 3.13)"
+    },
+    {
+      "failed_steps": [
+        "Qualify profile recovery on the measured test filesystem"
+      ],
+      "id": 107690755090,
+      "name": "profile-recovery (ubuntu-latest, 3.10)"
+    }
+  ],
+  "filesystem_failure": {
+    "concurrency_archive_sha256": "911b62caef39a7a875b62be46de1b50cce29a41244ac312e31cd58fbba4ab5e1",
+    "concurrency_artifact_id": 10814887035,
+    "concurrency_candidate_count": 2,
+    "concurrency_candidates_both_resolve_to_root_device": 2049,
+    "concurrency_cases_executed": 0,
+    "concurrency_mount_source": "/dev/sda1",
+    "concurrency_mount_type": "ext4",
+    "inference": "All three Linux qualification jobs stopped at unchanged filesystem admission guards; the concurrency artifact proves both candidate paths are the same ext4 root filesystem with barriers disabled.",
+    "recovery_artifacts_absent": true,
+    "recovery_jobs_failed_before_collection": true,
+    "recovery_raw_filesystem_measurement_unavailable": true,
+    "rejected_option": "nobarrier"
+  },
+  "full_suites": [
+    {
+      "job_id": 107690754512,
+      "mandatory_cpu_skips": false,
+      "passed": 4680,
+      "python": "3.10",
+      "skipped": 266
+    },
+    {
+      "job_id": 107690754586,
+      "mandatory_cpu_skips": false,
+      "passed": 4680,
+      "python": "3.11",
+      "skipped": 266
+    }
+  ],
+  "head_sha": "c18f022fe39ad5f9585cbed007501a3a28aed3f0",
+  "head_tree": "7d8b041f5c53cd55c3d4a94318f67f5b3677bdd1",
+  "job_conclusions": {
+    "failure": 3,
+    "success": 17
+  },
+  "live_model_qualification": false,
+  "milestone_7_closed": false,
+  "production_ready": false,
+  "public_writes_performed": false,
+  "raw_storage": "local only, outside the Git checkout",
+  "reruns_requested": false,
+  "retained_files_sha256": {
+    "all-attempt-jobs.json": "357010eece5fe44a7529716f0d73d0044dd38bb2d6566b174d28ff882eb540ce",
+    "artifacts-final.json": "74131dd549169b2ddb688671ba2a02b63e141d01dd29181509777da77e8a89a9",
+    "cpu-verification.json": "ae1385a99377c381b22791fd05e5ede8cd0dfd194d8b598f6786b1f5fce90dbc",
+    "filesystem-failure-verification.json": "806bd48fd99b2a67e1c5d7c6292ed383e3e6834b536eefc376ced9baa030a391",
+    "job-107690754201.log": "ecf5a6bfe1f510847c9bf7645479d8e2658a9daad872d47263decf6409e8b28f",
+    "job-107690754344.log": "1aa52a3c60470b015b85ff53e2291d230c20c438c473116519055b638016ac27",
+    "job-107690754508.log": "5783b4ac8daf3211359d3b07b9a9ecacc1ec5667ed0d284a8390bd7e3be81049",
+    "job-107690754512.log": "c55796bbff5b29323d60036704d732e6811c9056a4eff2928f90577e41cb0bc7",
+    "job-107690754586.log": "0f8875f783e38687abf98c9f7072ba2b7993ccf118ccd3b42ed3fdd42efb7272",
+    "job-107690755090.log": "9c08009ffb29e5be06d208b74fa04cb7694ac8a04e337beadd4dc19f102b372f",
+    "linux-concurrency.zip": "911b62caef39a7a875b62be46de1b50cce29a41244ac312e31cd58fbba4ab5e1",
+    "model-input.zip": "78c8b4584d259367c842a3acce64d53b334371b295ae54b64aa23e5f4e30c72f",
+    "run-final.json": "ff0b01c796ef2c66683d04aab38c45c496974c4cc435f81c88b45e29e6b8e0fa",
+    "run-in-progress.json": "b19e3dfcf25cb20f4bc049d9384aa83333d71d822e3b3d368007c1ea702ced48",
+    "tested-merge.json": "799be315bbda4e5524a7ff3b6d27f43138b9b3014bb3d49351c25086189205e3"
+  },
+  "run_attempt": 1,
+  "run_id": 36016639355,
+  "run_number": 333,
+  "schema": "dml-ci-attempt-summary-v1",
+  "scope": "source and fixture harness only; not live model qualification",
+  "status": "completed",
+  "url": "https://github.com/mmckeen-nv/DML/actions/runs/36016639355"
+}

@@ -161,7 +161,15 @@ class ContextPacket(SerializableDataclass):
             raise ContractError("segment scopes must match packet scope")
         if total > self.budget.available_input_tokens:
             raise ContractError("segment token total cannot exceed available input budget")
-        if self.budget.admitted_input_tokens != total:
+        rendered_total = self.manifest.decisions.get("rendered_input_tokens")
+        if rendered_total is not None:
+            if type(rendered_total) is not int or rendered_total < 0 or rendered_total > self.budget.available_input_tokens:
+                raise ContractError("rendered token total cannot exceed available input budget")
+            if rendered_total != self.manifest.exact_input_tokens or not self.manifest.decisions.get("tokenizer_identity"):
+                raise ContractError("rendered token total requires exact count and tokenizer identity")
+            if self.decisions.get("rendered_input_tokens") != rendered_total:
+                raise ContractError("packet and manifest rendered token counts must match")
+        if self.budget.admitted_input_tokens != (rendered_total if rendered_total is not None else total):
             raise ContractError("budget admitted_input_tokens must match segment token total")
         if self.manifest.segment_ids and self.manifest.segment_ids != [segment.segment_id for segment in self.segments]:
             raise ContractError("manifest.segment_ids must match ordered packet segments")

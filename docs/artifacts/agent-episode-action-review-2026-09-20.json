@@ -1,0 +1,123 @@
+{
+  "decision": "accepted_source_revision",
+  "historical_live_rejections": [
+    {
+      "attempt": 1,
+      "milestone_completion_score": 7.0,
+      "path": "docs/artifacts/agent-episode-live-attempt-1-review-2026-09-20.json"
+    },
+    {
+      "attempt": 2,
+      "milestone_completion_score": 8.5,
+      "path": "docs/artifacts/agent-episode-live-attempt-2-review-2026-09-20.json"
+    },
+    {
+      "attempt": 3,
+      "milestone_completion_score": 7.0,
+      "path": "docs/artifacts/agent-episode-live-attempt-3-review-2026-09-20.json",
+      "sha256": "e42738000ff3011a56ed5d119a7434694106996dfc710ec37c832009898ecbbc"
+    }
+  ],
+  "milestone_7_closed": false,
+  "minimum_acceptable_score": 9.5,
+  "parent_source": {
+    "commit": "2915b65290315e4eead5ee05bbb5179e31cfc189",
+    "tree": "4846330e9ea97ba156467d973fda90c488857b1b"
+  },
+  "production_ready": false,
+  "recorded_at_utc": "2026-09-20T14:17:35.151836+00:00",
+  "remaining_milestone_blockers": [
+    "Bind actual zero-generation admission to this new constrained runtime identity and the unchanged trained weights/native template.",
+    "Freeze exact source/model/runtime/environment before a fresh complete nine-task campaign using unchanged corpus, limits and qualification gates; independently replay all outcomes.",
+    "Pass required CI on the published final source revision, retain preceding failures, and leave PR #118 unmerged."
+  ],
+  "review_findings": [
+    "The new qwen2-action-json-v1 profile is explicit; existing generic GPT-2/Qwen consumers and the strict action parser are unchanged. No automatic fallback is added.",
+    "Pinned XGrammar 0.2.7 and apache-tvm-ffi 0.1.12 derive syntax only from exact advertised public tool schemas and the existing final-claim shape. Tool/action choice, arguments, values, citations and whether to finish remain model-owned. Empty or semantically wrong finals remain possible.",
+    "Generation uses declared structural key order without changing which legal action/value can be represented. Parser-only uniqueness, UTF-8/byte limits and complete-action validation remain authoritative. No corpus, memory state, expected answer or verifier result enters grammar construction.",
+    "Complete detached request bytes are bound to each authenticated artifact and checked against its request digest at execution. No hidden schema message or expected answer changes the recorded input. A/B/A and repeated artifacts retain their own advertised tool grammar.",
+    "At most 64 request bindings exist per consumer lifetime. Capacity failure is explicit, no binding is silently evicted, and close clears the state. Fresh compiler/matcher and request-local model KV state are used per execution.",
+    "Runtime identity binds the base model runtime, exact grammar versions, schema digest, compiler/ordering/whitespace policy, termination and special-token settings, capacity and no-repair policy. Grammar version or policy drift rejects dispatch.",
+    "The CPU float32 mask wrapper checks initial and extended prefixes, every selected token including the last, legal tokenizer membership, finite logits, valid mask layout, remaining output bound and nonempty choices. Mask and membership allocations are explicitly CPU even under a different default device.",
+    "Raw generated IDs and costs are preserved. No token is appended or output repaired. An incomplete prefix at the reservation reaches the unchanged parser and fails with known cost; a complete valid action ending exactly at the bound need not invent EOS.",
+    "The checker independently replays tokenization, constrained identity, request-specific grammar, strict actions, causal links, verifiers and accounting. It explicitly does not authenticate execution or reconstruct unrecorded logits.",
+    "The shared policy clarification describes obtaining requested records, revising unchanged repeated retrieval and completing explicitly requested lifecycle actions before claiming completion. It supplies no fixed action sequence, top_k, fixture fact, expected value or forced write. Any next campaign changes both grammar and policy, so causality cannot be attributed to grammar alone.",
+    "Optional packaging and docs retain exact CPU runtime admission and the two-stage CPU Torch then agent-action installation. Linux x86_64 Triton is a transitive packaging surface, not a claimed GPU execution path. Cross-platform optional-profile qualification remains unclaimed."
+  ],
+  "reviewed_files_sha256": {
+    ".github/workflows/ci.yml": "9bddd9e55e79c9f0eb14372889aecd0e47de0afcf619164479899e8b19177b76",
+    "dml_core/daystrom_dml/contracts/agent_episode.py": "de557fe92570216eff5f6427615a2e24a29a2e15355518e46c8bf66ad3777cd5",
+    "dml_core/daystrom_dml/services/agent_action_grammar.py": "4036e5ca065b28b68e602e5aab1e54014b3796ac4e28dae20908fb57273d78ac",
+    "dml_core/daystrom_dml/services/agent_episode.py": "66bd312ebc818d8cd78773623aab04b8844547d4d9bf51d2b3bd90a08055dde1",
+    "dml_core/daystrom_dml/services/qwen_action_input.py": "1d27c5131ff0c116d1b23c5253d321ee260b5a9ff17ab895d0a02662b7bdb5d7",
+    "dml_core/scripts/agent_campaign_evidence.py": "53819e49d42eb4bb8199537ec2f1a1d04fac795c4207edd8423c1e0b2fe3bf4e",
+    "dml_core/scripts/agent_episodes.py": "9a781fb1b97ab927a10087ff47478a71cef74868a9ac992b837756716877cf78",
+    "dml_core/tests/test_agent_action_grammar.py": "ee72b9ad0b0190311dad6ba78c32500e364597634a42221f87275bec5ed48ce4",
+    "dml_core/tests/test_agent_episode_cli.py": "3c32437559e66a4fa371cb98584b57a4883b38bab8f8c6afaac05e22a69ab78f",
+    "dml_core/tests/test_qwen_action_input.py": "a9c980c0a75bbc176b110bd159532ec0b18a64022961e2c4b4318fb03583200f",
+    "pyproject.toml": "d229b8823c2aa96dcc964ac1978fda888ebf77efca5f550fd2c9bc04f4681f26"
+  },
+  "reviewer": "independent delegated m7_final_grader",
+  "schema_version": "dml-independent-action-generation-review-v1",
+  "scope": "Separate request-bound Qwen action-JSON generation profile, generic task-following policy clarification, evidence replay, pinned optional packaging and mandatory tests. Source acceptance does not qualify trained-model outcomes.",
+  "score": 9.6,
+  "source_blockers": [],
+  "trained_live_qualified": false,
+  "validation": {
+    "builder_final_focused": {
+      "errors": 0,
+      "failures": 0,
+      "junit_sha256": "3e5a4eba63914d2927ca9513a5b23b8e9d964b479744604a83a85207f94845e7",
+      "overlaps_final_mandatory_lane": true,
+      "skipped": 0,
+      "tests": 45
+    },
+    "final_mandatory_cpu": {
+      "errors": 0,
+      "failures": 0,
+      "junit_independently_parsed": true,
+      "junit_sha256": "4f02a1ba3a22b512e36a65e8fa4cc91dccbe9dcd7f32aafc3327fe7cde47c2e3",
+      "module_count": 20,
+      "skipped": 0,
+      "source_before_after_equal": true,
+      "tests": 760
+    },
+    "independent_candidate_checks": [
+      {
+        "errors": 0,
+        "failures": 0,
+        "junit_sha256": "d149ffd1fc0374b93fbf93a47c68637d65b121bab2e3d6f4870312c2c65c32af",
+        "scope": "All initial new grammar and tiny-real-consumer controls, including A/B/A, semantic freedom, strict failures, exact bounded output and independent normally constructed model parity.",
+        "skipped": 0,
+        "tests": 44
+      },
+      {
+        "errors": 0,
+        "failures": 0,
+        "junit_sha256": "b354f566e27a118d4d19672829500d419440c0b18284dc7b2adc70bfe093d4b7",
+        "scope": "Final explicit CPU allocation regression, after the only small runtime delta.",
+        "skipped": 0,
+        "tests": 1
+      }
+    ],
+    "official_tokenizer_probe": "Pinned actual Qwen tokenizer accepted three arbitrary legal actions and rejected an extra-field action; grammar compilation measured 0.56 seconds. No model generation or task-quality claim.",
+    "public_manifest": {
+      "all_current_files_independently_rehashed": true,
+      "file_count": 433,
+      "path": "docs/artifacts/agent-episode-action-validation-2026-09-20.json",
+      "sha256": "5ddd1eaf58fdfdc5d423a7f7243912896ad227e4091ca5463879dbdc445ba032"
+    },
+    "retained_initial_integration": {
+      "cause": "Existing CLI regression expected 13 producer source hashes; the correctly expanded manifest contains 15.",
+      "errors": 0,
+      "failures": 1,
+      "junit_sha256": "a40c8a393f6e58489d0c17986c29d65cd4b074f27a10957ba0d9e934e9ecd340",
+      "passed": 759,
+      "qualification": "rejected until repaired",
+      "repair": "Update expected count to 15 and explicitly require the new grammar and action-consumer source keys; no runtime code changed.",
+      "skipped": 0,
+      "tests": 760
+    },
+    "static_checks": "Both strict Ruff scopes and maintained mypy passed; commands and log digests are retained in the public validation artifact."
+  }
+}

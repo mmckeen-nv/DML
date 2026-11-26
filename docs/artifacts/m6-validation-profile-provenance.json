@@ -1,0 +1,68 @@
+{
+  "artifact_sha256": {
+    "m6-validation-profile-baseline-reproduced.json": "3a9b125c4853924c0362ac6559e9431212a2146242fac65c8093f661ec0cb263",
+    "m6-validation-profile-correction-reproduced.json": "d4c7fe7dee5de0ffeaec8a00cd90cd8d4cc4f1e9094e2e929fe642ca3f5e9ff6",
+    "m6-validation-profile-exploratory.json": "a08cf5f766709e9064050a8267e43d9df924908d375e6678de3dcec21d7fcf21",
+    "m6-validation-profile.py": "afe3aa319efde47982cb6a6d660a9c03bc5f98f3df53d0c527166065005cee79"
+  },
+  "base_commit": "2cc3a3a47c10d99aae12e186e9913c52621cda4b",
+  "capture_scope": "The four runtime files were frozen during both measurements. Test-helper diagnostic edits were still being completed by other builders; captured helper hashes are retained unchanged, and the benchmark used the unchanged prepare_history path. This capture does not identify the entire later final working tree.",
+  "correction_identity": "Four reviewed runtime files over base_commit; exact SHA-256 hashes are captured in correction-reproduced.json. source_manifest_sha256 identifies the sorted relative-path/hash JSON map for all daystrom_dml Python sources plus the two imported test fixture modules; it is not a Git tree hash.",
+  "deterministic_observations": {
+    "canonical_encodes": {
+      "baseline": 35675,
+      "correction": 33775
+    },
+    "changed_public_recall_snapshot_scans": {
+      "baseline": 5,
+      "correction": 4
+    },
+    "checked_sql_objects": {
+      "baseline": 3850,
+      "correction": 3850
+    },
+    "outbox_events_semantically_validated": {
+      "baseline": 950,
+      "correction": 950
+    },
+    "profiled_snapshot_reads": {
+      "baseline": 25,
+      "correction": 25
+    },
+    "strict_decodes": {
+      "baseline": 4825,
+      "correction": 3875
+    },
+    "unchanged_public_recall_snapshot_scans": {
+      "baseline": [
+        4,
+        4,
+        4
+      ],
+      "correction": [
+        4,
+        4,
+        4
+      ]
+    }
+  },
+  "executed_script_sha256": "a33cab4cb9d3795b2bc6ca5df2930952251bbba987e2a2069525fc1919e2153a",
+  "format": "dml-validation-profile-provenance-v1",
+  "postcapture_metadata_edit": "After execution, source_tree_sha256 was renamed to the more accurate source_manifest_sha256 in the script and reproduced captures. No measurement, source hash or recipe changed. executed_script_sha256 pins the pre-rename script; artifact_sha256 pins the final saved script.",
+  "preservation_controls": [
+    "One fully verified owned refresh on every call, including unchanged head; exact loaded payload/revision pair remains bound.",
+    "Five repeated corruption cases reject without head revision or mtime changes; cache and observed state remain unchanged.",
+    "Independent malformed SQL event controls retain normalization, duplicate-record, digest, envelope, receipt and schema-4 origin rejection.",
+    "Public outbox validation retains nested defensive detachment."
+  ],
+  "recipe": "Schema 3; accepted prepare_history seven-record seed; thirty unique scoped trusted ingests; three unchanged recalls; one peer ingest; one changed recall; twenty-five fully verified snapshot reads under cProfile. Complete executable source is m6-validation-profile.py.",
+  "reproduction": {
+    "baseline_command": "python docs/artifacts/m6-validation-profile.py --source-root \"$DML_PROFILE_BASE_DIR\" --output baseline-new.json",
+    "baseline_setup": "Export base_commit with git archive into a disposable directory; pass that directory as --source-root. The script itself is taken from this reviewed correction.",
+    "correction_command": "python docs/artifacts/m6-validation-profile.py --output correction-new.json",
+    "environment": "Use the project test environment. Set OPENBLAS_NUM_THREADS=1, OMP_NUM_THREADS=1 and MKL_NUM_THREADS=1. Script removes DML_ test settings from its own process before profile construction.",
+    "preservation": "Output uses exclusive creation. Existing captures cannot be overwritten. Temporary synthetic authority state is created and deleted by the script.",
+    "working_directory": "Repository root"
+  },
+  "scope": "Single-client synthetic validation-cost diagnosis only. Timings are observations on this local environment, not capacity or latency qualification, correctness proof, CI attestation, or milestone acceptance."
+}

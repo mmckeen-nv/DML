@@ -1,0 +1,62 @@
+{
+  "accepted_for_generation": false,
+  "accepted_for_publication": true,
+  "decision": "Accept exact five-path CI observability/documentation correction plus this review for publication and fresh full source qualification. No underlying stall fix or model success is claimed.",
+  "grade": 9.6,
+  "independent_findings": [
+    "Read the complete workflow and all documentation/artifact diffs. Parsed old/new YAML independently: after removing only the new lint-test timeout-minutes=45 and the -vv/-o faulthandler_timeout=120 options, every workflow field is identical.",
+    "Complete recovered 800-file source inventory was independently checked. Only the workflow and three status documents differ among tracked files; production code, tests, model/preparer/runtime contracts and policy/corpus/verifier/gate/budget sources are unchanged. The new compact diagnostic record is 2,735 bytes.",
+    "Named test progress and Python traceback dumps improve evidence for another stall. Faulthandler diagnostics do not terminate or pass a test; the 45-minute job cap is an explicit operational bound, not evidence that the stalled behavior is corrected. Both Python matrix lanes retain their full test selection, dependencies, assertions, workloads and subsequent hygiene smoke.",
+    "Independently inspected actual cancelled CI342 API/log evidence: 19 successes and one cancelled Python3.11 job; last visible progress29%, active test unknown. Root directly observed the six-hour-limit job annotation. The source remains unqualified.",
+    "Verified the diagnostic receipt and log hashes, actual66-pass/6-optional-MCP-skip outcome, 5.02-second pytest time and original source45cca attribution. The corrected docs describe the 72-case range as the corresponding local collection window and explicitly distinguish Python3.12/local dependencies from CI3.11. No causality is inferred from the non-reproduction.",
+    "The three status documents and compact artifact retain failed/cancelled CI, workspace rollback, unavailable raw attempt13 campaign/model assets, unchanged historical freeze, unresolved model tasks and open M7 status. No raw log, model or campaign trace is included."
+  ],
+  "limits": [
+    "The active CI342 test and underlying stall cause remain unestablished.",
+    "Existing r2 declaration and historical receipts remain immutable and do not authenticate missing current model/runtime assets.",
+    "No new test run, model load, generation, CI rerun, cancellation or publication was performed by this reviewer."
+  ],
+  "milestone_7_closed": false,
+  "parent_tree": "ea7e5791ec9c333767933d3ac4b93a321a03eb9e",
+  "production_ready": false,
+  "recorded_at_utc": "2026-09-27T15:48:42.456606+00:00",
+  "recovery_review": {
+    "path": "/workspace/scratch/c79340404ab9/m7-resume/recovery-assessment-20260927/grader-recovery-review.json",
+    "sha256": "5c101f6129ec40f989a4e60c17d5e5430304243bb16f080fc90464f5be2fd647"
+  },
+  "remaining_requirements": [
+    "Publish exactly these five reviewed paths and this review; bind final commit/tree.",
+    "Run fresh complete CI on the new source. Preserve CI342 cancellation and any subsequent failure; no passing lane or local diagnostic substitutes for the complete required run.",
+    "Use a distinct reviewed recovery contract for freshly acquired/prepared model assets, current runtime identity, independent tensor proof and zero-generation admission before any new declaration.",
+    "A separate pre-generation review must accept exact source CI, frozen protocol and actual current inputs before a single full nine-task campaign. Both unresolved tasks require actual verifier successes before claiming resolution."
+  ],
+  "reviewed_sha256": {
+    ".github/workflows/ci.yml": "aaae3c4f98db81150491d84bb5af52218d3d8209bb04e6ef8a260db209360100",
+    "docs/agent-episode-live-qualification-2026-09-20.md": "5a42c6215dafae6f75beb39f9aad98854ee29037fb3ecbee651368fdef08522d",
+    "docs/artifacts/agent-episode-ci342-stall-2026-09-27.json": "863674eb5572a84287aac0e59431e43ea45aa992d9bcd012158a5f3e4f1dd5da",
+    "docs/production-handoff-2026-09-24.md": "e0912f363881293d4d3bde6a1ab0cd26abd09c12bf9f9ff75a810d687568f754",
+    "docs/production-remaining-work-2026-09-18.md": "7d49dfc0843f5adee7ccb711a77a4e452d86262f10a2b2706819d416deb6ecae"
+  },
+  "reviewer": "supervisor_grader",
+  "schema_version": "dml-ci-observability-independent-source-review-v1",
+  "source_ci_qualified": false,
+  "source_not_yet_published": true,
+  "source_parent": "45cca794416bcfb9d9e930999a37445d1634e3b5",
+  "validation": {
+    "all_other_workflow_fields_equal": true,
+    "broad_tests_repeated_for_workflow_only_change": false,
+    "diagnostic_is_new_source_qualification": false,
+    "diagnostic_log_sha256": "bf989751c07667cdc1df8c3e0dcfca7cef5d3f5e1c715797382f46753dbe2d8a",
+    "diagnostic_receipt": {
+      "path": "/workspace/scratch/c79340404ab9/m7-resume/ci342-region-diagnostic-20260927.json",
+      "sha256": "05531f9f9350f743bf3955951877dd562e33b7a3d645f0114b3802e86ad31c96"
+    },
+    "git_diff_check": true,
+    "production_and_test_source_unchanged": true,
+    "source_validation": {
+      "path": "/workspace/scratch/c79340404ab9/m7-resume/ci-stall-20260927/source-validation.json",
+      "sha256": "c9f39625feabb5ed979f07b533765d8b782d8efb98cad5d2fdebcd0eae16c207"
+    },
+    "yaml_semantic_changes_exact": true
+  }
+}

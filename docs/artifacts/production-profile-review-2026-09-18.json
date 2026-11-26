@@ -1,0 +1,181 @@
+{
+  "schema_version": 1,
+  "review": "Stage 16 supported production profile freeze and admission boundary",
+  "reviewer": "independent profile_grader agent",
+  "created_at_utc": "2026-09-18T11:50:13.722377+00:00",
+  "repository": "/workspace/scratch/ad6cdef78c95/DML-core",
+  "base_commit": "1c2bdb042d4df1ed527c0de7398aba2070c12d4e",
+  "source_identity": "Final frozen working-tree source, tests, documentation, example and workflow identified by the 24 SHA-256 hashes below. This is not an exact-commit remote CI attestation; the review JSON itself is excluded from its hashes.",
+  "profile_id": "dml-receipted-local-v1",
+  "acceptance_threshold": 9.5,
+  "score": 9.6,
+  "decision": "accept",
+  "unresolved_blocking_findings": [],
+  "grade_scope": "Opt-in candidate profile admission and enforced Python/HTTP capability boundary, strict effective configuration, receipt-schema selection, excluded-component isolation, explicit embedding identity, scoped requests, startup-frozen bearer authentication, sanitized retry outcomes and honest support/qualification reporting. This is a scope-freeze grade, not production release qualification.",
+  "review_history": [
+    {
+      "stage": "Independent read-only baseline and design review",
+      "numeric_score": null,
+      "decision": "Design constraints and fixes requested before candidate acceptance",
+      "note": "No numeric grade was assigned during the baseline audit. Required early validation, schema/flag admission, exclusion of auxiliary RAG and experimental routes/constructors, and truthful startup versus qualification status."
+    },
+    {
+      "stage": "Profile HTTP source review before initial acceptance",
+      "numeric_score": null,
+      "decision": "Concrete fixes requested and verified",
+      "findings": [
+        "Response serialization occurred outside the uncertain-commit retry boundary.",
+        "Invalid HTTP bearer credential shapes could pass pre-factory admission."
+      ],
+      "resolution": "Response JSON/UTF-8 validation is inside the sanitized retry boundary; RFC 6750 token syntax is validated before any adapter factory. Independent postcommit NaN/object/surrogate response and invalid-credential probes passed."
+    },
+    {
+      "stage": "First complete bounded candidate review",
+      "numeric_score": 9.6,
+      "decision": "accept",
+      "evidence": "420 focused tests passed independently. This score was recorded contemporaneously; later source changes required the final regrade below."
+    },
+    {
+      "stage": "Final frozen-runtime regrade",
+      "numeric_score": 9.6,
+      "decision": "accept",
+      "evidence": "441 focused tests passed independently after final configuration-alias handling, factory/settings parity, legacy-server settings snapshot and large as_of prevalidation fixes. No unresolved blocking findings."
+    }
+  ],
+  "resolved_boundaries": [
+    {
+      "boundary": "Effective configuration admission",
+      "implementation": "Validate raw merged settings before Pydantic coercion or nested-field omission and validate resolved settings again. Canonical environment conversion is limited to known scalar fields; same-source conflicting aliases and parent/child collisions remain invalid unless a stronger source resolves the affected value. Operational environment credentials are not injected into profile settings.",
+      "independent_evidence": "Pre-constructor/directory tripwires, nested and flat experimental aliases, unknown fields, malformed types, source precedence, secret-value exclusion and contradictory alias cases passed."
+    },
+    {
+      "boundary": "Authority selection",
+      "implementation": "Read-only SQLite preflight honors committed WAL state and rejects schema/outbox mismatch before provider initialization. The journal repeats admitted-schema checks under its initialization lock before adopting authority or publishing identity.",
+      "independent_evidence": "Schema 1/2/3/4 admission and mismatch tests, database/identity preservation, five-operation receipt histories and restart replay across schema 2/3/4 passed."
+    },
+    {
+      "boundary": "Experimental and auxiliary dependency exclusion",
+      "implementation": "Public legacy, projection and generation operations reject under the profile; auxiliary RAG startup/refresh and legacy copy are excluded. DPM/checkpoint constructors and background workers do not start. The lattice receives an explicit NumPy backend and does not invoke global CUDA selection.",
+      "independent_evidence": "Excluded-component callback bombs, malformed/changing auxiliary RAG files, public method rejection and explicit CPU-backend selection passed."
+    },
+    {
+      "boundary": "Embedding identity and fallback refusal",
+      "implementation": "A native declared embedding backend and explicit operator identity are required. Known random/fallback classes reject before storage creation; startup and subsequent embedding work validate the committed space. Historical receipt replay remains available without fresh embedding work.",
+      "independent_evidence": "Random/subclass/SentenceTransformer fallback rejection, incompatible persisted identity, changed live backend, strict read prevalidation and restart/replay cases passed."
+    },
+    {
+      "boundary": "Restricted HTTP and factory admission",
+      "implementation": "Exactly nine routes with no DCN initialization, compatibility routes, assets or OpenAPI exposure. Strict explicit scopes and unknown-field rejection precede provider work. Provider and legacy-server construction consume a single validated settings snapshot; factories must match its configuration and admitted runtime evidence.",
+      "independent_evidence": "Exact route inventory, no-DCN construction, storage/factory mismatch, settings reread prohibition, legacy-server refusal, strict sanitized scope handling and real HTTP lifecycle tests passed."
+    },
+    {
+      "boundary": "Authentication and uncertain acknowledgements",
+      "implementation": "Validate HTTP-safe bearer token grammar before factories and freeze credentials for app lifetime. Sanitize validation, provider, storage and JSON serialization failures; uncertain receipt responses preserve identical-request/same-key retry instructions.",
+      "independent_evidence": "Missing/invalid/nonencodable tokens, environment credential removal/replacement, public health privacy and actual committed receipt with NaN/object/surrogate acknowledgement failures followed by successful same-key replay passed."
+    },
+    {
+      "boundary": "Scope and evidence reporting",
+      "implementation": "Detached candidate manifest and startup status retain production_ready=false; documentation separates local runtime admission from platform/filesystem/dependency qualification, live-provider quality and remote CI.",
+      "independent_evidence": "Detached status/manifest checks and source/document review completed; final documents retain all qualification limits and pending remote CI language."
+    }
+  ],
+  "independently_executed_evidence": {
+    "passed": 441,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 0,
+    "new_profile_cases": 394,
+    "existing_receipt_compatibility_cases": 47,
+    "test_file_counts": {
+      "test_production_profile": 133,
+      "test_production_profile_adversarial": 63,
+      "test_production_profile_api": 9,
+      "test_production_profile_config": 144,
+      "test_production_profile_integration": 45,
+      "test_receipt_adapter": 24,
+      "test_receipt_embedding_contract": 23
+    },
+    "command": "../dml-venv/bin/python -m pytest dml_core/tests/test_production_profile.py dml_core/tests/test_production_profile_config.py dml_core/tests/test_production_profile_integration.py dml_core/tests/test_production_profile_api.py dml_core/tests/test_production_profile_adversarial.py dml_core/tests/test_receipt_adapter.py dml_core/tests/test_receipt_embedding_contract.py -q -o addopts= --junitxml=/tmp/production-profile-independent-final.xml",
+    "exit_code": 0,
+    "elapsed_seconds_pytest": 4.56,
+    "elapsed_seconds_junit": 4.538,
+    "junit_sha256": "4839dadd2d72fd29fe11fade6c749ee78d4ddf62514e1152c194a344746489c4",
+    "warnings": "One external Starlette/AnyIO deprecation warning.",
+    "additional_runs": "Earlier targeted source-review runs are not additive to the final 441-case selection. The grader-owned adversarial file passed Ruff E/F/I checks."
+  },
+  "separate_reported_evidence": {
+    "root_existing_compatibility_selection": {
+      "independently_rerun_by_grader": false,
+      "passed": 197,
+      "elapsed_seconds": 9.39,
+      "note": "Reported by root; overlaps the final focused and full-suite selections and is not additive."
+    },
+    "full_local_suite": {
+      "owner": "root agent",
+      "independently_rerun_by_grader": false,
+      "passed": 3342,
+      "failed": 0,
+      "errors": 0,
+      "skipped": 9,
+      "warnings_reported": 3,
+      "elapsed_seconds_reported": 163.26,
+      "grader_xml_inspection": "/tmp/profile-full.xml independently read: tests=3351, failures=0, errors=0, skipped=9; suite time=163.193 seconds. The matching root log reports 3342 passed, 9 skipped.",
+      "junit_sha256": "cb81063c20e3cb45917e75a73b65eb737f513b951dcfd5b3337e02bdb2589b3f"
+    },
+    "root_checks": "Root reports maintained Ruff, strict checks on new surfaces, mypy on 63 maintained source files, Hermes hygiene and diff check passed. These gates were not rerun by the grader except the owned adversarial Ruff selection.",
+    "exact_commit_remote_ci": "Pending publication and exact-commit remote CI at this source snapshot; results will be recorded in PR #118. Workflow configuration and local passing evidence do not establish remote results. PR remains unmerged."
+  },
+  "observed_grader_environment": {
+    "python": "3.12.14",
+    "implementation": "CPython",
+    "system": "Linux",
+    "machine": "x86_64",
+    "sqlite": "3.53.1",
+    "packages": {
+      "numpy": "2.5.3",
+      "pydantic": "2.13.5",
+      "fastapi": "0.141.1",
+      "PyYAML": "6.0.3",
+      "httpx": "0.28.1"
+    },
+    "qualification": "One observed local environment, not declared dependency pins or qualification of every admitted combination."
+  },
+  "qualification_limits": [
+    "The repository remains alpha and the selected profile candidate with production_ready=false. This acceptance closes only milestone 1 at its reviewed-source gate; nine first-release and two deferred milestones remain.",
+    "Python callers, token holders and filesystem writers are trusted cooperating local operators. Tokens do not authorize tenant subsets, and the profile is not a sandbox against code modifying internal objects or raw store files.",
+    "Runtime admission covers CPython 3.10-3.13 on Linux, macOS and Windows; this Linux run does not qualify every runtime, filesystem, mount, hardware device, dependency combination or power-loss guarantee.",
+    "Known random embedding fallback is excluded; custom backend identity and preprocessing declarations remain operator assertions, not weight attestation or a startup remote-availability probe. Test doubles prove boundary behavior, not live retrieval quality or agent outcomes.",
+    "Read-only SQLite preflight honors WAL and may use transient shared-memory or coordination files. Invalid raw configuration is rejected before provider or durable-state initialization; existing-authority inspection is not an immutable-file access claim.",
+    "Existing receipt transaction and retry guarantees remain bounded to authoritative SQLite. No new all-component transaction, network-filesystem, multi-host, cancellation, starvation or throughput guarantee is established.",
+    "Rendered context counts remain estimates. Final model/tokenizer/template budget binding, crash/filesystem qualification, complete migration coverage, mixed HTTP/process concurrency, live-agent value/campaigns, durable replay and release support remain open.",
+    "History remains retained without erasure or compaction. Per-request limits do not bound cumulative history size or full-history validation cost.",
+    "Exact-commit remote CI and publication are pending at this source snapshot; no remote success or merged release is inferred."
+  ],
+  "frozen_file_count": 24,
+  "frozen_file_sha256": {
+    ".github/workflows/ci.yml": "e2ac19f92ea8de53f13aa460e0a4044e9fa2f9611fd3106fcdee1d35a6c3326a",
+    "dml_core/daystrom_dml/config.py": "895608d31312a4ac2fc9ef904775e4d766e821994a098fe4c551d96998ef6a56",
+    "dml_core/daystrom_dml/contracts/production.py": "521bd3ca5df0f72fd38193a8084c89175c2432cbb3d85dd6167b601bb0a6f73e",
+    "dml_core/daystrom_dml/contracts/profile.py": "207f9ed501666970558a33c45be67bb9591966a1cd0665348ba63304ed237c67",
+    "dml_core/daystrom_dml/dml_adapter.py": "339000b5cbd56c1d1e04428239d26a831b19ade27ee0c03a9f5a06d8e9ac4342",
+    "dml_core/daystrom_dml/journal.py": "1e6c386a815daf143b1806e71b6fcd22e958ed8051df7cc765243c5ed9032eea",
+    "dml_core/daystrom_dml/memory_store.py": "c9136a4eb0330f6b316d1771ccc421bca201b66b78824c8917d2fe8961bf26ff",
+    "dml_core/daystrom_dml/provider_server.py": "97beb2e02fa4f94c037b968b393dbff7d00b07e9599b66ab8dc205f546f33ead",
+    "dml_core/daystrom_dml/server.py": "ecd317c91af97365e42d03ff95feadd53c3f7e6ac8c4f69263434610b720d548",
+    "dml_core/daystrom_dml/services/persistence.py": "de8219e6e742b98cc4678f0f2f2b8553f52603fcdb04e969b6fd8602aec4e65a",
+    "dml_core/daystrom_dml/services/profile_http.py": "6e852f267760c36698d7908ebd01baade26357809411385fd577c3bea9ba9553",
+    "dml_core/daystrom_dml/services/profile_runtime.py": "a4aa0a2a0bf50bbf087bb6dc3968fd3436980c60493a1bb3022021b06dc80690",
+    "dml_core/daystrom_dml/settings.py": "0eb2190cb6d6bc15ef383578903ec264ba02bd7ff33a53ab018bfe4930ebe66b",
+    "dml_core/tests/test_production_profile.py": "0e92e15215a34682355d17b532d28f778ddf83a28c9897aecc1bfe15aaf25fea",
+    "dml_core/tests/test_production_profile_adversarial.py": "6568778e898f01dc5ca529d819d723afb91b90188a2ac50bcaf3e88d317814d2",
+    "dml_core/tests/test_production_profile_api.py": "46aa433cbb1e7e5b8954eecbc913fcb2d394825a51fdfb9fee8251d5ed80d67e",
+    "dml_core/tests/test_production_profile_config.py": "1aae714c883ffcb084f585f2cb62c89701e1ddb992aa08684adf7b985f73adc4",
+    "dml_core/tests/test_production_profile_integration.py": "1f48a7a556286b59fad649566f65deaa8d8924392f9105b61d473f093f440b9c",
+    "docs/contracts/production-v1.md": "71bad03645637b83b5e1e6be13c14e09c50938c395e8426c35c223eaf82e31ce",
+    "docs/examples/production-profile-v1.yaml": "29e2287ed97f824755611ea84edf548c4fe69e2c8a600d27ddaf6787c3d7f295",
+    "docs/production-foundations-2026-09-12.md": "610ec3597eef82d4203c2cdb96ea1462ee6c3091608bd2b101138abc3a732d37",
+    "docs/production-profile-hardening-2026-09-18.md": "c15ac316d53e838288f3d1b5cd5abfe18a423f9a07dc4ae9f04a207c8401d181",
+    "docs/production-remaining-work-2026-09-18.md": "e82b3588a1b6ec9e3c5d6d9d31f869a456a38721752c87ce5d17312f6f830957",
+    "docs/supported-production-profile-v1.md": "997b3124205a665707d45115eb589d46f2407ec2175dbd1aa67647d69302047c"
+  }
+}

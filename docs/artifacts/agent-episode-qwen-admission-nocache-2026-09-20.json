@@ -1,0 +1,17 @@
+{
+  "schema_version": "dml-qwen-admission-preflight-v1",
+  "model_identity": {
+    "model_digest": "8c25fedc9b83e38504746ed5342e013565c365514bd9a7b4504ab14502590abc",
+    "tokenizer_digest": "2e8e31c0c66a7bb12ebc8deddf0d503b42df4911c701c73f54e0543da828feac",
+    "chat_template_digest": "690ab7f7ba88ce2fa8f6ec41b067d9ba08d679ebe16b2e6a8ff1d4c75672a532",
+    "runtime_identity": "dml-qwen-model-input-runtime-v1:cc2eca17a4e1e05e6acfc37ac510ff32019ac517d57365212ca9a89ec7f12c12",
+    "model_window_tokens": 32768
+  },
+  "source_scope": "admission_and_synthetic_compilation_only",
+  "actual_generations": 0,
+  "live_qualified": false,
+  "input_token_count": 34,
+  "output_reserved_tokens": 16,
+  "seconds": 38.595649889000924,
+  "max_rss_kib": 7447228
+}

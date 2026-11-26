@@ -1,0 +1,56 @@
+{
+  "schema_version": "dml-llama3-sft-compact-outcome-v1",
+  "status": "training_grammar_incompatible_not_qualified",
+  "station_evidence_root": "/home/nvidia/dml-debug/llama3-8b-sft-v1-20260929",
+  "source_commit": "37471b68a53cb052876409b5d02b5f08ffb175a8",
+  "model": "meta-llama/Meta-Llama-3-8B-Instruct",
+  "base_revision": "8afb486c1db24fe5011ec46dfbe5b5dccdb575c2",
+  "adapter_sha256": "ddbaa8c7981fe516c4520758293285deb8f7404ecec023d3b113db115242f262",
+  "training": {
+    "device": "NVIDIA GB300 / cuda:0",
+    "trajectories": 144,
+    "train_targets": 360,
+    "dev_targets": 72,
+    "optimizer_steps": 90,
+    "epochs": 2,
+    "trainable_parameters": 41943040,
+    "elapsed_seconds": 603.607,
+    "initial_mean_dev_loss": 0.7109834564,
+    "final_mean_dev_loss": 0.0015607309,
+    "selection": "final_scheduled_only",
+    "execution_integrity_passed": true,
+    "loss_is_not_task_success": true,
+    "owned_container_removed": true
+  },
+  "compatibility": {
+    "targets_checked": 432,
+    "targets_admitted": 0,
+    "first_rejection_token_index": 1,
+    "cause": "Canonical sorted JSON fields differ from the unchanged grammar's required field order.",
+    "independent_evaluation_approval": false
+  },
+  "gpu_admission": {
+    "first_attempt": "One disabled forward completed; enabled-arm loader failed before its forward because PEFT re-enabled gradient flags.",
+    "successor": "Separately versioned inference loader freezes all parameters after arm selection; two forwards passed without changing weights.",
+    "cumulative_forwards": 3,
+    "sampled_generation_calls": 0,
+    "failed_attempt_retained": true
+  },
+  "heldout_model_calls": 0,
+  "new_m7_campaign": false,
+  "m7_closed": false,
+  "historical_campaign": "Nemotron 8/9 unchanged",
+  "raw_evidence_published": false,
+  "merged": false,
+  "evidence_sha256": {
+    "training_freeze": "3d76006c4668806bf1dd7eea4ea4248190bb6c264f905f087e76146d67cae272",
+    "final_checkpoint": "c6b254376380631537bca35398f64c85acee520518874e69f77e3442929f6a9b",
+    "training_completion": "8d6e1ec210f475ff96dd4f5aa4ab7a056c4b1d833033e2b186f3b389020c4b15",
+    "training_cleanup": "1f8a1b8fcdaf6c86ce14252e458fce642fe18994a89734c8ca41a754ccefa987",
+    "independent_training_review": "3189189537abc638511bcf6780ac41944b461dcccbf212b87e35196ba848d085",
+    "target_grammar_audit": "31af531b94f7153037975dcc21a6986dfd71534cb7260552bd4fee7dc9b8ab54",
+    "independent_evaluation_denial": "e44012380144d435d8af56da0d8a63e61f0f3632f1ade7a2c9b8f640e171fe3d",
+    "independent_failed_admission_cleanup": "7f1e3144c33e12e4dc3dd7e04e9290fa7602e2f73833d07a4e269c9182a31f05",
+    "independent_successor_admission": "6a1e88de6e9e1e970cf7ee365577f9c22532460a7937264f101908ef41b4737a"
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "automatic_retries": 0,
+  "base_git_commit": "2915b65290315e4eead5ee05bbb5179e31cfc189",
+  "campaign_sha256": "1815413cb0708d530657b6b64918b25ba8cc10a42293aeaa9313744348f29ad6",
+  "changed_grammar_dependency_files": [],
+  "changed_source_files": [],
+  "elapsed_seconds": 1250.9058477849976,
+  "exit_code": 1,
+  "finished_utc": "2026-09-20T14:44:20.770461+00:00",
+  "grammar_dependency_files_verified": 278,
+  "log_sha256": "8416251ac991819cde8c8930c53c6adbc575356c11e1417a0558ebef87d4e02e",
+  "schema_version": "dml-agent-campaign-execution-receipt-v1",
+  "source_commit": null,
+  "source_files_verified": 433,
+  "source_identity_kind": "reviewed_git_tree_plus_exact_source_file_hashes",
+  "source_tree": "57e7fda56cb2dbb2aef5b0a265367dd20da39a7b",
+  "specification_sha256": "5b4e70f02bf3d45e80dd2d714f7fdb63e6d569748769c666b11f7ded47ac016d",
+  "started_utc": "2026-09-20T14:23:29.864565+00:00"
+}

@@ -1,0 +1,103 @@
+{
+  "schema_version": "dml-legacy-journal-paired-refresh-correction-v1",
+  "base_source": "dff77b11c070bdb51060abcb7527615dfafad8db",
+  "working_source_not_yet_published": true,
+  "production_change": "Legacy journal refresh uses the existing single verified payload/revision path; non-journal legacy stamp callback and auxiliary refresh remain unchanged.",
+  "source_sha256": {
+    "dml_core/daystrom_dml/dml_adapter.py": {
+      "before": "8c2a0609090bc117f0d35ddab00af5c563306742825ebb56dc707f2c2be570c0",
+      "after": "7034fe3bc95ec0829577de76d4f372f22ea12138a696bcb96e8881d1a8ddd0e1"
+    },
+    "dml_core/tests/test_transaction_integration.py": {
+      "before": "f89b99ef657405ee4b2e9b16b38d3526c21699c3d4db1706b2362c4750099b0c",
+      "after": "b1759ce0c2d1ca4a835a1a7fc8f87b56103cb1c5a3618fc06b18561f6c821364"
+    }
+  },
+  "regression": {
+    "red_on_unmodified_production": "one verified read expected; actual revision sequence [2,2] instead of [2]",
+    "new_case_count": 5,
+    "cases": [
+      "changed journal refresh reads once and imports exact revision plus legacy RAG",
+      "unchanged journal revision still performs one fresh full read",
+      "same revision and restored mtime corruption rejects before mutation body",
+      "missing journal rejects before mutation body without recreation",
+      "JSON and JSONL preserve adapter stamp callback (two cases)"
+    ],
+    "test_strengthening": "After initial green, added unchanged-refresh assertion and restored DB mtime/ownership-body guard; final green reran same three complete modules."
+  },
+  "red_exit_code": 1,
+  "green_exit_code": 0,
+  "validation_files": [
+    {
+      "path": "/workspace/scratch/c79340404ab9/m7-resume/attempt14-r2-20260926/paired-read-red.log",
+      "bytes": 2324,
+      "sha256": "7959dfdf65048da5495eaaccad3c2568a23b49baa4c24687028d7e92b17ed69c"
+    },
+    {
+      "path": "/workspace/scratch/c79340404ab9/m7-resume/attempt14-r2-20260926/paired-read-red.xml",
+      "bytes": 2046,
+      "sha256": "4afb3111ac52be41dadf97f425cc2c2042d106826d7cac0c054bf090f22dd8ba",
+      "tests": 1,
+      "passed": 0,
+      "failures": 1,
+      "errors": 0,
+      "skipped": []
+    },
+    {
+      "path": "/workspace/scratch/c79340404ab9/m7-resume/attempt14-r2-20260926/paired-read-green.log",
+      "bytes": 80,
+      "sha256": "cb740cefb12cce0d27e53203143e39f9d9717ceb29cb279a8ca4a234d74c7dad"
+    },
+    {
+      "path": "/workspace/scratch/c79340404ab9/m7-resume/attempt14-r2-20260926/paired-read-green.xml",
+      "bytes": 11086,
+      "sha256": "aa78d74e17753e89a157736151a99e56662e0b4f10f0c24053d2d96fe831c8c9",
+      "tests": 70,
+      "passed": 69,
+      "failures": 0,
+      "errors": 0,
+      "skipped": [
+        {
+          "test": "dml_core.tests.test_transaction_adversarial.test_persistent_rag_publication_then_error_is_compensated",
+          "message": "could not import 'faiss': No module named 'faiss'"
+        }
+      ]
+    },
+    {
+      "path": "/workspace/scratch/c79340404ab9/m7-resume/attempt14-r2-20260926/paired-read-green-r2.log",
+      "bytes": 80,
+      "sha256": "cb740cefb12cce0d27e53203143e39f9d9717ceb29cb279a8ca4a234d74c7dad"
+    },
+    {
+      "path": "/workspace/scratch/c79340404ab9/m7-resume/attempt14-r2-20260926/paired-read-green-r2.xml",
+      "bytes": 11086,
+      "sha256": "9ffe70463dfcc0089640a163de25dff2fb2cef636f52a6c40fe5e4192c953846",
+      "tests": 70,
+      "passed": 69,
+      "failures": 0,
+      "errors": 0,
+      "skipped": [
+        {
+          "test": "dml_core.tests.test_transaction_adversarial.test_persistent_rag_publication_then_error_is_compensated",
+          "message": "could not import 'faiss': No module named 'faiss'"
+        }
+      ]
+    }
+  ],
+  "static": {
+    "ruff_owned_E_F_ignore_E501_F401": "passed",
+    "git_diff_check": "passed"
+  },
+  "unchanged_budgets": {
+    "store_ownership_timeout_ms": 30000,
+    "transaction_clients": 256,
+    "worker_limit": 32,
+    "campaign_deadline_seconds": 120
+  },
+  "qualification_limits": [
+    "Removes confirmed duplicate critical-section validation; does not prove the original CI341 timeout schedule or cause.",
+    "No retry, fairness registry, worker/client reduction, timeout increase or gate change.",
+    "No actual 256-client stress run by this agent; root owns remaining stress and integrated qualification.",
+    "One existing optional FAISS test skipped; all five new regression cases passed."
+  ]
+}

@@ -1,0 +1,66 @@
+{
+  "captures": {
+    "baseline": {
+      "capture": {
+        "observations": [
+          {
+            "kind": "unchanged",
+            "scans": 4,
+            "seconds": 0.11198048599908361
+          },
+          {
+            "kind": "unchanged",
+            "scans": 4,
+            "seconds": 0.1225481959991157
+          },
+          {
+            "kind": "unchanged",
+            "scans": 4,
+            "seconds": 0.11567176799871959
+          },
+          {
+            "kind": "changed",
+            "scans": 5,
+            "seconds": 0.16456726800242905
+          }
+        ],
+        "profile": "         2405126 function calls in 1.137 seconds\n\n   Ordered by: cumulative time\n   List reduced from 129 to 14 due to restriction <14>\n\n   ncalls  tottime  percall  cumtime  percall filename:lineno(function)\n       25    0.000    0.000    1.137    0.045 dml_core/daystrom_dml/journal.py:703(read_snapshot)\n       25    0.003    0.000    1.117    0.045 <stdin>:13(observe)\n       25    0.008    0.000    1.114    0.045 dml_core/daystrom_dml/journal.py:509(_read_snapshot)\n       25    0.033    0.001    0.896    0.036 dml_core/daystrom_dml/journal.py:614(_validate_outbox)\n      950    0.010    0.000    0.550    0.001 dml_core/daystrom_dml/services/journal_outbox.py:28(validate_outbox_event)\n    35675    0.013    0.000    0.481    0.000 dml_core/daystrom_dml/journal.py:97(_encode)\n    35675    0.031    0.000    0.469    0.000 <python-runtime>/lib/python3.12/json/__init__.py:183(dumps)\n    35675    0.028    0.000    0.431    0.000 <python-runtime>/lib/python3.12/json/encoder.py:183(encode)\n    35675    0.392    0.000    0.392    0.000 <python-runtime>/lib/python3.12/json/encoder.py:205(iterencode)\n     4825    0.003    0.000    0.315    0.000 dml_core/daystrom_dml/journal.py:129(_decode)\n     4825    0.007    0.000    0.311    0.000 <python-runtime>/lib/python3.12/json/__init__.py:299(loads)\n     4825    0.006    0.000    0.295    0.000 <python-runtime>/lib/python3.12/json/decoder.py:333(decode)\n     4825    0.152    0.000    0.284    0.000 <python-runtime>/lib/python3.12/json/decoder.py:344(raw_decode)\n     3850    0.003    0.000    0.232    0.000 dml_core/daystrom_dml/journal.py:138(_checked)\n\n\n",
+        "revision": 38,
+        "schema": 3
+      },
+      "original_capture_sha256": "e7c0fba3263cb8fdee076fff643cdb84c50bdda16879d6f0332e7ca728ecb47e"
+    },
+    "correction": {
+      "capture": {
+        "observations": [
+          {
+            "kind": "unchanged",
+            "scans": 4,
+            "seconds": 0.0850824359949911
+          },
+          {
+            "kind": "unchanged",
+            "scans": 4,
+            "seconds": 0.08306366800388787
+          },
+          {
+            "kind": "unchanged",
+            "scans": 4,
+            "seconds": 0.08539717499661492
+          },
+          {
+            "kind": "changed",
+            "scans": 4,
+            "seconds": 0.08852645800652681
+          }
+        ],
+        "profile": "         2075498 function calls in 0.910 seconds\n\n   Ordered by: cumulative time\n   List reduced from 140 to 14 due to restriction <14>\n\n   ncalls  tottime  percall  cumtime  percall filename:lineno(function)\n       25    0.001    0.000    0.910    0.036 dml_core/daystrom_dml/journal.py:703(read_snapshot)\n       25    0.003    0.000    0.886    0.035 <stdin>:13(observe)\n       25    0.008    0.000    0.883    0.035 dml_core/daystrom_dml/journal.py:509(_read_snapshot)\n       25    0.027    0.001    0.663    0.027 dml_core/daystrom_dml/journal.py:614(_validate_outbox)\n    33775    0.012    0.000    0.388    0.000 dml_core/daystrom_dml/journal.py:97(_encode)\n    33775    0.029    0.000    0.376    0.000 <python-runtime>/lib/python3.12/json/__init__.py:183(dumps)\n    33775    0.026    0.000    0.341    0.000 <python-runtime>/lib/python3.12/json/encoder.py:183(encode)\n      950    0.009    0.000    0.322    0.000 dml_core/daystrom_dml/services/journal_outbox.py:41(_validate_owned_outbox_event)\n    33775    0.304    0.000    0.304    0.000 <python-runtime>/lib/python3.12/json/encoder.py:205(iterencode)\n     3850    0.003    0.000    0.236    0.000 dml_core/daystrom_dml/journal.py:138(_checked)\n     3875    0.002    0.000    0.183    0.000 dml_core/daystrom_dml/journal.py:129(_decode)\n     3875    0.006    0.000    0.181    0.000 <python-runtime>/lib/python3.12/json/__init__.py:299(loads)\n     3875    0.005    0.000    0.168    0.000 <python-runtime>/lib/python3.12/json/decoder.py:333(decode)\n     3875    0.086    0.000    0.159    0.000 <python-runtime>/lib/python3.12/json/decoder.py:344(raw_decode)\n\n\n",
+        "revision": 38,
+        "schema": 3
+      },
+      "original_capture_sha256": "7666c214b6a2561839a1c06591fb9a19b6e91f3ee0c8b6104464651933fd5678"
+    }
+  },
+  "format": "dml-validation-profile-exploratory-v1",
+  "provenance": "Original exploratory captures preserved without rerunning or changing measured values. Absolute profiler paths normalized for portability. Inline exploratory source was not retained; the separate reproduced captures use a saved equivalent recipe, not a claimed identical original script."
+}

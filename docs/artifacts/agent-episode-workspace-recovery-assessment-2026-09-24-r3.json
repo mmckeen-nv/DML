@@ -1,0 +1,99 @@
+{
+  "accepted_for_execution_now": false,
+  "attempt_8_disposition": {
+    "cannot_repair_past_retention_gap": true,
+    "complete_historical_archive_claim_permitted": false,
+    "may_proceed_as_new_experiment_after_conditions": true,
+    "must_be_separately_identified": true,
+    "rationale": "As in the surviving September 22 recovery assessment, unavailable historical raw bytes block renewed verification of those attempts and a complete retained archive claim. A separately declared experiment can be judged from newly retained raw evidence under unchanged live gates while explicitly preserving the retention gaps.",
+    "required_after_generation": [
+      "Retain complete fresh raw campaign, all failures, start/execution receipts, both sequential independent replay results and completion review. Keep source/runtime/model frozen until the full campaign and both replay resources finish.",
+      "Exact-source successful CI is mandatory for milestone closure. CI may overlap a reviewed frozen campaign; never edit frozen inputs to fix concurrent CI failures.",
+      "Publish compact outcomes and evidence hashes per user preference; keep raw campaign/logs local. Explicitly disclose historical retention gaps and do not claim that a new success repairs them."
+    ],
+    "required_before_generation": [
+      "Restore approved generic tool guidance from deterministic source and independently verify exact source hash and scope against actual public a6f5495. Do not recreate missing historical review bytes.",
+      "Run fresh complete 436-source validation: original 784-case/21-module CPU lane with zero skips/errors/failures, separate exact 34 filesystem controls, both lint lanes and mypy. Retain fresh raw JUnit/logs and new independent source acceptance.",
+      "Reacquire actual trained files against existing immutable pins and prepare with reviewed current helpers. Independently verify all 338 learned tensors and identities. Fresh current runtime/model evidence is required.",
+      "Perform strict fresh zero-generation admission on the current source/runtime/model, with actual consumer closure and no corpus generation.",
+      "Publish exact current source; freeze a new recovery-suffixed attempt-8 declaration from a surviving authentic protocol specification with unchanged corpus, order, gates, AGENT_POLICY, model weights and bounds. Bind this new actual recovery assessment and clearly mark old attempt-7 hashes as historical unavailable pointers.",
+      "Obtain separate independent pre-generation review; verify all frozen inputs before one full nine-task producer invocation with fresh paths and no task retry or selective replacement."
+    ]
+  },
+  "current_observations": {
+    "attempt_8_history": "Only candidate source review, helper review, compact summary review and preparation were observed before rollback; no attempt-8 generation was observed. Fresh recovered work must have a new recovery-suffixed identity and paths.",
+    "globally_quiescent": null,
+    "matching_current_attempt_7_campaign_replay_completion_or_model_paths": [],
+    "narrow_search_roots": [
+      "/workspace/scratch",
+      "/tmp"
+    ],
+    "prior_recovery_assessment": {
+      "path": "/workspace/scratch/c79340404ab9/DML-core/docs/artifacts/agent-episode-workspace-recovery-assessment-2026-09-22.json",
+      "sha256": "68eb95fbe47d7b05e40ccacf87e9b8dbad3b4f2dbc8be4032b090a33031eb4cc"
+    },
+    "process_limit": "Local missing paths are not proof of global process termination. No historical process kill, cleanup or deduplication is authorized by this assessment.",
+    "recovered_public_source_commit": "a6f54953241ea644da1770dd86dc86ec6b7fda8f",
+    "recovered_public_source_tree": "a236791ea7bd7b04a14c636b2cbc64694dbd4e77",
+    "search_limit": "Accessible local paths only; this is not a claim that no remote archival copy exists. A September 22 attempt-7 helper review survives, but it is not the missing September 24 campaign or completion evidence.",
+    "surviving_protocol_specification": {
+      "path": "/workspace/scratch/c79340404ab9/DML-core/docs/artifacts/agent-episode-live-spec-attempt-5-2026-09-20.json",
+      "sha256": "46177ba2958f1a1c18927d6c6761d2c5250a0abc4eb9e7bb57aded831e9d2ad0"
+    }
+  },
+  "decision": "allow_separately_identified_attempt_8_only_after_fresh_source_runtime_admission_and_freeze_gates",
+  "historical_attempt_7": {
+    "campaign_id": "m7-qwen2-coder-action-json-2026-09-24-r2-attempt-7",
+    "current_raw_bytes_available": false,
+    "historical_freeze_release_basis": "The visible conversation records actual full campaign completion, root replay 1, this grader executing replay 2 to exit 1, byte-identical replay hashes, post-replay source/runtime/model checks, and this grader writing a rejection review explicitly releasing the freeze. This new assessment attributes those prior observations; absent bytes are not freshly verified.",
+    "historical_freeze_released": true,
+    "interrupted_execution_claimed": false,
+    "previously_observed_result": {
+      "attempted_tasks": 9,
+      "covered_intents": 8,
+      "failed_gate": "verified_model_owned_supersession",
+      "known_input_tokens": 15404,
+      "known_output_tokens": 1147,
+      "known_total_tokens": 16551,
+      "milestone_7_closed": false,
+      "model_calls": 18,
+      "other_four_gates_passed": true,
+      "terminal_completed_tasks": 9,
+      "unknown_effect_tasks": 0,
+      "unknown_usage_tasks": 0,
+      "verified_successes": 8
+    },
+    "previously_recorded_hashes_not_freshly_reverified": {
+      "campaign": "1f3996a610d5ce8770ef8645799e7fe164c4dff832694cf637773ea0ef96127b",
+      "compact_summary": "bfbef1b818e924a40f0cc424f24a451b3226d509134033fb57d1b6109d7ed8f6",
+      "completion_review": "0300eb2f30ceca89c14cdd4d948eb0ad558b66a310af2e1e83d188eb1591f448",
+      "execution_receipt": "fdba6bfd4bc1eecefd1d1236127b2447b0e071b1b96b36c518fadedf47e760bf",
+      "independent_replay": "af53ef42ce451a04708b6f00077c79fbae80fce4d46c3438a811a313be1eb078",
+      "primary_replay": "af53ef42ce451a04708b6f00077c79fbae80fce4d46c3438a811a313be1eb078",
+      "specification": "62dd5fa299bc688fc37170912699efb81159b1f29c121fa1408196846d082eef"
+    },
+    "qualification_from_narrative_permitted": false,
+    "source_commit": "a6f54953241ea644da1770dd86dc86ec6b7fda8f",
+    "source_tree": "a236791ea7bd7b04a14c636b2cbc64694dbd4e77",
+    "status": "previously_observed_completed_and_rejected_now_raw_evidence_unavailable_locally"
+  },
+  "live_qualified": false,
+  "milestone_7_closed": false,
+  "prior_attempt_dispositions": {
+    "attempt_5": "interrupted_unreplayable_unknown_final_costs_and_effects",
+    "attempt_6": "previously_observed_completed_and_rejected_now_raw_evidence_unavailable_locally",
+    "attempt_7": "previously_observed_completed_and_rejected_now_raw_evidence_unavailable_locally"
+  },
+  "production_ready": false,
+  "recorded_at_utc": "2026-09-24T22:40:53.511079+00:00",
+  "review_scope": "New read-only recovery assessment after a second loss of September 24 scratch files. This is not reconstruction of any missing specification, campaign, replay or review.",
+  "reviewer": "/root/m7_grader",
+  "reviewer_actions": {
+    "missing_artifact_reconstruction": false,
+    "model_generation": false,
+    "model_loads": false,
+    "new_assessment_written": true,
+    "source_mutations": false
+  },
+  "schema_version": "dml-supervisor-workspace-recovery-assessment-v2"
+}

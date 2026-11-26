@@ -1,0 +1,52 @@
+{
+  "accepted_as_actual_ci_qualification": false,
+  "accepted_for_integration_and_publication": true,
+  "baseline_commit": "3ba05702e256d3fc10837fd8e42b84e739b71a69",
+  "blocking_findings": [],
+  "changed_paths": [
+    ".github/workflows/ci.yml"
+  ],
+  "compact_ci332_summary": {
+    "detailed_receipt_and_raw_archive_hashes_independently_match": true,
+    "exact_retained_field_subset_of_detailed_local_receipt": true,
+    "path": "docs/artifacts/agent-episode-ci-332-summary-2026-09-24.json",
+    "publication_scope": "Compact summary only; raw ZIP/logs remain local per user instruction.",
+    "sha256": "57297e75cbc533cf6ce06d37b52e8ad6d403c5a110c1730a41d048b4b33e784b"
+  },
+  "independent_controls": {
+    "errors": 0,
+    "exact_extracted_scripts_match_workflow": true,
+    "failures": 0,
+    "harness_sha256": "45d45acf95ce1db94bc0da20a9ea91befe45464de9d08c80fed39ac8026cab79",
+    "junit_sha256": "f5e435b97520717c98df4d2e15f9cb99fb1ac08a37080b8913476a73ddc7a01b",
+    "real_unchanged_admission_predicate_imported": true,
+    "skipped": 0,
+    "tests": 12
+  },
+  "independently_verified_invariants": [
+    "All other jobs, concurrency matrix, scales, module inventory, qualification flags and time limits unchanged.",
+    "Non-Linux effective basetemp unchanged. Added Linux setup/cleanup scripts pass Python and Bash syntax.",
+    "Measures existing RUNNER_TEMP and /mnt actual filesystems, retains all candidate observations, rejects known nobarrier guard failure and fails closed if no candidate qualifies.",
+    "No mount, remount, loopback layering, changed predicate, forced retry, manufactured filesystem or changed source recorder.",
+    "Allocated actual directory must have exactly the admitted filesystem identity; unchanged recorder additionally measures test root/parent before and after full qualification.",
+    "Cleanup occurs after artifact upload and checks selected parent, prefix, marker and symlink exclusions; controls show unknown targets preserved."
+  ],
+  "limits": [
+    "Synthetic controls establish workflow safety and selection behavior, not existence of an admitted filesystem on an actual GitHub runner.",
+    "Actual published-source CI must run; no candidate admitted means retained failure, not waiver.",
+    "No live model execution or milestone qualification occurred in this review."
+  ],
+  "milestone_7_closed": false,
+  "patch_sha256": "a6467b71a193d74968734a6232e88be3d3bd51f41eb2686099155d7ae921813d",
+  "production_ready": false,
+  "recorded_at_utc": "2026-09-24T14:54:19.257893+00:00",
+  "reviewed_builder_receipt_sha256": "e8edae2f677177158e2779d020ba5e40ba96d2302ad2809d861b43d964a7bf76",
+  "reviewer": "/root/m7_grader",
+  "schema_version": "dml-ci-filesystem-repair-grader-review-v1",
+  "source_review_score": 9.6,
+  "unchanged_guard_and_recorder": {
+    "dml_core/scripts/profile_concurrency_evidence.py": "c19fd4ca192e4de2a25194804024c18d9d6480af27bc0a5cce5d26a58dc3e872",
+    "dml_core/scripts/profile_recovery_evidence.py": "723abcd82fa9b5ee1f73cd2ea730a676bb3a7126539d3b86035a2cefd56079c1"
+  },
+  "workflow_sha256": "38b0273e09aa361286f01210f073d9c6f41d884d0e452a047a581130441a9da7"
+}

@@ -1,0 +1,95 @@
+{
+  "accepted_for_milestone_completion": false,
+  "both_requested_tasks_resolved": false,
+  "campaign_complete": false,
+  "campaign_id": "m7-qwen2-action-json-sampled-bf16-2026-09-27-attempt-14-retry",
+  "campaign_usage_and_effects_fully_known": false,
+  "decision": "Rejected for milestone qualification: interrupted, incomplete campaign with two verified failed terminal reports. Isolated corrective source work may proceed.",
+  "execution_authenticity_verified": false,
+  "freeze_disposition": {
+    "accepted_for_isolated_source_correction": true,
+    "completed_freeze_release": false,
+    "future_execution": "A distinct source-bound declaration and independent review must explicitly retain this partial failure and unknown lost-worker state; never relaunch, resume, fill missing results, or selectively retry this frozen identity.",
+    "original_source_and_artifacts_must_remain_immutable": true,
+    "preserve_exclusive_start": true,
+    "same_campaign_execution_authorized": false,
+    "scope": "Separate checkout source correction, testing, and review only. This disposition is not a completion receipt or generation authorization.",
+    "state": "interrupted_incomplete_nonresumable"
+  },
+  "full_campaign_replay_performed": false,
+  "gates": {
+    "actual_predecessor_context_established": false,
+    "all_task_successes_required": false,
+    "complete_failure_inclusive_evidence": false,
+    "full_corpus_coverage_established": false,
+    "verified_model_owned_supersession": false
+  },
+  "global_worker_termination_proven": false,
+  "independent_partial_data_audit": {
+    "path": "/workspace/scratch/c79340404ab9/m7-resume/attempt14-retry-20260927/grader-partial-data-audit.json",
+    "sha256": "8afd7c1df8895b179ea8d4ef1b0c0e636ecb139c7789032fe2be0a90621577df"
+  },
+  "known_usage_lower_bound": {
+    "generated_calls": 6,
+    "input_tokens": 6983,
+    "output_tokens": 410,
+    "total_tokens": 7393
+  },
+  "limitations": [
+    "Current helper verify_dispatch rechecked all 806 frozen source files, current runtime, exact model bytes and unchanged protocol without loading or generating a model.",
+    "Independent data audit validated both event contracts, causal receipt authority, input tokenization, output token text and grammar, terminal verifier, and token accounting. It did not produce a full campaign replay.",
+    "The third task authority directory exists, demonstrating preparation only. Seven tasks have no retained completed reports; their global execution status is not inferred.",
+    "Root compact observation matches the actual two reports. Raw reports stay intact and are not replaced by this summary.",
+    "No all-nine-success requirement is added; unchanged source gates and both user-requested task successes remain required."
+  ],
+  "live_qualified": false,
+  "milestone_7_closed": false,
+  "partial_observation": {
+    "path": "/workspace/scratch/c79340404ab9/m7-resume/attempt14-retry-20260927/partial-observation.json",
+    "sha256": "e6f2ae8d246dd1383844a102b14740f6c9a8a912f0c7f8e2926c9b3e26e87187"
+  },
+  "pre_generation_review": {
+    "path": "/workspace/scratch/c79340404ab9/m7-resume/attempt14-retry-20260927/grader-pre-generation-review.json",
+    "sha256": "21be93a0081bd3474961d38e7de2b1c5560f3004e093bd306ba6f6421ee34ce9"
+  },
+  "production_ready": false,
+  "recorded_at_utc": "2026-09-27T20:03:33.309179+00:00",
+  "reported_session_observation": "Root reports write_stdin(91997) returned Unknown process id and no producer visible in its current process namespace. This is not an authoritative producer exit or proof of global termination.",
+  "retained_completed_tasks": 2,
+  "retained_failed_tasks": 2,
+  "retained_successful_tasks": 0,
+  "reviewer": "independent supervisor/grader",
+  "schema_version": "dml-interrupted-campaign-review-v1",
+  "source_ci_qualified": true,
+  "source_ci_scope": "Published c51b514 source only; no future source revision inherits CI qualification.",
+  "source_commit": "c51b51440401037873a19e3863888b3ae31f5abf",
+  "source_tree": "ecd4211d6ba6ab41586575f250dbebdde597889a",
+  "specification": {
+    "path": "/workspace/scratch/c79340404ab9/DML-retry-20260927/docs/artifacts/agent-episode-live-spec-attempt-14-retry-2026-09-27.json",
+    "sha256": "fcf330622d95a844558f558ce359e3087120b6b3d9eb699d2fdd10cad64e9c4c"
+  },
+  "start": {
+    "path": "/workspace/scratch/c79340404ab9/m7-resume/attempt14-retry-20260927/attempt-14-retry-start.json",
+    "sha256": "66d877f771afdca66076f7da4be45e57958e486868887b8faba3118326d3b1f7"
+  },
+  "task_findings": [
+    {
+      "finding": "Both retrieve actions requested top_k=2 but each returned only Runbook B. Final answer supplied null without evidence for Runbook A.",
+      "success": false,
+      "task_id": "preserve_conflict"
+    },
+    {
+      "finding": "Model proposed and committed supersession using prior presented immutable references; it then answered verbose citing superseded record 0. Receipt-backed mutation success does not satisfy the terminal task or the source supersession gate.",
+      "model_owned_supersession_mutation_verified": true,
+      "old_record_id": 0,
+      "replacement_record_id": 1,
+      "success": false,
+      "task_id": "supersede_then_answer"
+    },
+    {
+      "finding": "No retained completed report from this interrupted campaign.",
+      "success": null,
+      "task_id": "read_both_commits"
+    }
+  ]
+}

@@ -1,0 +1,114 @@
+{
+  "schema_version": "dml-feature-review-v1",
+  "feature": "scoped-receipted-first-level-promotion-v1",
+  "base_commit": "a08457c9819fddcae9d3090af138b26bc47b7e4e",
+  "reviewed_at": "2026-09-17",
+  "reviewer": "independent grading agent, separate from service, adapter and recovery builders",
+  "minimum_accepted_score": 9.5,
+  "score": 9.6,
+  "decision": "accepted",
+  "review_history": [
+    {
+      "score": 9.1,
+      "decision": "rejected",
+      "blocking_findings": [
+        "PRM-01"
+      ]
+    },
+    {
+      "score": 9.6,
+      "decision": "accepted",
+      "blocking_findings": []
+    }
+  ],
+  "findings": [
+    {
+      "id": "PRM-01",
+      "severity": "high",
+      "status": "resolved",
+      "finding": "Historical receipt validation accepted a nonempty result vector with a different dimension from its immutable source vectors. The orchestration review identified the hypothesis; the independent grader reproduced a one-dimensional result accepted against unchanged two-dimensional source proof.",
+      "resolution": "Historical proof vectors must be nonempty and have one uniform dimension; the result vector must have that same dimension. Validation uses immutable receipt evidence and does not consult the current embedding model or contract.",
+      "regressions": [
+        "test_promotion_adversarial.py::test_generic_receipt_cannot_claim_an_unrelated_or_inflated_promotion[wrong-vector-dimension]",
+        "test_receipt_promotion.py::test_historical_receipt_proof_requires_one_nonempty_embedding_space[empty-proof-vector]",
+        "test_receipt_promotion.py::test_historical_receipt_proof_requires_one_nonempty_embedding_space[mixed-proof-dimensions]",
+        "test_promotion_adversarial.py::test_historical_proof_replay_is_independent_of_current_source_and_contract"
+      ]
+    }
+  ],
+  "source_sha256": {
+    "dml_core/daystrom_dml/services/receipt_promotion.py": "1d69365ea17b9d7db6d4e98dc73b35790636ecdfa8311d2155816e83fe135234",
+    "dml_core/daystrom_dml/dml_adapter.py": "9c34e51102c43b84bb0714f0be1b276c21b467e267835ab0f97569855890df21",
+    "dml_core/daystrom_dml/provider_server.py": "448176e18078f262eff6dc48502f32d7267138bc0e29206b070ea47bc7af5390",
+    "dml_core/daystrom_dml/contracts/production.py": "0636f1b3991727784fd19cdc960437786a67329647bf51d3dad2fab2c33cb67a",
+    "dml_core/tests/test_receipt_promotion.py": "6592abdfdbaec0a995f5fb3aa987ef504b02e31eaedb51fb19cf1aae4a3c96f8",
+    "dml_core/tests/test_promotion_integration.py": "fe6b14364e5176b3d446443ef94f16956f03d3cdf228422cbf1a4156d1e9662a",
+    "dml_core/tests/test_promotion_recovery.py": "12035f238044cf3cb01a58ce04ed27c4ad0dc77840c46fbaa0b9269107c1e57d",
+    "dml_core/tests/test_promotion_adversarial.py": "4f620aa101f6c0c3869b7188dcdfd86b74c70c28ec96c17493ff2f1e846a0cca",
+    ".github/workflows/ci.yml": "194f7af58b56bb5a99e50e02e4c70ea462132f1c611cbe1c131d0f5297b80883"
+  },
+  "reviewed_properties": [
+    "Canonical intent freezes sorted distinct source IDs, full-record digest preconditions, exact full scope and caller-supplied text; no mutable input alias survives preparation.",
+    "All source scopes are checked before any stale-digest or eligibility result; base-only lineage uses exact integer IDs and rejects indirect, duplicate, boolean or floating-point aliases.",
+    "Source authority is explicit and never promoted: both lifecycle aliases, expiry, trust, no_merge and merge_policy restrictions fail closed; unknown and typed metadata distinctions are preserved.",
+    "Each successful transaction appends one new ID, preserves all original live and archived records and previous receipts, and records complete source snapshots and hashes in the output proof.",
+    "Output creation time, fidelity and salience use source minima; stale source summaries are omitted and caller-confirmed result text reaches normal context.",
+    "Embedding runs outside writer ownership; model identity and returned vectors are detached and checked against the persisted space before and after preparation and inside each CAS attempt.",
+    "Every source and capacity are rechecked on each bounded CAS attempt; unrelated writes rebase and overlapping independently keyed derivations preserve their distinct intended outcomes.",
+    "Historical replay validates complete immutable source proof, exact result semantics and proof-bound vector dimensions before accessing current source state, clocks, capacity or models.",
+    "Process-death, serialization, real SQLite quota exhaustion, duplicate writer and post-commit acknowledgement or hydration failures preserve all-or-nothing durable outcomes.",
+    "The strict provider endpoint preserves existing authorization and returns fixed sanitized error codes; projections and enabled outbox events carry preserved sources and derived output atomically.",
+    "Documentation describes independent snapshot lifecycle, non-cascading source changes and explicit operator truth assertions; the maturity inventory remains candidate with no stable API or global production-readiness claim."
+  ],
+  "verification": {
+    "independent_focused": "285 passed, zero failures/errors/skips in 36.687s",
+    "service_cases": 131,
+    "adapter_api_cases": 83,
+    "recovery_concurrency_cases": 38,
+    "independent_adversarial_cases": 33,
+    "actual_process_kill_cases": 29,
+    "supported_journal_schemas": [
+      2,
+      3,
+      4
+    ],
+    "competing_processes_per_schema": 8,
+    "simultaneous_clients_per_schema": 256,
+    "concurrency": {
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 38.19
+    },
+    "windows_parameter_bounds": {
+      "collected_gate_cases": 285,
+      "max_nodeid_utf16_units": 200,
+      "max_pytest_current_test_utf16_units": 211,
+      "source": "executed pytest JUnit testcase node identifiers; includes longest lifecycle-stage suffix"
+    },
+    "known_warning": "Upstream Starlette AnyIO alias deprecation",
+    "full_suite_and_exact_commit_ci": "Separate root release gates; this reviewer executed the four feature test files and inspected the workflow and cross-platform parameter bounds.",
+    "ruff": "passed",
+    "mypy": "55 maintained source files passed; local target Python 3.12",
+    "hermes_hygiene": "passed",
+    "disk_full": "Actual SQLite max_page_count exhaustion preserves sources and existing receipts",
+    "serialization": "Interrupted serialization does not publish or acknowledge a partial derivation",
+    "full_suite": "2501 passed, 9 optional-dependency skips, 2 known warnings in 266.38s",
+    "known_warnings": [
+      "Upstream Starlette AnyIO alias deprecation",
+      "NumPy norm overflow in a deliberately rejected huge-vector query test"
+    ],
+    "exact_commit_ci": "Separate final gate recorded on PR118; this artifact pins accepted source and final local evidence"
+  },
+  "limitations": [
+    "Caller-supplied derived text and trusted/verified source labels remain operator assertions; this feature does not establish semantic truth or authenticate against an attacker who rewrites authoritative history.",
+    "Derived memories are independent snapshots. Later source edits, retirement and supersession do not cascade; operators must retire or supersede derived outputs explicitly.",
+    "The gate is limited to first-level base memories. Recursive promotion, merge-policy override, semantic deduplication and automatic summarization remain outside the contract.",
+    "Declared embedding identity is not model-weight attestation; backend latency remains a caller/provider deadline responsibility.",
+    "Full source proofs, journal snapshots and receipts retain history-growth costs; process death and quota tests do not qualify physical power loss on every device.",
+    "The original ten production areas remain incomplete. Full-suite and exact-commit CI acceptance are root release gates and feature-specific acceptance does not change production_ready=false."
+  ],
+  "plan_position": "Twelfth serial hardening gate after foundations; P03 durable lifecycle operations and P07 first-level derivation semantics, retaining P04 schema compatibility; original ten production areas remain incomplete",
+  "delegation": "Separate service, adapter/API and recovery builders plus an independent adversarial grader; root integrated contract, CI, documentation and final verification"
+}

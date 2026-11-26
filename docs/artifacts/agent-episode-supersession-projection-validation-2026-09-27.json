@@ -1,0 +1,55 @@
+{
+  "actual_learned_model_generations": 0,
+  "base_commit": "c51b51440401037873a19e3863888b3ae31f5abf",
+  "broad_focused_run": {
+    "command": "PYTHONPYCACHEPREFIX=/tmp/dml-supersession-projection-tests-20260927 PYTHONDONTWRITEBYTECODE=1 OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 /workspace/scratch/c79340404ab9/dml-retry-venv-20260927/bin/python -m pytest -o addopts= -q --tb=short dml_core/tests/test_episode_tools.py dml_core/tests/test_agent_episode_contract.py dml_core/tests/test_agent_episode_runtime.py dml_core/tests/test_agent_episode_adversarial.py dml_core/tests/test_episode_supersession_projection.py",
+    "duration_seconds": 97.02,
+    "exit_code": 0,
+    "failed": 0,
+    "new_test_sha256_at_collection": "4685afbeaaf073ae2a47d7e0dda8a833186c1db9e665a93f0160deff1f180980",
+    "passed": 281,
+    "scope_note": "Ran before independent campaign observer assertions were added; final two-file follow-up is recorded separately in projection-focused-validation.json.",
+    "tool_session_id": 60266
+  },
+  "current_file_sha256": {
+    "dml_core/daystrom_dml/contracts/agent_episode.py": "456f34017d3594be2594244a9d5a36ef998565365033c2a6006eb591256641ef",
+    "dml_core/daystrom_dml/services/agent_episode.py": "f88475944683ae859c6c961d7a920cbd83ba7c2123faa0c3005849ad2fd8601c",
+    "dml_core/daystrom_dml/services/episode_tools.py": "e002c910306385a63ffb17198a222b1401622738f6b526af2b28f2669500076c",
+    "dml_core/scripts/agent_campaign_evidence.py": "efe4d79e3bf395d496bc1f5e18ac0fbe1e020046cafa2690181edc1aeae8d4e3",
+    "dml_core/tests/test_episode_supersession_projection.py": "4594aa5637a9234d495109d46aad80c9a8541457483cc7251818aca7270910e2"
+  },
+  "frozen_checkout_changed": false,
+  "local_environment_observations": [
+    "Initial pytest startup failed before collection because retained pytest bytecode was corrupt (EOFError: marshal data too short).",
+    "Using only -X pycache_prefix fixed the parent but spawned test workers still read corrupt retained pytest bytecode. Inherited PYTHONPYCACHEPREFIX and PYTHONDONTWRITEBYTECODE fixed the test environment; no shared/frozen package/cache files were edited.",
+    "Default mypy target 3.10 was blocked by retained NumPy stubs using Python3.12 type-statement syntax. Actual Python3.12 static check passed. This does not replace fresh source-qualified CI."
+  ],
+  "record_kind": "compact operator-observed command receipt, not raw test logs",
+  "recorded_at": "2026-09-27T20:06:49.648568+00:00",
+  "schema_version": "dml-supersession-projection-validation-v1",
+  "scope": [
+    "Public changed-record projection includes receipt-backed superseded_by.",
+    "Exact reference identity and live plus independent campaign observations validate relationship presence/value.",
+    "No added replacement record, citation, retrieval, model operation, task-specific output or answer repair.",
+    "Policy, tool descriptions, corpus, generation settings, retrieval, limits and gates unchanged."
+  ],
+  "source_root": "/workspace/scratch/c79340404ab9/DML-supersession-result-fix-20260927",
+  "static_checks": [
+    {
+      "command": "PYTHONPYCACHEPREFIX=/tmp/dml-supersession-projection-tests-20260927 PYTHONDONTWRITEBYTECODE=1 /workspace/scratch/c79340404ab9/dml-retry-venv-20260927/bin/python -m ruff check --select E,F --ignore E501,F401 dml_core/daystrom_dml/services/episode_tools.py dml_core/daystrom_dml/contracts/agent_episode.py dml_core/daystrom_dml/services/agent_episode.py dml_core/scripts/agent_campaign_evidence.py dml_core/tests/test_episode_supersession_projection.py",
+      "exit_code": 0,
+      "output": "All checks passed!"
+    },
+    {
+      "command": "PYTHONPYCACHEPREFIX=/tmp/dml-supersession-projection-tests-20260927 PYTHONDONTWRITEBYTECODE=1 /workspace/scratch/c79340404ab9/dml-retry-venv-20260927/bin/python -m mypy --python-version 3.12 dml_core/daystrom_dml/services/episode_tools.py dml_core/daystrom_dml/contracts/agent_episode.py dml_core/daystrom_dml/services/agent_episode.py dml_core/scripts/agent_campaign_evidence.py",
+      "exit_code": 0,
+      "output": "Success: no issues found in 4 source files; unused mypy-tests.* section note.",
+      "tool_session_id": 6551
+    },
+    {
+      "command": "git diff --check",
+      "exit_code": 0,
+      "output": ""
+    }
+  ]
+}

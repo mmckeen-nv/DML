@@ -1,0 +1,39 @@
+{
+  "complete": true,
+  "files": {
+    "LICENSE": {
+      "bytes": 11343,
+      "seconds": 11.687,
+      "sha256": "832dd9e00a68dd83b3c3fb9f5588dad7dcf337a0db50f7d9483f310cd292e92e"
+    },
+    "config.json": {
+      "bytes": 660,
+      "seconds": 0.184,
+      "sha256": "88f9a17863c05fb313515d2ff74b1098e0c35579f99068e32beda00618508ae0"
+    },
+    "model.safetensors": {
+      "bytes": 3087467144,
+      "seconds": 88.13,
+      "sha256": "c1b9b30e907950516ba3c646bdf570d8084c25a6410a0cdca80cf04b11bc13a8"
+    },
+    "tokenizer.json": {
+      "bytes": 7031645,
+      "seconds": 0.359,
+      "sha256": "c0382117ea329cdf097041132f6d735924b697924d6f6fc3945713e96ce87539"
+    },
+    "tokenizer_config.json": {
+      "bytes": 7305,
+      "seconds": 0.182,
+      "sha256": "959e7f1d9a1b7641a6d6ce05ca97b75c7894fcb66cbe5a040406458fb1128ee4"
+    }
+  },
+  "finished_at_utc": "2026-09-22T06:54:27.458732+00:00",
+  "model_id": "Qwen/Qwen2.5-Coder-1.5B-Instruct",
+  "observed_free_bytes": 30214279168,
+  "required_free_bytes": 19654589634,
+  "revision": "2e1fd397ee46e1388853d2af2c993145b0f1098a",
+  "schema_version": "dml-coder-acquisition-v1",
+  "source_pin_review_sha256": "420ab920a96da87c40b9447a3a74b7044804c61e14a7dc846b8422199284d3ce",
+  "started_at_utc": "2026-09-22T06:52:46.914875+00:00",
+  "trained_live_qualified": false
+}

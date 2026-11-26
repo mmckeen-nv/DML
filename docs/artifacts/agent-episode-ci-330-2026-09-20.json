@@ -1,0 +1,250 @@
+{
+  "cpu_evidence": {
+    "archive_sha256": "d5113e2b599af102840f99aa655aa1671e8dab85c9af45f2eda15630d15a7bf4",
+    "artifact_file_sha256": {
+      "dependencies.txt": "fe45b0a92b4fe11a5ef00471be274660ea40c7b462ddccd3b7c4724ac988fd78",
+      "model-input.xml": "d9b6d5ef5c9252c1681ace58a5e45bc017d4ecde7f68d363e729b6e91c406815",
+      "python.txt": "4c3569f5da09975434dd9fd9a91fadbc4367a91d8f3c3fab59e9241ab9ee4bd8",
+      "source-manifest.json": "5e9944efadd92eb6ce579b940095bcb46b6b359359a0958adeb9174644c18c84"
+    },
+    "artifact_id": 10607327827,
+    "artifact_name": "model-input-cpu-evidence",
+    "complete_mandatory_module_inventory_verified": true,
+    "complete_source_inventory_verified": true,
+    "duration_seconds": 88.653,
+    "errors": 0,
+    "failures": 0,
+    "independent_verification": "Downloaded the ZIP, verified its GitHub-reported SHA-256, safely extracted it, checked JUnit and exact workflow module coverage, matched all 370 source hashes and the complete workflow source inventory to public commit Git blobs, then fetched the tested merge and confirmed its Git tree equals the published/frozen tree.",
+    "independent_verification_receipt_sha256": "067202cd1e29f5d92ee7608d068a4da8caee09f1d3de2839421ac8246e4b6829",
+    "job_id": 106097987607,
+    "observed_module_test_counts": {
+      "dml_core.tests.test_agent_action_grammar": 36,
+      "dml_core.tests.test_agent_campaign_evidence": 33,
+      "dml_core.tests.test_agent_episode_adversarial": 77,
+      "dml_core.tests.test_agent_episode_cli": 28,
+      "dml_core.tests.test_agent_episode_contract": 71,
+      "dml_core.tests.test_agent_episode_runtime": 33,
+      "dml_core.tests.test_episode_outcomes": 23,
+      "dml_core.tests.test_episode_tools": 13,
+      "dml_core.tests.test_episode_verifiers": 69,
+      "dml_core.tests.test_model_input_adversarial": 57,
+      "dml_core.tests.test_model_input_contract": 109,
+      "dml_core.tests.test_model_input_integration": 7,
+      "dml_core.tests.test_model_input_runtime": 8,
+      "dml_core.tests.test_model_input_snapshot": 75,
+      "dml_core.tests.test_pretrained_snapshot": 45,
+      "dml_core.tests.test_qwen_action_input": 10,
+      "dml_core.tests.test_qwen_chat_template": 4,
+      "dml_core.tests.test_qwen_model_adversarial": 40,
+      "dml_core.tests.test_qwen_model_equivalence": 5,
+      "dml_core.tests.test_qwen_pretrained_snapshot": 31
+    },
+    "passed": 774,
+    "required_modules": 20,
+    "runtime": {
+      "apache-tvm-ffi": "0.1.12",
+      "jinja2": "3.1.6",
+      "python": "3.12.14",
+      "safetensors": "0.6.2",
+      "tokenizers": "0.22.0",
+      "torch": "2.8.0+cpu",
+      "transformers": "4.56.2",
+      "triton": "3.8.0",
+      "xgrammar": "0.2.7"
+    },
+    "skipped": 0,
+    "source_hash_mismatches": [],
+    "tested_merge_git_tree_independently_verified": true,
+    "triton_scope": "Triton 3.8.0 was installed as a transitive dependency; the admitted execution and grammar mask backend remained CPU. The resolved environment does not establish GPU execution or a pinned Triton dependency.",
+    "verified_source_files": 370
+  },
+  "diagnostic_retries_requested_by_this_review": 0,
+  "evidence_scope": "exact_source_ci_and_fixture_harness_only",
+  "full_suite_skip_context": "Ordinary full-suite jobs install embedding dependencies rather than the exact model-input/agent-action runtime. Optional fixture admission requires exact CPU runtime and grammar dependency pins; the mandatory CPU lane separately executes all 774 tests with zero skips. Quiet full-suite logs do not enumerate the complete per-test reasons for the 261 skips; no complete skip-reason attribution is claimed.",
+  "full_suites": [
+    {
+      "conclusion": "success",
+      "downloaded_job_log_sha256": "42ea05bddc68139fc7764b3b2b3b6f49c59487ee94cbfe2f294a7c4ecfe90b10",
+      "duration_seconds": 801.06,
+      "hygiene_smoke_passed": true,
+      "job_id": 106097987431,
+      "observed_optional_runtime": {
+        "safetensors": "0.8.0",
+        "tokenizers": "0.23.2",
+        "torch": "2.14.0",
+        "transformers": "5.17.0"
+      },
+      "passed": 4675,
+      "python": "3.10",
+      "skipped": 261,
+      "warnings": 1
+    },
+    {
+      "conclusion": "success",
+      "downloaded_job_log_sha256": "e4a12054da47c0db3e6be74c4d3df2003b571f9e6492afd99f46bc4fac0e7744",
+      "duration_seconds": 508.4,
+      "hygiene_smoke_passed": true,
+      "job_id": 106097987313,
+      "observed_optional_runtime": {
+        "safetensors": "0.8.0",
+        "tokenizers": "0.23.2",
+        "torch": "2.14.0",
+        "transformers": "5.17.0"
+      },
+      "passed": 4675,
+      "python": "3.11",
+      "skipped": 261,
+      "warnings": 2
+    }
+  ],
+  "jobs": [
+    {
+      "conclusion": "success",
+      "id": 106097987231,
+      "name": "production-evidence",
+      "status": "completed"
+    },
+    {
+      "conclusion": "success",
+      "id": 106097987290,
+      "name": "profile-concurrency (ubuntu-latest, full, 1,16,64,256)",
+      "status": "completed"
+    },
+    {
+      "conclusion": "success",
+      "id": 106097987298,
+      "name": "profile-recovery (ubuntu-latest, 3.10)",
+      "status": "completed"
+    },
+    {
+      "conclusion": "success",
+      "id": 106097987313,
+      "name": "lint-test (3.11)",
+      "status": "completed"
+    },
+    {
+      "conclusion": "success",
+      "id": 106097987319,
+      "name": "profile-filesystem-full",
+      "status": "completed"
+    },
+    {
+      "conclusion": "success",
+      "id": 106097987352,
+      "name": "profile-recovery (windows-latest, 3.13)",
+      "status": "completed"
+    },
+    {
+      "conclusion": "success",
+      "id": 106097987360,
+      "name": "cross-platform-portability (ubuntu-latest, 3.10)",
+      "status": "completed"
+    },
+    {
+      "conclusion": "success",
+      "id": 106097987371,
+      "name": "cross-platform-portability (windows-latest, 3.13)",
+      "status": "completed"
+    },
+    {
+      "conclusion": "success",
+      "id": 106097987376,
+      "name": "profile-concurrency (windows-latest, bounded, 1,16)",
+      "status": "completed"
+    },
+    {
+      "conclusion": "success",
+      "id": 106097987392,
+      "name": "cross-platform-portability (windows-latest, 3.10)",
+      "status": "completed"
+    },
+    {
+      "conclusion": "success",
+      "id": 106097987393,
+      "name": "profile-recovery (ubuntu-latest, 3.13)",
+      "status": "completed"
+    },
+    {
+      "conclusion": "success",
+      "id": 106097987412,
+      "name": "cross-platform-portability (macos-latest, 3.13)",
+      "status": "completed"
+    },
+    {
+      "conclusion": "success",
+      "id": 106097987431,
+      "name": "lint-test (3.10)",
+      "status": "completed"
+    },
+    {
+      "conclusion": "success",
+      "id": 106097987437,
+      "name": "cross-platform-portability (macos-latest, 3.10)",
+      "status": "completed"
+    },
+    {
+      "conclusion": "success",
+      "id": 106097987439,
+      "name": "profile-recovery (macos-latest, 3.13)",
+      "status": "completed"
+    },
+    {
+      "conclusion": "success",
+      "id": 106097987444,
+      "name": "profile-recovery (macos-latest, 3.10)",
+      "status": "completed"
+    },
+    {
+      "conclusion": "success",
+      "id": 106097987466,
+      "name": "cross-platform-portability (ubuntu-latest, 3.13)",
+      "status": "completed"
+    },
+    {
+      "conclusion": "success",
+      "id": 106097987481,
+      "name": "profile-concurrency (macos-latest, bounded, 1,16)",
+      "status": "completed"
+    },
+    {
+      "conclusion": "success",
+      "id": 106097987487,
+      "name": "profile-recovery (windows-latest, 3.10)",
+      "status": "completed"
+    },
+    {
+      "conclusion": "success",
+      "id": 106097987607,
+      "name": "model-input-cpu",
+      "status": "completed"
+    }
+  ],
+  "observed_job_counts": {
+    "cancelled": 0,
+    "failure": 0,
+    "pending": 0,
+    "success": 20,
+    "total": 20
+  },
+  "qualification_boundary": {
+    "combined_source_review": {
+      "path": "docs/artifacts/agent-episode-grounding-cleanup-review-2026-09-20.json",
+      "sha256": "924ba22587056717df60f5ce62e170526aadf24f196534a025060216c1c252ee"
+    },
+    "current_public_source_acceptance": "accepted_combined_source_revision",
+    "current_public_source_grade": 9.6,
+    "milestone_7_closed": false,
+    "production_ready": false,
+    "published_source_ci_qualified": true,
+    "reason": "This run qualifies the published source and fixture harness. It does not establish pretrained task outcomes. The separately frozen live attempt 5 has an observed first-task timeout and cannot satisfy its complete predeclared qualification gates; remaining task evidence is retained under the unchanged campaign.",
+    "trained_live_qualified": false
+  },
+  "recorded_at_utc": "2026-09-20T15:24:31.727653+00:00",
+  "run_id": 35518344343,
+  "run_number": 330,
+  "run_url": "https://github.com/mmckeen-nv/DML/actions/runs/35518344343",
+  "schema_version": "dml-agent-episode-ci-receipt-v1",
+  "source_commit": "0d4364d116d75ed24b60e441845518b47f39ad57",
+  "tested_commit": "04eee4fccf6f3b3ba9349399dc0da9ad21686d7c",
+  "tested_tree": "d8b2c5d4c699fdde85fe6c70d190c2375b9fb0de"
+}

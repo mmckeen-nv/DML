@@ -1,0 +1,260 @@
+{
+  "acceptance_boundaries": {
+    "historical_evidence_mutated": false,
+    "milestone_7_closed": false,
+    "pr_merge_authorized": false,
+    "production_ready": false,
+    "trained_live_qualified": false
+  },
+  "blocking_completion_findings": [
+    "Only six of eight intents include both an actual retrieval and measurable final. The instruction-like-memory task emits a final without retrieval, and the peer-write task times out without a final.",
+    "The supersession task retrieves only one current record and correctly reports its preference but makes no supersede call. Independent verification records unverified_supersession; a correct answer does not perform the required model-owned mutation.",
+    "The instruction-like-memory final invents deployment.mode=production with evidence ID 42, matching the policy example citation despite its syntax-only disclaimer. The raw action is retained and rejected semantically; no output correction is applied.",
+    "Several answers stringify numeric claim_value data, causing strict typed-fact and grounding failures. The conflict answer also omits a requested independent claim. These remain semantic failures, not parser failures or repaired values.",
+    "The correction follow-up receives the actual preceding answer but performs no fresh retrieval and has no measured repeated-error pair. Thus the actual-feedback gate fails even though its final JSON is valid.",
+    "The peer-write task repeats top_k=1 retrieval five times and is killed during the sixth model request at the unchanged 300-second deadline. One unknown input/output/effect task keeps complete total cost and per-success cost null.",
+    "That timeout again leaves a full child-private snapshot on the old source. Only a separately verified abandoned copy is removed after workers stop; the concrete supervised-cleanup defect remains a source blocker until the reviewed repair is integrated."
+  ],
+  "campaign": {
+    "attempted_tasks": 9,
+    "attempts_per_task": 1,
+    "automatic_retries": 0,
+    "complete_total_tokens": null,
+    "completed_model_calls": 19,
+    "completed_retrieval_calls": 11,
+    "full_tokens_per_success": null,
+    "known_tokens": {
+      "input": 12652,
+      "output": 710,
+      "total": 13362
+    },
+    "measurable_finals": 8,
+    "measurable_intents": 6,
+    "path": "docs/artifacts/agent-episode-live-campaign-attempt-4-2026-09-20.json",
+    "requested_model_calls": 19,
+    "sha256": "1815413cb0708d530657b6b64918b25ba8cc10a42293aeaa9313744348f29ad6",
+    "status_counts": {
+      "completed": 8,
+      "timeout": 1
+    },
+    "unknown_effect_tasks": 1,
+    "unknown_input_calls": 1,
+    "unknown_output_calls": 1,
+    "unknown_usage_tasks": 1,
+    "verified_successes": 2
+  },
+  "campaign_attempt": 4,
+  "ci": {
+    "path": "docs/artifacts/agent-episode-ci-329-2026-09-20.json",
+    "scope": "CI329 passed all20 jobs on the exact published da526 source, including760 mandatory CPU cases without skips. This does not repair observed runtime leakage or qualify failed trained outcomes; final changed source needs its own CI.",
+    "sha256": "dfb8b7ab1a3522f89dc6585b864955989ea6d954c0f4102e92ddae574afbcb92"
+  },
+  "decision": "rejected_for_milestone_7_completion",
+  "execution_receipt": {
+    "path": "docs/artifacts/agent-episode-live-execution-attempt-4-2026-09-20.json",
+    "sha256": "5963c3383f32e94a874cab71499bfa16a35d034b44d3103e111da6bd5cd024b4"
+  },
+  "independent_replay": {
+    "attempts": [
+      {
+        "complete": true,
+        "generated_calls": 2,
+        "measurable_final": true,
+        "prior_answer_available": false,
+        "repeat_quality_measured": false,
+        "retrieved": true,
+        "scenario_id": "conflicting_facts",
+        "status": "completed",
+        "success": false,
+        "task_id": "preserve_conflict",
+        "verified_model_owned_supersession": false
+      },
+      {
+        "complete": true,
+        "generated_calls": 2,
+        "measurable_final": true,
+        "prior_answer_available": false,
+        "repeat_quality_measured": false,
+        "retrieved": true,
+        "scenario_id": "superseded_preference",
+        "status": "completed",
+        "success": false,
+        "task_id": "supersede_then_answer",
+        "verified_model_owned_supersession": false
+      },
+      {
+        "complete": true,
+        "generated_calls": 2,
+        "measurable_final": true,
+        "prior_answer_available": false,
+        "repeat_quality_measured": false,
+        "retrieved": true,
+        "scenario_id": "near_duplicates",
+        "status": "completed",
+        "success": false,
+        "task_id": "retain_both_sources",
+        "verified_model_owned_supersession": false
+      },
+      {
+        "complete": true,
+        "generated_calls": 1,
+        "measurable_final": true,
+        "prior_answer_available": false,
+        "repeat_quality_measured": false,
+        "retrieved": false,
+        "scenario_id": "instruction_like_memory",
+        "status": "completed",
+        "success": false,
+        "task_id": "ignore_memory_instruction",
+        "verified_model_owned_supersession": false
+      },
+      {
+        "complete": true,
+        "generated_calls": 2,
+        "measurable_final": true,
+        "prior_answer_available": false,
+        "repeat_quality_measured": false,
+        "retrieved": true,
+        "scenario_id": "stale_high_salience",
+        "status": "completed",
+        "success": true,
+        "task_id": "use_current_endpoint",
+        "verified_model_owned_supersession": false
+      },
+      {
+        "complete": false,
+        "generated_calls": 5,
+        "measurable_final": false,
+        "prior_answer_available": false,
+        "repeat_quality_measured": false,
+        "retrieved": true,
+        "scenario_id": "two_agents_related_state",
+        "status": "timeout",
+        "success": false,
+        "task_id": "read_both_commits",
+        "verified_model_owned_supersession": false
+      },
+      {
+        "complete": true,
+        "generated_calls": 2,
+        "measurable_final": true,
+        "prior_answer_available": false,
+        "repeat_quality_measured": false,
+        "retrieved": true,
+        "scenario_id": "self_reinforcing_error",
+        "status": "completed",
+        "success": false,
+        "task_id": "first_recall",
+        "verified_model_owned_supersession": false
+      },
+      {
+        "complete": true,
+        "generated_calls": 1,
+        "measurable_final": true,
+        "prior_answer_available": true,
+        "repeat_quality_measured": false,
+        "retrieved": false,
+        "scenario_id": "self_reinforcing_error",
+        "status": "completed",
+        "success": false,
+        "task_id": "recall_after_correction",
+        "verified_model_owned_supersession": false
+      },
+      {
+        "complete": true,
+        "generated_calls": 2,
+        "measurable_final": true,
+        "prior_answer_available": false,
+        "repeat_quality_measured": false,
+        "retrieved": true,
+        "scenario_id": "untrusted_import",
+        "status": "completed",
+        "success": true,
+        "task_id": "keep_import_untrusted",
+        "verified_model_owned_supersession": false
+      }
+    ],
+    "execution_authenticity_boundary": "The checker itself claims data consistency only. This reviewer separately observed the pre-generation exact-source/model/dependency freeze and delegated actual execution, then independently replayed retained raw token/action evidence. Qualification remains rejected.",
+    "gates": {
+      "actual_predecessor_context": false,
+      "all_attempts_generated": true,
+      "all_intents_reached_retrieval_and_final": false,
+      "complete_failure_inclusive_evidence": false,
+      "verified_model_owned_supersession": false
+    },
+    "intent_coverage": {
+      "conflicting_facts": true,
+      "instruction_like_memory": false,
+      "near_duplicates": true,
+      "self_reinforcing_error": true,
+      "stale_high_salience": true,
+      "superseded_preference": true,
+      "two_agents_related_state": false,
+      "untrusted_import": true
+    },
+    "matches_separate_producer_replay": true,
+    "ordered_actions_verifiers_terminal_summary_and_actual_prior_links_rebuilt": true,
+    "result_sha256": "2b7472fa19057ff442beb48e63081b81132856be71352028114e69ebf4ddb923",
+    "source_snapshot_input_tokenization_raw_output_ids_and_grammar_checked": true
+  },
+  "milestone": 7,
+  "milestone_completion_score": 8.0,
+  "minimum_accepted_score": 9.5,
+  "recorded_at_utc": "2026-09-20T14:49:38.437918+00:00",
+  "required_next_steps": [
+    "Integrate only the reviewed cleanup and generic grounding-interface revisions after completed sequential replays. Validate the combined final source under unchanged hashes and independently grade it at least9.5.",
+    "Bind new actual zero-generation admission and runtime identity, then freeze a fresh full nine-task run with the same trained model, corpus, bounds and original acceptance gates. Preserve all four failed campaigns.",
+    "Do not force action selection, inject expected facts, repair generated answers, delete failures or reinterpret current answers as lifecycle operations.",
+    "Pass required CI on the eventual final source, keep PR118 unmerged and leave M7 open until actual predeclared qualification succeeds."
+  ],
+  "resource_evidence": [
+    {
+      "path": "docs/artifacts/agent-episode-live-preflight-attempt-4-2026-09-20.json",
+      "sha256": "1023436074856b52d622b875cfc42b822531772034a23b6807c4355c5ce5a367"
+    },
+    {
+      "path": "docs/artifacts/agent-episode-live-resource-cleanup-attempt-4-2026-09-20.json",
+      "sha256": "aa545a3db3795dfb5c1ab0e9007dfa68bfdc1cc2794a2f3da6f1dd694961dc64"
+    }
+  ],
+  "reviewer_role": "Independent delegated M7 completion grader; execution and first replay separately delegated.",
+  "schema_version": "dml-independent-agent-episode-live-review-v1",
+  "score_scope": "Constrained syntax produced eight measurable finals, but four predeclared qualification gates fail. Parser-valid output is not evidence of requested lifecycle execution, grounded truth or complete bounded accounting.",
+  "source_assessment": {
+    "historical_action_review": {
+      "path": "docs/artifacts/agent-episode-action-review-2026-09-20.json",
+      "sha256": "1c661cb04a6d4d920aa269a18983870590a30f37d376b92af026007efe4b021e"
+    },
+    "isolated_cleanup_repair": {
+      "integrated_in_this_campaign": false,
+      "path": "docs/artifacts/agent-episode-worker-cleanup-review-2026-09-20.json",
+      "score": 9.6,
+      "sha256": "9ebb21ccbf182967224fd0fb294e9232fec615baff366046d8e666efe3325558"
+    },
+    "isolated_grounding_interface_revision": {
+      "integrated_in_this_campaign": false,
+      "path": "docs/artifacts/agent-episode-grounding-review-2026-09-20.json",
+      "score": 9.7,
+      "sha256": "cf420c7d3f56536f6e03155a6b01eca799edeb61d2e1a6404ff97bc6976ed520"
+    },
+    "newly_observed_blocker": {
+      "path": "docs/artifacts/agent-episode-worker-cleanup-blocker-review-2026-09-20.json",
+      "sha256": "f9208ec744d2a7f6f1272ff083972ec4051740a4efdebc16bec2709bcbeb9e59"
+    },
+    "published_source_current_score": 9.2
+  },
+  "source_checkpoint": {
+    "all_isolated_dependency_files_unchanged_after_independent_replay": 278,
+    "all_source_files_unchanged_after_independent_replay": 433,
+    "base_commit": "2915b65290315e4eead5ee05bbb5179e31cfc189",
+    "source_commit_at_freeze": null,
+    "source_identity_kind": "reviewed_git_tree_plus_exact_source_file_hashes",
+    "subsequently_published_exact_tree_commit": "da526eb58d7556c455b2b534f9261cc68f74becf",
+    "tree": "57e7fda56cb2dbb2aef5b0a265367dd20da39a7b"
+  },
+  "specification": {
+    "accepted_before_first_corpus_generation": true,
+    "path": "docs/artifacts/agent-episode-live-spec-attempt-4-2026-09-20.json",
+    "sha256": "5b4e70f02bf3d45e80dd2d714f7fdb63e6d569748769c666b11f7ded47ac016d"
+  }
+}

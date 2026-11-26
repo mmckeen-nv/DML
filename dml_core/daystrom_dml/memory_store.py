@@ -10,12 +10,12 @@ import threading
 import time
 from dataclasses import dataclass, field
 from collections import OrderedDict
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Callable, Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 import numpy as np
 
 from . import utils
-from .vector_backend import get_vector_backend
+from .vector_backend import VectorBackend, get_vector_backend
 from .summarizer import Summarizer
 
 
@@ -24,6 +24,7 @@ LATTICE_PLACEMENT_POLICY = "semantic-topic-time-v1"
 MERGE_SCOPE_KEYS = (
     "tenant_id", "client_id", "session_id", "instance_id", "thread_id",
     "project_id", "relationship_id", "kind", "phase",
+    "source_trust", "memory_state", "claim_key", "expires_at",
 )
 
 
@@ -57,7 +58,13 @@ class MemoryItem:
     def cached_summary(self, max_len: int = 256) -> str:
         summary = ""
         if self.meta is not None:
-            summary = str(self.meta.get("summary") or "").strip()
+            decision = self.meta.get("content_update_decision")
+            updated = (isinstance(decision, dict)
+                       and decision.get("schema_version") == "dml-content-update-decision-v1")
+            # A receipted edit retains old metadata as provenance. Its cached
+            # summary predates the corrected text and cannot ground a response.
+            if not updated:
+                summary = str(self.meta.get("summary") or "").strip()
         if summary:
             if len(summary) > max_len:
                 return summary[: max_len - 3] + "..."
@@ -69,6 +76,7 @@ class MemoryItem:
 
     def to_dict(self) -> Dict:
         return {
+            "schema_version": 1,
             "id": self.id,
             "text": self.text,
             "timestamp": self.timestamp,
@@ -104,6 +112,8 @@ class MemoryStore:
         ann_min_items: int = 0,
         ann_candidate_multiplier: int = 8,
         scope_cache_bytes: int = 64 * 1024 * 1024,
+        aging_callback: Optional[Callable[[], None]] = None,
+        vector_backend: VectorBackend | None = None,
     ) -> None:
         self.summarizer = summarizer
         self.beta_a = beta_a
@@ -136,9 +146,14 @@ class MemoryStore:
         self.similarity_threshold = float(max(-1.0, min(1.0, similarity_threshold)))
         # Expensive quality/repair checks can be deferred to a maintenance pass.
         self.enable_quality_on_retrieval = bool(enable_quality_on_retrieval)
-        self._vector_backend = get_vector_backend()
+        self._vector_backend = vector_backend if vector_backend is not None else get_vector_backend()
         self._aging_thread: Optional[threading.Thread] = None
+        self._aging_callback = aging_callback
         if start_aging_loop:
+            self.start_aging()
+
+    def start_aging(self) -> None:
+        if not (self._aging_thread and self._aging_thread.is_alive()):
             self._aging_thread = threading.Thread(
                 target=self._aging_loop, name="dml-aging", daemon=True
             )
@@ -221,6 +236,8 @@ class MemoryStore:
         kinds: Optional[Iterable[str]] = None,
         top_k: Optional[int] = 6,
         strict_scope: bool = False,
+        as_of: Optional[float] = None,
+        eligible: Optional[Callable[[MemoryItem], bool]] = None,
     ) -> List[MemoryItem]:
         """Retrieve memories scoped by tenant/client/session/instance/kind."""
 
@@ -246,11 +263,11 @@ class MemoryStore:
                     instance_id=instance_id,
                     kinds=allowed_kinds,
                     strict_scope=strict_scope,
-                )
+                ) and (eligible is None or eligible(item))
             ]
             if not candidates:
                 return []
-            now = time.time()
+            now = time.time() if as_of is None else as_of
             candidates = self._filter_dimension_compatible(candidates, query_vec.size)
             if not candidates:
                 return []
@@ -446,6 +463,7 @@ class MemoryStore:
 
         with self._lock:
             return {
+                "schema_version": 1,
                 "items": [item.to_dict() for item in self._items],
                 "lineage": [item.to_dict() for item in self._lineage.values()],
                 "repair_queue": list(self._repair_queue),
@@ -487,10 +505,11 @@ class MemoryStore:
             self._lineage = lineage_map
             self._ensure_lattice_integrity()
             self._invalidate_embedding_cache()
-            if self._items:
-                self._id = max(item.id for item in self._items) + 1
-            else:
-                self._id = int(payload.get("next_id") or 0)
+            # Never reuse IDs belonging to archived lineage or an earlier
+            # acknowledged operation after live records have been removed.
+            self._id = max(int(payload.get("next_id") or 0),
+                           max(self._lineage, default=-1) + 1,
+                           max((item.id for item in self._items), default=-1) + 1)
             existing_queue = payload.get("repair_queue") or []
             self._repair_queue = [
                 int(val) for val in existing_queue if int(val) in self._lineage
@@ -771,6 +790,7 @@ class MemoryStore:
             item for item in source
             if not _merge_disabled(item.meta or {})
             and all((item.meta or {}).get(key) == incoming.get(key) for key in MERGE_SCOPE_KEYS)
+            and (not incoming.get("claim_key") or (item.meta or {}).get("claim_value") == incoming.get("claim_value"))
         ]
         compatible = self._filter_dimension_compatible(eligible, candidate.size)
         if not compatible:
@@ -793,6 +813,11 @@ class MemoryStore:
             return None
         best, best_sim = self._best_match(embedding, meta)
         if best and best_sim >= self.theta_merge:
+            source_ids = set(str(value) for value in best.meta.get("source_ids", []) if value)
+            for metadata in (best.meta, meta or {}):
+                if metadata.get("source"):
+                    source_ids.add(str(metadata["source"]))
+            best.meta["source_ids"] = sorted(source_ids)
             combined_text = f"{best.text}\n{text}".strip()
             summary = self.summarizer.summarize(combined_text, max_len=256)
             summary = summary or combined_text[:253] + "..."
@@ -863,9 +888,15 @@ class MemoryStore:
 
     def _aging_loop(self) -> None:  # pragma: no cover - background thread
         while not self._stop_event.is_set():
-            with self._lock:
-                self._apply_decay()
-                self._abstract_low_fidelity()
+            try:
+                if self._aging_callback is not None:
+                    self._aging_callback()
+                else:
+                    with self._lock:
+                        self._apply_decay()
+                        self._abstract_low_fidelity()
+            except Exception:
+                LOGGER.exception("Memory aging failed")
             self._stop_event.wait(5.0)
 
     def _apply_decay(self, now: Optional[float] = None) -> None:
@@ -1011,9 +1042,13 @@ class MemoryStore:
         if limit <= 0:
             return []
 
-        backend = self._vector_backend
-        top_indices, _ = backend.top_k(filtered_scores, limit)
-        return [filtered_items[idx] for idx in top_indices[0]]
+        top_indices, _ = self._vector_backend.top_k(filtered_scores, limit)
+        cutoff = min(float(filtered_scores[int(idx)]) for idx in top_indices[0])
+        selected = list(np.flatnonzero(filtered_scores > cutoff))
+        tied = np.flatnonzero(filtered_scores == cutoff)
+        selected.extend(heapq.nsmallest(limit - len(selected), tied, key=lambda idx: filtered_items[int(idx)].id))
+        selected.sort(key=lambda idx: (-float(filtered_scores[int(idx)]), filtered_items[int(idx)].id))
+        return [filtered_items[int(idx)] for idx in selected]
 
     def _resolve_limit(self, top_k: Optional[int], available: int) -> int:
         if available <= 0:

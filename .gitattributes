@@ -1,0 +1,3 @@
+# These compatibility fixtures are verified byte-for-byte against pinned hashes.
+dml_core/tests/fixtures/journal_schema2_8a08efa.sql text eol=lf
+dml_core/tests/fixtures/journal_schema2_reader_8a08efa.py text eol=lf

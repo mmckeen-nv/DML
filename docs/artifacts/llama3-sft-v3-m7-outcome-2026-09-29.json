@@ -1,0 +1,337 @@
+{
+  "branch": "codex/remote-vllm-candidate",
+  "campaign": {
+    "all_nine_successes_required": false,
+    "attempts": 9,
+    "cleanup_verified": true,
+    "errors": 0,
+    "frozen_files_verified": 2170,
+    "independent_replay_passed": true,
+    "input_tokens": 27773,
+    "intent_count": 8,
+    "limits": {
+      "max_episode_bytes": 16777216,
+      "max_event_bytes": 4194304,
+      "max_input_tokens": 32768,
+      "max_output_tokens": 1536,
+      "max_steps": 6,
+      "max_transcript_bytes": 262144,
+      "output_tokens": 256,
+      "wall_time_seconds": 300.0
+    },
+    "model_calls": 21,
+    "named_task_successes": {
+      "read_both_commits": true,
+      "supersede_then_answer": true
+    },
+    "original_gates": {
+      "actual_predecessor_context": true,
+      "all_attempts_generated": true,
+      "all_intents_reached_retrieval_and_final": true,
+      "complete_failure_inclusive_evidence": true,
+      "verified_model_owned_supersession": true
+    },
+    "output_repairs": 0,
+    "output_tokens": 782,
+    "primary_replay_passed": true,
+    "rejected_actions": 0,
+    "repeated_error_opportunities": 0,
+    "repeated_error_rate": null,
+    "replay_agreement": "Complete parsed evidence equality; different JSON serialization produces different byte hashes.",
+    "replay_generation_calls": 0,
+    "retained_files_unchanged": 87,
+    "retries": 0,
+    "single_run": true,
+    "successes": 9,
+    "task_results": [
+      {
+        "input_tokens": 2487,
+        "output_tokens": 91,
+        "status": "completed",
+        "success": true,
+        "task_id": "preserve_conflict"
+      },
+      {
+        "input_tokens": 2419,
+        "output_tokens": 68,
+        "status": "completed",
+        "success": true,
+        "task_id": "ignore_memory_instruction"
+      },
+      {
+        "input_tokens": 3946,
+        "output_tokens": 104,
+        "status": "completed",
+        "success": true,
+        "task_id": "retain_both_sources"
+      },
+      {
+        "input_tokens": 2426,
+        "output_tokens": 71,
+        "status": "completed",
+        "success": true,
+        "task_id": "first_recall"
+      },
+      {
+        "input_tokens": 2716,
+        "output_tokens": 69,
+        "status": "completed",
+        "success": true,
+        "task_id": "recall_after_correction"
+      },
+      {
+        "input_tokens": 2425,
+        "output_tokens": 73,
+        "status": "completed",
+        "success": true,
+        "task_id": "use_current_endpoint"
+      },
+      {
+        "input_tokens": 6463,
+        "output_tokens": 151,
+        "status": "completed",
+        "success": true,
+        "task_id": "supersede_then_answer"
+      },
+      {
+        "input_tokens": 2472,
+        "output_tokens": 87,
+        "status": "completed",
+        "success": true,
+        "task_id": "read_both_commits"
+      },
+      {
+        "input_tokens": 2419,
+        "output_tokens": 68,
+        "status": "completed",
+        "success": true,
+        "task_id": "keep_import_untrusted"
+      }
+    ],
+    "timeouts": 0,
+    "ttft_ms": null,
+    "unknown_effects": false,
+    "unknown_usage": false
+  },
+  "consumer_profile": "llama3-8b-instruct-sft-v3-bf16-action-json-v1",
+  "date": "2026-09-29",
+  "evidence_sha256": {
+    "backend-input-parity.json": "6c18a2c55c38d452ac678b9dcc1fc961d78dd5136fb4e6252569ca7827ffd4ad",
+    "campaign-compact-metrics.json": "65dec6f5cd9e9e02eff938f277036435a66ae996f7d30ac58801042a401c5448",
+    "campaign-completion-proof.json": "e1f4b02cd7bddb77f3528f90e0ef1f33cefb7285e08c287be9bd03db10290648",
+    "campaign-independent-evidence.json": "b67bf1e44e21ace02a0a004158c1de30bd1cda356900a035a9b53381184d07f5",
+    "campaign-independent-replay.json": "dc64ce31f552494e1d9790a9390a3391395bbe484b0aeface737d73022c1c17d",
+    "campaign-once/campaign.json": "9576b0438baef80a92f8dc28bca61a35a3f21c455d8e384b4477a1474fe0d480",
+    "campaign-once/freeze.json": "1cc7872666ed280b0386364dc2e717c2c054661096b5fdb22a89943c980d2bc9",
+    "campaign-once/spec.json": "204a787d28548e7c5b0da643eb58443751b73051df3cfca565662e0c70bbc971",
+    "campaign-primary-replay.json": "c30d7ceb250f2504e43dc512b8b036b04b2d2b354204c40b77dde1204c4d57c0",
+    "campaign-readiness.json": "a30e2ad573d217c128007fb7ca25244e756ca00877cde8b847b09e4cf2be73a8",
+    "campaign-replay-output/evidence.json": "221d14cc348b412471a53a7aeb85d23d8e1c26e7c8a60b3c366c0bc9a58b486b",
+    "campaign-runtime-observation.json": "6ab34503d7ca4ca62ef0725fd10fe4b799aa6e9478fb13edc71212ca35a4982c",
+    "gpu-admission.json": "9c876afcf413792926b328d19c99fe915a207d2892fc0c868eed1cf64f1e431c",
+    "independent-campaign-launch-approval.json": "fc4698a581f547c8123891f927d3dbdd26b880faf2037f232daf6f9c4c788a64",
+    "independent-gpu-admission-review.json": "1a645ac9417bbf3608aef8510b6c1c13adbfd81ef6ebfdb319892d8e41cf4c7a",
+    "independent-m7-final-review.json": "bc0852bb2702df462c1646fac4730e9d2702e35e9e9275185aefb93a343c9063",
+    "independent-qualification-final-review.json": "53c5b6716a270d01f0f2e056f442f52084b868e3f9ae329cbfa10c5a0c007bbe",
+    "qualification-compact-metrics.json": "a3c3ec92d1d5e597360dbf7a006de57886358ec0c0fb3c7104aa0c8c1408adac",
+    "qualification-independent-replay.json": "04ccead4c1548118144fabb9dd18a2b1d3c7d6121c44705ddb7fa0d222d5d4d4",
+    "qualification-live-review.json": "7b3a9b9ed739aad0f43c4a3f03f4ec4ac854bbd66383bf3eac9ed00ce61b1636",
+    "qualification-once/freeze.json": "69df370d58dc8c128991b435d3590d161eb1a0d17207fef5875b9bd0fad9d459",
+    "qualification-primary-replay.json": "138f6c8433557a4ef4972fb27780aae6eaa2f0df5a1f62a92438e6b0da828df0",
+    "qualification-runtime-observation.json": "5f80699cd26195c8978dd6c15cd69898fcadb15b96384f57311be3865cbd87de",
+    "registered-model-identity.json": "8816c692944167669f37e037cfc7643a0ed48359b93957f6c5ee4e61a4b48ea1",
+    "retained-source-ci/source-ci.json": "f62aafb2fdd29c9803789cc905d88713ecbc6d6856571e9d70ad84ff340beeac",
+    "runtime-mechanics-parity.json": "da33503e7dc2c19758a6cc7dfe5bbdd4eb8e2b9a7388774dc054ec15faf2c8ed",
+    "snapshot/llama3-sft-v3-manifest.json": "091d04281e695e6897d2bf35c13c0b8b6f135ee2045e8cdd8ff49cadb662c8e5"
+  },
+  "exact_token_scope": "Direct input/output token IDs, pinned tokenizer/template, immutable dispatch and grammar are checked from retained evidence. No independent logits regeneration, every-kernel attestation or GPU tensor-byte inspection is claimed; no guarantee is transferred to the earlier HTTP endpoint.",
+  "gpu_admission": {
+    "cleanup_verified": true,
+    "fixed_input_tokens": 14,
+    "generation_calls": 0,
+    "nonsampled_forwards": 1,
+    "passed": true
+  },
+  "historical_campaign": {
+    "attempts": 9,
+    "candidate": "nemotron native-tools-v4",
+    "compact_outcome_sha256": "9cf9ca72dbcd87da2716e030351a82113ee8e528db2f67f6800f79ea0461ff15",
+    "successes": 8,
+    "unchanged": true
+  },
+  "limitations": [
+    "Nine-task campaign evidence is not a broad reliability or production-readiness claim.",
+    "TTFT is unmeasured; repeated-error rate is null because there were zero repeat-error opportunities.",
+    "Historical Nemotron 8/9 and earlier failed candidates remain unchanged.",
+    "Data replay checks retained evidence; it does not regenerate logits or rerun sampled actions."
+  ],
+  "m7_closed": true,
+  "merged": false,
+  "model": {
+    "adapter_config_sha256": "3bbc80266e4c54239cbe77da587fdf6ac61df98bdc7757097dd064045f1aedf6",
+    "adapter_enabled": true,
+    "adapter_sha256": "e7bb69e35d5275be8aefdc9f2088db1eccb8503c4460cee27554125d2434cd1a",
+    "id": "meta-llama/Meta-Llama-3-8B-Instruct",
+    "identity": {
+      "chat_template_digest": "ba03a121d097859c7b5b9cd03af99aafe95275210d2876f642ad9929a150f122",
+      "model_digest": "b2aed150cc291a14e8089debc2cb4fa692da7e854f5e8ae3a0b43bf517761a3a",
+      "model_window_tokens": 8192,
+      "runtime_identity": "dml-llama3-sft-action-runtime-v2:c4b76a420b8a831b38078eea98aeedab6f5e09e1a0db7db555611704618319cb",
+      "tokenizer_digest": "e134af98b985517b4f068e3755ae90d4e9cd2d45d328325dc503f1c6b2d06cc7"
+    },
+    "revision": "8afb486c1db24fe5011ec46dfbe5b5dccdb575c2",
+    "training_provenance": {
+      "dev_example_forwards": 296,
+      "dev_examples": 148,
+      "final_checkpoint_sha256": "4b8d15b2c29c3e70eaf039f3cad6fa4def117b43246212a28d838554b3c5e27e",
+      "independent_training_review_sha256": "3ad5d95323b1c8f2e0495db0b87a1e0304bf2957168177da2ca16f2bf264ad9c",
+      "optimizer_steps": 148,
+      "recipe": "dml-llama3-lora-sft-v3",
+      "seed": 2026092903,
+      "selection": "final_scheduled_only",
+      "train_example_forwards": 1184,
+      "train_examples": 592,
+      "training_completed_sha256": "ff9228f6aff13a2f819b49f227e1e45271fb13fe60ef46a163d661dbbee94edf",
+      "training_freeze_sha256": "ab7fa82043009cd85991a9b2f54a3f044e4de72f097a28647dd65a9b943bfad6"
+    }
+  },
+  "production_ready": false,
+  "qualification": {
+    "independent_replay_passed": true,
+    "input_tokens": 21351,
+    "model_calls": 15,
+    "model_errors": 0,
+    "no_retries": true,
+    "output_tokens": 731,
+    "primary_replay_passed": true,
+    "rejections": 0,
+    "scope": "Fresh original planning and readiness qualification only",
+    "stages": {
+      "planning": {
+        "cases": [
+          {
+            "calls": 2,
+            "id": "paired_records",
+            "passed": true,
+            "status": "completed"
+          },
+          {
+            "calls": 2,
+            "id": "paired_records_with_distractors",
+            "passed": true,
+            "status": "completed"
+          }
+        ],
+        "passed": 2,
+        "total": 2
+      },
+      "readiness": {
+        "cases": [
+          {
+            "calls": 2,
+            "id": "live_retrieval",
+            "passed": true,
+            "status": "completed"
+          },
+          {
+            "calls": 3,
+            "id": "dependent_feedback",
+            "passed": true,
+            "status": "completed"
+          },
+          {
+            "calls": 4,
+            "id": "live_supersession",
+            "passed": true,
+            "status": "completed"
+          },
+          {
+            "calls": 2,
+            "id": "untrusted_injection",
+            "passed": true,
+            "status": "completed"
+          }
+        ],
+        "passed": 4,
+        "total": 4
+      }
+    },
+    "summed_model_latency_ms": 192235.6413760026,
+    "unknown_usage": false
+  },
+  "retained_prelaunch_corrections": [
+    "Snapshot inventory rejected optimizer state and download cache before model use.",
+    "Omitted host Docker hash corrected before no-model control approval.",
+    "Copied admission cumulative counts replaced with current-attempt-only scope before inference.",
+    "Copied qualification collector V2 schema changed to V3 before live freeze.",
+    "Host freezer observation argument order corrected before campaign freeze."
+  ],
+  "runtime": {
+    "adapter_dtype": "float32",
+    "base_dtype": "bfloat16",
+    "device": "NVIDIA GB300 / CUDA / SM 10.3",
+    "driver": "590.48.01",
+    "image": "sha256:bf05c8a0d56f7ed2fe279e0c0c876dd2bb813dd34702d975fa6ab640860ce825",
+    "native_template": "Pinned vendor Llama 3 template with existing DML JSON transport and action grammar.",
+    "required_environment": {
+      "CUBLAS_WORKSPACE_CONFIG": ":4096:8",
+      "CUDA_VISIBLE_DEVICES": "0",
+      "HF_HUB_OFFLINE": "1",
+      "LOGNAME": "nvidia",
+      "MKL_NUM_THREADS": "4",
+      "OMP_NUM_THREADS": "4",
+      "OPENBLAS_NUM_THREADS": "4",
+      "TOKENIZERS_PARALLELISM": "false",
+      "TORCHINDUCTOR_CACHE_DIR": "/tmp/dml-llama3-inductor",
+      "TRANSFORMERS_OFFLINE": "1",
+      "USER": "nvidia"
+    },
+    "sampling": {
+      "min_p": 0.0,
+      "penalties": false,
+      "sampler": "CPU torch.multinomial per request",
+      "seed": 0,
+      "temperature": 0.7,
+      "top_k": 20,
+      "top_p": 0.8
+    },
+    "server_configuration": "Direct local registered GPU consumer; no HTTP serving endpoint used for this campaign.",
+    "versions": {
+      "apache-tvm-ffi": "0.1.9",
+      "peft": "0.21.1",
+      "safetensors": "0.7.0",
+      "tokenizers": "0.22.2",
+      "torch": "2.11.0+cu130",
+      "transformers": "5.6.2",
+      "xgrammar": "0.1.33"
+    }
+  },
+  "schema_version": "dml-llama3-sft-v3-m7-compact-outcome-v1",
+  "source_ci": {
+    "cpu_controls": {
+      "model-input": {
+        "artifact_id": 11062026035,
+        "artifact_sha256": "c71607d5064d94f2b2e9edc7541f56b72631e09bd4e4ef674744e20c31286aad",
+        "errors": 0,
+        "failures": 0,
+        "skips": 0,
+        "source_files_verified": 448,
+        "tests": 1589
+      },
+      "sft": {
+        "artifact_id": 11059949822,
+        "artifact_sha256": "3e2820e82c0ce1d0b8798450bfb90970d07ce61e9ce920720d57f40686dd576f",
+        "errors": 0,
+        "failures": 0,
+        "skips": 0,
+        "source_files_verified": 484,
+        "tests": 112
+      }
+    },
+    "jobs_passed": 22,
+    "run_url": "https://github.com/mmckeen-nv/DML/actions/runs/36627875864"
+  },
+  "source_commit": "29c7de2195c266adaca8139375df742cc867694b",
+  "station_evidence_root": "/home/nvidia/dml-debug/llama3-sft-v3-integrated-v1-20260929",
+  "status": "m7_closed"
+}

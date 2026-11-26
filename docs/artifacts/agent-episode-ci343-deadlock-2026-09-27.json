@@ -1,0 +1,360 @@
+{
+  "schema": "dml-ci343-source-observation-v1",
+  "recorded_at_utc": "2026-09-27T16:37:43.493782+00:00",
+  "run_id": 36331022633,
+  "run_number": 343,
+  "run_attempt": 1,
+  "source_commit": "cb37774b00f810ab976da2e99e8fb2299049e055",
+  "source_tree": "30da7d1ddf0bf174f42a0a95c0f7cbb35b703b0e",
+  "tested_merge_commit": "b818e51b553387a98b6ec5264a2d011cfedae02b",
+  "source_ci_qualified": false,
+  "qualification": "rejected: required Python3.11 lane cancelled at configured job deadline",
+  "observed_first_pass_success": 19,
+  "observed_failures": 0,
+  "observed_cancelled": 1,
+  "reruns": 0,
+  "manual_cancellations": 0,
+  "jobs": [
+    {
+      "id": 108652826732,
+      "name": "profile-filesystem-full",
+      "status": "completed",
+      "conclusion": "success",
+      "run_attempt": 1,
+      "started_at": "2026-09-27T15:50:27Z",
+      "completed_at": "2026-09-27T15:51:29Z"
+    },
+    {
+      "id": 108652826884,
+      "name": "profile-concurrency (macos-latest, bounded, 1,16)",
+      "status": "completed",
+      "conclusion": "success",
+      "run_attempt": 1,
+      "started_at": "2026-09-27T15:50:34Z",
+      "completed_at": "2026-09-27T15:54:01Z"
+    },
+    {
+      "id": 108652826947,
+      "name": "profile-concurrency (ubuntu-latest, full, 1,16,64,256)",
+      "status": "completed",
+      "conclusion": "success",
+      "run_attempt": 1,
+      "started_at": "2026-09-27T15:50:27Z",
+      "completed_at": "2026-09-27T16:02:37Z"
+    },
+    {
+      "id": 108652826958,
+      "name": "lint-test (3.11)",
+      "status": "completed",
+      "conclusion": "cancelled",
+      "run_attempt": 1,
+      "started_at": "2026-09-27T15:50:27Z",
+      "completed_at": "2026-09-27T16:35:42Z"
+    },
+    {
+      "id": 108652826975,
+      "name": "model-input-cpu",
+      "status": "completed",
+      "conclusion": "success",
+      "run_attempt": 1,
+      "started_at": "2026-09-27T15:50:27Z",
+      "completed_at": "2026-09-27T15:56:06Z"
+    },
+    {
+      "id": 108652827009,
+      "name": "production-evidence",
+      "status": "completed",
+      "conclusion": "success",
+      "run_attempt": 1,
+      "started_at": "2026-09-27T15:50:27Z",
+      "completed_at": "2026-09-27T15:57:32Z"
+    },
+    {
+      "id": 108652827013,
+      "name": "cross-platform-portability (macos-latest, 3.13)",
+      "status": "completed",
+      "conclusion": "success",
+      "run_attempt": 1,
+      "started_at": "2026-09-27T15:50:32Z",
+      "completed_at": "2026-09-27T15:53:57Z"
+    },
+    {
+      "id": 108652827017,
+      "name": "lint-test (3.10)",
+      "status": "completed",
+      "conclusion": "success",
+      "run_attempt": 1,
+      "started_at": "2026-09-27T15:50:28Z",
+      "completed_at": "2026-09-27T16:02:24Z"
+    },
+    {
+      "id": 108652827036,
+      "name": "profile-recovery (macos-latest, 3.13)",
+      "status": "completed",
+      "conclusion": "success",
+      "run_attempt": 1,
+      "started_at": "2026-09-27T15:50:32Z",
+      "completed_at": "2026-09-27T15:53:32Z"
+    },
+    {
+      "id": 108652827037,
+      "name": "cross-platform-portability (ubuntu-latest, 3.13)",
+      "status": "completed",
+      "conclusion": "success",
+      "run_attempt": 1,
+      "started_at": "2026-09-27T15:50:27Z",
+      "completed_at": "2026-09-27T15:54:03Z"
+    },
+    {
+      "id": 108652827042,
+      "name": "profile-recovery (windows-latest, 3.13)",
+      "status": "completed",
+      "conclusion": "success",
+      "run_attempt": 1,
+      "started_at": "2026-09-27T15:50:30Z",
+      "completed_at": "2026-09-27T15:54:58Z"
+    },
+    {
+      "id": 108652827051,
+      "name": "profile-concurrency (windows-latest, bounded, 1,16)",
+      "status": "completed",
+      "conclusion": "success",
+      "run_attempt": 1,
+      "started_at": "2026-09-27T15:50:28Z",
+      "completed_at": "2026-09-27T15:54:33Z"
+    },
+    {
+      "id": 108652827056,
+      "name": "cross-platform-portability (macos-latest, 3.10)",
+      "status": "completed",
+      "conclusion": "success",
+      "run_attempt": 1,
+      "started_at": "2026-09-27T15:50:32Z",
+      "completed_at": "2026-09-27T15:53:30Z"
+    },
+    {
+      "id": 108652827091,
+      "name": "cross-platform-portability (ubuntu-latest, 3.10)",
+      "status": "completed",
+      "conclusion": "success",
+      "run_attempt": 1,
+      "started_at": "2026-09-27T15:50:27Z",
+      "completed_at": "2026-09-27T15:54:25Z"
+    },
+    {
+      "id": 108652827094,
+      "name": "profile-recovery (macos-latest, 3.10)",
+      "status": "completed",
+      "conclusion": "success",
+      "run_attempt": 1,
+      "started_at": "2026-09-27T15:50:35Z",
+      "completed_at": "2026-09-27T15:54:16Z"
+    },
+    {
+      "id": 108652827103,
+      "name": "profile-recovery (ubuntu-latest, 3.13)",
+      "status": "completed",
+      "conclusion": "success",
+      "run_attempt": 1,
+      "started_at": "2026-09-27T15:50:27Z",
+      "completed_at": "2026-09-27T15:53:43Z"
+    },
+    {
+      "id": 108652827131,
+      "name": "cross-platform-portability (windows-latest, 3.13)",
+      "status": "completed",
+      "conclusion": "success",
+      "run_attempt": 1,
+      "started_at": "2026-09-27T15:50:27Z",
+      "completed_at": "2026-09-27T16:03:54Z"
+    },
+    {
+      "id": 108652827143,
+      "name": "cross-platform-portability (windows-latest, 3.10)",
+      "status": "completed",
+      "conclusion": "success",
+      "run_attempt": 1,
+      "started_at": "2026-09-27T15:50:29Z",
+      "completed_at": "2026-09-27T16:06:14Z"
+    },
+    {
+      "id": 108652827150,
+      "name": "profile-recovery (ubuntu-latest, 3.10)",
+      "status": "completed",
+      "conclusion": "success",
+      "run_attempt": 1,
+      "started_at": "2026-09-27T15:50:27Z",
+      "completed_at": "2026-09-27T15:53:50Z"
+    },
+    {
+      "id": 108652827188,
+      "name": "profile-recovery (windows-latest, 3.10)",
+      "status": "completed",
+      "conclusion": "success",
+      "run_attempt": 1,
+      "started_at": "2026-09-27T15:50:28Z",
+      "completed_at": "2026-09-27T15:54:58Z"
+    }
+  ],
+  "archives": [
+    {
+      "id": 10935184178,
+      "name": "profile-concurrency-ubuntu-latest-full",
+      "sha256": "027d5c0778d85a7b5c0cdb55a47e91949715755027cf577daa207fc68169633a",
+      "testcase": 359,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0,
+      "source_files_matched": 225,
+      "history_archives_matched": 48,
+      "cpu_modules": null
+    },
+    {
+      "id": 10935299949,
+      "name": "model-input-cpu-evidence",
+      "sha256": "fe4fd30645efdcccf780e1957efbaac7438dd948c1c96a17e3523d3b3bb040b8",
+      "testcase": 1423,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0,
+      "source_files_matched": 394,
+      "history_archives_matched": 0,
+      "cpu_modules": {
+        "required": 32,
+        "observed": 32,
+        "missing": []
+      }
+    },
+    {
+      "id": 10935558773,
+      "name": "production-evidence",
+      "sha256": "cbb7d54cac3d40cf0ac82d8868b791b237ba3c3cc190e435e627e68d1dc65f10",
+      "testcase": 2439,
+      "failure": 0,
+      "error": 0,
+      "skipped": 1,
+      "source_files_matched": 0,
+      "history_archives_matched": 0,
+      "cpu_modules": null
+    },
+    {
+      "id": 10935752595,
+      "name": "profile-recovery-ubuntu-latest-py3.13",
+      "sha256": "8e531e922dab2c116447c9fe9d083c3c10498338906a5a7d6235265a00ad70f6",
+      "testcase": 460,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0,
+      "source_files_matched": 0,
+      "history_archives_matched": 0,
+      "cpu_modules": null
+    },
+    {
+      "id": 10935762391,
+      "name": "profile-ext4-enospc",
+      "sha256": "9687827670b0db0094bb8356adba18b2e473b8ef35671fae05f5df59f562b64e",
+      "testcase": 15,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0,
+      "source_files_matched": 0,
+      "history_archives_matched": 0,
+      "cpu_modules": null
+    },
+    {
+      "id": 10935955552,
+      "name": "profile-recovery-ubuntu-latest-py3.10",
+      "sha256": "ff0877d3f8c284b433d299b934686b012a45d5c71480a3c6f3415287ca8922b3",
+      "testcase": 460,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0,
+      "source_files_matched": 0,
+      "history_archives_matched": 0,
+      "cpu_modules": null
+    }
+  ],
+  "python310": {
+    "passed": 4823,
+    "skipped": 801,
+    "seconds": 555.07,
+    "faulthandler_timeout_dump_observed": false
+  },
+  "python311": {
+    "job_id": 108652826958,
+    "python": "3.11.16",
+    "prometheus_client": "0.26.0",
+    "core_started_at": "2026-09-27T15:52:32Z",
+    "last_completed_test_line": "2026-09-27T15:54:44.7481491Z dml_core/tests/test_mcp_server.py::test_cold_tool_discovery_does_not_construct_adapter SKIPPED [ 29%]",
+    "individual_outcomes_observed_before_stall": {
+      "PASSED": 1592,
+      "SKIPPED": 80,
+      "FAILED": 0
+    },
+    "suite_completed": false,
+    "faulthandler_at": "2026-09-27T15:56:44.7483205Z",
+    "faulthandler_timeout_seconds": 120,
+    "active_test_from_main_stack": "dml_core/tests/test_mcp_server.py::test_lazy_initialization_is_single_flight",
+    "main_frame": "test_mcp_server.py:103 -> concurrent.futures result_iterator/result -> threading.wait",
+    "initializer_frame_chain": [
+      "dml_mcp_server.py:77 get",
+      "metrics.py:156 record_operation",
+      "prometheus_client.metrics.py:193 labels",
+      "prometheus_client.metrics.py:658 _metric_init",
+      "dml_adapter.py:3600 __del__",
+      "dml_adapter.py:552 close",
+      "dml_adapter.py:575 _close_owned_runtime",
+      "transactions.py:91 transaction",
+      "dml_adapter.py:1560 _refresh_if_changed",
+      "metrics.py:156 record_operation",
+      "prometheus_client.metrics.py:181 labels"
+    ],
+    "other_initializer_waiters": 7,
+    "waiter_frame": "dml_mcp_server.py:64 get -> threading.wait",
+    "inference": "Stack supports a reentrant metrics/finalizer deadlock candidate; independent source review and a causal regression test are still needed.",
+    "diagnostic_configuration": "-vv; faulthandler_timeout=120;45-minute job cap",
+    "cancellation_message_at": "2026-09-27T16:35:40.3862476Z"
+  },
+  "production_mixed_timing": {
+    "suite_seconds": 23.002,
+    "testcase_seconds": 22.561
+  },
+  "skip_disclosure": "CPU1,423 mandatory tests, concurrency359, Linux recovery460 each and real ENOSPC15 all zero skips. Production2,439 cases has one unavailable-FAISS skip. Python3.10 generic lane recorded801 skips. Python3.11 did not complete; only individual prior outcomes are counted.",
+  "evidence": {
+    "jobs-terminal.json": {
+      "sha256": "5b6cc2574c16a3fe530cc5573bb900784e66eef992deb1d31c117cc75be3ced4",
+      "bytes": 93261
+    },
+    "run-terminal.json": {
+      "sha256": "759b24b772032ba95d1582dff2154c7a74e3f7c28c9b4eb80942ff54d0e99b2a",
+      "bytes": 13899
+    },
+    "merge-commit.json": {
+      "sha256": "dfea1f0afdfcd4825e459961c44d514eb3409fd1d8abb6693dc785bd699bf3db",
+      "bytes": 2834
+    },
+    "artifacts-terminal.json": {
+      "sha256": "4c0ff1924bad978be40503c204736b0758a20ecf2948876c49932d5b8b0f0ffe",
+      "bytes": 9899
+    },
+    "artifact-inspection.json": {
+      "sha256": "018be49c569967a114e093186e494396866dd1cc0543f7de89eed8cae00af354",
+      "bytes": 13804
+    },
+    "python311.log": {
+      "sha256": "b13e114d19c4c5b9e71d30210f7fc2dfbff132b841632b1158463d56a1e5fd44",
+      "bytes": 368919
+    },
+    "python310.log": {
+      "sha256": "47bed6aad16eab371b7077deff929d3cf14e0dec376f8b6798213b5c9203c424",
+      "bytes": 1006821
+    },
+    "production.log": {
+      "sha256": "7029d018245c8369721003e98898348b6508886f755068788d3d26c88ef9674e",
+      "bytes": 73491
+    }
+  },
+  "trained_model_generation": false,
+  "milestone7_closed": false,
+  "production_ready": false
+}
